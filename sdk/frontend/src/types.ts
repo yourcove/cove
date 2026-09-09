@@ -67,6 +67,27 @@ export interface NavigateTarget {
   [key: string]: unknown;
 }
 
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export type DashboardWidgetPresentation = "flow" | "canvas";
+
+/** Props passed to a dashboard widget render component. */
+export interface DashboardWidgetProps<TConfiguration extends JsonValue = JsonValue> {
+  dashboardId: number;
+  instanceId: string;
+  configuration: TConfiguration;
+  presentation: DashboardWidgetPresentation;
+  onNavigate: (route: NavigateTarget) => void;
+}
+
+/** Props passed to an optional extension-owned dashboard widget editor. */
+export interface DashboardWidgetEditorProps<TConfiguration extends JsonValue = JsonValue> {
+  configuration: TConfiguration;
+  presentation: DashboardWidgetPresentation;
+  onChange: (configuration: TConfiguration) => void;
+  onValidityChange: (valid: boolean, message?: string) => void;
+}
+
 /** Stable host component target for primary entity media overrides. */
 export const ENTITY_MEDIA_TARGET = "entity.media" as const;
 
@@ -187,6 +208,63 @@ export interface ListSortContribution {
 export interface UIManifestListContributions {
   listFilters?: ListFilterContribution[];
   listSorts?: ListSortContribution[];
+}
+
+export type KeyboardShortcutSurface = "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+
+export interface KeyboardActionScope {
+  surface: KeyboardShortcutSurface;
+  page?: string;
+  entityType?: EntityType | string;
+  tab?: string;
+}
+
+export interface KeyboardActionContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  defaultBindings: string[];
+  scopes: KeyboardActionScope[];
+  description?: string;
+  group?: string;
+  handlerName?: string;
+  apiEndpoint?: string;
+  order?: number;
+  repeatable?: boolean;
+  allowInEditable?: boolean;
+  requiredPermission?: string;
+}
+
+export interface KeyboardShortcutPresetContribution {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  extensionId: string;
+  unmappedActions: "action-defaults" | "unbound";
+  bindings: Record<string, string[]>;
+  description?: string;
+  author?: string;
+  version?: string;
+  basePresetId?: string;
+  order?: number;
+}
+
+export interface DashboardWidgetContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  componentName: string;
+  editorComponentName?: string;
+  description?: string;
+  icon?: string;
+  defaultConfiguration?: JsonValue;
+  allowMultiple?: boolean;
+  order?: number;
+  requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
+  supportedPresentations?: DashboardWidgetPresentation[];
+  defaultPresentation?: DashboardWidgetPresentation;
 }
 
 // ── Extension registration contract ──────────────────────────────────────

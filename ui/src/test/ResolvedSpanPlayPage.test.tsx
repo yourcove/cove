@@ -57,11 +57,25 @@ vi.mock("../state/AppConfigContext", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: ({ clip, resumeTime, autostart, onEnded }: { clip: { start: number; end: number }; resumeTime?: number; autostart?: boolean; onEnded?: () => void }) => (
+  VideoPlayer: ({
+    clip,
+    resumeTime,
+    autostart,
+    onEnded,
+  }: {
+    clip: { start: number; end: number };
+    resumeTime?: number;
+    autostart?: boolean;
+    onEnded?: () => void;
+  }) => (
     <div>
-      <div data-testid="resolved-span-player">Clip {clip.start}-{clip.end} @ {resumeTime}</div>
+      <div data-testid="resolved-span-player">
+        Clip {clip.start}-{clip.end} @ {resumeTime}
+      </div>
       <div data-testid="resolved-span-autostart">{String(autostart)}</div>
-      <button type="button" onClick={() => onEnded?.()}>End clip</button>
+      <button type="button" onClick={() => onEnded?.()}>
+        End clip
+      </button>
     </div>
   ),
 }));
@@ -119,12 +133,7 @@ function renderPage(props?: Partial<React.ComponentProps<typeof ResolvedSpanPlay
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ResolvedSpanPlayPage
-        videoId={14}
-        spanKey="tag-14"
-        onNavigate={vi.fn()}
-        {...props}
-      />
+      <ResolvedSpanPlayPage videoId={14} spanKey="tag-14" onNavigate={vi.fn()} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -262,24 +271,27 @@ describe("ResolvedSpanPlayPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /make video/i }));
 
     await waitFor(() => {
-      expect(mockVideos.createSubVideo).toHaveBeenCalledWith(14, expect.objectContaining({
-        title: "Action Sequence",
-        code: "SC-14",
-        details: "Resolved parent video",
-        director: "Director Span",
-        date: "2026-05-01",
-        organized: true,
-        studioId: 22,
-        urls: ["https://example.test/video-14"],
-        tagIds: [8],
-        performerIds: [31],
-        galleryIds: [45],
-        groups: [{ groupId: 55, videoIndex: 2 }],
-        customFields: { energy: "high" },
-        parentVideoId: 14,
-        clipStartSec: 5,
-        clipEndSec: 25,
-      }));
+      expect(mockVideos.createSubVideo).toHaveBeenCalledWith(
+        14,
+        expect.objectContaining({
+          title: "Action Sequence",
+          code: "SC-14",
+          details: "Resolved parent video",
+          director: "Director Span",
+          date: "2026-05-01",
+          organized: true,
+          studioId: 22,
+          urls: ["https://example.test/video-14"],
+          tagIds: [8],
+          performerIds: [31],
+          galleryIds: [45],
+          groups: [{ groupId: 55, videoIndex: 2 }],
+          customFields: { energy: "high" },
+          parentVideoId: 14,
+          clipStartSec: 5,
+          clipEndSec: 25,
+        }),
+      );
     });
     await waitFor(() => {
       expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 777 });

@@ -202,6 +202,8 @@ public static class EntityListSortFilterCatalog
         new("performers", "name", "Name"),
         new("performers", "rating", "Rating"),
         new("performers", "video_count", "Video Count"),
+        new("performers", "audio_count", "Audio Count"),
+        new("performers", "text_count", "Text Count"),
         new("performers", "image_count", "Image Count"),
         new("performers", "gallery_count", "Gallery Count"),
         new("performers", "latest_video_date", "Latest Video Date"),

@@ -1,0 +1,120 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "dynamic-groups",
+  "title": "When to use dynamic groups",
+  "parentTopicId": "organizing",
+  "description": "Decide when changing query results should become a library collection, and choose between a saved filter, static group, dynamic group, or built-in group.",
+  "order": 52,
+  "pages": ["groups", "group"],
+  "sections": [
+    {
+      "id": "decide-whether-you-need-a-group",
+      "title": "Decide whether you need a group",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Groups give a collection its own library identity, metadata, and relationships. Choose the lightest option that preserves the behavior you need:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "use a saved filter when you only need to revisit a search or filter view",
+            "use a static group when you want to choose and order members directly",
+            "use a dynamic group when the collection needs its own identity but membership should continue to follow a query"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "A static group can contain videos, images, audio, text, segments, and other groups, so it also works for deliberately curated or nested collections."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Groups reference",
+              "href": "/docs/reference/groups/"
+            },
+            {
+              "label": "Saved filters reference",
+              "href": "/docs/reference/saved-filters/"
+            },
+            {
+              "label": "Dynamic groups reference",
+              "href": "/docs/reference/dynamic-groups/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "create-a-dynamic-group",
+      "title": "Create a dynamic group",
+      "blocks": [
+        {
+          "type": "image",
+          "src": "assets/dynamic-groups.png",
+          "alt": "Blank Create Group form configured as a dynamic group",
+          "caption": "A dynamic group resolves its members from the selected source, entity types, search, sort order, and filters."
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open Groups, select + New, and give the collection a name.",
+            "Choose Dynamic, then select the source and the entity types the group may contain.",
+            "Set the search, sort order, and filters that define the changing result.",
+            "Add any useful group metadata or parent groups, then save."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Search and filters",
+              "href": "/docs/user/library/search-and-filters/",
+              "topicId": "search-and-filters"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "treat-membership-as-current-state",
+      "title": "Treat membership as current state",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A dynamic result is not a historical snapshot. New matches can enter, old matches can leave, and changes to the resolver or stored query can alter the result. Cove resolves membership again as the library changes."
+        },
+        {
+          "type": "note",
+          "text": "If an exact set must remain stable, curate a static group or materialize the result through a workflow designed for snapshots."
+        }
+      ]
+    },
+    {
+      "id": "built-in-groups",
+      "title": "Built-in groups",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove includes Watch History, Continue Watching, and Save for Later. These dynamic groups follow your activity automatically, are managed by Cove, and cannot be deleted."
+        },
+        {
+          "type": "paragraph",
+          "text": "Groups can also become playable compilations. This is especially useful when the membership is made from precise video segments, although compilations can contain other supported content types too."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Segments and compilations",
+              "href": "/docs/user/library/segments-and-compilations/",
+              "topicId": "segments-and-compilations"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -91,19 +91,21 @@ describe("buildRawSegmentListOptions", () => {
       perPage: 24,
     });
 
-    expect(buildRawSegmentListOptions({
-      pageNumber: 1,
-      perPage: 1,
-      q: "",
-      videoTitle: "",
-      videoTagIds: [],
-      sort: "updated_at",
-      direction: "desc",
-      includeVideoIds: [],
-      excludeVideoIds: [],
-      rawSegmentIds: [],
-      rawFilter,
-      includeAggregate: true,
-    }).includeAggregate).toBe(true);
+    expect(
+      buildRawSegmentListOptions({
+        pageNumber: 1,
+        perPage: 1,
+        q: "",
+        videoTitle: "",
+        videoTagIds: [],
+        sort: "updated_at",
+        direction: "desc",
+        includeVideoIds: [],
+        excludeVideoIds: [],
+        rawSegmentIds: [],
+        rawFilter,
+        includeAggregate: true,
+      }).includeAggregate,
+    ).toBe(true);
   });
 });

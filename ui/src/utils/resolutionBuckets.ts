@@ -60,9 +60,11 @@ export function getResolutionBucket(maxDimension: number): ResolutionBucket | nu
     return null;
   }
 
-  return RESOLUTION_BUCKETS.find((bucket) =>
-    maxDimension >= bucket.minDimension && maxDimension < bucket.maxDimensionExclusive,
-  ) ?? RESOLUTION_BUCKETS[RESOLUTION_BUCKETS.length - 1];
+  return (
+    RESOLUTION_BUCKETS.find(
+      (bucket) => maxDimension >= bucket.minDimension && maxDimension < bucket.maxDimensionExclusive,
+    ) ?? RESOLUTION_BUCKETS[RESOLUTION_BUCKETS.length - 1]
+  );
 }
 
 export function getResolutionBucketLabel(width: number, height: number): string | null {

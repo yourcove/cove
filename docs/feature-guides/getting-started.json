@@ -1,0 +1,89 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "getting-started",
+  "title": "Your first hour with Cove",
+  "description": "Start with files on disk and finish with a small, useful collection you can find again.",
+  "order": 10,
+  "pages": ["home", "settings"],
+  "sections": [
+    {
+      "id": "choose-path",
+      "title": "Choose where to begin",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "This path is for anyone using Cove; no development tools or extension knowledge are required. If Cove is not running yet, complete the installation and shared first-run setup before continuing. If you imported or restored an established library, begin with Explore your library."
+        },
+        {
+          "type": "image",
+          "src": "assets/nav-bar.webp",
+          "alt": "Cove navigation showing the library areas available after setup"
+        }
+      ]
+    },
+    {
+      "id": "connect-library",
+      "title": "Connect one representative folder",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings, then Library, then Paths & Storage. Add a folder that contains a small but representative sample of your media. Cove reads files in place; it does not move them."
+        },
+        {
+          "type": "image",
+          "src": "assets/library-paths.webp",
+          "alt": "Paths and Storage settings with a library path and media-type exclusions"
+        },
+        {
+          "type": "note",
+          "text": "Add one row per content root. Use the per-path exclusions only when a folder should omit videos, images, audio, or text."
+        }
+      ]
+    },
+    {
+      "id": "scan-generate",
+      "title": "Scan, then generate browsing assets",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings, then Operations, then Scan & Generate.",
+            "Run Scan to discover files and create library records.",
+            "Run Generate to create the previews, thumbnails, and sprites used while browsing.",
+            "Let both jobs continue in the background while you inspect the first results."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/settings-scan-generate.webp",
+          "alt": "Scan and Generate controls in Cove settings"
+        }
+      ]
+    },
+    {
+      "id": "first-hour-path",
+      "title": "Complete the first-hour path",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Scan your first library and verify the records Cove creates.",
+            "Explore the home page, media navigation, cards, and detail pages.",
+            "Find an item again with global search and list-page filters.",
+            "Organize a small collection with useful metadata and a static group."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Scan your first library", "href": "/docs/user/getting-started/first-scan/", "topicId": "scan-your-first-library" },
+            { "label": "Explore your library", "href": "/docs/tutorial/explore-your-library/", "topicId": "explore-your-library" },
+            { "label": "Find anything", "href": "/docs/tutorial/find-anything/", "topicId": "find-anything" },
+            { "label": "Organize a collection", "href": "/docs/tutorial/organize-a-collection/", "topicId": "organize-a-collection" }
+          ]
+        }
+      ]
+    }
+  ]
+}

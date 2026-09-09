@@ -3,9 +3,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PerformerDetailPage } from "../pages/PerformerDetailPage";
 
-const { mockPerformers } = vi.hoisted(() => ({
+const { mockConfig, mockPerformers, mockPageState } = vi.hoisted(() => ({
+  mockConfig: { current: { ui: {} } as Record<string, unknown> },
   mockPerformers: {
     get: vi.fn(),
+  },
+  mockPageState: {
+    activeTab: undefined as string | undefined,
+    setFavorite: vi.fn(),
   },
 }));
 
@@ -14,6 +19,11 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     performers: { ...actual.performers, ...mockPerformers },
+    savedFilters: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      delete: vi.fn(),
+    },
   };
 });
 
@@ -25,7 +35,7 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
-  useAppConfig: () => ({ config: { ui: {} } }),
+  useAppConfig: () => ({ config: mockConfig.current }),
   useOptionalAppConfig: () => ({ config: { ui: {} } }),
 }));
 
@@ -38,7 +48,10 @@ vi.mock("../components/useExtensionTabs", () => ({
 }));
 
 vi.mock("../hooks/useDetailListUrlState", () => ({
-  useDetailTabUrlState: () => ({ activeTab: "extension-test", setActiveTab: vi.fn() }),
+  useDetailTabUrlState: (defaultTab: string) => ({
+    activeTab: mockPageState.activeTab ?? defaultTab,
+    setActiveTab: vi.fn(),
+  }),
   useRelatedDetailListUrlState: () => ({
     filter: {},
     setFilter: vi.fn(),
@@ -50,11 +63,27 @@ vi.mock("../hooks/useDetailListUrlState", () => ({
   }),
 }));
 
+vi.mock("../hooks/useDetailListQuery", () => ({
+  useDetailListQuery: () => ({
+    data: { items: [], totalCount: 0, page: 1, perPage: 24 },
+    isLoading: false,
+    infinitePageSize: false,
+    infiniteQuery: { hasNextPage: false, isFetchingNextPage: false },
+    infiniteFilterKey: "test",
+    fetchAllIds: vi.fn().mockResolvedValue([]),
+    loadMore: vi.fn(),
+  }),
+}));
+
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({
+  useResolvedKeybindingOverrides: () => ({}),
+}));
+
 vi.mock("../hooks/useEntityEngagement", () => ({
   useEntityEngagement: () => ({
     favorite: false,
     rating: undefined,
-    setFavorite: vi.fn(),
+    setFavorite: mockPageState.setFavorite,
     setRating: vi.fn(),
   }),
 }));
@@ -111,6 +140,8 @@ describe("PerformerDetailPage load state", () => {
   afterEach(() => {
     vi.clearAllMocks();
     mockPerformers.get.mockReset();
+    mockConfig.current = { ui: {} };
+    mockPageState.activeTab = undefined;
   });
 
   it("shows a retryable load error and recovers", async () => {
@@ -135,5 +166,61 @@ describe("PerformerDetailPage load state", () => {
 
     expect(await screen.findByText("Performer not found")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows a deceased performer's age beside the death date instead of the birth date", async () => {
+    mockPerformers.get.mockResolvedValue({
+      ...buildPerformer(),
+      birthdate: "1994-08-23",
+      deathDate: "2017-12-05",
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("1994-08-23")).toBeInTheDocument();
+    expect(screen.getByText("2017-12-05 (age 23)")).toBeInTheDocument();
+  });
+
+  it("orders shared tabs by the configured main menu order", async () => {
+    mockConfig.current = {
+      ui: {},
+      interface: {
+        menuItems: ["videos", "images", "audios", "texts", "galleries", "groups", "faces"],
+      },
+    };
+    mockPerformers.get.mockResolvedValue(buildPerformer());
+
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Recovered performer" });
+    const tablist = screen.getByRole("tablist", { name: "Detail tabs" });
+    expect(tablist.parentElement?.parentElement).toHaveClass("w-full");
+    expect(tablist.parentElement?.parentElement).not.toHaveClass("max-w-7xl");
+    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
+      "Videos",
+      "Images",
+      "Audios",
+      "Texts",
+      "Galleries",
+      "Groups",
+      "Faces",
+      "Appears With",
+      "Similar",
+    ]);
+    expect(screen.getByRole("tab", { name: "Videos" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("selects the first tab in the configured main menu order by default", async () => {
+    mockConfig.current = {
+      ui: {},
+      interface: {
+        menuItems: ["images", "galleries", "videos", "audios", "texts", "groups", "faces"],
+      },
+    };
+    mockPerformers.get.mockResolvedValue(buildPerformer());
+
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: "Images" })).toHaveAttribute("aria-selected", "true");
   });
 });

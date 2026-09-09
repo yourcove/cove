@@ -3,29 +3,30 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageDetailPage } from "../pages/ImageDetailPage";
 
-const { mockImages, mockFaces, mockEntityImages, mockPlayback, mockSetFavorite, mockSetRating, mockGoBack } = vi.hoisted(() => ({
-  mockImages: {
-    get: vi.fn(),
-    delete: vi.fn(),
-    update: vi.fn(),
-    incrementLike: vi.fn(),
-    thumbnailUrl: vi.fn(() => "/thumb.jpg"),
-    imageUrl: vi.fn(() => "/image.jpg"),
-  },
-  mockFaces: {
-    imageFaces: vi.fn(),
-  },
-  mockEntityImages: {
-    studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
-    tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
-  },
-  mockPlayback: {
-    recordIntervals: vi.fn(() => Promise.resolve()),
-  },
-  mockSetFavorite: vi.fn(),
-  mockSetRating: vi.fn(),
-  mockGoBack: vi.fn(),
-}));
+const { mockImages, mockFaces, mockEntityImages, mockPlayback, mockSetFavorite, mockSetRating, mockGoBack } =
+  vi.hoisted(() => ({
+    mockImages: {
+      get: vi.fn(),
+      delete: vi.fn(),
+      update: vi.fn(),
+      incrementLike: vi.fn(),
+      thumbnailUrl: vi.fn(() => "/thumb.jpg"),
+      imageUrl: vi.fn(() => "/image.jpg"),
+    },
+    mockFaces: {
+      imageFaces: vi.fn(),
+    },
+    mockEntityImages: {
+      studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
+      tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
+    },
+    mockPlayback: {
+      recordIntervals: vi.fn(() => Promise.resolve()),
+    },
+    mockSetFavorite: vi.fn(),
+    mockSetRating: vi.fn(),
+    mockGoBack: vi.fn(),
+  }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => {},
@@ -157,7 +158,7 @@ describe("ImageDetailPage", () => {
     mockImages.get.mockResolvedValue(buildImage());
     mockFaces.imageFaces.mockResolvedValue([
       {
-      id: 33,
+        id: 33,
         label: "Beach Face",
         performerName: undefined,
         coverImageUrl: undefined,
@@ -218,14 +219,18 @@ describe("ImageDetailPage", () => {
     fireEvent.keyDown(window, { key: "f" });
     fireEvent.click(await screen.findByRole("button", { name: "Close (Esc)" }));
 
-    await waitFor(() => expect(mockPlayback.recordIntervals).toHaveBeenCalledWith(expect.objectContaining({
-      hostType: "image",
-      hostId: 12,
-      state: "ended",
-      surface: "lightbox",
-      scopeKey: "image:12:lightbox",
-      intervals: [expect.objectContaining({ startSec: 0, endSec: expect.any(Number) })],
-    })));
+    await waitFor(() =>
+      expect(mockPlayback.recordIntervals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hostType: "image",
+          hostId: 12,
+          state: "ended",
+          surface: "lightbox",
+          scopeKey: "image:12:lightbox",
+          intervals: [expect.objectContaining({ startSec: 0, endSec: expect.any(Number) })],
+        }),
+      ),
+    );
   });
 
   it("shows a retryable load error when the image request fails", async () => {

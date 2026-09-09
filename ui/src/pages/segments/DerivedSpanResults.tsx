@@ -6,7 +6,11 @@ import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
-import { toggleOptionsFromEvent, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../../hooks/useMultiSelect";
+import {
+  toggleOptionsFromEvent,
+  type BoundMultiSelectToggleHandler,
+  type MultiSelectToggleHandler,
+} from "../../hooks/useMultiSelect";
 import {
   buildSpanTitle,
   type DerivedOperandNameMaps,
@@ -74,7 +78,11 @@ export function DerivedSpanResults({
     queries: tagIds.map((id) => ({ queryKey: ["tag", id], queryFn: () => tags.get(id), staleTime: 60_000 })),
   });
   const performerQueries = useQueries({
-    queries: performerIds.map((id) => ({ queryKey: ["performer", id], queryFn: () => performers.get(id), staleTime: 60_000 })),
+    queries: performerIds.map((id) => ({
+      queryKey: ["performer", id],
+      queryFn: () => performers.get(id),
+      staleTime: 60_000,
+    })),
   });
   const faceQueries = useQueries({
     queries: faceIds.map((id) => ({ queryKey: ["face", id], queryFn: () => faces.get(id), staleTime: 60_000 })),
@@ -113,7 +121,13 @@ export function DerivedSpanResults({
         loadMore={loadMore}
         renderItem={(item) => {
           const title = buildSpanTitle(item.span, item.videoTitle);
-          const route = { page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor };
+          const route = {
+            page: "video-span",
+            id: item.videoId,
+            spanKey: item.span.spanKey,
+            profileId: item.profileId,
+            derivedQueryDescriptor: item.derivedQueryDescriptor,
+          };
           const operandSummary = formatDerivedOperandSummary(item, nameMaps);
           const primaryRawSegmentId = item.span.segmentIds[0];
 
@@ -139,30 +153,30 @@ export function DerivedSpanResults({
               selected={selectedIds.has(item.id)}
               onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
               selecting={selecting}
-              footer={(
+              footer={
                 <div className="space-y-1.5">
                   {operandSummary ? <div className="line-clamp-2 text-foreground">{operandSummary}</div> : null}
                   <div className="flex items-center justify-between gap-2">
                     <span>Updated {formatDate(item.videoUpdatedAt)}</span>
-                  <div className="flex items-center gap-2">
-                    {canReadVideos ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onNavigate({ page: "video", id: item.videoId, seekTo: item.span.startSec });
-                        }}
-                        className="inline-flex items-center gap-1 text-accent hover:underline"
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                        Open video
-                      </button>
-                    ) : null}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      {canReadVideos ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onNavigate({ page: "video", id: item.videoId, seekTo: item.span.startSec });
+                          }}
+                          className="inline-flex items-center gap-1 text-accent hover:underline"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          Open video
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              )}
+              }
             />
           );
         }}
@@ -225,28 +239,70 @@ function DerivedSpanListRow({
   const operandSummary = formatDerivedOperandSummary(item, nameMaps);
 
   return (
-    <div onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
-      <RouteCardLinkOverlay route={{ page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor }} onClick={() => onNavigate({ page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor })} label={`Open span ${title}`} disabled={selecting} selectionSafeZone />
+    <div
+      onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined}
+      className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}
+    >
+      <RouteCardLinkOverlay
+        route={{
+          page: "video-span",
+          id: item.videoId,
+          spanKey: item.span.spanKey,
+          profileId: item.profileId,
+          derivedQueryDescriptor: item.derivedQueryDescriptor,
+        }}
+        onClick={() =>
+          onNavigate({
+            page: "video-span",
+            id: item.videoId,
+            spanKey: item.span.spanKey,
+            profileId: item.profileId,
+            derivedQueryDescriptor: item.derivedQueryDescriptor,
+          })
+        }
+        label={`Open span ${title}`}
+        disabled={selecting}
+        selectionSafeZone
+      />
       <div className="flex items-start gap-3 lg:grid lg:grid-cols-[minmax(0,1.4fr)_140px_minmax(0,1.1fr)_120px_120px] lg:items-center">
         <div className="relative min-w-0 pl-8">
           <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onToggle} />
           <div className="flex items-start gap-3">
-            {density.showPreview ? <div className="hidden shrink-0 overflow-hidden rounded-lg bg-surface sm:block" style={{ height: density.previewHeight, width: density.previewWidth }}>
-              <SegmentVideoPreview hostId={item.videoId} segmentId={primaryRawSegmentId} updatedAt={item.videoUpdatedAt} startSec={item.span.startSec} endSec={item.span.endSec} title={title} imgClassName="h-full w-full object-cover" />
-            </div> : null}
+            {density.showPreview ? (
+              <div
+                className="hidden shrink-0 overflow-hidden rounded-lg bg-surface sm:block"
+                style={{ height: density.previewHeight, width: density.previewWidth }}
+              >
+                <SegmentVideoPreview
+                  hostId={item.videoId}
+                  segmentId={primaryRawSegmentId}
+                  updatedAt={item.videoUpdatedAt}
+                  startSec={item.span.startSec}
+                  endSec={item.span.endSec}
+                  title={title}
+                  imgClassName="h-full w-full object-cover"
+                />
+              </div>
+            ) : null}
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{title}</div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
                 {item.span.tagName ? <Pill>{item.span.tagName}</Pill> : null}
                 {item.span.kind ? <Pill>{item.span.kind}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
-                <span>{item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}</span>
+                <span>
+                  {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}
+                </span>
               </div>
-              {density.showSecondaryDetails && operandSummary ? <div className="mt-1 line-clamp-2 text-xs text-secondary">{operandSummary}</div> : null}
+              {density.showSecondaryDetails && operandSummary ? (
+                <div className="mt-1 line-clamp-2 text-xs text-secondary">{operandSummary}</div>
+              ) : null}
             </div>
           </div>
         </div>
-        <div className="hidden text-xs text-secondary lg:block">{formatSegmentRange(item.span.startSec, item.span.endSec)}</div>
+        <div className="hidden text-xs text-secondary lg:block">
+          {formatSegmentRange(item.span.startSec, item.span.endSec)}
+        </div>
         <div className="min-w-0 text-xs text-secondary lg:text-sm">
           <div className="truncate text-foreground">{item.videoTitle}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">

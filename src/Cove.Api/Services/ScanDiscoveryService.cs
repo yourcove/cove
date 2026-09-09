@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -23,7 +24,7 @@ internal sealed class ScanDiscoveryService(
     ILogger logger)
 {
     private static readonly TimeSpan ScanCommandTimeout = TimeSpan.FromMinutes(5);
-    private const int DirectoryScanSignatureVersion = 1;
+    private const int DirectoryScanSignatureVersion = 2;
     private static readonly string[] FolderIgnoreFileNames = [".coveignore", ".stashignore"];
 
     public async Task<ScanDiscoveryResult> DiscoverAsync(
@@ -68,12 +69,13 @@ internal sealed class ScanDiscoveryService(
         var files = new List<DiscoveredFile>();
         var discoveryProgress = new ScanDiscoveryProgress(progress, logger);
         var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(FilesystemPaths.PathComparer);
+        var configuredPatterns = new ConfiguredScanPatternMatcher(config);
 
         foreach (var scanTarget in scanTargets)
         {
             if (scanTarget.IsFile)
             {
-                DiscoverFileTarget(scanTarget, extensions, ignoreRuleCache, discoveryProgress, files);
+                DiscoverFileTarget(scanTarget, extensions, configuredPatterns, ignoreRuleCache, discoveryProgress, files);
                 continue;
             }
 
@@ -86,6 +88,7 @@ internal sealed class ScanDiscoveryService(
             files.AddRange(DiscoverFilesSafely(
                 scanTarget,
                 extensions,
+                configuredPatterns,
                 ignoreRuleCache,
                 discoveryProgress,
                 directoryScanContext,
@@ -224,6 +227,7 @@ internal sealed class ScanDiscoveryService(
     private void DiscoverFileTarget(
         ScanTarget scanTarget,
         ScanExtensionCatalog extensions,
+        ConfiguredScanPatternMatcher configuredPatterns,
         Dictionary<string, List<IgnoreRule>> ignoreRuleCache,
         ScanDiscoveryProgress discoveryProgress,
         List<DiscoveredFile> files)
@@ -233,6 +237,10 @@ internal sealed class ScanDiscoveryService(
             logger.LogWarning("Scan target does not exist: {Path}", scanTarget.Path);
             return;
         }
+
+        var relativePath = Path.GetRelativePath(scanTarget.PatternRoot, scanTarget.Path);
+        if (configuredPatterns.IsGloballyExcluded(scanTarget.Path, relativePath))
+            return;
 
         var extension = Path.GetExtension(scanTarget.Path);
         if (!extensions.All.Contains(extension)
@@ -247,7 +255,12 @@ internal sealed class ScanDiscoveryService(
                 extensions.Gallery,
                 extensions.Audio,
                 extensions.Text)
-            || IsExcludedByConfiguredPatterns(scanTarget.Path, extension, extensions.Image, extensions.Gallery, config)
+            || configuredPatterns.IsMediaTypeExcluded(
+                scanTarget.Path,
+                relativePath,
+                extension,
+                extensions.Image,
+                extensions.Gallery)
             || IsExcludedByFolderIgnore(
                 scanTarget.Path,
                 Path.GetDirectoryName(scanTarget.Path) ?? scanTarget.Path,
@@ -286,6 +299,7 @@ internal sealed class ScanDiscoveryService(
     private IEnumerable<DiscoveredFile> DiscoverFilesSafely(
         ScanTarget scanTarget,
         ScanExtensionCatalog extensions,
+        ConfiguredScanPatternMatcher configuredPatterns,
         Dictionary<string, List<IgnoreRule>> ruleCache,
         ScanDiscoveryProgress discoveryProgress,
         DirectoryScanContext directoryScanContext,
@@ -370,6 +384,13 @@ internal sealed class ScanDiscoveryService(
                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                     observation.MarkBlocksCache();
 
+                var relativePath = Path.GetRelativePath(scanTarget.PatternRoot, path);
+                if (configuredPatterns.IsGloballyExcluded(path, relativePath))
+                {
+                    discoveryProgress.RecordIgnoredPath(path);
+                    continue;
+                }
+
                 var extension = Path.GetExtension(path);
                 if (!extensions.All.Contains(extension))
                 {
@@ -393,7 +414,12 @@ internal sealed class ScanDiscoveryService(
                     continue;
                 }
 
-                if (IsExcludedByConfiguredPatterns(path, extension, extensions.Image, extensions.Gallery, config)
+                if (configuredPatterns.IsMediaTypeExcluded(
+                        path,
+                        relativePath,
+                        extension,
+                        extensions.Image,
+                        extensions.Gallery)
                     || IsExcludedByActiveIgnoreRules(path, frame.IgnoreRuleSets))
                 {
                     discoveryProgress.RecordIgnoredPath(path);
@@ -451,28 +477,6 @@ internal sealed class ScanDiscoveryService(
             ruleSets.Add(new ActiveIgnoreRuleSet(normalizedDirectory, rules));
             return new DirectoryScanFrame(directory, ruleSets, hasIgnoreFileInScope, hasLocalGalleryControlFile);
         }
-    }
-
-    private static bool IsExcluded(string path, List<string> patterns)
-    {
-        foreach (var pattern in patterns)
-        {
-            if (path.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool IsExcludedByConfiguredPatterns(
-        string path,
-        string extension,
-        IReadOnlySet<string> imageExts,
-        IReadOnlySet<string> galleryExts,
-        CoveConfiguration cfg)
-    {
-        return IsExcluded(path, cfg.ExcludePatterns)
-            || (imageExts.Contains(extension) && IsExcluded(path, cfg.ExcludeImagePatterns))
-            || (galleryExts.Contains(extension) && IsExcluded(path, cfg.ExcludeGalleryPatterns));
     }
 
     private static bool RequiresFullFileDiscovery(ScanOperationOptions options)
@@ -726,7 +730,8 @@ internal sealed class ScanDiscoveryService(
                     path.ExcludeImage,
                     path.ExcludeAudio,
                     path.ExcludeText,
-                    IsFile: false))
+                    false,
+                    ScanPath.Normalize(path.Path)))
                 .ToList();
         }
 
@@ -740,7 +745,6 @@ internal sealed class ScanDiscoveryService(
                 .Select(path => new { Config = path, NormalizedPath = ScanPath.Normalize(path.Path) })
                 .Where(item => ScanPath.IsWithin(selectedPath, item.NormalizedPath))
                 .OrderByDescending(item => item.NormalizedPath.Length)
-                .Select(item => item.Config)
                 .FirstOrDefault();
 
             if (matchingConfig == null)
@@ -752,11 +756,12 @@ internal sealed class ScanDiscoveryService(
 
             targets.Add(new ScanTarget(
                 selectedPath,
-                matchingConfig.ExcludeVideo,
-                matchingConfig.ExcludeImage,
-                matchingConfig.ExcludeAudio,
-                matchingConfig.ExcludeText,
-                isFile));
+                matchingConfig.Config.ExcludeVideo,
+                matchingConfig.Config.ExcludeImage,
+                matchingConfig.Config.ExcludeAudio,
+                matchingConfig.Config.ExcludeText,
+                isFile,
+                matchingConfig.NormalizedPath));
         }
 
         return targets;
@@ -882,6 +887,115 @@ internal sealed record ScanExtensionCatalog(
         var text = new HashSet<string>(config.TextExtensions, StringComparer.OrdinalIgnoreCase);
         var all = video.Union(image).Union(gallery).Union(audio).Union(text).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return new ScanExtensionCatalog(video, image, gallery, audio, text, all);
+    }
+}
+
+internal sealed class ConfiguredScanPatternMatcher
+{
+    private readonly ScanPatternSet _global;
+    private readonly ScanPatternSet _images;
+    private readonly ScanPatternSet _galleries;
+
+    public ConfiguredScanPatternMatcher(CoveConfiguration config)
+    {
+        _global = new ScanPatternSet(config.ExcludePatterns);
+        _images = new ScanPatternSet(config.ExcludeImagePatterns);
+        _galleries = new ScanPatternSet(config.ExcludeGalleryPatterns);
+    }
+
+    public bool IsGloballyExcluded(string fullPath, string relativePath) => _global.IsMatch(fullPath, relativePath);
+
+    public bool IsMediaTypeExcluded(
+        string fullPath,
+        string relativePath,
+        string extension,
+        IReadOnlySet<string> imageExts,
+        IReadOnlySet<string> galleryExts)
+    {
+        return (imageExts.Contains(extension) && _images.IsMatch(fullPath, relativePath))
+            || (galleryExts.Contains(extension) && _galleries.IsMatch(fullPath, relativePath));
+    }
+
+    private sealed class ScanPatternSet
+    {
+        private readonly string[] _literalFragments;
+        private readonly Regex[] _globPatterns;
+
+        public ScanPatternSet(IEnumerable<string> patterns)
+        {
+            var literals = new List<string>();
+            var globs = new List<Regex>();
+
+            foreach (var value in patterns)
+            {
+                var pattern = value.Trim().Replace('\\', '/');
+                if (pattern.Length == 0)
+                    continue;
+
+                if (!pattern.Contains('*') && !pattern.Contains('?'))
+                {
+                    literals.Add(pattern);
+                    continue;
+                }
+
+                var normalizedPattern = pattern.TrimStart('/');
+                if (!normalizedPattern.Contains('/'))
+                    normalizedPattern = $"**/{normalizedPattern}";
+                globs.Add(CompileGlob(normalizedPattern));
+            }
+
+            _literalFragments = [.. literals];
+            _globPatterns = [.. globs];
+        }
+
+        public bool IsMatch(string fullPath, string relativePath)
+        {
+            var normalizedFullPath = fullPath.Replace('\\', '/');
+            if (_literalFragments.Any(pattern => normalizedFullPath.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            var normalizedRelativePath = relativePath.Replace('\\', '/').TrimStart('/');
+            return _globPatterns.Any(pattern => pattern.IsMatch(normalizedRelativePath));
+        }
+
+        private static Regex CompileGlob(string pattern)
+        {
+            var expression = new StringBuilder("^");
+            for (var index = 0; index < pattern.Length; index++)
+            {
+                var character = pattern[index];
+                if (character == '*' && index + 1 < pattern.Length && pattern[index + 1] == '*')
+                {
+                    index++;
+                    if (index + 1 < pattern.Length && pattern[index + 1] == '/')
+                    {
+                        expression.Append("(?:.*/)?");
+                        index++;
+                    }
+                    else
+                    {
+                        expression.Append(".*");
+                    }
+                }
+                else if (character == '*')
+                {
+                    expression.Append("[^/]*");
+                }
+                else if (character == '?')
+                {
+                    expression.Append("[^/]");
+                }
+                else
+                {
+                    expression.Append(Regex.Escape(character.ToString()));
+                }
+            }
+
+            expression.Append('$');
+            return new Regex(
+                expression.ToString(),
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+        }
     }
 }
 
@@ -1117,4 +1231,5 @@ internal sealed record ScanTarget(
     bool ExcludeImage,
     bool ExcludeAudio,
     bool ExcludeText,
-    bool IsFile);
+    bool IsFile,
+    string PatternRoot);

@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
+import { createRequire } from "node:module";
 import { extensionRuntimeModules, extensionRuntimeVersion } from "./scripts/extension-runtime-contract.ts";
 
 // Exposes the repo-root CHANGELOG.md to the app as `virtual:changelog-raw`.
@@ -12,7 +13,7 @@ import { extensionRuntimeModules, extensionRuntimeVersion } from "./scripts/exte
 function changelogPlugin() {
   const virtualId = "virtual:changelog-raw";
   const resolvedId = "\0" + virtualId;
-  const changelogPath = path.resolve(__dirname, "..", "CHANGELOG.md");
+  const changelogPath = path.resolve(import.meta.dirname, "..", "CHANGELOG.md");
   return {
     name: "cove-changelog",
     resolveId(id: string) {
@@ -34,15 +35,18 @@ function changelogPlugin() {
 const extensionRuntimeEntries = Object.fromEntries(
   extensionRuntimeModules.map((definition) => [
     `extension-runtime-${definition.id}`,
-    path.resolve(__dirname, `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`),
-  ])
+    path.resolve(
+      import.meta.dirname,
+      `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`,
+    ),
+  ]),
 );
 
 const extensionRuntimeFileNames = new Map<string, string>(
   extensionRuntimeModules.map((definition) => [
     `extension-runtime-${definition.id}`,
     `assets/extension-runtime/${extensionRuntimeVersion}/${definition.outputFileName}`,
-  ])
+  ]),
 );
 
 function buildExtensionImportMap(useDevRuntimeModules: boolean) {
@@ -52,7 +56,7 @@ function buildExtensionImportMap(useDevRuntimeModules: boolean) {
         ? `/src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`
         : `/${extensionRuntimeFileNames.get(`extension-runtime-${definition.id}`)!}`;
       return [definition.specifier, ...definition.legacySpecifiers].map((specifier) => [specifier, target]);
-    })
+    }),
   );
 }
 
@@ -83,19 +87,45 @@ function extensionRuntimeImportMapPlugin(useDevRuntimeModules: boolean) {
   };
 }
 
+// The extension facade exports the whole catalog. Use Lucide's bundled CommonJS
+// entry there so loading an extension does not fetch every individual icon chunk.
+// App imports still use ESM, allowing DynamicIcon to load only the selected icon.
+function extensionLucideBundlePlugin() {
+  return {
+    name: "extension-lucide-bundle",
+    enforce: "pre" as const,
+    apply: "build" as const,
+    resolveId(id: string, importer?: string) {
+      if (id === "lucide-react" && importer === extensionRuntimeEntries["extension-runtime-lucide-react"]) {
+        return createRequire(import.meta.url).resolve("lucide-react");
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig(({ command }) => {
   const useDevRuntimeModules = command === "serve";
 
   return {
-    plugins: [react(), tailwindcss(), changelogPlugin(), extensionRuntimeImportMapPlugin(useDevRuntimeModules)],
+    plugins: [
+      react(),
+      tailwindcss(),
+      changelogPlugin(),
+      extensionRuntimeImportMapPlugin(useDevRuntimeModules),
+      extensionLucideBundlePlugin(),
+    ],
     resolve: {
       alias: {
-        "@": path.resolve(__dirname, "./src"),
+        "@": path.resolve(import.meta.dirname, "./src"),
       },
     },
     server: {
       host: "127.0.0.1",
       port: 5173,
+      fs: {
+        allow: [import.meta.dirname, path.resolve(import.meta.dirname, "../docs/feature-guides")],
+      },
       proxy: {
         "/api": {
           target: "http://localhost:5073",
@@ -114,13 +144,13 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         preserveEntrySignatures: "strict",
         input: {
-          index: path.resolve(__dirname, "./index.html"),
+          index: path.resolve(import.meta.dirname, "./index.html"),
           ...extensionRuntimeEntries,
         },
         output: {
           entryFileNames: (chunkInfo) => extensionRuntimeFileNames.get(chunkInfo.name) ?? "assets/[name]-[hash].js",
           manualChunks(id) {
-            if (id.includes("/node_modules/lucide-react/")) return "icons";
+            // Let Lucide dynamic imports split icons into individually loaded chunks.
             if (id.includes("/node_modules/@microsoft/signalr/")) return "signalr";
             if (
               id.includes("/node_modules/react/") ||

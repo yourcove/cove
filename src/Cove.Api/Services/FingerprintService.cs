@@ -6,6 +6,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Processing.Processors.Transforms;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -51,7 +52,10 @@ public class FingerprintService(
 
         try
         {
-            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+            if (stream == null)
+                return null;
+
             var hash = await MD5.HashDataAsync(stream, ct);
             return Convert.ToHexStringLower(hash);
         }
@@ -133,7 +137,10 @@ public class FingerprintService(
 
     private static async Task<byte[]> ReadFilePrefixAsync(string path, int maxBytes, CancellationToken ct)
     {
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null)
+            return [];
+
         var length = (int)Math.Min(maxBytes, stream.Length);
         var buffer = new byte[length];
         var totalRead = 0;
@@ -155,7 +162,10 @@ public class FingerprintService(
 
         const int bucketCount = 64;
         const int sampleSize = 4096;
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null)
+            return null;
+
         if (stream.Length == 0)
             return null;
 
@@ -496,13 +506,12 @@ public class FingerprintService(
 
                 // Only load files that need phash generation
                 var pendingVideoFiles = await db.VideoFiles
-                    .Include(file => file.ParentFolder)
                     .Where(file => !filesWithPhashIds.Contains(file.Id))
                     .OrderBy(file => file.Id)
-                    .Select(file => new { file.Id, Path = file.ParentFolder != null ? file.ParentFolder.Path + System.IO.Path.DirectorySeparatorChar + file.Basename : file.Basename, file.Duration })
+                    .Select(file => new { file.Id, file.Path, file.Duration })
                     .ToListAsync(ct);
 
-                workItems = pendingVideoFiles.Select(file => (file.Id, file.Path, file.Duration)).ToList();
+                workItems = pendingVideoFiles.Select(file => (file.Id, FilesystemPaths.ToNativePath(file.Path), file.Duration)).ToList();
             }
 
             if (workItems.Count == 0)
@@ -588,13 +597,12 @@ public class FingerprintService(
                     .ToHashSetAsync(ct);
 
                 var pendingImageFiles = await db.ImageFiles
-                    .Include(file => file.ParentFolder)
                     .Where(file => !filesWithPhash.Contains(file.Id))
                     .OrderBy(file => file.Id)
-                    .Select(file => new { file.Id, Path = file.ParentFolder != null ? file.ParentFolder.Path + System.IO.Path.DirectorySeparatorChar + file.Basename : file.Basename })
+                    .Select(file => new { file.Id, file.Path })
                     .ToListAsync(ct);
 
-                workItems = pendingImageFiles.Select(file => (file.Id, file.Path)).ToList();
+                workItems = pendingImageFiles.Select(file => (file.Id, FilesystemPaths.ToNativePath(file.Path))).ToList();
             }
 
             if (workItems.Count == 0)
@@ -725,9 +733,7 @@ public class FingerprintService(
 
     private static string? ResolveFilePath(BaseFileEntity file)
     {
-        var path = file.ParentFolder != null
-            ? Path.Combine(file.ParentFolder.Path, file.Basename)
-            : file.Basename;
+        var path = FilesystemPaths.ToNativePath(file.Path);
 
         return File.Exists(path) ? path : null;
     }
@@ -760,18 +766,17 @@ public class FingerprintService(
     {
         // 'using' so the Process handle is always released — the old code never disposed it, leaking a
         // handle per pHash extraction across a large scan.
-        using var process = new System.Diagnostics.Process
+        var startInfo = new System.Diagnostics.ProcessStartInfo
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            }
+            FileName = ffmpegPath,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
+        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
 
         process.Start();
         var stderrTask = process.StandardError.ReadToEndAsync(ct);

@@ -23,7 +23,7 @@ public sealed class TagNameWriteValidationTests
         };
         db.Tags.Add(tag);
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Alpha", tag.Name);
         Assert.Equal("alpha", tag.NamespaceKey);
@@ -39,13 +39,13 @@ public sealed class TagNameWriteValidationTests
         var empty = new Tag { Name = "   " };
         var aliasOwner = new Tag { Name = "Owner", Aliases = [new TagAlias { Alias = " Reserved " }] };
         db.Tags.AddRange(empty, aliasOwner);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(TagNameRules.EmptyCanonicalName, empty.Name);
         var conflicting = new Tag { Name = "reserved" };
         db.Tags.Add(conflicting);
 
-        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync());
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
         Assert.Equal("reserved", exception.ConflictingName);
         Assert.Equal(
             "A tag alias with name \"Reserved\" already exists. Tag names and tag aliases must be unique.",
@@ -57,7 +57,7 @@ public sealed class TagNameWriteValidationTests
     {
         await using var db = CreateContext();
         db.Tags.Add(new Tag { Name = "Facial" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Tags.Add(new Tag
         {
@@ -65,7 +65,7 @@ public sealed class TagNameWriteValidationTests
             Aliases = [new TagAlias { Alias = " facial " }],
         });
 
-        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync());
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(
             "A tag with name \"Facial\" already exists. Tag names and tag aliases must be unique.",
@@ -80,13 +80,13 @@ public sealed class TagNameWriteValidationTests
         var second = new Tag { Name = "historical" };
         db.Tags.AddRange(first, second);
         using (db.SuppressTagNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(" Historical ", first.Name);
         Assert.Equal("historical", first.NamespaceKey);
         Assert.Equal("historical", second.NamespaceKey);
         second.Description = "Metadata can still be repaired";
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Metadata can still be repaired", second.Description);
     }
@@ -99,10 +99,10 @@ public sealed class TagNameWriteValidationTests
         var second = new Tag { Name = "historical" };
         db.Tags.AddRange(first, second);
         using (db.SuppressTagNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         second.Description = "Repository metadata repair";
-        await new TagRepository(db).UpdateAsync(second);
+        await new TagRepository(db).UpdateAsync(second, TestContext.Current.CancellationToken);
 
         Assert.Equal("Repository metadata repair", second.Description);
     }
@@ -116,22 +116,22 @@ public sealed class TagNameWriteValidationTests
             await using (var seed = CreateContext(databasePath))
             {
                 seed.Tags.AddRange(new Tag { Name = "First" }, new Tag { Name = "Second" });
-                await seed.SaveChangesAsync();
+                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var interceptor = new BlockingSaveInterceptor();
             await using var first = CreateContext(databasePath, interceptor);
             await using var second = CreateContext(databasePath, interceptor);
-            (await first.Tags.SingleAsync(tag => tag.Name == "First")).Aliases.Add(new TagAlias { Alias = "Shared" });
-            (await second.Tags.SingleAsync(tag => tag.Name == "Second")).Aliases.Add(new TagAlias { Alias = "shared" });
+            (await first.Tags.SingleAsync(tag => tag.Name == "First", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "Shared" });
+            (await second.Tags.SingleAsync(tag => tag.Name == "Second", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "shared" });
 
-            var firstSave = first.SaveChangesAsync();
-            await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var secondSave = second.SaveChangesAsync();
+            var firstSave = first.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var secondSave = second.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var prematureSecondEntry = await Task.WhenAny(
                 interceptor.SecondEntered.Task,
-                Task.Delay(TimeSpan.FromMilliseconds(150)));
+                Task.Delay(TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken));
             Assert.NotSame(interceptor.SecondEntered.Task, prematureSecondEntry);
 
             interceptor.ReleaseFirst.TrySetResult();
@@ -154,15 +154,15 @@ public sealed class TagNameWriteValidationTests
             Aliases = [new TagAlias { Alias = "Alternate" }],
         };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         tag.NamespaceKey = "tampered-tag-key";
         var alias = Assert.Single(tag.Aliases);
         alias.NamespaceKey = "tampered-alias-key";
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.ChangeTracker.Clear();
-        var persisted = await db.Tags.Include(entity => entity.Aliases).SingleAsync();
+        var persisted = await db.Tags.Include(entity => entity.Aliases).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("canonical", persisted.NamespaceKey);
         Assert.Equal("alternate", Assert.Single(persisted.Aliases).NamespaceKey);
     }
@@ -177,16 +177,16 @@ public sealed class TagNameWriteValidationTests
             Aliases = [new TagAlias { Alias = "Alternate" }],
         };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         tag.NamespaceKey = "tampered-tag-key";
         var alias = Assert.Single(tag.Aliases);
         alias.NamespaceKey = "tampered-alias-key";
         using (db.SuppressTagNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.ChangeTracker.Clear();
-        var persisted = await db.Tags.Include(entity => entity.Aliases).SingleAsync();
+        var persisted = await db.Tags.Include(entity => entity.Aliases).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("canonical", persisted.NamespaceKey);
         Assert.Equal("alternate", Assert.Single(persisted.Aliases).NamespaceKey);
     }
@@ -205,7 +205,8 @@ public sealed class TagNameWriteValidationTests
     private static CoveContext CreateContext(string databasePath, params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source={databasePath}")
+            // Pooling off so the file handle dies with the context; the finally below deletes this file.
+            .UseSqlite($"Data Source={databasePath};Pooling=False")
             .AddInterceptors(interceptors)
             .Options;
         var context = new CoveContext(options);

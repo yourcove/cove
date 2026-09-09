@@ -613,7 +613,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         var findFilter = BuildFindFilter(entityConfig.FindFilter, 0, 1);
         return entityConfig.EntityType switch
         {
-            "video" => (await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct)).TotalCount,
+            "video" => (await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct, DeserializeExpression<VideoFilter>(entityConfig.ObjectFilter))).TotalCount,
             "image" => (await imageRepository.FindAsync(DeserializeFilter<ImageFilter>(entityConfig.ObjectFilter) ?? new ImageFilter(), findFilter, ct)).TotalCount,
             "audio" => await CountAudiosAsync(entityConfig, findFilter, ct),
             "text" => await CountTextsAsync(entityConfig, findFilter, ct),
@@ -625,17 +625,21 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private async Task<int> CountAudiosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
     {
         var prepared = await PrepareAudioFilterAsync(entityConfig.ObjectFilter, ct);
-        return await ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), prepared.Filter,
+        var query = ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
-            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
+        return await query.CountAsync(ct);
     }
 
     private async Task<int> CountTextsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
     {
         var prepared = await PrepareTextFilterAsync(entityConfig.ObjectFilter, ct);
-        return await ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), prepared.Filter,
+        var query = ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
-            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
+        return await query.CountAsync(ct);
     }
 
     private async Task<int> CountSegmentsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
@@ -647,7 +651,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
     private async Task<DynamicGroupResolveResult> ResolveVideosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
     {
-        var (videos, totalCount) = await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct);
+        var (videos, totalCount) = await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct, DeserializeExpression<VideoFilter>(entityConfig.ObjectFilter));
         if (localLimit <= 0 || localOffset >= totalCount)
             return new DynamicGroupResolveResult([], totalCount);
 
@@ -685,6 +689,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = ApplyAudioFilter(query, prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
             prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
         query = ApplyAudioSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);
@@ -708,6 +713,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = ApplyTextFilter(query, prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
             prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
         query = ApplyTextSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);
@@ -928,6 +934,24 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         catch (JsonException)
         {
             return default;
+        }
+    }
+
+    private static FilterExpression<TFilter>? DeserializeExpression<TFilter>(JsonElement? objectFilter) where TFilter : class
+    {
+        if (!objectFilter.HasValue || objectFilter.Value.ValueKind != JsonValueKind.Object
+            || !objectFilter.Value.TryGetProperty("_filterExpression", out var expression))
+            return null;
+        try
+        {
+            var result = expression.Deserialize<FilterExpression<TFilter>>(JsonOptions);
+            if (!FilterExpressionQuery.TryValidate(result, out var error))
+                throw new InvalidOperationException($"Invalid saved filter expression: {error}");
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
@@ -1294,6 +1318,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
         query = FilterHelpers.ApplyString(query, filter.TitleCriterion, audio => audio.Title);
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Audio, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);
@@ -1301,7 +1326,9 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyString(query, filter.CodeCriterion, audio => audio.Code);
         query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, audio => audio.Details);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, audio => audio.Files);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.FormatCriterion, audio => audio.Files.Select(file => file.Format));
+        query = FilterHelpers.ApplyStringCollection(query, filter.AudioCodecCriterion, audio => audio.Files.Select(file => file.AudioCodec));
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, audio => audio.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasVideoFilesCriterion, audio => audio.HasVideoFiles);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, audio => audio.ImageBlobId != null && audio.ImageBlobId != string.Empty);
@@ -1312,7 +1339,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyNullableTimestamp(query, filter.FileModTimeCriterion, audio => audio.MaxFileModTime);
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, audio => audio.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TrackCountCriterion, audio => audio.Tracks.Count);
-        query = FilterHelpers.ApplyString(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title));
         query = FilterHelpers.ApplyInt(query, filter.SampleRateCriterion, audio => audio.Files.Max(file => file.SampleRate) ?? 0);
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyAudioEffectiveTagCountCriterion(query, filter.TagCountCriterion);
@@ -1337,6 +1364,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
         query = FilterHelpers.ApplyString(query, filter.TitleCriterion, text => text.Title);
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Text, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);
@@ -1345,7 +1373,8 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, text => text.Details);
         query = FilterHelpers.ApplyString(query, filter.ContentCriterion, text => text.SearchText);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, text => text.Files);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.FormatCriterion, text => text.Files.Select(file => file.Format));
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, text => text.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, text => text.ImageBlobId != null && text.ImageBlobId != string.Empty);
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, text => text.Date);

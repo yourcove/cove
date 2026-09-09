@@ -22,7 +22,9 @@ export function Pager({ filter, setFilter, totalCount }: PagerProps) {
       >
         Previous
       </button>
-      <span className="text-sm text-secondary">Page {page} of {totalPages}</span>
+      <span className="text-sm text-secondary">
+        Page {page} of {totalPages}
+      </span>
       <button
         disabled={page >= totalPages}
         onClick={() => setFilter({ ...filter, page: page + 1 })}

@@ -1,0 +1,224 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "troubleshooting",
+  "title": "Troubleshooting",
+  "description": "Locate Cove logs, run safe deployment checks, resolve common failures, and prepare a useful report.",
+  "order": 120,
+  "pages": ["settings"],
+  "contexts": ["settings-tab:logs", "route:/settings/system-info/logs"],
+  "sections": [
+    {
+      "id": "find-the-logs",
+      "title": "Find the logs",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Reproduce the narrowest failing action once, note the time, and inspect the matching job and log entries. Avoid repeatedly queueing full scans or imports while diagnosing a failure."
+        },
+        {
+          "type": "image",
+          "src": "assets/settings-logs-navigation.png",
+          "alt": "Cove Settings navigation with System Info expanded and Logs visible",
+          "caption": "Open Settings → System Info → Logs on any deployment."
+        },
+        {
+          "type": "paragraph",
+          "text": "Use Filter and Component to narrow the rows shown in the browser. Server log level changes what Cove records. Trace is a temporary 15-minute diagnostic session and then returns to the saved level automatically; other levels remain selected until changed."
+        },
+        {
+          "type": "note",
+          "text": "Trace may include local paths, URLs, and library metadata. Enable it only long enough to reproduce the problem once, then review and sanitize any excerpt before sharing it."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Log locations"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Provided Docker setup: container path /config/logs; default host path ${COVE_DATA_DIR}/config/logs.",
+            "Native app: the logs directory under the current Cove Instance Manager instance home.",
+            "Source run: $COVE_HOME/logs when COVE_HOME is set, or logs under the platform-local Cove data directory."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Docker exposes startup output even when Cove cannot initialize its file logger:"
+        },
+        {
+          "type": "code",
+          "language": "bash",
+          "lines": [
+            "docker compose --file docker-compose.allinone.yml ps",
+            "docker compose --file docker-compose.allinone.yml logs --tail 200 cove"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "For the separate app-and-database compose file, use docker-compose.yml and check both services:"
+        },
+        {
+          "type": "code",
+          "language": "bash",
+          "lines": [
+            "docker compose --file docker-compose.yml logs --tail 200 cove",
+            "docker compose --file docker-compose.yml logs --tail 200 db"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "For a source run, backend messages appear in the terminal that launched Cove from the repository root:"
+        },
+        {
+          "type": "code",
+          "language": "bash",
+          "lines": ["dotnet run --project src/Cove.Api/Cove.Api.csproj"]
+        },
+        {
+          "type": "paragraph",
+          "text": "Frontend build and browser-proxy messages appear in the ui/ terminal that launched npm run dev."
+        }
+      ]
+    },
+    {
+      "id": "safe-docker-checks",
+      "title": "Safe Docker checks",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Run these from the directory containing the compose file. They inspect state without changing it:"
+        },
+        {
+          "type": "code",
+          "language": "bash",
+          "lines": [
+            "docker compose --file docker-compose.allinone.yml config --services",
+            "docker compose --file docker-compose.allinone.yml ps",
+            "docker compose --file docker-compose.allinone.yml exec cove id",
+            "docker compose --file docker-compose.allinone.yml exec cove ls --long --numeric-uid-gid --directory /config /generated /backups /media",
+            "docker compose --file docker-compose.allinone.yml exec cove test -r /media",
+            "docker compose --file docker-compose.allinone.yml exec cove test -w /media",
+            "docker compose --file docker-compose.allinone.yml exec cove test -x /media",
+            "docker compose --file docker-compose.allinone.yml exec cove test -w /config",
+            "docker compose --file docker-compose.allinone.yml exec cove test -x /config",
+            "docker compose --file docker-compose.allinone.yml exec cove test -w /generated",
+            "docker compose --file docker-compose.allinone.yml exec cove test -x /generated",
+            "docker compose --file docker-compose.allinone.yml exec cove test -w /backups",
+            "docker compose --file docker-compose.allinone.yml exec cove test -x /backups"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "The ls command reports mode and numeric ownership, but those values alone do not prove effective access. Each test command checks access as the Cove user without creating or deleting a file: -r reads /media, -w writes the requested path, and -x traverses it. No output with status 0 means access is available; a nonzero status identifies the failed path."
+        },
+        {
+          "type": "note",
+          "text": "A deliberately read-only media mount is expected to fail test -w /media. Do not apply recursive ownership changes blindly; compare the Cove user, mount mode, and affected host directory first, then correct only that directory."
+        }
+      ]
+    },
+    {
+      "id": "startup-or-browser-problems",
+      "title": "Startup or browser problems",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "If ps does not show Cove running, read the container logs from the first error onward.",
+            "If Cove cannot write its config/data directory, inspect ownership of the host directory mounted at /config.",
+            "If the separate database is unhealthy, check the db logs and confirm Cove and PostgreSQL use matching credentials.",
+            "If Cove runs but http://localhost:5073 does not open on the host, confirm the compose file publishes 5073:5073. From another computer, use the server address and check the host firewall or reverse proxy.",
+            "If an upgrade is applying migrations, wait for completion. Do not start another migration or restore concurrently."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scan-and-media-problems",
+      "title": "Scan and media problems",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "No files found: enter the container path from the media mount, not the host path. Then check Settings → Library → Paths & Storage, media-type exclusions, file extensions, and exclude patterns.",
+            "Permission denied: verify Cove can read source media and write /generated. A read-only /media mount still supports scanning but disables source-file deletion and extension-provided rename operations.",
+            "Some files are skipped: run a selective scan on one folder and inspect the job and logs. Use Force rescan (ignore mtime) only for files that should be reconsidered.",
+            "Covers or previews fail: open Settings → Library → Scanning & Assets, confirm the generated path and FFmpeg settings, then inspect FFmpeg errors in the logs.",
+            "A job appears stuck: open Settings → Operations → Jobs before queueing another job. Record its name, progress text, and last update."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "search-access-and-metadata-problems",
+      "title": "Search, access, and metadata problems",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Check whether the signed-in user's roles and content rules hide the expected result.",
+            "Remove filters one at a time and refresh a saved filter after major metadata changes.",
+            "Review provenance when a provider or scraper changed a field unexpectedly.",
+            "Verify the item exists on its media-type page before treating the problem as search-only."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Search and filters",
+              "href": "/docs/user/library/search-and-filters/",
+              "topicId": "search-and-filters"
+            },
+            {
+              "label": "Users, roles, and permissions",
+              "href": "/docs/user/security/users-roles-permissions/",
+              "topicId": "users-roles-permissions"
+            },
+            {
+              "label": "Metadata provenance",
+              "href": "/docs/user/metadata/provenance/",
+              "topicId": "metadata-provenance"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "extension-problems",
+      "title": "Extension problems",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings → Extensions → Installed Extensions and confirm the extension is enabled and compatible. Check Settings → System Info → Logs for its identifier near the failure. Disable one suspected extension at a time, reproduce once, and re-enable unrelated extensions after isolation."
+        }
+      ]
+    },
+    {
+      "id": "prepare-a-useful-report",
+      "title": "Prepare a useful report",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Cove version from Settings → System Info → About",
+            "native, all-in-one Docker, separate Docker, or source deployment",
+            "operating system, browser, and relevant image tag",
+            "exact steps, expected result, and actual result",
+            "failure timestamp and time zone",
+            "job name, state, progress message, and error when applicable",
+            "a short sanitized log excerpt covering the action",
+            "container-side mount paths and numeric ownership for filesystem issues",
+            "whether the issue still occurs with the suspected extension disabled"
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Redact API tokens, passwords, database connection strings, private host paths, share links, and personal library names. Never include an API token or an entire config file in a public issue."
+        }
+      ]
+    }
+  ]
+}

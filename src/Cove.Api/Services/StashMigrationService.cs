@@ -54,6 +54,7 @@ public partial class StashMigrationService
     private readonly IJobService _jobService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<StashMigrationService> _logger;
+    private readonly PhysicalFileAccessCoordinator _physicalFileAccessCoordinator;
     private string? _currentImportCustomPerformerImageLocation;
 
     private sealed record SceneGeneratedData(string? Oshash, string? Md5, bool HasExplicitCover);
@@ -143,7 +144,8 @@ public partial class StashMigrationService
         CoveConfiguration config,
         IJobService jobService,
         IServiceScopeFactory scopeFactory,
-        ILogger<StashMigrationService> logger)
+        ILogger<StashMigrationService> logger,
+        PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
     {
         _db = db;
         _blobService = blobService;
@@ -152,6 +154,7 @@ public partial class StashMigrationService
         _jobService = jobService;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _physicalFileAccessCoordinator = physicalFileAccessCoordinator ?? PhysicalFileAccessCoordinator.Shared;
     }
 
     private async Task<int> GetRequiredImportEngagementUserIdAsync(CancellationToken ct)
@@ -457,6 +460,9 @@ public partial class StashMigrationService
         _ = await GetRequiredImportEngagementUserIdAsync(ct);
         options = NormalizeImportOptions(options);
         progress.Report(0.01, "Opening Stash database...");
+        // Stash commits file rows in partial batches. Keep the complete import on the producer side
+        // of the physical-file boundary so a deletion cannot observe one of those partial states.
+        using var fileProductionLease = await _physicalFileAccessCoordinator.AcquireReadAsync(ct);
         var result = await ImportCoreAsync(stashDbPath, options, progress, ct);
         progress.Report(1.0, "Import complete");
         return result;
@@ -561,6 +567,25 @@ public partial class StashMigrationService
                 "galleries",
                 sw,
                 () => ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct));
+            _db.ChangeTracker.Clear();
+
+            await RunBulkInsertPhaseAsync(
+                "custom fields",
+                sw,
+                async () =>
+                {
+                    progress.Report(GalleriesEnd, "Importing custom fields...");
+                    var fieldTypes = await DetectStashCustomFieldTypesAsync(conn, ct);
+                    var count = 0;
+                    count += await ImportCustomFieldsAsync(conn, "studio", CustomFieldEntityTypes.Studio, studioIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "tag", CustomFieldEntityTypes.Tag, tagIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "performer", CustomFieldEntityTypes.Performer, performerIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "group", CustomFieldEntityTypes.Group, groupIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "scene", CustomFieldEntityTypes.Video, sceneIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "image", CustomFieldEntityTypes.Image, imageIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "gallery", CustomFieldEntityTypes.Gallery, galleryIdMap, ct, fieldTypes);
+                    return count;
+                });
             _db.ChangeTracker.Clear();
 
             await RunBulkInsertPhaseAsync(

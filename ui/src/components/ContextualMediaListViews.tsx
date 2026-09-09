@@ -18,10 +18,17 @@ interface ContextualListProps<TItem extends { id: number }> {
   onNavigate: (route: any) => void;
 }
 
-type ContextualVideoListViewProps = ContextualListProps<Video>
-  & Omit<RelatedEntityListViewProps<Video>, "entityType" | "items" | "onNavigate">;
+type ContextualVideoListViewProps = ContextualListProps<Video> &
+  Omit<RelatedEntityListViewProps<Video>, "entityType" | "items" | "onNavigate">;
 
-export function ContextualVideoListView({ items, filter, totalCount, queryPage, onNavigate, ...listProps }: ContextualVideoListViewProps) {
+export function ContextualVideoListView({
+  items,
+  filter,
+  totalCount,
+  queryPage,
+  onNavigate,
+  ...listProps
+}: ContextualVideoListViewProps) {
   const { navigateFromList } = useVideoQueueNavigation({
     items,
     filter,
@@ -33,22 +40,36 @@ export function ContextualVideoListView({ items, filter, totalCount, queryPage, 
   return <RelatedEntityListView entityType="videos" items={items} onNavigate={navigateFromList} {...listProps} />;
 }
 
-type ContextualImageListViewProps = ContextualListProps<Image>
-  & Omit<RelatedEntityListViewProps<Image>, "entityType" | "items" | "onNavigate" | "onImagePreview" | "onImageDetails">
-  & { interactionSource: string; interactionMeta?: Record<string, unknown> };
+type ContextualImageListViewProps = ContextualListProps<Image> &
+  Omit<
+    RelatedEntityListViewProps<Image>,
+    "entityType" | "items" | "onNavigate" | "onImagePreview" | "onImageDetails"
+  > & { interactionSource: string; interactionMeta?: Record<string, unknown> };
 
-export function ContextualImageListView({ items, filter, totalCount, queryPage, onNavigate, interactionSource, interactionMeta, ...listProps }: ContextualImageListViewProps) {
+export function ContextualImageListView({
+  items,
+  filter,
+  totalCount,
+  queryPage,
+  onNavigate,
+  interactionSource,
+  interactionMeta,
+  ...listProps
+}: ContextualImageListViewProps) {
   const appConfig = useOptionalAppConfig();
   const { hasPermission, user } = useAuth();
   const canEngage = canReadEntity("image", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canLike = canWriteEntity("image", hasPermission);
-  const toLightboxImage = useCallback((image: Image): LightboxImage => ({
-    id: image.id,
-    src: images.imageUrl(image.id),
-    title: getImageDisplayTitle(image),
-    interactionSource,
-    interactionMeta,
-  }), [interactionMeta, interactionSource]);
+  const toLightboxImage = useCallback(
+    (image: Image): LightboxImage => ({
+      id: image.id,
+      src: images.imageUrl(image.id),
+      title: getImageDisplayTitle(image),
+      interactionSource,
+      interactionMeta,
+    }),
+    [interactionMeta, interactionSource],
+  );
   const lightbox = usePaginatedImageLightbox({
     items,
     filter,
@@ -69,7 +90,12 @@ export function ContextualImageListView({ items, filter, totalCount, queryPage, 
         {...listProps}
       />
       {lightbox.lightboxProps.open ? (
-        <Lightbox {...lightbox.lightboxProps} slideshowDelay={appConfig?.config?.ui.slideshowDelay} canEngage={canEngage} canLike={canLike} />
+        <Lightbox
+          {...lightbox.lightboxProps}
+          slideshowDelay={appConfig?.config?.ui.slideshowDelay}
+          canEngage={canEngage}
+          canLike={canLike}
+        />
       ) : null}
     </>
   );

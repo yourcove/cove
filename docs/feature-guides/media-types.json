@@ -1,0 +1,95 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-types",
+  "title": "Media types",
+  "description": "Understand the video, image, gallery, audio, and text content Cove can keep in one local library.",
+  "order": 20,
+  "sections": [
+    {
+      "id": "choose-a-media-type",
+      "title": "Choose the record that matches the content",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove keeps several kinds of primary media records in one library. They share search, organization, permissions, and metadata patterns, while each type provides a surface suited to the content it represents."
+        },
+        {
+          "type": "image",
+          "src": "assets/media-navigation.png",
+          "alt": "Cove navigation with video, image, audio, text, and gallery pages"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Videos provide moving-image playback and timeline-aware organization.",
+            "Images keep each still independently searchable and reusable.",
+            "Galleries give a related image set its own collection identity and metadata.",
+            "Audio provides sound-first playback, tracks, and timeline annotations.",
+            "Text keeps written material searchable and readable alongside the rest of the library."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "learn-each-type",
+      "title": "Learn the features of each media type",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Videos",
+              "href": "/docs/user/library/media-types/videos/",
+              "topicId": "media-type-videos"
+            },
+            {
+              "label": "Images",
+              "href": "/docs/user/library/media-types/images/",
+              "topicId": "media-type-images"
+            },
+            {
+              "label": "Galleries",
+              "href": "/docs/user/library/media-types/galleries/",
+              "topicId": "media-type-galleries"
+            },
+            {
+              "label": "Audio",
+              "href": "/docs/user/library/media-types/audio/",
+              "topicId": "media-type-audio"
+            },
+            {
+              "label": "Text",
+              "href": "/docs/user/library/media-types/text/",
+              "topicId": "media-type-text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grow-when-needed",
+      "title": "Add formats when they become useful",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "You do not need every media type on day one. Many libraries begin with videos and images, then add galleries, audio, or text as their collection grows. The record type describes the primary item; tags, performers, studios, groups, and other relationships can connect items across formats."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Media reference",
+              "href": "/docs/reference/media/"
+            },
+            {
+              "label": "Organizing your library",
+              "href": "/docs/user/library/organizing/",
+              "topicId": "organizing"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

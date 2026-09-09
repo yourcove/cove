@@ -130,8 +130,54 @@ public sealed class CovePrincipal
             case PermissionKeys.SegmentsRead:
                 entityKind = EntityKinds.Segment;
                 return true;
+            case PermissionKeys.FilesRead:
+                entityKind = EntityKinds.File;
+                return true;
             default:
                 entityKind = string.Empty;
+                return false;
+        }
+    }
+
+    public static bool TryGetReadGrantPermission(string entityKind, out string permission)
+    {
+        switch (entityKind)
+        {
+            case EntityKinds.Video:
+                permission = PermissionKeys.VideosRead;
+                return true;
+            case EntityKinds.Audio:
+                permission = PermissionKeys.AudiosRead;
+                return true;
+            case EntityKinds.Text:
+                permission = PermissionKeys.TextsRead;
+                return true;
+            case EntityKinds.Performer:
+                permission = PermissionKeys.PerformersRead;
+                return true;
+            case EntityKinds.Face:
+                permission = PermissionKeys.FacesRead;
+                return true;
+            case EntityKinds.Tag:
+                permission = PermissionKeys.TagsRead;
+                return true;
+            case EntityKinds.Studio:
+                permission = PermissionKeys.StudiosRead;
+                return true;
+            case EntityKinds.Gallery:
+                permission = PermissionKeys.GalleriesRead;
+                return true;
+            case EntityKinds.Image:
+                permission = PermissionKeys.ImagesRead;
+                return true;
+            case EntityKinds.Group:
+                permission = PermissionKeys.GroupsRead;
+                return true;
+            case EntityKinds.Segment:
+                permission = PermissionKeys.SegmentsRead;
+                return true;
+            default:
+                permission = string.Empty;
                 return false;
         }
     }

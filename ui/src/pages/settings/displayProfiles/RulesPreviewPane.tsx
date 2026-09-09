@@ -40,27 +40,37 @@ export function RulesPreviewPane({
           <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">{title}</h4>
           <p className="mt-1 text-sm text-secondary">{description}</p>
         </div>
-        {previewVideo ? <div className="rounded-full bg-surface px-3 py-1 text-xs text-secondary">{previewVideo.title || `Video #${previewVideo.id}`}</div> : null}
+        {previewVideo ? (
+          <div className="rounded-full bg-surface px-3 py-1 text-xs text-secondary">
+            {previewVideo.title || `Video #${previewVideo.id}`}
+          </div>
+        ) : null}
       </div>
 
       {onPreviewVideoSearchChange ? (
         <div className="mt-4 space-y-3">
-          <TextInput value={previewVideoSearch ?? ""} onChange={onPreviewVideoSearchChange} placeholder="Search videos for preview..." />
+          <TextInput
+            value={previewVideoSearch ?? ""}
+            onChange={onPreviewVideoSearchChange}
+            placeholder="Search videos for preview..."
+          />
           {trimmedSearch ? (
             <div className="max-h-44 overflow-y-auto rounded-xl border border-border bg-surface/40">
               {previewVideoResults.length === 0 ? (
                 <div className="px-4 py-3 text-sm text-secondary">No videos found.</div>
-              ) : previewVideoResults.map((video) => (
-                <button
-                  key={video.id}
-                  type="button"
-                  onClick={() => onSelectPreviewVideo?.(video.id)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-card"
-                >
-                  <span>{video.title || `Video #${video.id}`}</span>
-                  <span className="text-xs text-muted">#{video.id}</span>
-                </button>
-              ))}
+              ) : (
+                previewVideoResults.map((video) => (
+                  <button
+                    key={video.id}
+                    type="button"
+                    onClick={() => onSelectPreviewVideo?.(video.id)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-card"
+                  >
+                    <span>{video.title || `Video #${video.id}`}</span>
+                    <span className="text-xs text-muted">#{video.id}</span>
+                  </button>
+                ))
+              )}
             </div>
           ) : null}
         </div>
@@ -105,13 +115,19 @@ function SpanPreviewCard({
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-foreground">{title}</div>
-          <div className="mt-1 text-xs text-secondary">{video ? (video.title || `Video #${video.id}`) : "No preview video selected"}</div>
+          <div className="mt-1 text-xs text-secondary">
+            {video ? video.title || `Video #${video.id}` : "No preview video selected"}
+          </div>
         </div>
-        <div className="text-xs text-muted">{spans.length} span{spans.length === 1 ? "" : "s"}</div>
+        <div className="text-xs text-muted">
+          {spans.length} span{spans.length === 1 ? "" : "s"}
+        </div>
       </div>
 
       {loading ? <div className="mt-4 text-sm text-secondary">Loading preview...</div> : null}
-      {!loading && spans.length === 0 ? <div className="mt-4 text-sm text-secondary">No spans would be shown for this video.</div> : null}
+      {!loading && spans.length === 0 ? (
+        <div className="mt-4 text-sm text-secondary">No spans would be shown for this video.</div>
+      ) : null}
       {!loading && spans.length > 0 ? (
         <div className="mt-4 space-y-3">
           {spans.slice(0, 8).map((span) => {
@@ -131,7 +147,9 @@ function SpanPreviewCard({
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-secondary">
                   <span>{span.tagName || span.kind || span.sourceKey || span.spanKey}</span>
-                  <span>{formatSeconds(span.startSec)} - {formatSeconds(span.endSec)}</span>
+                  <span>
+                    {formatSeconds(span.startSec)} - {formatSeconds(span.endSec)}
+                  </span>
                 </div>
               </div>
             );

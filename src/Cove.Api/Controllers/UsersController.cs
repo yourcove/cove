@@ -38,7 +38,7 @@ public class UsersController : ControllerBase
     [RequiresPermission(Permissions.UsersInvite)]
     public async Task<IActionResult> CreateInvite([FromBody] CreateInviteRequest req, CancellationToken ct)
     {
-        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        var baseUrl = ResolveInviteBaseUrl(Request);
         return Ok(await _users.CreatePendingInviteAsync(req, baseUrl, _principalAccessor.Current, ct));
     }
 
@@ -79,8 +79,24 @@ public class UsersController : ControllerBase
     [RequiresPermission(Permissions.UsersInvite)]
     public async Task<IActionResult> Invite(int id, CancellationToken ct)
     {
-        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        var baseUrl = ResolveInviteBaseUrl(Request);
         return Ok(await _users.CreateInviteAsync(id, baseUrl, _principalAccessor.Current, ct));
+    }
+
+    internal static string ResolveInviteBaseUrl(HttpRequest request)
+    {
+        var origin = request.Headers.Origin.ToString();
+        if (Uri.TryCreate(origin, UriKind.Absolute, out var originUri)
+            && (originUri.Scheme == Uri.UriSchemeHttp || originUri.Scheme == Uri.UriSchemeHttps)
+            && originUri.AbsolutePath == "/"
+            && string.IsNullOrEmpty(originUri.Query)
+            && string.IsNullOrEmpty(originUri.Fragment)
+            && string.IsNullOrEmpty(originUri.UserInfo))
+        {
+            return originUri.GetLeftPart(UriPartial.Authority);
+        }
+
+        return $"{request.Scheme}://{request.Host}";
     }
 
     [HttpPost("{id:int}/unlock")]

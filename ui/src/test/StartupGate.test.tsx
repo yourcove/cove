@@ -20,15 +20,20 @@ describe("StartupGate", () => {
 
   it("keeps the connection screen visible while retrying and continues after recovery", async () => {
     let resolveRetry!: (status: { authEnabled: boolean }) => void;
-    apiMocks.status
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve; }));
+    apiMocks.status.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
       <QueryClientProvider client={queryClient}>
         <AppConfigProvider>
-          <StartupGate><div>Application ready</div></StartupGate>
+          <StartupGate>
+            <div>Application ready</div>
+          </StartupGate>
         </AppConfigProvider>
       </QueryClientProvider>,
     );

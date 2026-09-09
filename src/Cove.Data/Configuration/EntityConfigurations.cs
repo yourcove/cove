@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 
 namespace Cove.Data.Configuration;
 
@@ -130,6 +131,7 @@ public class GroupItemConfiguration : IEntityTypeConfiguration<GroupItem>
 
         builder.HasIndex(item => new { item.GroupId, item.OrderIndex });
         builder.HasIndex(item => new { item.HostType, item.HostId });
+        builder.HasIndex(item => new { item.Kind, item.HostId });
         builder.HasIndex(item => item.VideoId);
         builder.HasIndex(item => item.ImageId);
         builder.HasIndex(item => item.ChildGroupId);
@@ -207,7 +209,7 @@ public class AudioPerformerConfiguration : IEntityTypeConfiguration<AudioPerform
         builder.ToTable("audio_performers");
         builder.HasKey(link => new { link.AudioId, link.PerformerId });
         builder.HasOne(link => link.Audio).WithMany(audio => audio.AudioPerformers).HasForeignKey(link => link.AudioId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(link => link.Performer).WithMany().HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(link => link.Performer).WithMany(performer => performer.AudioPerformers).HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(link => link.PerformerId);
     }
 }
@@ -267,7 +269,7 @@ public class TextPerformerConfiguration : IEntityTypeConfiguration<TextPerformer
         builder.ToTable("text_performers");
         builder.HasKey(link => new { link.TextDocumentId, link.PerformerId });
         builder.HasOne(link => link.TextDocument).WithMany(text => text.TextPerformers).HasForeignKey(link => link.TextDocumentId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(link => link.Performer).WithMany().HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(link => link.Performer).WithMany(performer => performer.TextPerformers).HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(link => link.PerformerId);
     }
 }
@@ -289,8 +291,27 @@ public class CustomFieldDefinitionConfiguration : IEntityTypeConfiguration<Custo
             .HasForeignKey(value => value.DefinitionId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasMany(definition => definition.JsonPaths)
+            .WithOne(path => path.Definition)
+            .HasForeignKey(path => path.DefinitionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.HasIndex(definition => definition.Key).IsUnique();
         builder.HasIndex(definition => definition.DisplayOrder);
+    }
+}
+
+public class CustomFieldJsonPathDefinitionConfiguration : IEntityTypeConfiguration<CustomFieldJsonPathDefinition>
+{
+    public void Configure(EntityTypeBuilder<CustomFieldJsonPathDefinition> builder)
+    {
+        builder.ToTable("custom_field_json_paths");
+        builder.HasKey(path => path.Id);
+        builder.Property(path => path.Path).IsRequired().HasMaxLength(500);
+        builder.Property(path => path.Label).IsRequired().HasMaxLength(200);
+        builder.Property(path => path.Type).IsRequired().HasMaxLength(50);
+        builder.HasIndex(path => new { path.DefinitionId, path.Path }).IsUnique();
+        builder.HasIndex(path => new { path.DefinitionId, path.DisplayOrder });
     }
 }
 
@@ -302,6 +323,9 @@ public class CustomFieldValueConfiguration : IEntityTypeConfiguration<CustomFiel
         builder.HasKey(value => value.Id);
         builder.Property(value => value.EntityType).IsRequired().HasMaxLength(50);
         builder.Property(value => value.TextValue).HasMaxLength(4000);
+        builder.Property(value => value.LongTextValue).HasColumnType("text");
+        // Keep structured JSON separate from both bounded, indexed text and unbounded long text.
+        builder.Property(value => value.JsonValue).HasColumnType("jsonb");
         builder.Property(value => value.NumberValue).HasPrecision(18, 6);
 
         builder.HasIndex(value => new { value.DefinitionId, value.EntityType, value.EntityId, value.Position }).IsUnique();
@@ -676,6 +700,7 @@ public class TagApplicationConfiguration : IEntityTypeConfiguration<TagApplicati
         builder.HasOne(application => application.Tag).WithMany().HasForeignKey(application => application.TagId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(application => new { application.HostType, application.HostId });
+        builder.HasIndex(application => new { application.ContextType, application.ContextId });
         builder.HasIndex(application => new { application.HostType, application.HostId, application.ContextType, application.ContextId });
         builder.HasIndex(application => application.TagId);
         builder.HasIndex(application => application.SourceKey);
@@ -736,6 +761,7 @@ public class SegmentConfiguration : IEntityTypeConfiguration<Segment>
         builder.HasIndex(segment => segment.SourceKey);
         builder.HasIndex(segment => segment.SourceRunId);
         builder.HasIndex(segment => segment.Kind);
+        builder.HasIndex(segment => new { segment.Kind, segment.RefId });
     }
 }
 
@@ -747,6 +773,7 @@ public class SegmentDisplayRuleConfiguration : IEntityTypeConfiguration<SegmentD
         builder.HasKey(rule => rule.Id);
         builder.HasOne(rule => rule.Profile).WithMany(profile => profile.Rules).HasForeignKey(rule => rule.ProfileId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(rule => rule.Tag).WithMany().HasForeignKey(rule => rule.TagId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<User>().WithMany().HasForeignKey(rule => rule.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(rule => rule.ProfileId);
         builder.HasIndex(rule => rule.UserId);
@@ -763,6 +790,7 @@ public class SegmentDisplayProfileConfiguration : IEntityTypeConfiguration<Segme
         builder.Property(profile => profile.Name).IsRequired().HasMaxLength(200);
         builder.Property(profile => profile.Description).HasMaxLength(1000);
         builder.Property(profile => profile.Version).HasDefaultValue(1);
+        builder.HasOne<User>().WithMany().HasForeignKey(profile => profile.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(profile => profile.UserId);
         builder.HasIndex(profile => new { profile.UserId, profile.IsDefault });
@@ -878,6 +906,7 @@ public class FaceSuggestionDecisionConfiguration : IEntityTypeConfiguration<Face
             .WithMany()
             .HasForeignKey(decision => decision.PerformerId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<User>().WithMany().HasForeignKey(decision => decision.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(decision => new { decision.FaceId, decision.PerformerId, decision.UserId }).IsUnique();
         builder.HasIndex(decision => new { decision.FaceId, decision.UserId });
@@ -915,6 +944,7 @@ public class UserEntityAffinityConfiguration : IEntityTypeConfiguration<UserEnti
     {
         builder.ToTable("user_entity_affinities");
         builder.HasKey(affinity => affinity.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(affinity => affinity.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(affinity => new { affinity.UserId, affinity.HostType, affinity.HostId }).IsUnique();
         builder.HasIndex(affinity => new { affinity.UserId, affinity.IsFavorite });
         builder.HasIndex(affinity => new { affinity.UserId, affinity.LastConsumedAt });
@@ -946,6 +976,7 @@ public class UserBookmarkConfiguration : IEntityTypeConfiguration<UserBookmark>
     {
         builder.ToTable("user_bookmarks");
         builder.HasKey(bookmark => new { bookmark.UserId, bookmark.HostType, bookmark.HostId });
+        builder.HasOne<User>().WithMany().HasForeignKey(bookmark => bookmark.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(bookmark => new { bookmark.UserId, bookmark.CreatedAt });
     }
 }
@@ -956,6 +987,7 @@ public class InteractionConfiguration : IEntityTypeConfiguration<Interaction>
     {
         builder.ToTable("interactions");
         builder.HasKey(interaction => interaction.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(interaction => interaction.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Property(interaction => interaction.Meta).HasColumnType("jsonb");
         builder.HasIndex(interaction => new { interaction.UserId, interaction.HostType, interaction.HostId, interaction.At });
     }
@@ -967,6 +999,7 @@ public class RatingConfiguration : IEntityTypeConfiguration<Rating>
     {
         builder.ToTable("ratings");
         builder.HasKey(rating => rating.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(rating => rating.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Property(rating => rating.Aspect).IsRequired().HasMaxLength(100);
         builder.Property(rating => rating.Value).HasAnnotation("Range", new[] { 0, 100 });
         builder.HasIndex(rating => new { rating.UserId, rating.HostType, rating.HostId, rating.Aspect }).IsUnique();
@@ -1003,7 +1036,7 @@ public class SavedFilterConfiguration : IEntityTypeConfiguration<SavedFilter>
         builder.Property(f => f.FindFilter).HasColumnType("jsonb");
         builder.Property(f => f.ObjectFilter).HasColumnType("jsonb");
         builder.Property(f => f.UIOptions).HasColumnType("jsonb");
-        builder.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(f => new { f.UserId, f.Mode });
     }
 }
@@ -1066,6 +1099,29 @@ public class BaseFileEntityConfiguration : IEntityTypeConfiguration<BaseFileEnti
     }
 }
 
+public class PendingPhysicalFileDeletionConfiguration : IEntityTypeConfiguration<PendingPhysicalFileDeletion>
+{
+    public void Configure(EntityTypeBuilder<PendingPhysicalFileDeletion> builder)
+    {
+        builder.ToTable("pending_physical_file_deletions");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Path).IsRequired();
+        builder.Property(item => item.LastError).HasMaxLength(2_000);
+        builder.HasIndex(item => new { item.BatchId, item.Id });
+        builder.HasIndex(item => item.CreatedAt);
+    }
+}
+
+public class VideoDeletionCommitMarkerConfiguration : IEntityTypeConfiguration<VideoDeletionCommitMarker>
+{
+    public void Configure(EntityTypeBuilder<VideoDeletionCommitMarker> builder)
+    {
+        builder.ToTable("video_deletion_commit_markers");
+        builder.HasKey(item => new { item.BatchId, item.VideoId });
+        builder.HasIndex(item => item.CreatedAt);
+    }
+}
+
 public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
 {
     public void Configure(EntityTypeBuilder<VideoFile> builder)
@@ -1073,6 +1129,12 @@ public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
         // Composite (VideoId, Path) lets MIN(Path) WHERE VideoId = ? be answered
         // by an Index Only Scan, which is what the video-list "path" sort relies on.
         builder.HasIndex(v => new { v.VideoId, v.Path })
+            .HasFilter("\"VideoId\" IS NOT NULL");
+        // Fingerprint filters join files to a selected fingerprint type by file ID. Keep that join on
+        // the comparatively small set of video-backed files instead of scanning every media file.
+        builder.HasIndex(v => v.Id)
+            .HasDatabaseName("IX_files_Id_VideoId_video")
+            .IncludeProperties(v => v.VideoId)
             .HasFilter("\"VideoId\" IS NOT NULL");
     }
 }

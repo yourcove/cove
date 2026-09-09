@@ -27,13 +27,13 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
   const [extCounts, setExtCounts] = useState<Record<string, number>>({});
   useEffect(() => {
     if (entityId == null) {
-      setExtCounts((current) => Object.keys(current).length === 0 ? current : {});
+      setExtCounts((current) => (Object.keys(current).length === 0 ? current : {}));
       return;
     }
 
     const toFetch = extTabs.filter((t) => t.countEndpoint);
     if (toFetch.length === 0) {
-      setExtCounts((current) => Object.keys(current).length === 0 ? current : {});
+      setExtCounts((current) => (Object.keys(current).length === 0 ? current : {}));
       return;
     }
 
@@ -45,14 +45,15 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
           const res = await serverAwareFetch(url);
           if (res.ok) {
             const data = await res.json();
-            return { key: t.key, count: data.count ?? 0 } as { key: string; count: number };
+            // A null count means the extension has no measurement for this record.
+            return typeof data.count === "number" ? { key: t.key, count: data.count } : null;
           }
           console.warn(`[Extensions] Count endpoint failed for tab ${t.key}: ${res.status} ${res.statusText}`);
         } catch (error) {
           console.warn(`[Extensions] Count endpoint failed for tab ${t.key}`, error);
         }
         return null;
-      })
+      }),
     ).then((results) => {
       if (cancelled) return;
       const counts: Record<string, number> = {};
@@ -68,7 +69,9 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
         return counts;
       });
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [entityId, extTabs]);
 
   const allTabs = useMemo((): Tab[] => {
@@ -93,7 +96,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
       extTabs
         .filter((t) => t.countEndpoint && extCounts[t.key] != null)
         .map((t) => ({ key: t.key, label: t.label, count: extCounts[t.key], icon: t.icon })),
-    [extTabs, extCounts]
+    [extTabs, extCounts],
   );
 
   const renderExtensionTab = (activeTab: string, entityId: number, onNavigate?: (r: any) => void) => {
@@ -103,11 +106,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
     if (!extTab) return null;
     const Component = resolveComponent(extTab.extensionId, extTab.componentName);
     if (!Component) {
-      return (
-        <div className="p-4 text-muted">
-          Extension component not found: {extTab.componentName}
-        </div>
-      );
+      return <div className="p-4 text-muted">Extension component not found: {extTab.componentName}</div>;
     }
     return (
       <ExtensionErrorBoundary extensionId={extTab.extensionId} resetKey={getExtensionRevision(extTab.extensionId)}>

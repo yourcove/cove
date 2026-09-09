@@ -77,6 +77,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:videos:OrganizedCriterion/true",
             fixture => QueryFilteredIdsAsync(fixture.Context, "videos", new VideoFilter { OrganizedCriterion = new BoolCriterion { Value = true } }),
             _ => [402, 403])];
+        yield return [new FilterProbe(
+            "filter:videos:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "videos", new VideoFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [401])];
 
         yield return [new FilterProbe(
             "filter:images:TitleCriterion/includes",
@@ -94,6 +98,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:images:PerformerCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "images", new ImageFilter { PerformerCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [502, 503])];
+        yield return [new FilterProbe(
+            "filter:images:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "images", new ImageFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [501])];
 
         yield return [new FilterProbe(
             "filter:audios:TitleCriterion/includes",
@@ -115,6 +123,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:audios:FileSizeCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "audios", new AudioFilter { FileSizeCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1_500 } }),
             _ => [802, 803])];
+        yield return [new FilterProbe(
+            "filter:audios:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "audios", new AudioFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [801])];
 
         yield return [new FilterProbe(
             "filter:texts:TitleCriterion/includes",
@@ -136,6 +148,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:texts:ContentCriterion/includes",
             fixture => QueryFilteredIdsAsync(fixture.Context, "texts", new TextDocumentFilter { ContentCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "gamma text content" } }),
             _ => [903])];
+        yield return [new FilterProbe(
+            "filter:texts:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "texts", new TextDocumentFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [901])];
 
         yield return [new FilterProbe(
             "filter:galleries:TitleCriterion/includes",
@@ -152,6 +168,14 @@ public class EntityListSortBehaviorHarnessTests
         yield return [new FilterProbe(
             "filter:galleries:LastLikedAtCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { LastLikedAtCriterion = new TimestampCriterion { Modifier = CriterionModifier.GreaterThan, Value = fixture.Now.AddDays(-7).ToString("o") } }),
+            _ => [602, 603])];
+        yield return [new FilterProbe(
+            "filter:galleries:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [601])];
+        yield return [new FilterProbe(
+            "filter:galleries:FavoriteCriterion/false",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { FavoriteCriterion = new BoolCriterion { Value = false } }),
             _ => [602, 603])];
 
         yield return [new FilterProbe(
@@ -178,6 +202,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:groups:CachedItemCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "groups", new GroupFilter { CachedItemCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 10 } }),
             _ => [703])];
+        yield return [new FilterProbe(
+            "filter:groups:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "groups", new GroupFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [701])];
 
         yield return [new FilterProbe(
             "filter:segments:kind/includes",
@@ -219,6 +247,14 @@ public class EntityListSortBehaviorHarnessTests
         yield return [new FilterProbe(
             "filter:performers:VideoCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
+            _ => [301, 302])];
+        yield return [new FilterProbe(
+            "filter:performers:AudioCountCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { AudioCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
+            _ => [301, 302])];
+        yield return [new FilterProbe(
+            "filter:performers:TextCountCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { TextCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [301, 302])];
         yield return [new FilterProbe(
             "filter:performers:ImageCountCriterion/greater_than",
@@ -309,6 +345,49 @@ public class EntityListSortBehaviorHarnessTests
     }
 
     [Theory]
+    [InlineData("audio_count")]
+    [InlineData("text_count")]
+    public async Task PerformerRelationshipCountSortUsesStableIdTieBreakerAcrossPages(string sortKey)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        if (sortKey == "audio_count")
+        {
+            fixture.Context.Set<AudioPerformer>().Add(new AudioPerformer
+            {
+                AudioId = fixture.Audios[0].Id,
+                PerformerId = fixture.Performers[1].Id,
+            });
+        }
+        else
+        {
+            fixture.Context.Set<TextPerformer>().Add(new TextPerformer
+            {
+                TextDocumentId = fixture.Texts[0].Id,
+                PerformerId = fixture.Performers[1].Id,
+            });
+        }
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new PerformerRepository(fixture.Context);
+        var pageIds = new List<int>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await repository.FindAsync(null, new FindFilter
+            {
+                Page = page,
+                PerPage = 1,
+                Sort = sortKey,
+                Direction = CoveSortDirection.Desc,
+            }, TestContext.Current.CancellationToken);
+            pageIds.Add(result.Items.Single().Id);
+        }
+
+        Assert.Equal([fixture.Performers[1].Id, fixture.Performers[0].Id, fixture.Performers[2].Id], pageIds);
+    }
+
+    [Theory]
     [InlineData("images")]
     [InlineData("galleries")]
     [InlineData("audios")]
@@ -324,15 +403,15 @@ public class EntityListSortBehaviorHarnessTests
         var sharedUpdatedAt = DateTime.UtcNow.AddYears(-10);
         switch (entity)
         {
-            case "images": (await fixture.Context.Images.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "galleries": (await fixture.Context.Galleries.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "audios": (await fixture.Context.Audios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "texts": (await fixture.Context.TextDocuments.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "performers": (await fixture.Context.Performers.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "studios": (await fixture.Context.Studios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
-            case "tags": (await fixture.Context.Tags.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "images": (await fixture.Context.Images.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "galleries": (await fixture.Context.Galleries.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "audios": (await fixture.Context.Audios.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "texts": (await fixture.Context.TextDocuments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "performers": (await fixture.Context.Performers.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "studios": (await fixture.Context.Studios.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "tags": (await fixture.Context.Tags.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
         }
-        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var labelKey = entity is "performers" or "studios" or "tags" ? "name" : "title";
         var updatedKey = entity is "audios" or "texts" ? "updatedAt" : "updated_at";
@@ -351,13 +430,13 @@ public class EntityListSortBehaviorHarnessTests
 
         var actualIds = entity switch
         {
-            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
             "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
             "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
-            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
             _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
         };
 
@@ -393,13 +472,13 @@ public class EntityListSortBehaviorHarnessTests
 
         var existingRatings = await fixture.Context.Ratings
             .Where(rating => rating.UserId == TestUserId && rating.HostType == hostType && rating.Aspect == "overall")
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         fixture.Context.Ratings.RemoveRange(existingRatings);
         fixture.Context.Ratings.AddRange(
             new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[0], Aspect = "overall", Value = 5 },
             new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[1], Aspect = "overall", Value = 5 },
             new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[2], Aspect = "overall", Value = 1 });
-        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var labelKey = entity is "performers" or "studios" or "tags" ? "name" : "title";
         var findFilter = new FindFilter
@@ -415,14 +494,14 @@ public class EntityListSortBehaviorHarnessTests
 
         var actualIds = entity switch
         {
-            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
             "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
             "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
-            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
             _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
         };
 
@@ -485,7 +564,7 @@ public class EntityListSortBehaviorHarnessTests
                 case "last_read_at": affinity.LastConsumedAt = tiedValue ? new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc); break;
             }
         }
-        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var findFilter = new FindFilter
         {
@@ -500,8 +579,8 @@ public class EntityListSortBehaviorHarnessTests
 
         var actualIds = entity switch
         {
-            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
-            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray(),
             "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
             "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
             _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
@@ -524,7 +603,7 @@ public class EntityListSortBehaviorHarnessTests
         galleriesByLikes[0].Date = new DateOnly(2020, 1, 1);
         galleriesByLikes[1].Date = new DateOnly(2030, 1, 1);
         galleriesByLikes[2].Date = new DateOnly(2025, 1, 1);
-        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var findFilter = new FindFilter
         {
@@ -537,7 +616,7 @@ public class EntityListSortBehaviorHarnessTests
             ],
         };
 
-        var actualIds = (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray();
+        var actualIds = (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).ToArray();
         var expectedIds = fixture.Galleries
             .OrderByDescending(gallery =>
                 gallery.ImageGalleries.Sum(link => fixture.Affinity(AffinityHostType.Image, link.ImageId).LikeCount)
@@ -588,13 +667,13 @@ public class EntityListSortBehaviorHarnessTests
             new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[0].Id, Kind = InteractionKind.LikeCount, At = now.AddHours(-1) },
             new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[1].Id, Kind = InteractionKind.LikeCount, At = now.AddHours(-1) },
             new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[2].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-1) });
-        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var likeResult = await new GalleryRepository(fixture.Context).FindAsync(null, new FindFilter
         {
             Page = 1, PerPage = 10,
             Sorts = [new SortClause("like_counter", CoveSortDirection.Desc), new SortClause("date", CoveSortDirection.Desc)],
-        });
+        }, TestContext.Current.CancellationToken);
         var likeIds = likeResult.Items.Select(gallery => gallery.Id).ToArray();
         Assert.Equal([9102, 9101, 9103], likeIds[..3]);
         Assert.True(Array.IndexOf(likeIds, 9104) > Array.IndexOf(likeIds, 9103));
@@ -603,7 +682,7 @@ public class EntityListSortBehaviorHarnessTests
         {
             Page = 1, PerPage = 10,
             Sorts = [new SortClause("last_like_at", CoveSortDirection.Desc), new SortClause("date", CoveSortDirection.Desc)],
-        });
+        }, TestContext.Current.CancellationToken);
         var lastLikeIds = lastLikeResult.Items.Select(gallery => gallery.Id).ToArray();
         Assert.Equal([9102, 9101, 9103], lastLikeIds[..3]);
         Assert.True(Array.IndexOf(lastLikeIds, 9104) > Array.IndexOf(lastLikeIds, 9103));
@@ -611,7 +690,7 @@ public class EntityListSortBehaviorHarnessTests
         var singleLastLikeResult = await new GalleryRepository(fixture.Context).FindAsync(null, new FindFilter
         {
             Page = 1, PerPage = 10, Sort = "last_like_at", Direction = CoveSortDirection.Desc,
-        });
+        }, TestContext.Current.CancellationToken);
         var singleLastLikeIds = singleLastLikeResult.Items.Select(gallery => gallery.Id).ToArray();
         Assert.True(Array.IndexOf(singleLastLikeIds, 9104) > Array.IndexOf(singleLastLikeIds, 9103));
     }
@@ -622,7 +701,7 @@ public class EntityListSortBehaviorHarnessTests
         await using var fixture = await SortHarnessFixture.CreateAsync();
         fixture.ActivatePrincipal();
         var contractPath = FindRepositoryFile("ui", "src", "components", "entityMultiSortKeys.json");
-        var contract = JsonSerializer.Deserialize<Dictionary<string, string[]>>(await File.ReadAllTextAsync(contractPath))
+        var contract = JsonSerializer.Deserialize<Dictionary<string, string[]>>(await File.ReadAllTextAsync(contractPath, TestContext.Current.CancellationToken))
             ?? throw new InvalidOperationException("Compound-sort contract is empty.");
 
         foreach (var (entity, advertisedKeys) in contract)
@@ -702,6 +781,32 @@ public class EntityListSortBehaviorHarnessTests
         var faceSortedIds = await QueryFaceIdsAsync(fixture.Context, "custom:number:extension_score", CoveSortDirection.Desc);
         // 1102 is merged and hidden from the list, so it never appears in the sorted result.
         Assert.Equal([1103, 1101], faceSortedIds);
+    }
+
+
+    [Theory]
+    [InlineData(CoveSortDirection.Asc)]
+    [InlineData(CoveSortDirection.Desc)]
+    public async Task EqualCustomFieldValuesUseRequestedIdDirectionAcrossPages(CoveSortDirection direction)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        var values = await fixture.Context.CustomFieldValues
+            .Where(value => value.EntityType == CustomFieldEntityTypes.Video && value.Definition!.Key == "extension_score")
+            .ToListAsync(TestContext.Current.CancellationToken);
+        var firstValue = values.Single(value => value.EntityId == 401).NumberValue;
+        values.Single(value => value.EntityId == 403).NumberValue = firstValue;
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var ids = new List<int>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await new VideoRepository(fixture.Context).FindAsync(null,
+                new FindFilter { Sort = "custom:number:extension_score", Direction = direction, Page = page, PerPage = 1 },
+                TestContext.Current.CancellationToken);
+            ids.Add(Assert.Single(result.Items).Id);
+        }
+        Assert.Equal(direction == CoveSortDirection.Asc ? [402, 401, 403] : new[] { 403, 401, 402 }, ids);
     }
 
     private static bool IsBehaviorTested(EntityListSortDefinition sort)
@@ -1223,6 +1328,8 @@ public class EntityListSortBehaviorHarnessTests
             "name" => Order(fixture.Performers, performer => performer.Name, descending),
             "rating" => Order(fixture.Performers, performer => fixture.Rating(RatingHostType.Performer, performer.Id), descending),
             "video_count" => Order(fixture.Performers, performer => performer.VideoPerformers.Count, descending),
+            "audio_count" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Audios.Count(audio => audio.AudioPerformers.Any(link => link.PerformerId == performer.Id)), descending),
+            "text_count" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Texts.Count(text => text.TextPerformers.Any(link => link.PerformerId == performer.Id)), descending),
             "image_count" => Order(fixture.Performers, performer => performer.ImagePerformers.Count, descending),
             "gallery_count" => Order(fixture.Performers, performer => performer.GalleryPerformers.Count, descending),
             "latest_video_date" => Order(fixture.Performers, performer => performer.VideoPerformers.Max(link => link.Video!.Date), descending),
@@ -1315,8 +1422,8 @@ public class EntityListSortBehaviorHarnessTests
     private static IReadOnlyList<int> Order<T, TKey>(IEnumerable<T> items, Func<T, TKey> keySelector, bool descending)
         where T : BaseEntity
         => descending
-            ? items.OrderByDescending(keySelector).Select(item => item.Id).ToArray()
-            : items.OrderBy(keySelector).Select(item => item.Id).ToArray();
+            ? items.OrderByDescending(keySelector).ThenByDescending(item => item.Id).Select(item => item.Id).ToArray()
+            : items.OrderBy(keySelector).ThenBy(item => item.Id).Select(item => item.Id).ToArray();
 
     private static IReadOnlyList<int> OrderWithDirectionalIdTieBreaker<T, TKey>(IEnumerable<T> items, Func<T, TKey> keySelector, bool descending)
         where T : BaseEntity
@@ -1827,15 +1934,19 @@ public class EntityListSortBehaviorHarnessTests
             AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20), favoritedAt: now.AddDays(-8));
             AddAffinity(AffinityHostType.Video, videos[2].Id, viewCount: 9, likeCount: 30, totalConsumedSec: 300, lastPositionSec: 33, lastConsumedAt: now.AddDays(-10), favoritedAt: now.AddDays(-6));
-            AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30));
+            Affinity(AffinityHostType.Video, videos[1].Id).IsFavorite = false;
+            Affinity(AffinityHostType.Video, videos[2].Id).IsFavorite = false;
+            AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Image, images[1].Id, viewCount: 1, likeCount: 15, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-20));
             AddAffinity(AffinityHostType.Image, images[2].Id, viewCount: 1, likeCount: 25, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-10));
-            AddAffinity(AffinityHostType.Audio, audios[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-25));
+            AddAffinity(AffinityHostType.Audio, audios[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-25), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Audio, audios[1].Id, viewCount: 4, likeCount: 8, totalConsumedSec: 80, lastPositionSec: 8, lastConsumedAt: now.AddDays(-15));
             AddAffinity(AffinityHostType.Audio, audios[2].Id, viewCount: 6, likeCount: 12, totalConsumedSec: 120, lastPositionSec: 12, lastConsumedAt: now.AddDays(-5));
-            AddAffinity(AffinityHostType.Text, texts[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-24));
+            AddAffinity(AffinityHostType.Text, texts[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-24), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Text, texts[1].Id, viewCount: 4, likeCount: 8, totalConsumedSec: 80, lastPositionSec: 8, lastConsumedAt: now.AddDays(-14));
             AddAffinity(AffinityHostType.Text, texts[2].Id, viewCount: 6, likeCount: 12, totalConsumedSec: 120, lastPositionSec: 12, lastConsumedAt: now.AddDays(-4));
+            AddAffinity(AffinityHostType.Gallery, galleries[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
+            AddAffinity(AffinityHostType.Group, groups[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
             Context.Interactions.AddRange(
                 new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[0].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-9) },
                 new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[1].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-6) },

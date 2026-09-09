@@ -15,6 +15,22 @@ public sealed partial class CoveClient
     public Task<JsonElement> ScrapeUrlAutoAsync(ScraperMatchUrlRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-url-auto", request, cancellationToken);
     public Task<JsonElement> ScrapeNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-name", request, cancellationToken);
     public Task<JsonElement> ScrapeFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-fragment", request, cancellationToken);
+
+    public Task<IReadOnlyList<ScrapedPerformerDto>> ScrapePerformerNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<IReadOnlyList<ScrapedPerformerDto>>(
+            HttpMethod.Post,
+            "/api/system/scrapers/scrape-name",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<ScrapedPerformerDto> ScrapePerformerFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ScrapedPerformerDto>(
+            HttpMethod.Post,
+            "/api/system/scrapers/scrape-fragment",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
     public Task<MetadataServerValidationResultDto> ValidateMetadataServerAsync(MetadataServerDto metadataServer, CancellationToken cancellationToken = default) => SendAsync<MetadataServerValidationResultDto>(HttpMethod.Post, "/api/system/metadata-servers/validate", metadataServer, cancellationToken);
 
     public Task<CoveConfigDto> GetSystemConfigAsync(
@@ -23,6 +39,37 @@ public sealed partial class CoveClient
             HttpMethod.Get,
             WithCacheNonce("/api/system/config"),
             payload: null,
+            cancellationToken);
+
+    public Task<CoveConfigDto> SaveSystemConfigAsync(
+        CoveConfigDto config,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<CoveConfigDto>(
+            HttpMethod.Put,
+            "/api/system/config",
+            config,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<SystemUiConfigResult> ConfigureSystemUiAsync(
+        IReadOnlyDictionary<string, object?> input,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<SystemUiConfigResult>(
+            HttpMethod.Post,
+            "/api/system/config/ui",
+            input,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<SystemUiSettingResult> ConfigureSystemUiSettingAsync(
+        string key,
+        object? value,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<SystemUiSettingResult>(
+            HttpMethod.Put,
+            $"/api/system/config/ui/{Uri.EscapeDataString(key)}",
+            value,
+            System.Net.HttpStatusCode.OK,
             cancellationToken);
 
     public Task<StatsDto> GetSystemStatsAsync(
@@ -39,6 +86,16 @@ public sealed partial class CoveClient
             HttpMethod.Get,
             WithCacheNonce("/api/system/log-level"),
             payload: null,
+            cancellationToken);
+
+    public Task<FfmpegCapabilitiesResponse> GetFfmpegCapabilitiesAsync(
+        CancellationToken cancellationToken = default,
+        bool refresh = false)
+        => SendForExpectedStatusAsync<FfmpegCapabilitiesResponse>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/system/ffmpeg-capabilities?refresh={refresh.ToString().ToLowerInvariant()}"),
+            payload: null,
+            System.Net.HttpStatusCode.OK,
             cancellationToken);
 
     public Task<SystemLogLevelStatus> SetSystemLogLevelAsync(
@@ -72,10 +129,33 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => UploadSystemUiAssetAsync("/api/system/ui/logo", content, fileName, mediaType, cancellationToken);
 
-    public Task<UserDto> CreateUserAsync(
-        CreateUserRequest user,
+    public Task<IReadOnlyList<RoleDto>> GetRolesAsync(
         CancellationToken cancellationToken = default)
-        => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
+        => SendAsync<IReadOnlyList<RoleDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/roles"),
+            payload: null,
+            cancellationToken);
+
+    public Task<RoleDto> UpdateRoleAsync(
+        int roleId,
+        UpdateRoleRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<RoleDto>(HttpMethod.Put, $"/api/roles/{roleId}", request, cancellationToken);
+
+    public Task<ContentRuleDto> CreateContentRuleAsync(
+        CreateContentRuleRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ContentRuleDto>(HttpMethod.Post, "/api/content-rules", request, cancellationToken);
+
+    public Task<EntityOverrideDto> CreateEntityOverrideAsync(
+        CreateEntityOverrideRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityOverrideDto>(
+            HttpMethod.Post,
+            "/api/content-rules/overrides",
+            request,
+            cancellationToken);
 
     public Task<JsonElement> ReadEndpointAsync(
         ReadEndpoint endpoint,
@@ -203,10 +283,21 @@ public sealed partial class CoveClient
     }
 }
 
+public sealed record SystemUiConfigResult(bool Success);
+
+public sealed record SystemUiSettingResult(string Key, JsonElement Value, bool Success);
+
 public sealed record SystemLogLevelStatus(
     string Level,
     string ConfiguredLevel,
     DateTimeOffset? TraceExpiresAt);
+
+public sealed record FfmpegCapabilitiesResponse(
+    bool FfmpegFound,
+    string? FfmpegPath,
+    IReadOnlyList<string> Accelerators,
+    IReadOnlyList<string> Decoders,
+    DateTime ProbedAtUtc);
 
 public sealed record SystemUiAssetUploadResult(string Path, string FileName);
 

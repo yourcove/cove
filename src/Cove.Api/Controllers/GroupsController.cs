@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -10,13 +11,14 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 
 namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.GroupsRead)]
-public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
+public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private static readonly string[] DefaultAllowedHostTypes = ["video", "image", "audio", "text", "group", "performer", "studio", "tag", "gallery", "face", "segment"];
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -67,6 +69,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<GroupDto>> GetById(int id, CancellationToken ct)
     {
@@ -77,12 +80,15 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
     [HttpPost]
     [RequiresPermission(Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Create([FromBody] GroupCreateDto dto, CancellationToken ct)
     {
+        var date = PartialDate.Parse(dto.Date);
         var group = new Group
         {
             Name = dto.Name, Aliases = dto.Aliases,
-            Date = ParseDate(dto.Date), StudioId = dto.StudioId,
+            Date = date.Value, DatePrecision = date.Precision, StudioId = dto.StudioId,
             Director = dto.Director, Synopsis = dto.Description,
             Kind = dto.Kind ?? GroupKind.Static,
             QuerySourceKey = dto.Kind == GroupKind.Dynamic ? NormalizeOptionalText(dto.QuerySourceKey) : null,
@@ -106,6 +112,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Update(int id, [FromBody] GroupUpdateDto dto, CancellationToken ct)
     {
         var group = await groupRepo.GetByIdWithRelationsAsync(id, ct);
@@ -114,7 +122,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
         if (dto.Name != null) group.Name = dto.Name;
         if (dto.Aliases != null) group.Aliases = dto.Aliases;
-        if (dto.Date != null) group.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); group.Date = date.Value; group.DatePrecision = date.Precision; }
         if (dto.StudioId.HasValue) group.StudioId = dto.StudioId;
         if (dto.Director != null) group.Director = dto.Director;
         if (dto.Description != null) group.Synopsis = dto.Description;
@@ -145,17 +153,20 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
         if (dto.Urls != null)
         {
-            group.Urls.Clear();
-            group.Urls = dto.Urls.Select(u => new GroupUrl { Url = u, GroupId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(group.Urls, dto.Urls, item => item.Url, url => new GroupUrl { Url = url, GroupId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(group);
         }
         if (dto.TagIds != null)
         {
-            group.GroupTags.Clear();
-            group.GroupTags = dto.TagIds.Select(tid => new GroupTag { TagId = tid, GroupId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(group.GroupTags, dto.TagIds, item => item.TagId, tagId => new GroupTag { TagId = tagId, GroupId = id }))
+                MetadataCollectionUpdater.Touch(group);
         }
         await groupRepo.UpdateAsync(group, ct);
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Group, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Group, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(group);
+            await groupRepo.UpdateAsync(group, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Group, id, dto.Rating, cancellationToken: ct);
         var updated = await groupRepo.GetByIdWithRelationsAsync(id, ct);
@@ -171,6 +182,18 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         if (g == null) return NotFound();
         if (DynamicGroupResolver.IsProtectedBuiltInGroup(g.QuerySourceKey))
             return Conflict(new { error = "This is a built-in group and cannot be deleted." });
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Group,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
         await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Group, id, ct);
         await groupRepo.DeleteAsync(id, ct);
         return NoContent();
@@ -181,6 +204,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkGroupUpdateDto dto, CancellationToken ct)
     {
         var groups = await db.Groups
@@ -196,7 +221,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             if (clearFields.Contains("director")) g.Director = null;
             if (clearFields.Contains("description") || clearFields.Contains("synopsis")) g.Synopsis = null;
             if (dto.StudioId.HasValue) g.StudioId = dto.StudioId;
-            if (dto.Date != null) g.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); g.Date = date.Value; g.DatePrecision = date.Precision; }
             if (dto.Director != null) g.Director = dto.Director;
             if (dto.Description != null) g.Synopsis = dto.Description;
 
@@ -229,19 +254,16 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.GroupsDelete)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteWithSkippedResult([], 0));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one group to delete.");
 
-        var groups = await db.Groups.Where(group => ids.Contains(group.Id)).ToListAsync(ct);
-        var deletable = groups.Where(group => !DynamicGroupResolver.IsProtectedBuiltInGroup(group.QuerySourceKey)).ToList();
-        var skipped = groups.Count - deletable.Count;
-        foreach (var group in deletable)
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Group, group.Id, ct);
-        db.Groups.RemoveRange(deletable);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteWithSkippedResult(deletable.Select(group => group.Id).ToList(), skipped));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Group,
+            ids));
     }
 
     [HttpPut("reorder")]
@@ -321,7 +343,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             .Where(r => r.ContainingGroupId == id)
             .OrderBy(r => r.OrderIndex)
             .Include(r => r.SubGroup!).ThenInclude(g => g.Urls)
-            .Include(r => r.SubGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag)
+            .Include(r => r.SubGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(r => r.SubGroup!).ThenInclude(g => g.GroupItems)
             .ToListAsync(ct);
         var groups = relations.Where(r => r.SubGroup != null).Select(r => r.SubGroup!).ToList();
@@ -338,7 +360,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             .Where(r => r.SubGroupId == id)
             .OrderBy(r => r.OrderIndex)
             .Include(r => r.ContainingGroup!).ThenInclude(g => g.Urls)
-            .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag)
+            .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupItems)
             .ToListAsync(ct);
         var groups = relations.Where(r => r.ContainingGroup != null).Select(r => r.ContainingGroup!).ToList();
@@ -451,10 +473,10 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         var itemCount = g.Kind == GroupKind.Dynamic ? dynamicCounts?.ItemCount ?? g.CachedItemCount ?? counts.ItemCount : g.GroupItems.Count;
 
         return new GroupDto(
-            g.Id, g.Name, g.Aliases, g.Date?.ToString("yyyy-MM-dd"),
+            g.Id, g.Name, g.Aliases, PartialDate.Format(g.Date, g.DatePrecision),
             g.StudioId, g.Studio?.Name, g.Director, g.Synopsis,
             g.Urls.Select(u => u.Url).ToList(),
-            g.GroupTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!)).ToList(),
+            g.GroupTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!)).OrderForDisplay().ToList(),
             counts.VideoCount,
             itemCount,
             g.GroupItems.Any(item => item.Kind == GroupItemKind.VideoRange),
@@ -676,7 +698,6 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     private static Dictionary<string, object>? GetCustomFields(IReadOnlyDictionary<int, Dictionary<string, object>> lookup, int id)
         => lookup.TryGetValue(id, out var values) && values.Count > 0 ? values : null;
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

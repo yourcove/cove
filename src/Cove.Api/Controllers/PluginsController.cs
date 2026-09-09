@@ -66,6 +66,8 @@ public class PluginsController(
     {
         if (!IsSafePluginId(dto.PluginId))
             return BadRequest("Invalid plugin id.");
+        if (config.DisabledPlugins.Contains(dto.PluginId) || !extensionManager.IsEnabled(dto.PluginId))
+            return Conflict($"Plugin '{dto.PluginId}' is disabled.");
 
         // Check if it's a Python plugin
         foreach (var pluginDir in GetPluginDirectories())
@@ -132,24 +134,63 @@ public class PluginsController(
 
     [HttpPost("settings")]
     [RequiresPermission(Permissions.ExtensionsConfigure)]
-    public async Task<IActionResult> UpdateSettings([FromBody] PluginSettingsDto dto)
+    public async Task<IActionResult> UpdateSettings(
+        [FromBody] PluginSettingsDto dto,
+        CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         foreach (var (pluginId, enabled) in dto.EnabledMap)
         {
             if (enabled)
             {
-                await extensionManager.EnableExtensionAsync(pluginId);
-                config.DisabledPlugins.Remove(pluginId);
+                var extension = extensionManager.GetExtension(pluginId);
+                if (extension != null)
+                {
+                    var enabledExtensions = await extensionManager.EnableExtensionAsync(pluginId, CancellationToken.None);
+                    var requestedExtensionEnabled = enabledExtensions.Contains(pluginId, StringComparer.OrdinalIgnoreCase);
+                    var initialized = requestedExtensionEnabled;
+                    foreach (var extensionId in enabledExtensions)
+                        initialized &= await extensionManager.EnsureExtensionInitializedAsync(extensionId, CancellationToken.None);
+
+                    if (!initialized)
+                    {
+                        var disabledExtensions = await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
+                        SynchronizeLegacyDisabledState(enabledExtensions.Concat(disabledExtensions).Append(pluginId));
+                        await configService.SaveCurrentConfigAsync();
+                        return Conflict($"Plugin '{pluginId}' could not be initialized and remains disabled.");
+                    }
+
+                    SynchronizeLegacyDisabledState(enabledExtensions);
+                }
+                else
+                {
+                    config.DisabledPlugins.Remove(pluginId);
+                }
             }
             else
             {
-                await extensionManager.DisableExtensionAsync(pluginId);
-                config.DisabledPlugins.Add(pluginId);
+                var disabledExtensions = await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
+                if (disabledExtensions.Count > 0)
+                    SynchronizeLegacyDisabledState(disabledExtensions);
+                else
+                    config.DisabledPlugins.Add(pluginId);
             }
         }
 
         await configService.SaveCurrentConfigAsync();
         return Ok();
+    }
+
+    private void SynchronizeLegacyDisabledState(IEnumerable<string> extensionIds)
+    {
+        foreach (var extensionId in extensionIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (extensionManager.IsEnabled(extensionId))
+                config.DisabledPlugins.Remove(extensionId);
+            else
+                config.DisabledPlugins.Add(extensionId);
+        }
     }
 
     [HttpGet("{pluginId}/config")]

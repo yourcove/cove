@@ -3,8 +3,25 @@ import { useMutation } from "@tanstack/react-query";
 import { tags } from "../api/client";
 import type { MetadataServer, MetadataServerTagImportRequest, MetadataServerTagMatch, Tag } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
-import { DEFAULT_TAGGER_BLACKLIST, RemoteRefreshButtons, TaggerSettingsPanel, TaggerToolbar, cleanTaggerQueryString } from "./TaggerShared";
-import { AlertCircle, Check, CloudDownload, CloudUpload, Eye, EyeOff, Loader2, Search, Tag as TagIcon, X } from "lucide-react";
+import {
+  DEFAULT_TAGGER_BLACKLIST,
+  RemoteRefreshButtons,
+  TaggerSettingsPanel,
+  TaggerToolbar,
+  cleanTaggerQueryString,
+} from "./TaggerShared";
+import {
+  AlertCircle,
+  Check,
+  CloudDownload,
+  CloudUpload,
+  Eye,
+  EyeOff,
+  Loader2,
+  Search,
+  Tag as TagIcon,
+  X,
+} from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface TagTaggerProps {
@@ -32,7 +49,12 @@ interface TagSearchState {
 
 const CONCURRENCY_LIMIT = 5;
 
-async function runWithConcurrency<T>(items: T[], fn: (item: T) => Promise<void>, limit: number, signal?: AbortSignal): Promise<void> {
+async function runWithConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<void> {
   let index = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (index < items.length) {
@@ -62,17 +84,26 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
     setSearchStates((prev) => ({ ...prev, [tagId]: { ...prev[tagId], ...update } }));
   }, []);
 
-  const searchTag = useCallback(async (tag: Tag) => {
-    const query = queryOverrides[tag.id] ?? cleanTaggerQueryString(tag.name, taggerConfig.blacklist);
-    updateSearchState(tag.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
-    try {
-      const endpoint = taggerConfig.selectedEndpoint || undefined;
-      const results = await tags.searchMetadataServer(tag.id, query, endpoint);
-      updateSearchState(tag.id, { loading: false, results, selectedIndex: results.length > 0 ? 0 : undefined });
-    } catch (err) {
-      updateSearchState(tag.id, { loading: false, error: err instanceof Error ? err.message : "Search failed" });
-    }
-  }, [queryOverrides, taggerConfig.blacklist, taggerConfig.selectedEndpoint, updateSearchState]);
+  const searchTag = useCallback(
+    async (tag: Tag) => {
+      const query = queryOverrides[tag.id] ?? cleanTaggerQueryString(tag.name, taggerConfig.blacklist);
+      updateSearchState(tag.id, {
+        loading: true,
+        error: undefined,
+        warning: undefined,
+        results: undefined,
+        saved: false,
+      });
+      try {
+        const endpoint = taggerConfig.selectedEndpoint || undefined;
+        const results = await tags.searchMetadataServer(tag.id, query, endpoint);
+        updateSearchState(tag.id, { loading: false, results, selectedIndex: results.length > 0 ? 0 : undefined });
+      } catch (err) {
+        updateSearchState(tag.id, { loading: false, error: err instanceof Error ? err.message : "Search failed" });
+      }
+    },
+    [queryOverrides, taggerConfig.blacklist, taggerConfig.selectedEndpoint, updateSearchState],
+  );
 
   const searchAll = useCallback(async () => {
     setBatchSearching(true);
@@ -94,16 +125,17 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
       <div className="px-4 py-12 text-center">
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-muted opacity-50" />
         <p className="text-secondary text-lg">No Metadata Server Sources Configured</p>
-        <p className="text-muted text-sm mt-1">Add a metadata server endpoint in Settings &gt; Metadata Providers to use the tagger.</p>
+        <p className="text-muted text-sm mt-1">
+          Add a metadata server endpoint in Settings &gt; Metadata Providers to use the tagger.
+        </p>
       </div>
     );
   }
 
   // Detail mode was opened for this specific tag, so always show it (the bulk "hide tagged"
   // convenience filter would otherwise leave the dialog empty).
-  const visibleTags = mode === "detail" || taggerConfig.showTagged
-    ? tagList
-    : tagList.filter((tag) => !searchStates[tag.id]?.saved);
+  const visibleTags =
+    mode === "detail" || taggerConfig.showTagged ? tagList : tagList.filter((tag) => !searchStates[tag.id]?.saved);
   const visibleTagIds = visibleTags.map((tag) => tag.id);
 
   return (
@@ -115,12 +147,16 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
           setTaggerConfig((current) => ({ ...current, selectedEndpoint: value }));
           setQueryOverrides({});
         }}
-        showToggle={mode === "bulk" ? {
-          value: taggerConfig.showTagged,
-          onChange: (value) => setTaggerConfig((current) => ({ ...current, showTagged: value })),
-          enabledLabel: "Hide Saved",
-          disabledLabel: "Show Saved",
-        } : undefined}
+        showToggle={
+          mode === "bulk"
+            ? {
+                value: taggerConfig.showTagged,
+                onChange: (value) => setTaggerConfig((current) => ({ ...current, showTagged: value })),
+                enabledLabel: "Hide Saved",
+                disabledLabel: "Show Saved",
+              }
+            : undefined
+        }
         batchSearching={batchSearching}
         onCancelBatch={cancelBatchSearch}
         onRunAll={searchAll}
@@ -160,7 +196,20 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
   );
 }
 
-function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateState, endpoint, metadataServers, detailMode = false, selected, selecting, onSelect }: {
+function TagTaggerRow({
+  tag,
+  state,
+  query,
+  onQueryChange,
+  onSearch,
+  onUpdateState,
+  endpoint,
+  metadataServers,
+  detailMode = false,
+  selected,
+  selecting,
+  onSelect,
+}: {
   tag: Tag;
   state?: TagSearchState;
   query: string;
@@ -176,23 +225,26 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
 }) {
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
 
-  const refreshFromRemote = useCallback(async (refreshEndpoint: string, remoteId: string) => {
-    setRefreshBusyEndpoint(refreshEndpoint);
-    onUpdateState({ loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
-    try {
-      const results = await tags.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
-      onUpdateState({
-        loading: false,
-        results,
-        selectedIndex: results.length > 0 ? 0 : undefined,
-        error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
-      });
-    } catch (err) {
-      onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
-    } finally {
-      setRefreshBusyEndpoint(null);
-    }
-  }, [onUpdateState]);
+  const refreshFromRemote = useCallback(
+    async (refreshEndpoint: string, remoteId: string) => {
+      setRefreshBusyEndpoint(refreshEndpoint);
+      onUpdateState({ loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
+      try {
+        const results = await tags.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
+        onUpdateState({
+          loading: false,
+          results,
+          selectedIndex: results.length > 0 ? 0 : undefined,
+          error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+        });
+      } catch (err) {
+        onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
+      } finally {
+        setRefreshBusyEndpoint(null);
+      }
+    },
+    [onUpdateState],
+  );
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -201,10 +253,12 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
       const request: MetadataServerTagImportRequest = { endpoint: selectedResult.endpoint, tagId: selectedResult.id };
       return tags.importFromMetadataServer(tag.id, request);
     },
-    onSuccess: (result) => onUpdateState({
-      saved: true,
-      warning: result.importWarnings && result.importWarnings.length > 0 ? result.importWarnings.join(" ") : undefined,
-    }),
+    onSuccess: (result) =>
+      onUpdateState({
+        saved: true,
+        warning:
+          result.importWarnings && result.importWarnings.length > 0 ? result.importWarnings.join(" ") : undefined,
+      }),
   });
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
@@ -231,7 +285,11 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
         )}
         <div className="flex-shrink-0 w-24">
           <div className="relative aspect-video bg-card rounded overflow-hidden flex items-center justify-center">
-            {tag.imagePath ? <img src={tag.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" /> : <TagIcon className="w-8 h-8 text-muted" />}
+            {tag.imagePath ? (
+              <img src={tag.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" />
+            ) : (
+              <TagIcon className="w-8 h-8 text-muted" />
+            )}
           </div>
           <p className="text-xs text-foreground mt-1 truncate font-medium">{tag.name}</p>
           {tag.tagGroupName && <p className="text-[10px] text-muted truncate">{tag.tagGroupName}</p>}
@@ -254,7 +312,11 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
               placeholder="Search query..."
               className="flex-1 bg-input border border-border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent"
             />
-            <button onClick={onSearch} disabled={state?.loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover disabled:opacity-60">
+            <button
+              onClick={onSearch}
+              disabled={state?.loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover disabled:opacity-60"
+            >
               {state?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Search
             </button>
@@ -264,15 +326,39 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
               className="flex items-center gap-1 px-2 py-1.5 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
               title="Submit this tag as a draft entry to the metadata server"
             >
-              {submitDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+              {submitDraftMut.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CloudUpload className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
 
-          {submitDraftMut.isError && <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>}
-          {submitDraftMut.isSuccess && <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Tag draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>}
+          {submitDraftMut.isError && (
+            <p className="text-xs text-red-400 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {submitDraftMut.error.message}
+            </p>
+          )}
+          {submitDraftMut.isSuccess && (
+            <p className="text-xs text-green-400 mb-2">
+              <Check className="w-3 h-3 inline mr-1" />
+              Tag draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.
+            </p>
+          )}
 
-          {state?.error && <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{state.error}</p>}
-          {state?.warning && <p className="text-xs text-amber-300 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />Saved with warnings: {state.warning}</p>}
+          {state?.error && (
+            <p className="text-xs text-red-400 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {state.error}
+            </p>
+          )}
+          {state?.warning && (
+            <p className="text-xs text-amber-300 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              Saved with warnings: {state.warning}
+            </p>
+          )}
           {state?.results && state.results.length === 0 && <p className="text-xs text-muted">No matches found.</p>}
           {state?.results && state.results.length > 0 && (
             <div className="space-y-1">
@@ -289,14 +375,26 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
               ))}
             </div>
           )}
-          {state?.saved && <div className="flex items-center gap-1 mt-2 text-xs text-green-400"><Check className="w-3.5 h-3.5" />Saved successfully</div>}
+          {state?.saved && (
+            <div className="flex items-center gap-1 mt-2 text-xs text-green-400">
+              <Check className="w-3.5 h-3.5" />
+              Saved successfully
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function TagResultRow({ result, isSelected, onClick, onSave, saving, saved }: {
+function TagResultRow({
+  result,
+  isSelected,
+  onClick,
+  onSave,
+  saving,
+  saved,
+}: {
   result: MetadataServerTagMatch;
   isSelected: boolean;
   onClick: () => void;
@@ -305,7 +403,10 @@ function TagResultRow({ result, isSelected, onClick, onSave, saving, saved }: {
   saved?: boolean;
 }) {
   return (
-    <div onClick={onClick} className={`rounded border cursor-pointer transition-colors ${isSelected ? "border-accent bg-card" : "border-border bg-surface hover:border-accent/50"}`}>
+    <div
+      onClick={onClick}
+      className={`rounded border cursor-pointer transition-colors ${isSelected ? "border-accent bg-card" : "border-border bg-surface hover:border-accent/50"}`}
+    >
       <div className="flex items-center gap-3 p-2">
         <TagIcon className="h-4 w-4 text-muted flex-shrink-0" />
         <div className="flex-1 min-w-0">
@@ -322,7 +423,14 @@ function TagResultRow({ result, isSelected, onClick, onSave, saving, saved }: {
           {result.aliases.length > 0 && <FieldRow label="Aliases" value={result.aliases.join(", ")} />}
           {onSave && !saved && (
             <div className="flex justify-end mt-3">
-              <button onClick={(event) => { event.stopPropagation(); onSave(); }} disabled={saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60">
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSave();
+                }}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
+              >
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 Save
               </button>

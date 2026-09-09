@@ -18,10 +18,7 @@ vi.mock("../extensions/ExtensionLoader", () => ({
     overrideRendererCalls.push(props);
     if (renderDefaultMedia.current) return props.renderDefault();
     return (
-      <div
-        data-testid="hero-media-override"
-        data-image-url={String(props.componentProps.imageUrl ?? "")}
-      >
+      <div data-testid="hero-media-override" data-image-url={String(props.componentProps.imageUrl ?? "")}>
         Extension hero media
       </div>
     );
@@ -29,6 +26,7 @@ vi.mock("../extensions/ExtensionLoader", () => ({
 }));
 
 import { EntityHeroLayout } from "../components/EntityHeroLayout";
+import { EntityDetailTabs } from "../components/EntityDetailTabs";
 
 type PhaseTwoEntityHeroLayoutProps = ComponentProps<typeof EntityHeroLayout> & {
   entityType: string;
@@ -162,5 +160,49 @@ describe("EntityHeroLayout entity media integration", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change cover" }));
     expect(onImageClick).toHaveBeenCalledWith("alternate");
+  });
+
+  it("aligns the hero separator with the default content gutters", () => {
+    renderDefaultMedia.current = true;
+    const { container } = render(
+      <EntityHeroLayout
+        entityType="performer"
+        entityId={41}
+        backLabel="Back"
+        onGoBack={vi.fn()}
+        imageAlt="Cover"
+        title="Entity"
+      >
+        <div data-testid="detail-content">Detail content</div>
+      </EntityHeroLayout>,
+    );
+
+    const hero = container.querySelector(".detail-hero-gradient");
+    expect(hero).not.toHaveClass("border-b");
+    expect(hero?.querySelector(":scope > .absolute.inset-x-4.bottom-0.border-b")).toBeInTheDocument();
+
+    const content = screen.getByTestId("detail-content").parentElement;
+    expect(content).toHaveClass("px-4", "py-6", "[&>[data-entity-detail-tabs]:first-child]:-mt-6");
+  });
+
+  it("lets a first-child tab strip own its symmetric separator spacing", () => {
+    renderDefaultMedia.current = true;
+    render(
+      <EntityHeroLayout
+        entityType="performer"
+        entityId={41}
+        backLabel="Back"
+        onGoBack={vi.fn()}
+        imageAlt="Cover"
+        title="Entity"
+      >
+        <EntityDetailTabs tabs={[{ key: "videos", label: "Videos" }]} activeTab="videos" onTabChange={vi.fn()} />
+      </EntityHeroLayout>,
+    );
+
+    const tabs = screen.getByRole("tablist", { name: "Detail tabs" }).parentElement?.parentElement;
+    expect(tabs).toHaveAttribute("data-entity-detail-tabs");
+    expect(tabs?.parentElement?.firstElementChild).toBe(tabs);
+    expect(tabs?.parentElement).toHaveClass("[&>[data-entity-detail-tabs]:first-child]:-mt-6");
   });
 });

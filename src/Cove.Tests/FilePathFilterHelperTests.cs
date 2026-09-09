@@ -19,11 +19,11 @@ public class FilePathFilterHelperTests
         context.TextDocuments.AddRange(
             CreateText("text-match", @"C:\library\matching", "document.txt"),
             CreateText("text-prefix", @"C:\library\matching-other", "document.txt"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var criterion = new StringCriterion { Value = @"C:\library\matching\", Modifier = CriterionModifier.UnderPath };
-        var audios = await FilterHelpers.ApplyFilePath(context.Audios, criterion, audio => audio.Files).Select(audio => audio.Title).ToListAsync();
-        var texts = await FilterHelpers.ApplyFilePath(context.TextDocuments, criterion, text => text.Files).Select(text => text.Title).ToListAsync();
+        var audios = await FilterHelpers.ApplyFilePath(context.Audios, criterion, audio => audio.Files).Select(audio => audio.Title).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var texts = await FilterHelpers.ApplyFilePath(context.TextDocuments, criterion, text => text.Files).Select(text => text.Title).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(["audio-match"], audios);
         Assert.Equal(["text-match"], texts);
@@ -36,13 +36,13 @@ public class FilePathFilterHelperTests
         context.Audios.AddRange(
             CreateAudio("exact-case", "/library/Media", "track.mp3"),
             CreateAudio("different-case", "/library/media", "track.mp3"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var criterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath };
         var titles = await FilterHelpers.ApplyFilePath(context.Audios, criterion, audio => audio.Files)
             .Select(audio => audio.Title)
             .OrderBy(title => title)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? ["different-case", "exact-case"] : ["exact-case"], titles);
     }

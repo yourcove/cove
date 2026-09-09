@@ -20,13 +20,22 @@ export function SuggestionEvidenceText({ suggestion, isReferenceOnly }: Props) {
   return (
     <div className="space-y-1 text-xs text-secondary">
       {hasReferenceSignal ? (
-        <p>{isReferenceOnly ? "External reference match. Import it to create a local performer link." : "Reference match resolved to this local performer."}</p>
+        <p>
+          {isReferenceOnly
+            ? "External reference match. Import it to create a local performer link."
+            : "Reference match resolved to this local performer."}
+        </p>
       ) : null}
       {evidenceLines.map((line) => (
         <p key={line}>{line}</p>
       ))}
       {suggestion.externalUrl ? (
-        <a href={suggestion.externalUrl} target="_blank" rel="noreferrer" className="inline-flex text-accent hover:underline">
+        <a
+          href={suggestion.externalUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex text-accent hover:underline"
+        >
           Open reference record
         </a>
       ) : null}

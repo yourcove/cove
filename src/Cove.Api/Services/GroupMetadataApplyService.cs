@@ -1,5 +1,6 @@
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -89,6 +90,7 @@ public sealed class GroupMetadataApplyService(
         if (ShouldApply(fieldSet, "date") && ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             group.Date = parsedDate;
+            group.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = group.Date.Value.ToString("yyyy-MM-dd");
         }
 

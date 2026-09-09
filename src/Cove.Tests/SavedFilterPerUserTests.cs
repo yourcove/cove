@@ -21,7 +21,7 @@ public class SavedFilterPerUserTests
     public async Task Create_stamps_the_current_user()
     {
         var repo = new FakeSavedFilterRepo();
-        var result = await ControllerFor(7, repo).Create(CreateDto("mine"), default);
+        var result = await ControllerFor(7, repo).Create(CreateDto("mine"), TestContext.Current.CancellationToken);
 
         var created = Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
         Assert.Equal(7, repo.Items.Single(f => f.Id == created.Id).UserId);
@@ -36,7 +36,7 @@ public class SavedFilterPerUserTests
     {
         var repo = new FakeSavedFilterRepo();
 
-        var result = await ControllerFor(7, repo).Create(new SavedFilterCreateDto(mode, "segment filter", null, null, null), default);
+        var result = await ControllerFor(7, repo).Create(new SavedFilterCreateDto(mode, "segment filter", null, null, null), TestContext.Current.CancellationToken);
 
         Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
         Assert.Equal(expected, repo.Items.Single().Mode);
@@ -51,9 +51,7 @@ public class SavedFilterPerUserTests
     [InlineData("0")]
     public async Task Create_rejects_invalid_extension_filter_modes(string mode)
     {
-        var result = await ControllerFor(7, new FakeSavedFilterRepo()).Create(
-            new SavedFilterCreateDto(mode, "filter", null, null, null),
-            default);
+        var result = await ControllerFor(7, new FakeSavedFilterRepo()).Create(new SavedFilterCreateDto(mode, "filter", null, null, null), TestContext.Current.CancellationToken);
 
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
@@ -62,12 +60,12 @@ public class SavedFilterPerUserTests
     public async Task GetAll_only_returns_the_current_users_filters()
     {
         var repo = new FakeSavedFilterRepo();
-        await ControllerFor(1, repo).Create(CreateDto("a-one"), default);
-        await ControllerFor(2, repo).Create(CreateDto("b-one"), default);
-        await ControllerFor(1, repo).Create(CreateDto("a-two"), default);
+        await ControllerFor(1, repo).Create(CreateDto("a-one"), TestContext.Current.CancellationToken);
+        await ControllerFor(2, repo).Create(CreateDto("b-one"), TestContext.Current.CancellationToken);
+        await ControllerFor(1, repo).Create(CreateDto("a-two"), TestContext.Current.CancellationToken);
 
         var list = Assert.IsAssignableFrom<IReadOnlyList<SavedFilterDto>>(
-            Assert.IsType<OkObjectResult>((await ControllerFor(1, repo).GetAll(null, default)).Result).Value);
+            Assert.IsType<OkObjectResult>((await ControllerFor(1, repo).GetAll(null, TestContext.Current.CancellationToken)).Result).Value);
 
         Assert.Equal(new[] { "a-one", "a-two" }, list.Select(f => f.Name).OrderBy(n => n));
     }
@@ -76,12 +74,12 @@ public class SavedFilterPerUserTests
     public async Task GetAll_returns_filters_sorted_by_name()
     {
         var repo = new FakeSavedFilterRepo();
-        await ControllerFor(1, repo).Create(CreateDto("Zulu"), default);
-        await ControllerFor(1, repo).Create(CreateDto("alpha"), default);
-        await ControllerFor(1, repo).Create(CreateDto("Bravo"), default);
+        await ControllerFor(1, repo).Create(CreateDto("Zulu"), TestContext.Current.CancellationToken);
+        await ControllerFor(1, repo).Create(CreateDto("alpha"), TestContext.Current.CancellationToken);
+        await ControllerFor(1, repo).Create(CreateDto("Bravo"), TestContext.Current.CancellationToken);
 
         var list = Assert.IsAssignableFrom<IReadOnlyList<SavedFilterDto>>(
-            Assert.IsType<OkObjectResult>((await ControllerFor(1, repo).GetAll("videos", default)).Result).Value);
+            Assert.IsType<OkObjectResult>((await ControllerFor(1, repo).GetAll("videos", TestContext.Current.CancellationToken)).Result).Value);
 
         Assert.Equal(new[] { "alpha", "Bravo", "Zulu" }, list.Select(f => f.Name));
     }
@@ -90,9 +88,9 @@ public class SavedFilterPerUserTests
     public async Task GetAll_rejects_an_explicit_unknown_mode_instead_of_returning_every_filter()
     {
         var repo = new FakeSavedFilterRepo();
-        await ControllerFor(1, repo).Create(CreateDto("private filter"), default);
+        await ControllerFor(1, repo).Create(CreateDto("private filter"), TestContext.Current.CancellationToken);
 
-        var result = await ControllerFor(1, repo).GetAll("unknown-mode", default);
+        var result = await ControllerFor(1, repo).GetAll("unknown-mode", TestContext.Current.CancellationToken);
 
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
@@ -101,9 +99,9 @@ public class SavedFilterPerUserTests
     public async Task Create_rejects_duplicate_name_for_the_same_user_and_mode()
     {
         var repo = new FakeSavedFilterRepo();
-        await ControllerFor(1, repo).Create(CreateDto(" Favorites "), default);
+        await ControllerFor(1, repo).Create(CreateDto(" Favorites "), TestContext.Current.CancellationToken);
 
-        var result = await ControllerFor(1, repo).Create(CreateDto("favorites"), default);
+        var result = await ControllerFor(1, repo).Create(CreateDto("favorites"), TestContext.Current.CancellationToken);
 
         Assert.IsType<ConflictObjectResult>(result.Result);
         Assert.Single(repo.Items);
@@ -114,12 +112,10 @@ public class SavedFilterPerUserTests
     public async Task Create_allows_the_same_name_for_a_different_user_or_mode()
     {
         var repo = new FakeSavedFilterRepo();
-        await ControllerFor(1, repo).Create(CreateDto("Favorites"), default);
+        await ControllerFor(1, repo).Create(CreateDto("Favorites"), TestContext.Current.CancellationToken);
 
-        var otherUser = await ControllerFor(2, repo).Create(CreateDto(" favorites "), default);
-        var otherMode = await ControllerFor(1, repo).Create(
-            new SavedFilterCreateDto("images", " FAVORITES ", null, null, null),
-            default);
+        var otherUser = await ControllerFor(2, repo).Create(CreateDto(" favorites "), TestContext.Current.CancellationToken);
+        var otherMode = await ControllerFor(1, repo).Create(new SavedFilterCreateDto("images", " FAVORITES ", null, null, null), TestContext.Current.CancellationToken);
 
         Assert.IsType<CreatedAtActionResult>(otherUser.Result);
         Assert.IsType<CreatedAtActionResult>(otherMode.Result);
@@ -132,14 +128,14 @@ public class SavedFilterPerUserTests
         var repo = new FakeSavedFilterRepo();
         var controller = ControllerFor(1, repo);
         var first = Assert.IsType<SavedFilterDto>(
-            Assert.IsType<CreatedAtActionResult>((await controller.Create(CreateDto("First"), default)).Result).Value);
+            Assert.IsType<CreatedAtActionResult>((await controller.Create(CreateDto("First"), TestContext.Current.CancellationToken)).Result).Value);
         var second = Assert.IsType<SavedFilterDto>(
-            Assert.IsType<CreatedAtActionResult>((await controller.Create(CreateDto("Second"), default)).Result).Value);
+            Assert.IsType<CreatedAtActionResult>((await controller.Create(CreateDto("Second"), TestContext.Current.CancellationToken)).Result).Value);
 
-        var unchanged = await controller.Update(first.Id, new SavedFilterUpdateDto(null, " first ", "{}", "{}", "{}"), default);
+        var unchanged = await controller.Update(first.Id, new SavedFilterUpdateDto(null, " first ", "{}", "{}", "{}"), TestContext.Current.CancellationToken);
         Assert.IsType<OkObjectResult>(unchanged.Result);
 
-        var duplicate = await controller.Update(second.Id, new SavedFilterUpdateDto(null, "FIRST", "{}", "{}", "{}"), default);
+        var duplicate = await controller.Update(second.Id, new SavedFilterUpdateDto(null, "FIRST", "{}", "{}", "{}"), TestContext.Current.CancellationToken);
         Assert.IsType<ConflictObjectResult>(duplicate.Result);
         Assert.Equal("Second", repo.Items.Single(f => f.Id == second.Id).Name);
     }
@@ -156,10 +152,7 @@ public class SavedFilterPerUserTests
             Name = " Favorites ",
         });
 
-        var result = await ControllerFor(1, repo).Update(
-            1,
-            new SavedFilterUpdateDto(null, null, "{}", "{}", "{}"),
-            default);
+        var result = await ControllerFor(1, repo).Update(1, new SavedFilterUpdateDto(null, null, "{}", "{}", "{}"), TestContext.Current.CancellationToken);
 
         Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal("Favorites", repo.Items.Single().Name);
@@ -170,12 +163,12 @@ public class SavedFilterPerUserTests
     {
         var repo = new FakeSavedFilterRepo();
         var created = Assert.IsType<SavedFilterDto>(
-            Assert.IsType<CreatedAtActionResult>((await ControllerFor(1, repo).Create(CreateDto("owned"), default)).Result).Value);
+            Assert.IsType<CreatedAtActionResult>((await ControllerFor(1, repo).Create(CreateDto("owned"), TestContext.Current.CancellationToken)).Result).Value);
 
         var intruder = ControllerFor(2, repo);
-        Assert.IsType<NotFoundResult>((await intruder.GetById(created.Id, default)).Result);
-        Assert.IsType<NotFoundResult>(await intruder.Delete(created.Id, default));
-        Assert.IsType<NotFoundResult>((await intruder.Update(created.Id, new SavedFilterUpdateDto(null, "hijacked", null, null, null), default)).Result);
+        Assert.IsType<NotFoundResult>((await intruder.GetById(created.Id, TestContext.Current.CancellationToken)).Result);
+        Assert.IsType<NotFoundResult>(await intruder.Delete(created.Id, TestContext.Current.CancellationToken));
+        Assert.IsType<NotFoundResult>((await intruder.Update(created.Id, new SavedFilterUpdateDto(null, "hijacked", null, null, null), TestContext.Current.CancellationToken)).Result);
 
         // The owner's filter is untouched.
         Assert.Single(repo.Items);

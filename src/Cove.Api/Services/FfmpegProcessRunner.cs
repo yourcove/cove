@@ -16,18 +16,17 @@ internal static class FfmpegProcessRunner
     {
         ct.ThrowIfCancellationRequested();
 
-        using var process = new Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = arguments,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            },
+            FileName = ffmpegPath,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
+        using var process = new Process { StartInfo = startInfo };
 
         process.Start();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();

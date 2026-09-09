@@ -3,16 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { metadata, system } from "../api/client";
 import type { MetadataServer, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
-import {
-  Search,
-  X,
-  Loader2,
-  Check,
-  GripVertical,
-  ChevronDown,
-  ChevronUp,
-  Info,
-} from "lucide-react";
+import { Search, X, Loader2, Check, GripVertical, ChevronDown, ChevronUp, Info } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -52,7 +43,10 @@ const PERFORMER_GENDER_OPTIONS = [
 ];
 
 function buildDefaultFieldStrategies(): Record<string, FieldStrategy> {
-  return Object.fromEntries(METADATA_FIELD_OPTIONS.map((field) => [field.key, "merge"])) as Record<string, FieldStrategy>;
+  return Object.fromEntries(METADATA_FIELD_OPTIONS.map((field) => [field.key, "merge"])) as Record<
+    string,
+    FieldStrategy
+  >;
 }
 
 const DEFAULT_IDENTIFY_DEFAULTS = {
@@ -75,9 +69,11 @@ function buildIdentifySources(metadataServers: MetadataServer[], scrapers: Scrap
   // needed — the URL is the identity). Fragment/title search needs human review, so it stays in the
   // tagger, not this hands-off flow.
   scrapers
-    .filter((scraper) =>
-      scraper.entityType.toLowerCase() === "video" &&
-      scraper.supportedScrapes.some((kind) => kind.toLowerCase() === "url"))
+    .filter(
+      (scraper) =>
+        scraper.entityType.toLowerCase() === "video" &&
+        scraper.supportedScrapes.some((kind) => kind.toLowerCase() === "url"),
+    )
     .forEach((scraper) => {
       sources.push({
         id: `scraper-${scraper.id}`,
@@ -107,7 +103,9 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
   const [createTags, setCreateTags] = useState(identifyDefaults.createTags);
   const [createPerformers, setCreatePerformers] = useState(identifyDefaults.createPerformers);
   const [createStudios, setCreateStudios] = useState(identifyDefaults.createStudios);
-  const [fieldStrategies, setFieldStrategies] = useState<Record<string, FieldStrategy>>(() => buildDefaultFieldStrategies());
+  const [fieldStrategies, setFieldStrategies] = useState<Record<string, FieldStrategy>>(() =>
+    buildDefaultFieldStrategies(),
+  );
   const [performerGenders, setPerformerGenders] = useState<string[]>(() => [...PERFORMER_GENDER_OPTIONS]);
 
   useEffect(() => {
@@ -121,7 +119,14 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
     setCreateStudios(identifyDefaults.createStudios);
     setFieldStrategies(buildDefaultFieldStrategies());
     setPerformerGenders([...PERFORMER_GENDER_OPTIONS]);
-  }, [open, metadataServers, scrapers, identifyDefaults.createTags, identifyDefaults.createPerformers, identifyDefaults.createStudios]);
+  }, [
+    open,
+    metadataServers,
+    scrapers,
+    identifyDefaults.createTags,
+    identifyDefaults.createPerformers,
+    identifyDefaults.createStudios,
+  ]);
 
   const identifyMut = useMutation({
     mutationFn: () => {
@@ -164,7 +169,7 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
 
   const togglePerformerGender = (gender: string) => {
     setPerformerGenders((current) =>
-      current.includes(gender) ? current.filter((item) => item !== gender) : [...current, gender]
+      current.includes(gender) ? current.filter((item) => item !== gender) : [...current, gender],
     );
   };
 
@@ -201,9 +206,7 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
                 <div
                   key={source.id}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
-                    source.enabled
-                      ? "bg-card border-border"
-                      : "bg-card/50 border-border/50 opacity-60"
+                    source.enabled ? "bg-card border-border" : "bg-card/50 border-border/50 opacity-60"
                   }`}
                 >
                   <div className="flex flex-col gap-0.5 flex-shrink-0">
@@ -297,7 +300,10 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {METADATA_FIELD_OPTIONS.map((field) => (
-                    <label key={field.key} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                    <label
+                      key={field.key}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                    >
                       <span className="text-secondary">{field.label}</span>
                       <select
                         value={fieldStrategies[field.key] ?? "merge"}
@@ -363,13 +369,13 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
                   <Info className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
                   <div className="text-xs text-secondary space-y-1">
                     <p>
-                    Identified data will be merged with existing data by default. Fields that
-                    already have values won't be overwritten.
+                      Identified data will be merged with existing data by default. Fields that already have values
+                      won't be overwritten.
                     </p>
                     <p>
-                      Metadata servers match by fingerprint (duration and pHash thresholds are configured in
-                      Settings &gt; Metadata Providers &gt; Identify Defaults). Scraper sources apply only to
-                      videos that already have a URL the scraper recognizes.
+                      Metadata servers match by fingerprint (duration and pHash thresholds are configured in Settings
+                      &gt; Metadata Providers &gt; Identify Defaults). Scraper sources apply only to videos that already
+                      have a URL the scraper recognizes.
                     </p>
                   </div>
                 </div>
@@ -391,11 +397,7 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
             disabled={identifyMut.isPending || sources.filter((s) => s.enabled).length === 0}
             className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
           >
-            {identifyMut.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Search className="w-4 h-4" />
-            )}
+            {identifyMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Identify
           </button>
         </div>
@@ -403,4 +405,3 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
     </div>
   );
 }
-

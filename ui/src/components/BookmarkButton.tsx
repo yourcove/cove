@@ -13,7 +13,14 @@ interface Props {
   initialSaved?: boolean;
 }
 
-export function BookmarkButton({ hostType, hostId, className = "", compact = false, deferUntilHover = false, initialSaved }: Props) {
+export function BookmarkButton({
+  hostType,
+  hostId,
+  className = "",
+  compact = false,
+  deferUntilHover = false,
+  initialSaved,
+}: Props) {
   const [activated, setActivated] = useState(!deferUntilHover);
   const [resolvingClick, setResolvingClick] = useState(false);
   let queryClient;
@@ -94,7 +101,11 @@ export function BookmarkButton({ hostType, hostId, className = "", compact = fal
       aria-label={saved ? "Remove from Save for Later" : "Save for Later"}
       aria-pressed={saved}
     >
-      {busy ? <Loader2 className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} animate-spin`} /> : <Bookmark className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} ${saved ? "fill-current" : ""}`} />}
+      {busy ? (
+        <Loader2 className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} animate-spin`} />
+      ) : (
+        <Bookmark className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} ${saved ? "fill-current" : ""}`} />
+      )}
     </button>
   );
 }

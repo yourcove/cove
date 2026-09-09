@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yourcove.net/schemas/feature-guide.schema.json",
+  "title": "Cove shared feature guide",
+  "$defs": {
+    "recipeContentBlock": {
+      "oneOf": [
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/0"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/1"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/2"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/3"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/4"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/5"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/6"
+        },
+        {
+          "$ref": "#/properties/sections/items/properties/blocks/items/oneOf/7"
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "description",
+    "order",
+    "sections"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "order": { "type": "integer", "minimum": 0 },
+    "pages": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "contexts": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "parentTopicId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "blocks"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "title": { "type": "string", "minLength": 1 },
+          "blocks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "text"],
+                  "properties": {
+                    "type": { "enum": ["paragraph", "note"] },
+                    "text": { "type": "string", "minLength": 1 }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "items"],
+                  "properties": {
+                    "type": { "const": "steps" },
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "text", "level"],
+                  "properties": {
+                    "type": { "const": "heading" },
+                    "text": { "type": "string", "minLength": 1 },
+                    "level": { "enum": [3, 4] }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "items"],
+                  "properties": {
+                    "type": { "const": "list" },
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "items"],
+                  "properties": {
+                    "type": { "const": "links" },
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["label", "href"],
+                        "properties": {
+                          "label": { "type": "string", "minLength": 1 },
+                          "href": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^(?:/docs/|https?://)"
+                          },
+                          "appHref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^/(?!/)"
+                          },
+                          "topicId": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                          },
+                          "slideId": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "src", "alt"],
+                  "properties": {
+                    "type": { "const": "image" },
+                    "src": { "type": "string", "minLength": 1 },
+                    "alt": { "type": "string", "minLength": 1 },
+                    "caption": { "type": "string", "minLength": 1 }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "columns", "rows"],
+                  "properties": {
+                    "type": { "const": "table" },
+                    "caption": { "type": "string", "minLength": 1 },
+                    "columns": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 }
+                    },
+                    "rows": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "lines"],
+                  "properties": {
+                    "type": { "const": "code" },
+                    "language": { "type": "string", "minLength": 1 },
+                    "lines": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "items"],
+                  "properties": {
+                    "type": { "const": "recipes" },
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "title", "blocks"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                          },
+                          "title": { "type": "string", "minLength": 1 },
+                          "description": { "type": "string", "minLength": 1 },
+                          "blocks": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": { "$ref": "#/$defs/recipeContentBlock" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

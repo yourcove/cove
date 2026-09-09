@@ -1,42 +1,10 @@
 ---
 title: Segments and compilations
-description: Work with segments, sub-videos, and compilations in Cove.
+description: Work with segments, display profiles, sub-videos, and compilations without duplicating source media.
+tableOfContents: false
 ---
 
-Timeline structure lets Cove organize part of a source without exporting a new media file for every use. Choose the representation based on whether you need source evidence, a derived view, a reusable video identity, or an ordered playback collection.
+import FeatureGuide from "../../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../../docs/feature-guides/segments-and-compilations.json";
 
-## Choose the right representation
-
-| Use | Choose | Why |
-| --- | --- | --- |
-| Preserve a point or range exactly as a user, provider, or analyzer supplied it | [Raw segment](../../../reference/raw-segments/) | It retains source, confidence, payload, and original boundaries. |
-| Present a cleaned-up range composed from stored inputs | [Segment](../../../reference/segments/) | A display profile can select, merge, hide, or restyle raw segments without rewriting them. |
-| Give a parent-video range its own reusable media record and metadata | [Sub-video](../../../reference/sub-videos/) | It behaves as a child video while reusing the parent source. |
-| Play whole videos or ranges in a chosen order | [Compilation](../../../reference/compilations/) | The group owns the sequence while member media keeps its identity. |
-
-## What this enables
-
-Raw and derived segments make the rest of the library more expressive:
-
-- you can tag a moment, not just a whole file
-- you can track who appears when
-- you can build compilations without duplicating media
-- you can turn internal structure into something the rest of the app can search and reuse
-
-The stored-versus-derived split is most useful when you want both explainability and a cleaner browsing surface. Sub-videos and compilations then reuse those meaningful ranges without duplicating source media.
-
-Use compilations when:
-
-- you want a chosen sequence
-- you want to reuse existing media rather than duplicate files
-- a group already expresses the collection you want to play
-
-## When to adopt timeline structure
-
-You do not need segments on every item. They pay off most when:
-
-- timing matters
-- performer occurrence matters
-- tags need to be contextual
-- you want reusable sub-videos
-- you want richer playback-driven organization
+<FeatureGuide guide={guide} />

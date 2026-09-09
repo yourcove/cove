@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Layers, Plus, ExternalLink, Pencil, Trash2, Clock, Filter, X,
-  ChevronDown, ChevronRight, ListTree, List as ListIcon,
+  Layers,
+  Plus,
+  ExternalLink,
+  Pencil,
+  Trash2,
+  Clock,
+  Filter,
+  X,
+  ChevronDown,
+  ChevronRight,
+  ListTree,
+  List as ListIcon,
 } from "lucide-react";
 import { videos, tagGroups as tagGroupsApi } from "../api/client";
 import type { ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
@@ -39,7 +49,8 @@ interface Props {
 type ViewMode = "grouped" | "flat";
 
 const VIEW_STORAGE_KEY = "cove.segments.viewMode";
-const FILTER_INPUT_CLASS = "w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none";
+const FILTER_INPUT_CLASS =
+  "w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none";
 
 export function VideoSegmentsPanel({
   videoId,
@@ -67,7 +78,11 @@ export function VideoSegmentsPanel({
   });
   const setViewMode = (next: ViewMode) => {
     setView(next);
-    try { window.localStorage.setItem(VIEW_STORAGE_KEY, next); } catch { /* ignore */ }
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
   };
 
   // Editing state (raw segment add / edit form).
@@ -86,13 +101,20 @@ export function VideoSegmentsPanel({
   const [pendingDelete, setPendingDelete] = useState<{ span: ResolvedSpan; segments: Segment[] } | null>(null);
 
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
-  const filterContext = useMemo<SegmentFilterContext>(() => ({ rawSegmentsById, tagIdToGroupId }), [rawSegmentsById, tagIdToGroupId]);
+  const filterContext = useMemo<SegmentFilterContext>(
+    () => ({ rawSegmentsById, tagIdToGroupId }),
+    [rawSegmentsById, tagIdToGroupId],
+  );
 
   const orderedProfiles = useMemo(
-    () => [...profiles].sort((left, right) => Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name)),
+    () =>
+      [...profiles].sort(
+        (left, right) => Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name),
+      ),
     [profiles],
   );
-  const activeProfileId = currentProfileId ?? orderedProfiles.find((profile) => profile.isDefault)?.id ?? orderedProfiles[0]?.id;
+  const activeProfileId =
+    currentProfileId ?? orderedProfiles.find((profile) => profile.isDefault)?.id ?? orderedProfiles[0]?.id;
 
   const facets = useMemo(() => buildSegmentFacets(spans, filterContext), [spans, filterContext]);
   const filteredSpans = useMemo(
@@ -127,7 +149,8 @@ export function VideoSegmentsPanel({
   const toggleSelection = (spanKey: string) => {
     setSelectedSpanKeys((current) => {
       const next = new Set(current);
-      if (next.has(spanKey)) next.delete(spanKey); else next.add(spanKey);
+      if (next.has(spanKey)) next.delete(spanKey);
+      else next.add(spanKey);
       return next;
     });
   };
@@ -142,22 +165,59 @@ export function VideoSegmentsPanel({
     queryClient.invalidateQueries({ queryKey: ["video", videoId, "resolved-spans"] });
   };
   const createMutation = useMutation({
-    mutationFn: (data: { title?: string; kind?: string; startSec: number; endSec?: number; tagId?: number; refId?: number }) =>
-      videos.segments.create(videoId, { startSec: data.startSec, endSec: data.endSec, tagId: data.tagId, refId: data.refId, kind: data.kind, title: data.title }),
-    onSuccess: () => { invalidateSegments(); resetForm(); },
+    mutationFn: (data: {
+      title?: string;
+      kind?: string;
+      startSec: number;
+      endSec?: number;
+      tagId?: number;
+      refId?: number;
+    }) =>
+      videos.segments.create(videoId, {
+        startSec: data.startSec,
+        endSec: data.endSec,
+        tagId: data.tagId,
+        refId: data.refId,
+        kind: data.kind,
+        title: data.title,
+      }),
+    onSuccess: () => {
+      invalidateSegments();
+      resetForm();
+    },
   });
   const updateMutation = useMutation({
-    mutationFn: (data: { segment: Segment; startSec: number; endSec?: number; tagId?: number; refId?: number; kind?: string; title?: string }) =>
+    mutationFn: (data: {
+      segment: Segment;
+      startSec: number;
+      endSec?: number;
+      tagId?: number;
+      refId?: number;
+      kind?: string;
+      title?: string;
+    }) =>
       videos.segments.update(videoId, data.segment.id, {
-        startSec: data.startSec, endSec: data.endSec, tagId: data.tagId, kind: data.kind,
+        startSec: data.startSec,
+        endSec: data.endSec,
+        tagId: data.tagId,
+        kind: data.kind,
         refId: data.refId ?? (data.kind === data.segment.kind ? data.segment.refId : undefined),
-        payload: data.segment.payload, sourceKey: data.segment.sourceKey || "user", sourceRunId: data.segment.sourceRunId,
-        confidence: data.segment.confidence, title: data.title, colorHint: data.segment.colorHint,
+        payload: data.segment.payload,
+        sourceKey: data.segment.sourceKey || "user",
+        sourceRunId: data.segment.sourceRunId,
+        confidence: data.segment.confidence,
+        title: data.title,
+        colorHint: data.segment.colorHint,
       }),
-    onSuccess: () => { invalidateSegments(); resetForm(); },
+    onSuccess: () => {
+      invalidateSegments();
+      resetForm();
+    },
   });
   const deleteMutation = useMutation({
-    mutationFn: async (ids: number[]) => { for (const id of ids) await videos.segments.delete(videoId, id); },
+    mutationFn: async (ids: number[]) => {
+      for (const id of ids) await videos.segments.delete(videoId, id);
+    },
     onSuccess: () => invalidateSegments(),
   });
 
@@ -165,7 +225,8 @@ export function VideoSegmentsPanel({
   const parsedStart = parseSegmentTimeInput(startText);
   const parsedEnd = endText.trim() === "" ? null : parseSegmentTimeInput(endText);
   const hasSelectedEntity = kind === "performer" ? selectedPerformerId != null : selectedTagId != null;
-  const canSaveSegment = parsedStart != null && parsedStart >= 0 && (parsedEnd == null || parsedEnd >= parsedStart) && hasSelectedEntity;
+  const canSaveSegment =
+    parsedStart != null && parsedStart >= 0 && (parsedEnd == null || parsedEnd >= parsedStart) && hasSelectedEntity;
 
   function resetForm() {
     setAdding(false);
@@ -183,7 +244,11 @@ export function VideoSegmentsPanel({
     setStartText(formatSegmentTimeInput(normalized));
   }
   function setEndTimeFromSeconds(seconds: number | "") {
-    if (seconds === "") { setEndSec(""); setEndText(""); return; }
+    if (seconds === "") {
+      setEndSec("");
+      setEndText("");
+      return;
+    }
     const normalized = Math.max(0, seconds);
     setEndSec(normalized);
     setEndText(formatSegmentTimeInput(normalized));
@@ -196,17 +261,24 @@ export function VideoSegmentsPanel({
     setKind(segment.kind?.toLowerCase() === "performer" ? "performer" : "tag");
     setStartTimeFromSeconds(segment.startSec);
     setEndTimeFromSeconds(segment.endSec ?? "");
-    setSelectedTagId(segment.kind?.toLowerCase() === "performer" ? null : segment.tagId ?? null);
-    setSelectedPerformerId(segment.kind?.toLowerCase() === "performer" && segment.refId != null ? Number(segment.refId) : null);
+    setSelectedTagId(segment.kind?.toLowerCase() === "performer" ? null : (segment.tagId ?? null));
+    setSelectedPerformerId(
+      segment.kind?.toLowerCase() === "performer" && segment.refId != null ? Number(segment.refId) : null,
+    );
   }
 
   const underlyingSegments = (span: ResolvedSpan) =>
-    (span.segmentIds ?? []).map((id) => rawSegmentsById.get(id)).filter((segment): segment is Segment => segment != null);
+    (span.segmentIds ?? [])
+      .map((id) => rawSegmentsById.get(id))
+      .filter((segment): segment is Segment => segment != null);
 
   const handleEditSpan = (span: ResolvedSpan) => {
     const segments = underlyingSegments(span);
     if (segments.length === 0) return;
-    if (segments.length === 1) { startEditSegment(segments[0]); return; }
+    if (segments.length === 1) {
+      startEditSegment(segments[0]);
+      return;
+    }
     setChooser({ span, segments });
   };
   const handleDeleteSpan = (span: ResolvedSpan) => {
@@ -215,17 +287,32 @@ export function VideoSegmentsPanel({
     setPendingDelete({ span, segments });
   };
 
-  const editingSegment = editingId != null ? rawSegmentsById.get(editingId) ?? null : null;
+  const editingSegment = editingId != null ? (rawSegmentsById.get(editingId) ?? null) : null;
   const saveSegment = () => {
     if (!canSaveSegment || parsedStart == null) return;
     const nextEndSec = parsedEnd == null ? undefined : parsedEnd;
-    const nextTagId = kind === "tag" ? selectedTagId ?? undefined : undefined;
-    const nextRefId = kind === "performer" ? selectedPerformerId ?? undefined : undefined;
+    const nextTagId = kind === "tag" ? (selectedTagId ?? undefined) : undefined;
+    const nextRefId = kind === "performer" ? (selectedPerformerId ?? undefined) : undefined;
     if (editingSegment) {
-      updateMutation.mutate({ segment: editingSegment, startSec: parsedStart, endSec: nextEndSec, tagId: nextTagId, refId: nextRefId, kind, title: title || undefined });
+      updateMutation.mutate({
+        segment: editingSegment,
+        startSec: parsedStart,
+        endSec: nextEndSec,
+        tagId: nextTagId,
+        refId: nextRefId,
+        kind,
+        title: title || undefined,
+      });
       return;
     }
-    createMutation.mutate({ title: title || undefined, startSec: parsedStart, endSec: nextEndSec, tagId: nextTagId, refId: nextRefId, kind });
+    createMutation.mutate({
+      title: title || undefined,
+      startSec: parsedStart,
+      endSec: nextEndSec,
+      tagId: nextTagId,
+      refId: nextRefId,
+      kind,
+    });
   };
 
   const activeFilterCount = countActiveFilters(filter);
@@ -233,7 +320,12 @@ export function VideoSegmentsPanel({
 
   return (
     <section className="space-y-3">
-      <AddToGroupDialog open={showAddDialog} onClose={() => setShowAddDialog(false)} items={selectedEntries} onAdded={() => setSelectedSpanKeys(new Set())} />
+      <AddToGroupDialog
+        open={showAddDialog}
+        onClose={() => setShowAddDialog(false)}
+        items={selectedEntries}
+        onAdded={() => setSelectedSpanKeys(new Set())}
+      />
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -254,7 +346,9 @@ export function VideoSegmentsPanel({
             >
               {orderedProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name}{profile.isDefault ? " (Default)" : ""}{profile.userId == null ? "" : " (Mine)"}
+                  {profile.name}
+                  {profile.isDefault ? " (Default)" : ""}
+                  {profile.userId == null ? "" : " (Mine)"}
                 </option>
               ))}
             </select>
@@ -309,12 +403,7 @@ export function VideoSegmentsPanel({
 
       {/* Filter bar */}
       {filtersOpen ? (
-        <FilterBar
-          filter={filter}
-          onFilterChange={onFilterChange}
-          facets={facets}
-          tagGroups={allTagGroups}
-        />
+        <FilterBar filter={filter} onFilterChange={onFilterChange} facets={facets} tagGroups={allTagGroups} />
       ) : null}
 
       {/* Add / Edit form */}
@@ -324,12 +413,28 @@ export function VideoSegmentsPanel({
           title={title}
           setTitle={setTitle}
           kind={kind}
-          setKind={(next) => { setKind(next); if (next === "performer") setSelectedTagId(null); else setSelectedPerformerId(null); }}
+          setKind={(next) => {
+            setKind(next);
+            if (next === "performer") setSelectedTagId(null);
+            else setSelectedPerformerId(null);
+          }}
           startText={startText}
           endText={endText}
-          onStartChange={(value) => { setStartText(value); const parsed = parseSegmentTimeInput(value); if (parsed != null) setStartSec(parsed); }}
+          onStartChange={(value) => {
+            setStartText(value);
+            const parsed = parseSegmentTimeInput(value);
+            if (parsed != null) setStartSec(parsed);
+          }}
           onStartBlur={() => setStartText(formatSegmentTimeInput(startSec))}
-          onEndChange={(value) => { setEndText(value); if (value.trim() === "") { setEndSec(""); return; } const parsed = parseSegmentTimeInput(value); if (parsed != null) setEndSec(parsed); }}
+          onEndChange={(value) => {
+            setEndText(value);
+            if (value.trim() === "") {
+              setEndSec("");
+              return;
+            }
+            const parsed = parseSegmentTimeInput(value);
+            if (parsed != null) setEndSec(parsed);
+          }}
           onEndBlur={() => setEndText(endSec === "" ? "" : formatSegmentTimeInput(endSec))}
           onUseCurrentStart={() => setStartTimeFromSeconds(currentTime)}
           onUseCurrentEnd={() => setEndTimeFromSeconds(currentTime)}
@@ -352,7 +457,13 @@ export function VideoSegmentsPanel({
       ) : filteredSpans.length === 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 py-6 text-sm text-secondary">
           <span>No segments match the current filter.</span>
-          <button type="button" onClick={() => onFilterChange(EMPTY_SEGMENT_FILTER)} className="text-accent hover:underline">Clear filter</button>
+          <button
+            type="button"
+            onClick={() => onFilterChange(EMPTY_SEGMENT_FILTER)}
+            className="text-accent hover:underline"
+          >
+            Clear filter
+          </button>
         </div>
       ) : view === "grouped" ? (
         <GroupedList
@@ -364,7 +475,9 @@ export function VideoSegmentsPanel({
           canEdit={canEdit}
           onEdit={handleEditSpan}
           onDelete={handleDeleteSpan}
-          onOpen={(span) => onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })}
+          onOpen={(span) =>
+            onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
+          }
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -379,7 +492,9 @@ export function VideoSegmentsPanel({
               canEdit={canEdit}
               onEdit={() => handleEditSpan(span)}
               onDelete={() => handleDeleteSpan(span)}
-              onOpen={() => onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })}
+              onOpen={() =>
+                onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
+              }
             />
           ))}
         </div>
@@ -399,11 +514,13 @@ export function VideoSegmentsPanel({
       <ConfirmDialog
         open={pendingDelete != null}
         title="Delete segment"
-        message={pendingDelete
-          ? pendingDelete.segments.length === 1
-            ? `Delete the underlying raw segment "${rawSegmentLabel(pendingDelete.segments[0])}" (${formatTime(pendingDelete.segments[0].startSec)})? This cannot be undone.`
-            : `This segment combines ${pendingDelete.segments.length} raw segments — deleting it removes all of them (${pendingDelete.segments.map((segment) => `${rawSegmentLabel(segment)} ${formatTime(segment.startSec)}`).join(", ")}). This cannot be undone.`
-          : ""}
+        message={
+          pendingDelete
+            ? pendingDelete.segments.length === 1
+              ? `Delete the underlying raw segment "${rawSegmentLabel(pendingDelete.segments[0])}" (${formatTime(pendingDelete.segments[0].startSec)})? This cannot be undone.`
+              : `This segment combines ${pendingDelete.segments.length} raw segments — deleting it removes all of them (${pendingDelete.segments.map((segment) => `${rawSegmentLabel(segment)} ${formatTime(segment.startSec)}`).join(", ")}). This cannot be undone.`
+            : ""
+        }
         onConfirm={() => {
           if (pendingDelete) deleteMutation.mutate(pendingDelete.segments.map((segment) => segment.id));
           setPendingDelete(null);
@@ -481,7 +598,11 @@ function FilterBar({
       {facets.kinds.length > 0 ? (
         <ChipRow label="Kind">
           {facets.kinds.map((value) => (
-            <FilterChip key={value} active={filter.kinds.includes(value)} onClick={() => update({ kinds: toggleValue(filter.kinds, value) })}>
+            <FilterChip
+              key={value}
+              active={filter.kinds.includes(value)}
+              onClick={() => update({ kinds: toggleValue(filter.kinds, value) })}
+            >
               {value}
             </FilterChip>
           ))}
@@ -512,7 +633,17 @@ function ChipRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function FilterChip({ active, onClick, color, children }: { active: boolean; onClick: () => void; color?: string; children: React.ReactNode }) {
+function FilterChip({
+  active,
+  onClick,
+  color,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  color?: string;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -565,11 +696,13 @@ function GroupedList({
   }, [spans, rawSegmentsById]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const toggleGroup = (label: string) => setCollapsed((current) => {
-    const next = new Set(current);
-    if (next.has(label)) next.delete(label); else next.add(label);
-    return next;
-  });
+  const toggleGroup = (label: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
 
   return (
     <div className="divide-y divide-border/50">
@@ -583,7 +716,11 @@ function GroupedList({
               className="flex w-full items-center justify-between gap-3 py-1.5 text-left"
             >
               <span className="flex min-w-0 items-center gap-2">
-                {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted" />}
+                {open ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                )}
                 <span className="truncate text-sm font-medium text-foreground">{group.label}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
@@ -644,7 +781,9 @@ function SegmentRow({
   const label = spanLabel(span, rawSegmentsById);
   const rawCount = span.segmentIds?.length ?? 0;
   return (
-    <div className={`group flex items-center gap-2 rounded px-1.5 py-1 text-sm transition-colors ${checked ? "bg-accent/10" : "hover:bg-surface/50"}`}>
+    <div
+      className={`group flex items-center gap-2 rounded px-1.5 py-1 text-sm transition-colors ${checked ? "bg-accent/10" : "hover:bg-surface/50"}`}
+    >
       <input
         type="checkbox"
         checked={checked}
@@ -654,16 +793,33 @@ function SegmentRow({
       />
       <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={() => onSeek?.(span.startSec)}>
         <span className="w-24 shrink-0 font-mono text-xs text-accent">
-          {formatTime(span.startSec)}{span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
+          {formatTime(span.startSec)}
+          {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
         {!hideLabel ? <span className="truncate text-foreground group-hover:text-accent">{label}</span> : null}
-        {span.kind && span.kind !== "tag" ? <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{span.kind}</span> : null}
-        {rawCount > 1 ? <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted" title={`${rawCount} raw segments`}>{rawCount} raw</span> : null}
+        {span.kind && span.kind !== "tag" ? (
+          <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{span.kind}</span>
+        ) : null}
+        {rawCount > 1 ? (
+          <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted" title={`${rawCount} raw segments`}>
+            {rawCount} raw
+          </span>
+        ) : null}
       </button>
       <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button onClick={onOpen} className="text-muted hover:text-accent" title="Open segment"><ExternalLink className="h-3.5 w-3.5" /></button>
-        {canEdit ? <button onClick={onEdit} className="text-muted hover:text-accent" title="Edit segment"><Pencil className="h-3.5 w-3.5" /></button> : null}
-        {canEdit ? <button onClick={onDelete} className="text-muted hover:text-red-400" title="Delete segment"><Trash2 className="h-3.5 w-3.5" /></button> : null}
+        <button onClick={onOpen} className="text-muted hover:text-accent" title="Open segment">
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
+        {canEdit ? (
+          <button onClick={onEdit} className="text-muted hover:text-accent" title="Edit segment">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {canEdit ? (
+          <button onClick={onDelete} className="text-muted hover:text-red-400" title="Delete segment">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -683,9 +839,14 @@ function RawSegmentChooser({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="mb-1 text-sm font-semibold text-foreground">Edit a raw segment</div>
-        <p className="mb-4 text-sm text-secondary">This segment combines {segments.length} raw segments. Choose which one to edit.</p>
+        <p className="mb-4 text-sm text-secondary">
+          This segment combines {segments.length} raw segments. Choose which one to edit.
+        </p>
         <div className="space-y-1.5">
           {segments.map((segment) => (
             <button
@@ -696,13 +857,16 @@ function RawSegmentChooser({
             >
               <span className="truncate text-foreground">{rawSegmentLabel(segment)}</span>
               <span className="shrink-0 font-mono text-xs text-accent">
-                {formatTime(segment.startSec)}{segment.endSec != null ? `–${formatTime(segment.endSec)}` : ""}
+                {formatTime(segment.startSec)}
+                {segment.endSec != null ? `–${formatTime(segment.endSec)}` : ""}
               </span>
             </button>
           ))}
         </div>
         <div className="mt-4 flex justify-end">
-          <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-secondary hover:text-foreground">Cancel</button>
+          <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-secondary hover:text-foreground">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -757,33 +921,81 @@ function SegmentForm(props: {
         <label className="space-y-1">
           <span className="text-xs text-secondary">Start</span>
           <div className="flex gap-1">
-            <input type="text" inputMode="decimal" placeholder="0:00" value={props.startText} onChange={(event) => props.onStartChange(event.target.value)} onBlur={props.onStartBlur} className={inputCls} />
-            <button type="button" onClick={props.onUseCurrentStart} className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground" title="Use current time"><Clock className="h-3.5 w-3.5" /></button>
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="0:00"
+              value={props.startText}
+              onChange={(event) => props.onStartChange(event.target.value)}
+              onBlur={props.onStartBlur}
+              className={inputCls}
+            />
+            <button
+              type="button"
+              onClick={props.onUseCurrentStart}
+              className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground"
+              title="Use current time"
+            >
+              <Clock className="h-3.5 w-3.5" />
+            </button>
           </div>
         </label>
         <label className="space-y-1">
           <span className="text-xs text-secondary">End</span>
           <div className="flex gap-1">
-            <input type="text" inputMode="decimal" placeholder="Optional" value={props.endText} onChange={(event) => props.onEndChange(event.target.value)} onBlur={props.onEndBlur} className={inputCls} />
-            <button type="button" onClick={props.onUseCurrentEnd} className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground" title="Use current time"><Clock className="h-3.5 w-3.5" /></button>
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Optional"
+              value={props.endText}
+              onChange={(event) => props.onEndChange(event.target.value)}
+              onBlur={props.onEndBlur}
+              className={inputCls}
+            />
+            <button
+              type="button"
+              onClick={props.onUseCurrentEnd}
+              className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground"
+              title="Use current time"
+            >
+              <Clock className="h-3.5 w-3.5" />
+            </button>
           </div>
         </label>
         {props.kind === "tag" ? (
           <label className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
             <span className="text-xs text-secondary">Tag</span>
-            <EntityReferenceSelector entityType="tag" value={props.selectedTagId ?? undefined} onChange={(tagId) => props.setSelectedTagId(tagId ?? null)} placeholder="Search tags…" inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground" />
+            <EntityReferenceSelector
+              entityType="tag"
+              value={props.selectedTagId ?? undefined}
+              onChange={(tagId) => props.setSelectedTagId(tagId ?? null)}
+              placeholder="Search tags…"
+              inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
+            />
           </label>
         ) : (
           <label className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
             <span className="text-xs text-secondary">Performer</span>
-            <EntityReferenceSelector entityType="performer" value={props.selectedPerformerId ?? undefined} onChange={(performerId) => props.setSelectedPerformerId(performerId ?? null)} placeholder="Search performers…" inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground" />
+            <EntityReferenceSelector
+              entityType="performer"
+              value={props.selectedPerformerId ?? undefined}
+              onChange={(performerId) => props.setSelectedPerformerId(performerId ?? null)}
+              placeholder="Search performers…"
+              inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
+            />
           </label>
         )}
       </div>
       {!props.canSave ? <div className="text-xs text-red-300">Use valid times and choose a {props.kind}.</div> : null}
       <div className="flex justify-end gap-2">
-        <button onClick={props.onCancel} className="px-3 py-1 text-sm text-secondary hover:text-foreground">Cancel</button>
-        <button onClick={props.onSave} disabled={!props.canSave || props.saving} className="rounded bg-accent px-3 py-1 text-sm text-white hover:bg-accent-hover disabled:opacity-50">
+        <button onClick={props.onCancel} className="px-3 py-1 text-sm text-secondary hover:text-foreground">
+          Cancel
+        </button>
+        <button
+          onClick={props.onSave}
+          disabled={!props.canSave || props.saving}
+          className="rounded bg-accent px-3 py-1 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
+        >
           {props.editing ? "Update" : "Save"}
         </button>
       </div>
@@ -805,8 +1017,11 @@ function isRawDataLabel(value: string) {
 }
 
 function rawSegmentLabel(segment: Segment) {
-  const candidate = segment.tagName?.trim() || segment.performerName?.trim() || segment.refLabel?.trim()
-    || (segment.title?.trim() && !isRawDataLabel(segment.title) ? segment.title.trim() : "");
+  const candidate =
+    segment.tagName?.trim() ||
+    segment.performerName?.trim() ||
+    segment.refLabel?.trim() ||
+    (segment.title?.trim() && !isRawDataLabel(segment.title) ? segment.title.trim() : "");
   if (candidate && candidate.toLowerCase() !== "performer") return candidate;
   return segment.kind?.trim() || cleanSourceLabel(segment.sourceKey || "") || "Segment";
 }
@@ -833,10 +1048,13 @@ function formatTime(seconds: number) {
   const minutes = Math.floor((safe % 3600) / 60);
   const secs = Math.floor(safe % 60);
   const fractional = safe % 1;
-  const secText = fractional > 0 && hours === 0
-    ? `${secs.toString().padStart(2, "0")}.${Math.round(fractional * 10)}`
-    : secs.toString().padStart(2, "0");
-  return hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}` : `${minutes}:${secText}`;
+  const secText =
+    fractional > 0 && hours === 0
+      ? `${secs.toString().padStart(2, "0")}.${Math.round(fractional * 10)}`
+      : secs.toString().padStart(2, "0");
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+    : `${minutes}:${secText}`;
 }
 
 function parseSegmentTimeInput(value: string) {
@@ -859,8 +1077,9 @@ function formatSegmentTimeInput(seconds: number) {
   const tenths = Math.round((safeSeconds - Math.floor(safeSeconds)) * 10);
   const normalizedWholeSeconds = tenths === 10 ? wholeSeconds + 1 : wholeSeconds;
   const normalizedTenths = tenths === 10 ? 0 : tenths;
-  const secondText = normalizedTenths > 0
-    ? `${normalizedWholeSeconds.toString().padStart(2, "0")}.${normalizedTenths}`
-    : normalizedWholeSeconds.toString().padStart(2, "0");
+  const secondText =
+    normalizedTenths > 0
+      ? `${normalizedWholeSeconds.toString().padStart(2, "0")}.${normalizedTenths}`
+      : normalizedWholeSeconds.toString().padStart(2, "0");
   return hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}:${secondText}` : `${minutes}:${secondText}`;
 }

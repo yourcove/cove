@@ -59,8 +59,7 @@ export function LoginPage() {
 
     const url = new URL(window.location.href);
     const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-    const queryMarkers = url.searchParams.has("external_login_code")
-      || url.searchParams.has("external_login_error");
+    const queryMarkers = url.searchParams.has("external_login_code") || url.searchParams.has("external_login_error");
     const codeValues = fragment.getAll("external_login_code");
     const errorValues = fragment.getAll("external_login_error");
     const hasCode = codeValues.length > 0;
@@ -75,11 +74,7 @@ export function LoginPage() {
     fragment.delete("external_login_error");
     const remainingFragment = fragment.toString();
     url.hash = remainingFragment ? `#${remainingFragment}` : "";
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${url.pathname}${url.search}${url.hash}`,
-    );
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 
     if (queryMarkers || (hasCode && hasProviderError) || errorValues.length > 1) {
       setError("External sign-in expired or was already used.");
@@ -87,9 +82,11 @@ export function LoginPage() {
     }
 
     if (hasProviderError) {
-      setError(errorValues[0] === "unlinked"
-        ? "This external identity is not linked. Sign in locally, then link it from Account settings."
-        : "External sign-in failed. Please try again.");
+      setError(
+        errorValues[0] === "unlinked"
+          ? "This external identity is not linked. Sign in locally, then link it from Account settings."
+          : "External sign-in failed. Please try again.",
+      );
       return;
     }
 
@@ -101,7 +98,7 @@ export function LoginPage() {
     setExternalSubmitting(true);
     setError(null);
     void externalLoginRedeem(code)
-      .then(result => {
+      .then((result) => {
         if (!result.ok) {
           setError(result.error ?? "External sign-in could not be completed.");
         }
@@ -111,8 +108,8 @@ export function LoginPage() {
   }, [externalLoginRedeem]);
 
   const externalLoginMethods = externalProviders
-    .filter(method => method.showOnLoginPage !== false)
-    .map(method => ({ method, href: buildExternalStartUrl(method) }))
+    .filter((method) => method.showOnLoginPage !== false)
+    .map((method) => ({ method, href: buildExternalStartUrl(method) }))
     .filter((entry): entry is { method: ExternalLoginMethodRow; href: string } => entry.href !== null);
 
   const busy = submitting || externalSubmitting;
@@ -135,7 +132,9 @@ export function LoginPage() {
         </div>
         <form onSubmit={onSubmit} className="space-y-3">
           <div className="space-y-1">
-            <label htmlFor="login-username" className="text-sm text-muted-foreground">Username</label>
+            <label htmlFor="login-username" className="text-sm text-muted-foreground">
+              Username
+            </label>
             <input
               id="login-username"
               type="text"
@@ -149,7 +148,9 @@ export function LoginPage() {
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="login-password" className="text-sm text-muted-foreground">Password</label>
+            <label htmlFor="login-password" className="text-sm text-muted-foreground">
+              Password
+            </label>
             <input
               id="login-password"
               type="password"
@@ -162,7 +163,9 @@ export function LoginPage() {
             />
           </div>
           {error && (
-            <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">{error}</div>
+            <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">
+              {error}
+            </div>
           )}
           <button
             type="submit"
@@ -190,9 +193,13 @@ export function LoginPage() {
         ) : null}
         <div className="flex flex-col gap-2 border-t border-border pt-3 text-center text-sm">
           {bootstrapStatus?.ownerExists === false ? (
-            <a className="text-accent hover:underline" href="/auth/bootstrap">First time here? Owner setup -&gt;</a>
+            <a className="text-accent hover:underline" href="/auth/bootstrap">
+              First time here? Owner setup -&gt;
+            </a>
           ) : null}
-          <a className="text-muted-foreground hover:text-accent hover:underline" href="/auth/redeem-invite">Have an invite token? -&gt;</a>
+          <a className="text-muted-foreground hover:text-accent hover:underline" href="/auth/redeem-invite">
+            Have an invite token? -&gt;
+          </a>
         </div>
       </div>
     </div>

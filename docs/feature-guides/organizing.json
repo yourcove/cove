@@ -1,0 +1,207 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "organizing",
+  "title": "Organizing your library",
+  "description": "Use tags, tag groups, performers, studios, groups, and saved views to make a growing Cove library easier to revisit.",
+  "order": 50,
+  "pages": ["tags", "tag"],
+  "sections": [
+    {
+      "id": "organize-over-time",
+      "title": "Organize over time",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove is built for libraries that become more structured over time. You do not need to classify everything perfectly at the beginning. Add enough structure to make the library easier to find, review, browse, and share each time you return."
+        },
+        {
+          "type": "image",
+          "src": "assets/organizing-tag.png",
+          "alt": "Blank Create Tag form with classification and relationship fields",
+          "caption": "A tag can start as a simple reusable name. Add a group, aliases, parent tags, timing thresholds, or custom fields only when they improve how you browse and search."
+        }
+      ]
+    },
+    {
+      "id": "the-main-building-blocks",
+      "title": "The main building blocks",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Start with the record that owns the content, then add only the relationships that improve retrieval:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "performers and studios for identities reused across items",
+            "tags for overlapping classification",
+            "tag groups for dividing a larger tag vocabulary into understandable categories",
+            "groups for a collection with its own identity or order",
+            "custom fields for metadata that Cove does not provide as a standard field",
+            "saved filters for a view you want to revisit",
+            "dynamic groups when a collection should resolve from a query"
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Performers",
+              "href": "/docs/reference/performers/",
+              "topicId": "content-performers"
+            },
+            {
+              "label": "Studios",
+              "href": "/docs/reference/studios/",
+              "topicId": "content-studios"
+            },
+            {
+              "label": "Tags reference",
+              "href": "/docs/reference/tags/"
+            },
+            {
+              "label": "Groups reference",
+              "href": "/docs/reference/groups/"
+            },
+            {
+              "label": "Saved filters reference",
+              "href": "/docs/reference/saved-filters/"
+            },
+            {
+              "label": "Dynamic groups",
+              "href": "/docs/user/library/dynamic-groups/",
+              "topicId": "dynamic-groups"
+            },
+            {
+              "label": "Custom fields",
+              "href": "/docs/user/library/custom-fields/",
+              "topicId": "custom-fields"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a-practical-organization-loop",
+      "title": "A practical organization loop",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Scan or import media into Cove.",
+            "Add the broad metadata that will help you find it later.",
+            "Create views you return to often with saved filters or dynamic groups.",
+            "Add more specific structure only where it pays off.",
+            "Review provenance when an automated workflow changes something important."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "A useful library is not only organized. It is understandable: you can tell what a value means, where it came from, and why an item appears in a collection."
+        }
+      ]
+    },
+    {
+      "id": "tags-versus-groups",
+      "title": "Tags versus groups",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Use tags when"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the label applies to many otherwise unrelated items",
+            "you want the label to be searchable and reusable",
+            "you want several overlapping labels on the same item"
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Use groups when"
+        },
+        {
+          "type": "list",
+          "items": [
+            "you are intentionally curating a collection",
+            "order or membership matters",
+            "the collection should behave like a chosen set instead of a shared label"
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Use dynamic groups when"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the collection should update itself",
+            "membership comes from a rule, filter, or activity pattern"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tag-when-something-appears",
+      "title": "Tag when something appears",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Some tags describe a whole item. Others describe where a performer, face, tag, or another entity appears inside a video."
+        },
+        {
+          "type": "list",
+          "items": [
+            "use normal tags when the whole item should carry the label",
+            "use occurrence tagging when timing matters and you need to know where something appears",
+            "occurrence tagging works with segments, which also power player bars, filters, and compilations"
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Segments and time ranges",
+              "href": "/docs/user/library/segments-and-compilations/",
+              "topicId": "segments-and-compilations"
+            },
+            {
+              "label": "Raw and derived segments",
+              "href": "/docs/reference/segments/",
+              "topicId": "segments-and-compilations"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "when-to-go-deeper",
+      "title": "When to go deeper",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A growing library usually benefits most from deeper structure in a few places:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "high-value tags you search often",
+            "performer identity cleanup",
+            "studio normalization",
+            "recurring watch or review queues",
+            "groups you revisit often"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Once those are stable, add advanced workflows such as contextual tagging, segments, sub-videos, and compilations where they provide a clear benefit."
+        }
+      ]
+    }
+  ]
+}

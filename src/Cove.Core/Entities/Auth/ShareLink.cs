@@ -16,6 +16,9 @@ public class ShareLink
     /// <summary>JSON array of entity ids visible through this link.</summary>
     public string EntityIds { get; set; } = "[]";
 
+    /// <summary>Snapshot of readable child entities included by container shares.</summary>
+    public string ContainedEntityIds { get; set; } = "[]";
+
     public DateTime? ExpiresAt { get; set; }
 
     /// <summary>Optional BCrypt hash gating access.</summary>

@@ -20,8 +20,19 @@ function SelectionProbe({ infinitePageSize, resetToken, fetchAllIds }: ProbeProp
   return (
     <div>
       <div data-testid="selected">{[...selection.selectedIds].join(",")}</div>
-      <button type="button" onClick={() => { void selection.selectAll(); }}>Select all</button>
-      {selection.selectShown ? <button type="button" onClick={selection.selectShown}>Select shown</button> : null}
+      <button
+        type="button"
+        onClick={() => {
+          void selection.selectAll();
+        }}
+      >
+        Select all
+      </button>
+      {selection.selectShown ? (
+        <button type="button" onClick={selection.selectShown}>
+          Select shown
+        </button>
+      ) : null}
       <div data-testid="pending">{selection.selectAllPending ? "pending" : "idle"}</div>
     </div>
   );

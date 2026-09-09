@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { jobs } from "../api/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import type { JobInfo } from "../api/types";
@@ -13,10 +13,45 @@ interface Props {
   onNavigate?: (r: any) => void;
 }
 
+export function isTerminalJob(job: JobInfo): boolean {
+  return job.status === "completed" || job.status === "failed" || job.status === "cancelled";
+}
+
+export function collectUnseenTerminalJobs(jobsToInspect: readonly JobInfo[], seen: Set<string>): JobInfo[] {
+  const unseen: JobInfo[] = [];
+  for (const job of jobsToInspect) {
+    if (!isTerminalJob(job) || seen.has(job.id)) continue;
+    seen.add(job.id);
+    unseen.push(job);
+  }
+  return unseen;
+}
+
+export function invalidateContentForTerminalJob(queryClient: QueryClient, job: JobInfo): boolean {
+  if (!isTerminalJob(job)) return false;
+  if (job.type.endsWith("-bulk-delete")) {
+    void queryClient.invalidateQueries();
+    return true;
+  }
+  if (job.status !== "completed") return false;
+
+  void queryClient.invalidateQueries({ queryKey: ["videos"] });
+  void queryClient.invalidateQueries({ queryKey: ["images"] });
+  void queryClient.invalidateQueries({ queryKey: ["galleries"] });
+  void queryClient.invalidateQueries({ queryKey: ["performers"] });
+  void queryClient.invalidateQueries({ queryKey: ["stats"] });
+  return true;
+}
+
+export function jobHistoryPollingInterval(drawerOpen: boolean): number {
+  return drawerOpen ? 3000 : 15000;
+}
+
 export function JobDrawer({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const [realtimeJobs, setRealtimeJobs] = useState<Map<string, JobInfo>>(new Map());
   const connectionRef = useRef<ReturnType<typeof HubConnectionBuilder.prototype.build> | null>(null);
+  const observedTerminalJobsRef = useRef(new Set<string>());
 
   const { data: activeJobs } = useQuery({
     queryKey: ["jobs-active"],
@@ -27,8 +62,19 @@ export function JobDrawer({ open, onClose }: Props) {
   const { data: jobHistory } = useQuery({
     queryKey: ["jobs-history"],
     queryFn: jobs.history,
-    enabled: open,
+    // The drawer stays mounted while closed. Keep a low-frequency fallback running so a terminal
+    // SignalR update missed during reconnect or browser suspension cannot leave deleted content cached.
+    refetchInterval: jobHistoryPollingInterval(open),
   });
+
+  const observeTerminalJob = useCallback(
+    (job: JobInfo) => {
+      for (const unseen of collectUnseenTerminalJobs([job], observedTerminalJobsRef.current)) {
+        invalidateContentForTerminalJob(queryClient, unseen);
+      }
+    },
+    [queryClient],
+  );
 
   // SignalR real-time updates
   useEffect(() => {
@@ -47,14 +93,7 @@ export function JobDrawer({ open, onClose }: Props) {
       // Invalidate queries to stay in sync
       queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
-      // When a job completes, invalidate content queries
-      if (job.status === "completed") {
-        queryClient.invalidateQueries({ queryKey: ["videos"] });
-        queryClient.invalidateQueries({ queryKey: ["images"] });
-        queryClient.invalidateQueries({ queryKey: ["galleries"] });
-        queryClient.invalidateQueries({ queryKey: ["performers"] });
-        queryClient.invalidateQueries({ queryKey: ["stats"] });
-      }
+      observeTerminalJob(job);
     });
 
     connection.start().catch(() => {});
@@ -63,22 +102,30 @@ export function JobDrawer({ open, onClose }: Props) {
     return () => {
       connection.stop();
     };
-  }, [queryClient]);
+  }, [observeTerminalJob, queryClient]);
 
-  const handleCancel = useCallback(async (id: string) => {
-    await jobs.cancel(id);
-    queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
-    queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
-  }, [queryClient]);
+  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. Bulk jobs can
+  // commit some units before failing or being cancelled, so every terminal outcome invalidates content.
+  useEffect(() => {
+    for (const job of collectUnseenTerminalJobs(jobHistory ?? [], observedTerminalJobsRef.current)) {
+      invalidateContentForTerminalJob(queryClient, job);
+    }
+  }, [jobHistory, queryClient]);
+
+  const handleCancel = useCallback(
+    async (id: string) => {
+      await jobs.cancel(id);
+      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
+    },
+    [queryClient],
+  );
 
   // Merge API jobs with real-time updates
   const mergedActive = activeJobs?.map((j) => realtimeJobs.get(j.id) ?? j) ?? [];
   // Also add any real-time jobs not in the API response
   for (const [id, job] of realtimeJobs) {
-    if (
-      (job.status === "running" || job.status === "pending") &&
-      !mergedActive.find((j) => j.id === id)
-    ) {
+    if ((job.status === "running" || job.status === "pending") && !mergedActive.find((j) => j.id === id)) {
       mergedActive.push(job);
     }
   }
@@ -115,46 +162,44 @@ export function JobDrawer({ open, onClose }: Props) {
 
           {/* Drawer */}
           <div className="job-drawer fixed inset-y-0 right-0 z-50 flex w-96 flex-col border-l border-border bg-surface text-foreground shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h2 className="font-semibold text-foreground">
-            Jobs {runningCount > 0 && <span className="text-accent text-sm ml-1">({runningCount} active)</span>}
-          </h2>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {/* Active jobs */}
-          {mergedActive.length > 0 && (
-            <div className="p-4">
-              <h3 className="text-xs font-semibold text-muted uppercase mb-2">Active</h3>
-              <div className="space-y-2">
-                {mergedActive.map((job) => (
-                  <JobCard key={job.id} job={job} onCancel={handleCancel} />
-                ))}
-              </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h2 className="font-semibold text-foreground">
+                Jobs {runningCount > 0 && <span className="text-accent text-sm ml-1">({runningCount} active)</span>}
+              </h2>
+              <button onClick={onClose} className="text-muted hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          )}
 
-          {/* History */}
-          {jobHistory && jobHistory.length > 0 && (
-            <div className="p-4 border-t border-border">
-              <h3 className="text-xs font-semibold text-muted uppercase mb-2">History</h3>
-              <div className="space-y-2">
-                {jobHistory.map((job) => (
-                  <JobCard key={job.id} job={job} />
-                ))}
-              </div>
-            </div>
-          )}
+            <div className="flex-1 overflow-y-auto">
+              {/* Active jobs */}
+              {mergedActive.length > 0 && (
+                <div className="p-4">
+                  <h3 className="text-xs font-semibold text-muted uppercase mb-2">Active</h3>
+                  <div className="space-y-2">
+                    {mergedActive.map((job) => (
+                      <JobCard key={job.id} job={job} onCancel={handleCancel} />
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          {mergedActive.length === 0 && (!jobHistory || jobHistory.length === 0) && (
-            <div className="p-8 text-center text-muted text-sm">
-              No jobs running or in history
+              {/* History */}
+              {jobHistory && jobHistory.length > 0 && (
+                <div className="p-4 border-t border-border">
+                  <h3 className="text-xs font-semibold text-muted uppercase mb-2">History</h3>
+                  <div className="space-y-2">
+                    {jobHistory.map((job) => (
+                      <JobCard key={job.id} job={job} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {mergedActive.length === 0 && (!jobHistory || jobHistory.length === 0) && (
+                <div className="p-8 text-center text-muted text-sm">No jobs running or in history</div>
+              )}
             </div>
-          )}
-        </div>
           </div>
         </>
       ) : null}
@@ -186,16 +231,20 @@ export function useJobCount() {
     });
 
     // Also poll once on mount
-    jobs.list().then((list) => {
-      activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
-      setCount(activeIds.size);
-    }).catch(() => {});
+    jobs
+      .list()
+      .then((list) => {
+        activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
+        setCount(activeIds.size);
+      })
+      .catch(() => {});
 
     connection.start().catch(() => {});
 
-    return () => { connection.stop(); };
+    return () => {
+      connection.stop();
+    };
   }, []);
 
   return count;
 }
-

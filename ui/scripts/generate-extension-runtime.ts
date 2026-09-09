@@ -25,7 +25,7 @@ function buildRuntimeSource(source: string, exportNames: string[], defaultExport
       "  : runtimeModule;",
       "",
       "export default runtimeDefault;",
-      ""
+      "",
     );
   } else if (defaultExport === "namespace") {
     lines.push("export default runtimeModule;", "");
@@ -44,17 +44,14 @@ function buildRuntimeSource(source: string, exportNames: string[], defaultExport
 }
 
 function buildTypeSource(source: string, defaultExport: DefaultExport) {
-  const lines = [
-    "// AUTO-GENERATED FILE. DO NOT EDIT.",
-    `export * from ${JSON.stringify(source)};`,
-  ];
+  const lines = ["// AUTO-GENERATED FILE. DO NOT EDIT.", `export * from ${JSON.stringify(source)};`];
 
   if (defaultExport === "source") {
     lines.push(`export { default } from ${JSON.stringify(source)};`);
   } else if (defaultExport === "namespace") {
     lines.push(
       `declare const runtimeDefault: typeof import(${JSON.stringify(source)});`,
-      "export default runtimeDefault;"
+      "export default runtimeDefault;",
     );
   }
 
@@ -74,36 +71,23 @@ async function generateRuntimeModule(definition: (typeof extensionRuntimeModules
     .sort();
   const detectedDefaultExport = Object.prototype.hasOwnProperty.call(moduleNamespace, "default") ? "source" : "none";
   const defaultExport =
-    "defaultExport" in definition ? definition.defaultExport as DefaultExport : detectedDefaultExport;
+    "defaultExport" in definition ? (definition.defaultExport as DefaultExport) : detectedDefaultExport;
 
   await fs.writeFile(
     path.join(runtimeDir, definition.sourceFileName),
     buildRuntimeSource(definition.source, exportNames, defaultExport),
-    "utf8"
+    "utf8",
   );
   await fs.writeFile(
     path.join(runtimeDir, definition.sourceFileName.replace(/\.ts$/, ".d.ts")),
     buildTypeSource(definition.source, defaultExport),
-    "utf8"
+    "utf8",
   );
 }
 
-async function writeLocalRuntimeModule(
-  fileStem: string,
-  description: string,
-  exportStatement: string,
-) {
-  const runtimeSource = [
-    "// AUTO-GENERATED FILE. DO NOT EDIT.",
-    `// ${description}`,
-    exportStatement,
-    "",
-  ].join("\n");
-  const typeSource = [
-    "// AUTO-GENERATED FILE. DO NOT EDIT.",
-    exportStatement,
-    "",
-  ].join("\n");
+async function writeLocalRuntimeModule(fileStem: string, description: string, exportStatement: string) {
+  const runtimeSource = ["// AUTO-GENERATED FILE. DO NOT EDIT.", `// ${description}`, exportStatement, ""].join("\n");
+  const typeSource = ["// AUTO-GENERATED FILE. DO NOT EDIT.", exportStatement, ""].join("\n");
 
   await fs.writeFile(path.join(runtimeDir, `${fileStem}.ts`), runtimeSource, "utf8");
   await fs.writeFile(path.join(runtimeDir, `${fileStem}.d.ts`), typeSource, "utf8");

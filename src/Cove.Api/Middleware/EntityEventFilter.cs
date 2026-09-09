@@ -32,6 +32,10 @@ public sealed class EntityEventFilter : IAsyncActionFilter
 
         // An action can complete without throwing and still reject the mutation with a 4xx/5xx result.
         if (result.Exception != null || result.Canceled || !IsSuccessful(result.Result)) return;
+        // HTTP 202 means the mutation was accepted for later execution. The background job publishes
+        // lifecycle events only after each entity commit; publishing from the request here would be
+        // premature and would duplicate successful job events.
+        if (result.Result is IStatusCodeActionResult { StatusCode: StatusCodes.Status202Accepted }) return;
 
         var controllerName = context.RouteData.Values["controller"]?.ToString();
         if (controllerName == null || !ControllerEntityMap.TryGetValue(controllerName, out var entityType))

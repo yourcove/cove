@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Data;
-using System.Diagnostics;
+using Cove.Api.Services;
 using System.Runtime.InteropServices;
 
 namespace Cove.Api.Controllers;
@@ -13,16 +14,32 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/files")]
 [RequiresPermission(Permissions.FilesRead)]
-public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileOpsController> logger) : ControllerBase
+public class FileOpsController(
+    CoveContext db,
+    IEventBus eventBus,
+    ILogger<FileOpsController> logger,
+    IFileManagerLauncher? fileManagerLauncher = null,
+    PhysicalFileAccessCoordinator? physicalFileCoordinator = null,
+    PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
+    private static readonly IFileManagerLauncher DefaultFileManagerLauncher = new FileManagerLauncher();
+    private readonly PhysicalFileAccessCoordinator _physicalFileCoordinator = physicalFileCoordinator ?? PhysicalFileAccessCoordinator.Shared;
+
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesWrite, ActionArgumentName = "dto", PropertyName = "FileIds")]
     public async Task<IActionResult> MoveFiles([FromBody] MoveFilesDto dto, CancellationToken ct)
     {
-        if (!Directory.Exists(dto.DestinationPath))
+        var normalizedDestination = TryNormalizeMoveDestination(dto.DestinationPath);
+        if (normalizedDestination == null)
             return BadRequest("Destination directory does not exist");
 
+        var (destinationPath, storedDestinationPath) = normalizedDestination.Value;
+        if (!Directory.Exists(destinationPath))
+            return BadRequest("Destination directory does not exist");
+
+        using var moveLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
         var files = await db.Set<BaseFileEntity>()
             .Include(f => f.ParentFolder)
             .Where(f => dto.FileIds.Contains(f.Id))
@@ -32,8 +49,10 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
         var movedFiles = new List<BaseFileEntity>();
         foreach (var file in files)
         {
-            var oldPath = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-            var newPath = Path.Combine(dto.DestinationPath, file.Basename);
+            var oldPath = FilesystemPaths.ToNativePath(!string.IsNullOrWhiteSpace(file.Path)
+                ? file.Path
+                : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename));
+            var newPath = Path.Combine(destinationPath, file.Basename);
 
             if (!System.IO.File.Exists(oldPath))
             {
@@ -50,10 +69,10 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
             System.IO.File.Move(oldPath, newPath);
 
             // Update folder reference
-            var newFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == dto.DestinationPath, ct);
+            var newFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == storedDestinationPath, ct);
             if (newFolder == null)
             {
-                newFolder = new Folder { Path = dto.DestinationPath, ModTime = DateTime.UtcNow };
+                newFolder = new Folder { Path = storedDestinationPath, ModTime = DateTime.UtcNow };
                 db.Folders.Add(newFolder);
                 await db.SaveChangesAsync(ct);
             }
@@ -65,6 +84,23 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
         await db.SaveChangesAsync(ct);
         PublishOwnerUpdates(movedFiles);
         return Ok(new { moved = movedCount, total = files.Count });
+    }
+
+    internal static (string NativePath, string StoredPath)? TryNormalizeMoveDestination(string path)
+    {
+        try
+        {
+            var nativePath = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(nativePath);
+            var normalizedNativePath = !string.IsNullOrEmpty(root) && string.Equals(nativePath, root, StringComparison.OrdinalIgnoreCase)
+                ? nativePath
+                : nativePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return (normalizedNativePath, FilesystemPaths.ToStoredPath(normalizedNativePath));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void PublishOwnerUpdates(IEnumerable<BaseFileEntity> files)
@@ -98,31 +134,36 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
             .ToListAsync(ct);
 
         var deletedCount = 0;
-        var deletedFromDisk = 0;
+        var physicalPaths = new List<string>();
         foreach (var file in files)
         {
             if (dto.DeleteFromDisk)
             {
-                var path = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-                if (System.IO.File.Exists(path))
-                {
-                    System.IO.File.Delete(path);
-                    deletedFromDisk++;
-                    logger.LogDebug("Deleted file from disk: {Path}", path);
-                }
+                var storedPath = !string.IsNullOrWhiteSpace(file.Path)
+                    ? file.Path
+                    : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename);
+                physicalPaths.Add(storedPath);
             }
 
             db.Set<BaseFileEntity>().Remove(file);
             deletedCount++;
         }
 
+        var deletionContext = new BulkDeletionExecutionContext();
+        deletionContext.StagePhysicalFiles(db, physicalPaths);
         await db.SaveChangesAsync(ct);
+        if (dto.DeleteFromDisk && physicalPaths.Count > 0)
+            physicalFileDeletionRecoverySignal?.Notify();
         PublishOwnerUpdates(files);
-        logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
+        logger.LogInformation(
+            "Deleted {Count} file record(s); {DiskCount} physical deletion(s) were staged",
+            deletedCount,
+            physicalPaths.Count);
         return Ok(new { deleted = deletedCount });
     }
 
     [HttpGet("browse")]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<List<DirectoryEntryDto>> Browse([FromQuery] string? path)
     {
         var targetPath = path ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -147,6 +188,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
     [HttpPost("{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesRead)]
     public async Task<IActionResult> RevealInFileManager(int id, CancellationToken ct)
     {
@@ -155,33 +197,16 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
             .FirstOrDefaultAsync(f => f.Id == id, ct);
         if (file == null) return NotFound();
 
-        var filePath = NormalizeLocalPath(!string.IsNullOrWhiteSpace(file.Path)
+        var storedPath = !string.IsNullOrWhiteSpace(file.Path)
             ? file.Path
-            : Path.Combine(file.ParentFolder?.Path ?? "", file.Basename));
+            : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename);
+        var filePath = NormalizeLocalPath(FilesystemPaths.ToNativePath(storedPath));
         if (!System.IO.File.Exists(filePath))
             return NotFound("File does not exist on disk");
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add("/select,");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add("-R");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", Path.GetDirectoryName(filePath) ?? filePath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFile(filePath);
             return Ok();
         }
         catch (Exception ex)
@@ -193,6 +218,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
     [HttpPost("folders/{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<IActionResult> RevealFolderInFileManager(int id, CancellationToken ct)
     {
         var folder = await db.Folders.FirstOrDefaultAsync(f => f.Id == id, ct);
@@ -204,23 +230,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", folderPath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFolder(folderPath);
             return Ok();
         }
         catch (Exception ex)

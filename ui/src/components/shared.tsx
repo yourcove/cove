@@ -13,29 +13,51 @@ export { TagProvenanceHover } from "./TagProvenanceHover";
 import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
 
 type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> & Partial<Pick<Tag, "id" | "name" | "imagePath" | "hasImage">>;
-export function TagBadge({ name, tag, color, groupColor, onClick, provenance, reportable, onReportIncorrect, onAdjustThreshold }: { name: string; tag?: TagBadgeData; color?: string | null; groupColor?: string | null; onClick?: () => void; provenance?: TagProvenance[]; reportable?: boolean; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+export function TagBadge({
+  name,
+  tag,
+  color,
+  groupColor,
+  onClick,
+  provenance,
+  reportable,
+  onReportIncorrect,
+  onAdjustThreshold,
+}: {
+  name: string;
+  tag?: TagBadgeData;
+  color?: string | null;
+  groupColor?: string | null;
+  onClick?: () => void;
+  provenance?: TagProvenance[];
+  reportable?: boolean;
+  onReportIncorrect?: () => void;
+  onAdjustThreshold?: () => void;
+}) {
   const interactive = Boolean(onClick);
   const hasMenu = Boolean(reportable && (onReportIncorrect || onAdjustThreshold));
   const resolvedGroupColor = normalizeTagColor(groupColor ?? tag?.tagGroupColor);
   const resolvedColor = normalizeTagColor(color ?? tag?.color ?? groupColor ?? tag?.tagGroupColor);
   const colorStyle = resolvedColor ? getTagColorStyle(resolvedColor) : undefined;
-  const mediaTag = tag?.id ? { id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage } : undefined;
+  const mediaTag = tag?.id
+    ? { id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage }
+    : undefined;
 
   const badgeContent = (
     <>
       {resolvedGroupColor ? (
-        <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-current/30" title="Tag group">
+        <span
+          className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-current/30"
+          title="Tag group"
+        >
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: resolvedGroupColor }} />
         </span>
       ) : null}
       <span>{name}</span>
     </>
   );
-  const withMediaHover = (content: ReactNode) => mediaTag && !provenance?.length ? (
-    <TagMediaHover tag={mediaTag}>
-      {content}
-    </TagMediaHover>
-  ) : content;
+  const withMediaHover = (content: ReactNode) =>
+    mediaTag && !provenance?.length ? <TagMediaHover tag={mediaTag}>{content}</TagMediaHover> : content;
 
   // Without a menu, the whole chip is a single button (or static span) as before.
   if (!hasMenu) {
@@ -57,7 +79,11 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       </span>
     );
 
-    const badgeWithProvenance = <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{badge}</TagProvenanceHover>;
+    const badgeWithProvenance = (
+      <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>
+        {badge}
+      </TagProvenanceHover>
+    );
     return withMediaHover(badgeWithProvenance);
   }
 
@@ -81,14 +107,38 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
   return withMediaHover(badgeWithMenu);
 }
 
-function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, mediaTag, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; mediaTag?: TagMediaReference; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+function TagBadgeWithMenu({
+  name,
+  colorStyle,
+  interactive,
+  onClick,
+  provenance,
+  mediaTag,
+  children,
+  onReportIncorrect,
+  onAdjustThreshold,
+}: {
+  name: string;
+  colorStyle?: CSSProperties;
+  interactive: boolean;
+  onClick?: () => void;
+  provenance?: TagProvenance[];
+  mediaTag?: TagMediaReference;
+  children: ReactNode;
+  onReportIncorrect?: () => void;
+  onAdjustThreshold?: () => void;
+}) {
   const chip = (
     <span
       style={colorStyle}
       className="inline-flex min-h-9 items-center gap-1 rounded border border-border bg-card py-1 pl-2.5 pr-1 text-xs font-medium text-secondary sm:min-h-0 sm:py-0.5 sm:pl-2"
     >
       {interactive ? (
-        <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 transition hover:text-foreground">
+        <button
+          type="button"
+          onClick={onClick}
+          className="inline-flex items-center gap-1.5 transition hover:text-foreground"
+        >
           {children}
         </button>
       ) : (
@@ -104,14 +154,30 @@ function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, 
     </span>
   );
 
-  return <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{chip}</TagProvenanceHover>;
+  return (
+    <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>
+      {chip}
+    </TagProvenanceHover>
+  );
 }
 
 // The "⋯" trigger + dropdown for a derived ("locked") tag chip, shared by the read-only Details chip
 // and the Edit-tab tag selector. It deliberately routes the two intents apart: tuning how often a tag
 // appears is a global threshold change, while "this detection is wrong" is the rare per-video
 // correction that deletes the AI's finding. Renders nothing if neither action is available.
-export function TagActionMenu({ name, onReportIncorrect, onAdjustThreshold, triggerClassName, iconClassName }: { name: string; onReportIncorrect?: () => void; onAdjustThreshold?: () => void; triggerClassName?: string; iconClassName?: string }) {
+export function TagActionMenu({
+  name,
+  onReportIncorrect,
+  onAdjustThreshold,
+  triggerClassName,
+  iconClassName,
+}: {
+  name: string;
+  onReportIncorrect?: () => void;
+  onAdjustThreshold?: () => void;
+  triggerClassName?: string;
+  iconClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -126,9 +192,10 @@ export function TagActionMenu({ name, onReportIncorrect, onAdjustThreshold, trig
     const width = 256; // w-64
     const height = menuRef.current?.offsetHeight ?? 96;
     const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
-    const top = rect.bottom + 4 + height > window.innerHeight - margin
-      ? Math.max(margin, rect.top - height - 4)
-      : rect.bottom + 4;
+    const top =
+      rect.bottom + 4 + height > window.innerHeight - margin
+        ? Math.max(margin, rect.top - height - 4)
+        : rect.bottom + 4;
     setCoords({ left, top });
   };
 
@@ -159,7 +226,11 @@ export function TagActionMenu({ name, onReportIncorrect, onAdjustThreshold, trig
         type="button"
         aria-label={`More actions for ${name}`}
         title="More actions"
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((value) => !value); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          setOpen((value) => !value);
+        }}
         className={triggerClassName ?? "rounded p-0.5 text-muted transition hover:text-foreground"}
       >
         <MoreVertical className={iconClassName ?? "h-3.5 w-3.5"} />
@@ -167,12 +238,26 @@ export function TagActionMenu({ name, onReportIncorrect, onAdjustThreshold, trig
       {open && coords
         ? createPortal(
             <>
-              <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} onContextMenu={(e) => { e.preventDefault(); setOpen(false); }} />
-              <div ref={menuRef} className="fixed z-[61] w-64 rounded-md border border-border bg-surface p-1 shadow-xl" style={{ left: coords.left, top: coords.top }}>
+              <div
+                className="fixed inset-0 z-[60]"
+                onClick={() => setOpen(false)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setOpen(false);
+                }}
+              />
+              <div
+                ref={menuRef}
+                className="fixed z-[61] w-64 rounded-md border border-border bg-surface p-1 shadow-xl"
+                style={{ left: coords.left, top: coords.top }}
+              >
                 {onAdjustThreshold ? (
                   <button
                     type="button"
-                    onClick={() => { setOpen(false); onAdjustThreshold(); }}
+                    onClick={() => {
+                      setOpen(false);
+                      onAdjustThreshold();
+                    }}
                     className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs text-foreground transition hover:bg-card"
                   >
                     <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
@@ -185,7 +270,10 @@ export function TagActionMenu({ name, onReportIncorrect, onAdjustThreshold, trig
                 {onReportIncorrect ? (
                   <button
                     type="button"
-                    onClick={() => { setOpen(false); onReportIncorrect(); }}
+                    onClick={() => {
+                      setOpen(false);
+                      onReportIncorrect();
+                    }}
                     className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs text-red-300 transition hover:bg-card"
                   >
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -234,29 +322,54 @@ function fieldProvenanceValueContainsTag(value: unknown, tagName: string) {
   return false;
 }
 
-export function resolveTagProvenance(tag: Pick<Tag, "name" | "provenance">, fieldProvenance?: FieldProvenance[], fieldKey: string | string[] = "tags") {
+export function resolveTagProvenance(
+  tag: Pick<Tag, "name" | "provenance">,
+  fieldProvenance?: FieldProvenance[],
+  fieldKey: string | string[] = "tags",
+) {
   if (tag.provenance?.length) {
     return tag.provenance;
   }
 
   const fallback = getFieldProvenanceEntries(fieldProvenance, fieldKey)
     .filter((entry) => fieldProvenanceValueContainsTag(entry.value, tag.name))
-    .map((entry) => ({
-      sourceKey: entry.sourceKey,
-      sourceRunId: entry.sourceRunId,
-      modelKey: entry.modelKey,
-      confidence: entry.confidence,
-      appliedAt: entry.createdAt,
-    } satisfies TagProvenance));
+    .map(
+      (entry) =>
+        ({
+          sourceKey: entry.sourceKey,
+          sourceRunId: entry.sourceRunId,
+          modelKey: entry.modelKey,
+          confidence: entry.confidence,
+          appliedAt: entry.createdAt,
+        }) satisfies TagProvenance,
+    );
 
   return fallback.length > 0 ? fallback : tag.provenance;
 }
 
-export function buildTagProvenanceById(tags: Array<Pick<Tag, "id" | "name" | "provenance">>, fieldProvenance?: FieldProvenance[], fieldKey: string | string[] = "tags") {
-  return Object.fromEntries(tags.map((tag) => [tag.id, resolveTagProvenance(tag, fieldProvenance, fieldKey)])) as Record<number, TagProvenance[] | undefined>;
+export function buildTagProvenanceById(
+  tags: Array<Pick<Tag, "id" | "name" | "provenance">>,
+  fieldProvenance?: FieldProvenance[],
+  fieldKey: string | string[] = "tags",
+) {
+  return Object.fromEntries(
+    tags.map((tag) => [tag.id, resolveTagProvenance(tag, fieldProvenance, fieldKey)]),
+  ) as Record<number, TagProvenance[] | undefined>;
 }
 
-export function ProvenanceBadge({ name, provenance, onClick, sourceLabel = "Source", children }: { name: string; provenance?: TagProvenance[]; onClick?: () => void; sourceLabel?: string; children?: ReactNode }) {
+export function ProvenanceBadge({
+  name,
+  provenance,
+  onClick,
+  sourceLabel = "Source",
+  children,
+}: {
+  name: string;
+  provenance?: TagProvenance[];
+  onClick?: () => void;
+  sourceLabel?: string;
+  children?: ReactNode;
+}) {
   const interactive = Boolean(onClick);
 
   const badgeContent = (
@@ -279,7 +392,11 @@ export function ProvenanceBadge({ name, provenance, onClick, sourceLabel = "Sour
     </span>
   );
 
-  return <TagProvenanceHover provenance={provenance} sourceLabel={sourceLabel}>{badge}</TagProvenanceHover>;
+  return (
+    <TagProvenanceHover provenance={provenance} sourceLabel={sourceLabel}>
+      {badge}
+    </TagProvenanceHover>
+  );
 }
 
 function normalizeTagColor(value?: string | null) {

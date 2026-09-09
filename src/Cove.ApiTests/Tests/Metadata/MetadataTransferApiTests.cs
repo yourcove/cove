@@ -3,11 +3,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class MetadataTransferApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -18,28 +16,24 @@ public sealed class MetadataTransferApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder()
+        var tag = await AsUser().CreateTagAsync(new TagBuilder()
                 .WithName($"Export tag {suffix}")
                 .WithDescription("Distinctive exported tag description")
                 .AsFavorite()
-                .Build());
-        var studio = await AsUser().CreateStudioAsync(
-            new StudioBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var studio = await AsUser().CreateStudioAsync(new StudioBuilder()
                 .WithName($"Export studio {suffix}")
                 .WithDetails("Distinctive exported studio details")
                 .AsFavorite()
                 .AsOrganized()
-                .Build());
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName($"Export performer {suffix}")
                 .WithDetails("Distinctive exported performer details")
                 .AsFavorite()
-                .Build());
-        var group = await AsUser().CreateGroupAsync($"Export group {suffix}");
-        var gallery = await AsUser().CreateGalleryAsync(
-            new GalleryBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Export group {suffix}", TestContext.Current.CancellationToken);
+        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder()
                 .WithTitle($"Export gallery {suffix}")
                 .WithDetails("Distinctive exported gallery details")
                 .WithPhotographer("Export photographer")
@@ -47,9 +41,8 @@ public sealed class MetadataTransferApiTests(
                 .WithTag(tag)
                 .WithPerformer(performer)
                 .AsOrganized()
-                .Build());
-        var video = await AsUser().CreateVideoAsync(
-            new VideoBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync(new VideoBuilder()
                 .WithTitle($"Export video {suffix}")
                 .WithDetails("Distinctive exported video details")
                 .WithDirector("Export director")
@@ -59,7 +52,7 @@ public sealed class MetadataTransferApiTests(
                 .WithGallery(gallery)
                 .WithGroup(group)
                 .AsOrganized()
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var jobId = await AsUser().StartMetadataExportAsync(new ExportOptionsDto
@@ -70,8 +63,8 @@ public sealed class MetadataTransferApiTests(
             IncludeTags = true,
             IncludeGalleries = true,
             IncludeGroups = true,
-        });
-        var job = await AsUser().WaitForTerminalJobAsync(jobId);
+        }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("export");
@@ -83,7 +76,7 @@ public sealed class MetadataTransferApiTests(
         var exportFile = Directory.GetFiles(exportDirectory).Should().ContainSingle().Which;
         Path.GetFileName(exportFile).Should().MatchRegex(@"^cove-export-\d{8}_\d{6}\.json$");
 
-        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(exportFile));
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(exportFile, TestContext.Current.CancellationToken));
         var root = document.RootElement;
         root.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
             "videos",
@@ -167,33 +160,33 @@ public sealed class MetadataTransferApiTests(
         {
             FilePath = importFile,
             DuplicateHandling = false,
-        });
-        var job = await AsUser().WaitForTerminalJobAsync(jobId);
+        }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("import");
         job.Status.Should().Be(JobStatus.Completed);
         job.Error.Should().BeNull();
 
-        var importedTag = (await AsUser().GetTagsAsync()).Should()
+        var importedTag = (await AsUser().GetTagsAsync(TestContext.Current.CancellationToken)).Should()
             .ContainSingle(candidate => candidate.Name == tagName).Which;
         importedTag.Description.Should().Be("Imported tag description");
         importedTag.Favorite.Should().BeTrue();
 
-        var importedStudio = (await AsUser().GetStudiosAsync()).Should()
+        var importedStudio = (await AsUser().GetStudiosAsync(TestContext.Current.CancellationToken)).Should()
             .ContainSingle(candidate => candidate.Name == studioName).Which;
         importedStudio.Details.Should().Be("Imported studio details");
         importedStudio.Favorite.Should().BeTrue();
         importedStudio.Organized.Should().BeTrue();
 
-        var importedPerformer = (await AsUser().GetPerformersAsync()).Should()
+        var importedPerformer = (await AsUser().GetPerformersAsync(TestContext.Current.CancellationToken)).Should()
             .ContainSingle(candidate => candidate.Name == performerName).Which;
         importedPerformer.Disambiguation.Should().Be("Imported identity");
         importedPerformer.Country.Should().Be("Imported country");
         importedPerformer.Details.Should().Be("Imported performer details");
         importedPerformer.Favorite.Should().BeTrue();
 
-        var importedGroup = (await AsUser().GetGroupsAsync()).Should()
+        var importedGroup = (await AsUser().GetGroupsAsync(TestContext.Current.CancellationToken)).Should()
             .ContainSingle(candidate => candidate.Name == groupName).Which;
         importedGroup.Director.Should().Be("Imported director");
         importedGroup.Description.Should().Be("Imported group description");
@@ -230,7 +223,7 @@ public sealed class MetadataTransferApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await AsUser().GetTagsAsync()).Should().NotContain(candidate => candidate.Name == tagName);
+        (await AsUser().GetTagsAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Name == tagName);
     }
 
     private static JsonElement FindExportedEntity(

@@ -1,0 +1,158 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "segments-and-compilations",
+  "title": "Segments and compilations",
+  "parentTopicId": "organizing",
+  "description": "Work with segments, display profiles, sub-videos, and compilations without duplicating source media.",
+  "order": 53,
+  "pages": ["segments", "segment"],
+  "contexts": ["settings-tab:library/display-profiles", "route:/settings/library/display-profiles"],
+  "sections": [
+    {
+      "id": "choose-the-right-representation",
+      "title": "Choose the right representation",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Timeline structure lets Cove organize part of a source without exporting a new media file for every use. Choose the representation based on whether you need source evidence, a derived view, a reusable video identity, or an ordered playback collection."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Raw segment"
+        },
+        {
+          "type": "paragraph",
+          "text": "Choose a raw segment to preserve a point or range exactly as a user, provider, or analyzer supplied it. It retains the source, confidence, payload, and original boundaries."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Segment"
+        },
+        {
+          "type": "paragraph",
+          "text": "Choose a segment to present a cleaned-up range composed from stored inputs. A display profile can select, merge, hide, or restyle raw segments without rewriting them."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Sub-video"
+        },
+        {
+          "type": "paragraph",
+          "text": "Choose a sub-video to give a parent-video range its own reusable media record and metadata. It behaves as a child video while reusing the parent source."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Compilation"
+        },
+        {
+          "type": "paragraph",
+          "text": "Choose a compilation to play whole videos or ranges in a chosen order. The group owns the sequence while each member keeps its own media identity."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Raw segments reference",
+              "href": "/docs/reference/raw-segments/"
+            },
+            {
+              "label": "Segments reference",
+              "href": "/docs/reference/segments/"
+            },
+            {
+              "label": "Sub-videos reference",
+              "href": "/docs/reference/sub-videos/"
+            },
+            {
+              "label": "Compilations reference",
+              "href": "/docs/reference/compilations/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "raw-derived-and-display-profiles",
+      "title": "Raw, derived, and display profiles",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Raw segments are the original marks recorded on a video. Derived segments are Cove's calculated results from raw marks, tags, performers, faces, and display settings. You usually inspect raw segments for source detail, then browse, play, filter, and add the derived results to compilations."
+        },
+        {
+          "type": "image",
+          "src": "assets/segments-and-compilations.png",
+          "alt": "Display Profiles settings with built-in profiles and a resolution rule",
+          "caption": "Display profiles turn stored inputs into the derived ranges shown around Cove. Rules can control visibility, minimum duration, merging, and precedence."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Display profiles"
+        },
+        {
+          "type": "paragraph",
+          "text": "A display profile is a saved set of rules for shaping derived segments. Switch profiles to get different views of the same stored inputs without rewriting their source evidence."
+        }
+      ]
+    },
+    {
+      "id": "what-this-enables",
+      "title": "What this enables",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Raw and derived segments make the rest of the library more expressive:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "tag a moment instead of only a whole file",
+            "track where a performer, face, tag, or another entity appears",
+            "build compilations without duplicating media",
+            "turn internal timeline structure into something the rest of Cove can search and reuse"
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Use a compilation when you want a chosen sequence, want to reuse existing media, or already have a group that expresses the collection you want to play. Segments are especially useful for precise excerpts, but a compilation can contain other supported content types too."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "When to use dynamic groups",
+              "href": "/docs/user/library/dynamic-groups/",
+              "topicId": "dynamic-groups"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "when-to-adopt-timeline-structure",
+      "title": "When to adopt timeline structure",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "You do not need segments on every item. They pay off most when:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "timing matters",
+            "performer occurrence matters",
+            "tags need to be contextual",
+            "you want reusable sub-videos",
+            "you want richer playback-driven organization"
+          ]
+        }
+      ]
+    }
+  ]
+}

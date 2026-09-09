@@ -105,7 +105,9 @@ describe("FaceSuggestionsPanel", () => {
     );
 
     expect(screen.getByText("Reference DB")).toBeInTheDocument();
-    expect(screen.getByText("External reference match. Import it to create a local performer link.")).toBeInTheDocument();
+    expect(
+      screen.getByText("External reference match. Import it to create a local performer link."),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Import as performer" }));
     expect(onAccept).toHaveBeenCalledWith(suggestion);

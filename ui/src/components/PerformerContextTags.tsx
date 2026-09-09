@@ -12,7 +12,12 @@ interface PerformerContextTagEditorProps {
   inputClassName?: string;
 }
 
-export function PerformerContextTagEditor({ performerIds, contextTagIdsByPerformer, onChange, inputClassName }: PerformerContextTagEditorProps) {
+export function PerformerContextTagEditor({
+  performerIds,
+  contextTagIdsByPerformer,
+  onChange,
+  inputClassName,
+}: PerformerContextTagEditorProps) {
   if (performerIds.length === 0) {
     return null;
   }
@@ -35,7 +40,9 @@ export function PerformerContextTagEditor({ performerIds, contextTagIdsByPerform
             <EntityReferenceMultiSelector
               entityType="tag"
               values={tagIds}
-              onChange={(nextTagIds) => onChange(performerId, Array.from(new Set(nextTagIds.filter((tagId) => tagId > 0))))}
+              onChange={(nextTagIds) =>
+                onChange(performerId, Array.from(new Set(nextTagIds.filter((tagId) => tagId > 0))))
+              }
               placeholder="Search tags for this occurrence..."
               emptyMessage="No tags found"
               inputClassName={inputClassName}
@@ -60,7 +67,13 @@ export function buildPerformerContextTagIds(applications: TagApplication[] | und
   return result;
 }
 
-export async function syncPerformerContextTags(hostType: PerformerContextHostType, hostId: number, existingApplications: TagApplication[], desiredByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) {
+export async function syncPerformerContextTags(
+  hostType: PerformerContextHostType,
+  hostId: number,
+  existingApplications: TagApplication[],
+  desiredByPerformer: Record<number, number[]>,
+  selectedPerformerIds: number[],
+) {
   const selectedPerformers = new Set(selectedPerformerIds);
   const desiredKeys = new Set<string>();
 
@@ -77,7 +90,9 @@ export async function syncPerformerContextTags(hostType: PerformerContextHostTyp
     }
   }
 
-  const existingContextApplications = existingApplications.filter((application) => application.contextType === "performer" && application.contextId != null);
+  const existingContextApplications = existingApplications.filter(
+    (application) => application.contextType === "performer" && application.contextId != null,
+  );
 
   for (const application of existingContextApplications) {
     const key = `${application.contextId}:${application.tag.id}`;
@@ -86,7 +101,9 @@ export async function syncPerformerContextTags(hostType: PerformerContextHostTyp
     }
   }
 
-  const existingKeys = new Set(existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`));
+  const existingKeys = new Set(
+    existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`),
+  );
   for (const [performerIdText, tagIds] of Object.entries(desiredByPerformer)) {
     const performerId = Number(performerIdText);
     if (!selectedPerformers.has(performerId)) {
@@ -116,10 +133,18 @@ export async function syncPerformerContextTags(hostType: PerformerContextHostTyp
 }
 
 export function getPerformerContextTags(applications: TagApplication[] | undefined, performerId: number) {
-  return (applications ?? []).filter((application) => application.contextType === "performer" && application.contextId === performerId);
+  return (applications ?? []).filter(
+    (application) => application.contextType === "performer" && application.contextId === performerId,
+  );
 }
 
-export function PerformerContextTagList({ contextTags, onNavigate }: { contextTags: TagApplication[]; onNavigate?: (route: any) => void }) {
+export function PerformerContextTagList({
+  contextTags,
+  onNavigate,
+}: {
+  contextTags: TagApplication[];
+  onNavigate?: (route: any) => void;
+}) {
   if (contextTags.length === 0) {
     return null;
   }
@@ -152,4 +177,3 @@ function toTagProvenance(application: TagApplication) {
     hostDurationSec: application.hostDurationSec ?? undefined,
   };
 }
-

@@ -36,7 +36,7 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
         sourceKeyOptions={state.sourceKeyOptions}
         kindOptions={state.kindOptions}
         selectedRuleTag={state.selectedRuleTag}
-        previewPane={(
+        previewPane={
           <RulesPreviewPane
             title="Rule Preview"
             description="Compare the saved profile against this draft before saving."
@@ -55,7 +55,7 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
             ]}
             emptyMessage="Pick a preview video in the panel to compare the current rules against this draft before saving."
           />
-        )}
+        }
         onClose={state.closeRuleModal}
         onSave={state.saveRule}
         onOpenTagDetail={openTagDetail}
@@ -81,7 +81,9 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Display Profiles</h3>
-          <p className="mt-1 text-sm text-secondary">Edit rules against real source keys and kinds, preview them on a video, and drag rows to change precedence.</p>
+          <p className="mt-1 text-sm text-secondary">
+            Edit rules against real source keys and kinds, preview them on a video, and drag rows to change precedence.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -108,9 +110,13 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
       <div className="grid gap-6 lg:grid-cols-[300px,minmax(0,1fr)]">
         <div className="space-y-3">
           {state.profilesLoading ? (
-            <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">Loading profiles...</div>
+            <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">
+              Loading profiles...
+            </div>
           ) : state.orderedProfiles.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-secondary">No display profiles are available yet.</div>
+            <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-secondary">
+              No display profiles are available yet.
+            </div>
           ) : (
             state.orderedProfiles.map((profile) => {
               const selected = profile.id === state.selectedProfileId;
@@ -146,7 +152,8 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
                   {state.overrideRuleCount > 0 ? (
                     <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-100">
                       <Sparkles className="h-3.5 w-3.5" />
-                      {state.overrideRuleCount} rule{state.overrideRuleCount === 1 ? "" : "s"} target tag{state.overrideRuleCount === 1 ? "" : "s"} with a global player-bar override
+                      {state.overrideRuleCount} rule{state.overrideRuleCount === 1 ? "" : "s"} target tag
+                      {state.overrideRuleCount === 1 ? "" : "s"} with a global player-bar override
                     </div>
                   ) : null}
                 </div>
@@ -215,7 +222,9 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">Rules</h4>
-                <p className="mt-1 text-sm text-secondary">Drag rows to change precedence. Higher rows win when specificity ties.</p>
+                <p className="mt-1 text-sm text-secondary">
+                  Drag rows to change precedence. Higher rows win when specificity ties.
+                </p>
               </div>
               {canWrite && selectedProfile ? (
                 <div className="flex flex-wrap gap-2">
@@ -242,7 +251,9 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
             {state.rulesLoading ? (
               <div className="mt-4 text-sm text-secondary">Loading rules...</div>
             ) : state.rules.length === 0 ? (
-              <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/40 px-4 py-6 text-sm text-secondary">No rules defined for this profile yet.</div>
+              <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/40 px-4 py-6 text-sm text-secondary">
+                No rules defined for this profile yet.
+              </div>
             ) : (
               <SortableList
                 items={state.rules}
@@ -253,25 +264,52 @@ export function DisplayProfilesSettingsPanel({ canWrite }: Props) {
                 renderItem={(rule, { dragHandleProps, isDragging, isOver }) => {
                   const tagOverride = rule.tagId != null ? state.ruleTagMap.get(rule.tagId) : undefined;
                   return (
-                    <div className={`rounded-xl border p-4 transition-colors ${isDragging ? "border-accent opacity-50" : isOver ? "border-accent bg-accent/5" : "border-border bg-surface/40"}`}>
+                    <div
+                      className={`rounded-xl border p-4 transition-colors ${isDragging ? "border-accent opacity-50" : isOver ? "border-accent bg-accent/5" : "border-border bg-surface/40"}`}
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex min-w-0 items-start gap-3">
                           {canWrite ? (
-                            <span {...dragHandleProps} className="mt-0.5 inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing">
+                            <span
+                              {...dragHandleProps}
+                              className="mt-0.5 inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing"
+                            >
                               <GripVertical className="h-4 w-4" />
                             </span>
                           ) : null}
                           <div className="min-w-0">
                             <div className="text-sm font-medium text-foreground">{formatRuleTitle(rule)}</div>
                             <div className="mt-2 flex flex-wrap gap-2 text-xs text-secondary">
-                              <span className={`rounded-full px-2 py-1 ${rule.visible ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}>{rule.visible ? "Visible" : "Hidden"}</span>
-                              {rule.sourceKey ? <span className="rounded-full bg-surface px-2 py-1">{rule.sourceKey}</span> : null}
-                              {rule.kind ? <span className="rounded-full bg-surface px-2 py-1">{rule.kind}</span> : null}
-                              {rule.tagName ? <span className="rounded-full bg-surface px-2 py-1">{rule.tagName}</span> : null}
-                              {rule.minConfidence != null ? <span className="rounded-full bg-surface px-2 py-1">Min conf. {rule.minConfidence}</span> : null}
-                              {rule.minDurationSec != null ? <span className="rounded-full bg-surface px-2 py-1">Min dur. {rule.minDurationSec}s</span> : null}
-                              {rule.mergeGapSec != null ? <span className="rounded-full bg-surface px-2 py-1">Merge {rule.mergeGapSec}s</span> : null}
-                              {rule.lane != null ? <span className="rounded-full bg-surface px-2 py-1">Lane {rule.lane}</span> : null}
+                              <span
+                                className={`rounded-full px-2 py-1 ${rule.visible ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}
+                              >
+                                {rule.visible ? "Visible" : "Hidden"}
+                              </span>
+                              {rule.sourceKey ? (
+                                <span className="rounded-full bg-surface px-2 py-1">{rule.sourceKey}</span>
+                              ) : null}
+                              {rule.kind ? (
+                                <span className="rounded-full bg-surface px-2 py-1">{rule.kind}</span>
+                              ) : null}
+                              {rule.tagName ? (
+                                <span className="rounded-full bg-surface px-2 py-1">{rule.tagName}</span>
+                              ) : null}
+                              {rule.minConfidence != null ? (
+                                <span className="rounded-full bg-surface px-2 py-1">
+                                  Min conf. {rule.minConfidence}
+                                </span>
+                              ) : null}
+                              {rule.minDurationSec != null ? (
+                                <span className="rounded-full bg-surface px-2 py-1">
+                                  Min dur. {rule.minDurationSec}s
+                                </span>
+                              ) : null}
+                              {rule.mergeGapSec != null ? (
+                                <span className="rounded-full bg-surface px-2 py-1">Merge {rule.mergeGapSec}s</span>
+                              ) : null}
+                              {rule.lane != null ? (
+                                <span className="rounded-full bg-surface px-2 py-1">Lane {rule.lane}</span>
+                              ) : null}
                               {tagOverride?.showAsSegment != null ? (
                                 <button
                                   type="button"
@@ -325,4 +363,3 @@ function openTagDetail(tagId: number) {
   const route = { page: "tag", id: tagId } as const;
   navigateToUrl(buildRouteUrl(route), { state: route });
 }
-

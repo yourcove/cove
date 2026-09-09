@@ -220,7 +220,11 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                 disabled={matchMutation.isPending || startDownloadMutation.isPending}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:border-accent disabled:opacity-60"
               >
-                {matchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {matchMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
                 Find Downloaders
               </button>
             </div>
@@ -291,7 +295,8 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                 <span>
                   <span className="block font-medium">Auto-apply metadata after download</span>
                   <span className="mt-1 block text-xs text-secondary">
-                    When the downloader exposes metadata, Cove will merge it into the video after the media import finishes.
+                    When the downloader exposes metadata, Cove will merge it into the video after the media import
+                    finishes.
                   </span>
                 </span>
               </label>
@@ -305,7 +310,8 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                 <span>
                   <span className="block font-medium">Allow duplicate download</span>
                   <span className="mt-1 block text-xs text-secondary">
-                    Leave this off to stop Cove from creating or queueing a video when this source URL already has downloaded files.
+                    Leave this off to stop Cove from creating or queueing a video when this source URL already has
+                    downloaded files.
                   </span>
                 </span>
               </label>
@@ -335,7 +341,11 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                 disabled={!selectedMatch || startDownloadMutation.isPending || matchMutation.isPending}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:border-accent disabled:opacity-60"
               >
-                {startDownloadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                {startDownloadMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
                 Create Video Only
               </button>
             ) : null}
@@ -344,7 +354,11 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
               disabled={!selectedMatch || startDownloadMutation.isPending || matchMutation.isPending}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
             >
-              {startDownloadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {startDownloadMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
               Queue Download
             </button>
           </div>

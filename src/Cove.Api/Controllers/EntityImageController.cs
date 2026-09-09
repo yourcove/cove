@@ -44,6 +44,7 @@ public class EntityImageController(
     }
 
     [HttpGet("segments/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.SegmentsRead)]
     public async Task<IActionResult> GetSegmentImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -137,6 +138,7 @@ public class EntityImageController(
     }
 
     [HttpGet("videos/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.VideosRead)]
     public async Task<IActionResult> GetVideoImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -198,6 +200,7 @@ public class EntityImageController(
     }
 
     [HttpGet("performers/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.PerformersRead)]
     public async Task<IActionResult> GetPerformerImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -276,6 +279,7 @@ public class EntityImageController(
     }
 
     [HttpGet("audios/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.AudiosRead)]
     public async Task<IActionResult> GetAudioImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -324,6 +328,7 @@ public class EntityImageController(
     }
 
     [HttpGet("texts/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.TextsRead)]
     public async Task<IActionResult> GetTextImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -372,6 +377,7 @@ public class EntityImageController(
     }
 
     [HttpGet("faces/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.FacesRead)]
     public async Task<IActionResult> GetFaceImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -420,6 +426,7 @@ public class EntityImageController(
     }
 
     [HttpGet("studios/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StudiosRead)]
     public async Task<IActionResult> GetStudioImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -489,6 +496,7 @@ public class EntityImageController(
     }
 
     [HttpGet("tags/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.TagsRead)]
     public async Task<IActionResult> GetTagImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -558,6 +566,7 @@ public class EntityImageController(
     }
 
     [HttpGet("groups/{id:int}/image/front")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.GroupsRead)]
     public async Task<IActionResult> GetGroupFrontImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -642,6 +651,7 @@ public class EntityImageController(
     }
 
     [HttpGet("groups/{id:int}/image/back")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.GroupsRead)]
     public async Task<IActionResult> GetGroupBackImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -690,6 +700,7 @@ public class EntityImageController(
     }
 
     [HttpGet("galleries/{id:int}/image")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.GalleriesRead)]
     public async Task<IActionResult> GetGalleryImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -719,6 +730,8 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/image/source")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryImageFromSource(int id, [FromBody] EntityImageCoverSourceDto dto, CancellationToken ct)
     {
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
@@ -773,6 +786,7 @@ public class EntityImageController(
     }
 
     [HttpGet("galleries/{id:int}/image/back")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.GalleriesRead)]
     public async Task<IActionResult> GetGalleryBackImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -801,6 +815,8 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/image/back/source")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryBackImageFromSource(int id, [FromBody] EntityImageCoverSourceDto dto, CancellationToken ct)
     {
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
@@ -822,6 +838,7 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/cover")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryCover(int id, [FromBody] GallerySetCoverDto dto, CancellationToken ct)
     {
         var gallery = await db.Galleries.FirstOrDefaultAsync(entity => entity.Id == id, ct);

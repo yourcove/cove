@@ -25,13 +25,20 @@ public class ConfigService
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public ConfigService(CoveConfiguration config, ILogger<ConfigService> logger)
+        : this(config, logger, Path.Combine(CoveDefaultPaths.GetDataRoot(), "cove-config.json"))
+    {
+    }
+
+    internal ConfigService(
+        CoveConfiguration config,
+        ILogger<ConfigService> logger,
+        string configPath)
     {
         _config = config;
         _logger = logger;
-
-        var coveDir = CoveDefaultPaths.GetDataRoot();
-        Directory.CreateDirectory(coveDir);
-        _configPath = Path.Combine(coveDir, "cove-config.json");
+        _configPath = configPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(configPath)
+            ?? throw new ArgumentException("The configuration path requires a parent directory.", nameof(configPath)));
     }
 
     public string ConfigPath => _configPath;
@@ -130,53 +137,7 @@ public class ConfigService
                 DisableDropdownCreateStudio = cfg.Interface.DisableDropdownCreateStudio,
                 DisableDropdownCreateTag = cfg.Interface.DisableDropdownCreateTag,
             },
-            Ui = new UiConfigDto
-            {
-                Title = cfg.Ui.Title,
-                FaviconPath = cfg.Ui.FaviconPath,
-                LogoPath = cfg.Ui.LogoPath,
-                TroubleshootingModeEnabled = cfg.Ui.TroubleshootingModeEnabled,
-                AbbreviateCounters = cfg.Ui.AbbreviateCounters,
-                RatingSystemOptions = new RatingSystemOptionsDto
-                {
-                    Type = cfg.Ui.RatingSystemOptions.Type,
-                    StarPrecision = cfg.Ui.RatingSystemOptions.StarPrecision,
-                },
-                ShowStudioAsText = cfg.Ui.ShowStudioAsText,
-                CustomCss = cfg.Ui.CustomCss,
-                CustomJs = cfg.Ui.CustomJs,
-                EnableCSSCustomization = cfg.Ui.EnableCSSCustomization,
-                EnableJSCustomization = cfg.Ui.EnableJSCustomization,
-                CustomLocalesPath = cfg.Ui.CustomLocalesPath,
-                AutostartVideo = cfg.Ui.AutostartVideo,
-                AutostartVideoOnPlaySelected = cfg.Ui.AutostartVideoOnPlaySelected,
-                AutoplayOnListClick = cfg.Ui.AutoplayOnListClick,
-                MaxLoopDuration = cfg.Ui.MaxLoopDuration,
-                AlwaysResumeOnPlayback = cfg.Ui.AlwaysResumeOnPlayback,
-                PlayerVideoStartPercent = cfg.Ui.PlayerVideoStartPercent,
-                PlayerVideoStartMinDuration = cfg.Ui.PlayerVideoStartMinDuration,
-                ContinuePlaylistDefault = cfg.Ui.ContinuePlaylistDefault,
-                ShowAbLoopControls = cfg.Ui.ShowAbLoopControls,
-                SoundOnPreview = cfg.Ui.SoundOnPreview,
-                PreviewSegmentDuration = cfg.Ui.PreviewSegmentDuration,
-                PreviewSegments = cfg.Ui.PreviewSegments,
-                PreviewExcludeStart = cfg.Ui.PreviewExcludeStart,
-                PreviewExcludeEnd = cfg.Ui.PreviewExcludeEnd,
-                WallShowTitle = cfg.Ui.WallShowTitle,
-                WallPlayback = cfg.Ui.WallPlayback,
-                WallPreviewType = cfg.Ui.WallPreviewType,
-                ImageObjectFit = NormalizeObjectFit(cfg.Ui.ImageObjectFit),
-                VideoObjectFit = NormalizeObjectFit(cfg.Ui.VideoObjectFit),
-                FeedVideoSource = cfg.Ui.FeedVideoSource,
-                FeedVideoSound = cfg.Ui.FeedVideoSound,
-                FeedVideoStartPercent = cfg.Ui.FeedVideoStartPercent,
-                FeedVideoStartMinDuration = cfg.Ui.FeedVideoStartMinDuration,
-                DeleteFileDefault = cfg.Ui.DeleteFileDefault,
-                SlideshowDelay = cfg.Ui.SlideshowDelay,
-                NoBrowser = cfg.Ui.NoBrowser,
-                NotificationsEnabled = cfg.Ui.NotificationsEnabled,
-                KeybindingOverrides = new Dictionary<string, string>(cfg.Ui.KeybindingOverrides, StringComparer.OrdinalIgnoreCase),
-            },
+            Ui = GetUiConfig(),
             Security = new SecurityConfigDto
             {
                 Enabled = cfg.Auth.Enabled,
@@ -240,16 +201,48 @@ public class ConfigService
     /// </summary>
     public async Task SaveConfigAsync(CoveConfigDto dto)
     {
+        await UpdateConfigAsync(_ => dto);
+    }
+
+    /// <summary>
+    /// Atomically read, update, apply, and persist the effective configuration.
+    /// </summary>
+    public async Task<CoveConfigDto> UpdateConfigAsync(Func<CoveConfigDto, CoveConfigDto> update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
         await _lock.WaitAsync();
         try
         {
-            // Apply to live options immediately
-            ApplyToLive(dto);
+            var updated = update(GetConfig())
+                ?? throw new InvalidOperationException("The configuration update returned null.");
+            ApplyToLive(updated);
 
-            // Persist the effective config shape after sensitive fields are normalized.
-            var json = JsonSerializer.Serialize(GetConfig(), _jsonOpts);
-            await File.WriteAllTextAsync(_configPath, json);
-            _logger.LogInformation("Configuration saved to {Path}", _configPath);
+            await PersistCurrentConfigAsync();
+            return GetConfig();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Atomically update only the live UI configuration without replaying a stale snapshot of other sections.
+    /// </summary>
+    public async Task<UiConfigDto> UpdateUiConfigAsync(Func<UiConfigDto, UiConfigDto> update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        await _lock.WaitAsync();
+        try
+        {
+            var updated = update(GetUiConfig())
+                ?? throw new InvalidOperationException("The UI configuration update returned null.");
+            ApplyUiToLive(updated);
+
+            await PersistCurrentConfigAsync();
+            return GetUiConfig();
         }
         finally
         {
@@ -262,14 +255,19 @@ public class ConfigService
         await _lock.WaitAsync();
         try
         {
-            var json = JsonSerializer.Serialize(GetConfig(), _jsonOpts);
-            await File.WriteAllTextAsync(_configPath, json);
-            _logger.LogInformation("Configuration saved to {Path}", _configPath);
+            await PersistCurrentConfigAsync();
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    private async Task PersistCurrentConfigAsync()
+    {
+        var json = JsonSerializer.Serialize(GetConfig(), _jsonOpts);
+        await File.WriteAllTextAsync(_configPath, json);
+        _logger.LogInformation("Configuration saved to {Path}", _configPath);
     }
 
     /// <summary>
@@ -374,52 +372,7 @@ public class ConfigService
         cfg.Interface.DisableDropdownCreateStudio = dto.Interface.DisableDropdownCreateStudio;
         cfg.Interface.DisableDropdownCreateTag = dto.Interface.DisableDropdownCreateTag;
 
-        cfg.Ui.Title = string.IsNullOrWhiteSpace(dto.Ui.Title) ? null : dto.Ui.Title.Trim();
-        cfg.Ui.FaviconPath = string.IsNullOrWhiteSpace(dto.Ui.FaviconPath) ? null : dto.Ui.FaviconPath.Trim();
-        cfg.Ui.LogoPath = string.IsNullOrWhiteSpace(dto.Ui.LogoPath) ? null : dto.Ui.LogoPath.Trim();
-        cfg.Ui.TroubleshootingModeEnabled = dto.Ui.TroubleshootingModeEnabled;
-        cfg.Ui.AbbreviateCounters = dto.Ui.AbbreviateCounters;
-        cfg.Ui.RatingSystemOptions = new RatingSystemOptions
-        {
-            Type = dto.Ui.RatingSystemOptions.Type,
-            StarPrecision = dto.Ui.RatingSystemOptions.StarPrecision,
-        };
-        cfg.Ui.ShowStudioAsText = dto.Ui.ShowStudioAsText;
-        cfg.Ui.CustomCss = dto.Ui.CustomCss;
-        cfg.Ui.CustomJs = dto.Ui.CustomJs;
-        cfg.Ui.EnableCSSCustomization = dto.Ui.EnableCSSCustomization;
-        cfg.Ui.EnableJSCustomization = dto.Ui.EnableJSCustomization;
-        cfg.Ui.CustomLocalesPath = string.IsNullOrWhiteSpace(dto.Ui.CustomLocalesPath) ? null : dto.Ui.CustomLocalesPath.Trim();
-        cfg.Ui.AutostartVideo = dto.Ui.AutostartVideo;
-        cfg.Ui.AutostartVideoOnPlaySelected = dto.Ui.AutostartVideoOnPlaySelected;
-        cfg.Ui.AutoplayOnListClick = dto.Ui.AutoplayOnListClick;
-        cfg.Ui.MaxLoopDuration = dto.Ui.MaxLoopDuration;
-        cfg.Ui.AlwaysResumeOnPlayback = dto.Ui.AlwaysResumeOnPlayback;
-        cfg.Ui.PlayerVideoStartPercent = Math.Clamp(dto.Ui.PlayerVideoStartPercent, 0, 95);
-        cfg.Ui.PlayerVideoStartMinDuration = Math.Max(0, dto.Ui.PlayerVideoStartMinDuration);
-        cfg.Ui.ContinuePlaylistDefault = dto.Ui.ContinuePlaylistDefault;
-        cfg.Ui.ShowAbLoopControls = dto.Ui.ShowAbLoopControls;
-        cfg.Ui.SoundOnPreview = dto.Ui.SoundOnPreview;
-        cfg.Ui.PreviewSegmentDuration = dto.Ui.PreviewSegmentDuration;
-        cfg.Ui.PreviewSegments = dto.Ui.PreviewSegments;
-        cfg.Ui.PreviewExcludeStart = string.IsNullOrWhiteSpace(dto.Ui.PreviewExcludeStart) ? "0" : dto.Ui.PreviewExcludeStart.Trim();
-        cfg.Ui.PreviewExcludeEnd = string.IsNullOrWhiteSpace(dto.Ui.PreviewExcludeEnd) ? "0" : dto.Ui.PreviewExcludeEnd.Trim();
-        cfg.Ui.WallShowTitle = dto.Ui.WallShowTitle;
-        cfg.Ui.WallPlayback = dto.Ui.WallPlayback;
-        cfg.Ui.WallPreviewType = string.IsNullOrWhiteSpace(dto.Ui.WallPreviewType) ? "video" : dto.Ui.WallPreviewType.Trim();
-        cfg.Ui.ImageObjectFit = NormalizeObjectFit(dto.Ui.ImageObjectFit);
-        cfg.Ui.VideoObjectFit = NormalizeObjectFit(dto.Ui.VideoObjectFit);
-        cfg.Ui.FeedVideoSource = string.Equals(dto.Ui.FeedVideoSource, "video", StringComparison.OrdinalIgnoreCase) ? "video" : "preview";
-        cfg.Ui.FeedVideoSound = dto.Ui.FeedVideoSound;
-        cfg.Ui.FeedVideoStartPercent = Math.Clamp(dto.Ui.FeedVideoStartPercent, 0, 95);
-        cfg.Ui.FeedVideoStartMinDuration = Math.Max(0, dto.Ui.FeedVideoStartMinDuration);
-        cfg.Ui.DeleteFileDefault = dto.Ui.DeleteFileDefault;
-        cfg.Ui.SlideshowDelay = dto.Ui.SlideshowDelay;
-        cfg.Ui.NoBrowser = dto.Ui.NoBrowser;
-        cfg.Ui.NotificationsEnabled = dto.Ui.NotificationsEnabled;
-        cfg.Ui.KeybindingOverrides = dto.Ui.KeybindingOverrides
-            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
-            .ToDictionary(pair => pair.Key.Trim(), pair => pair.Value.Trim(), StringComparer.OrdinalIgnoreCase);
+        ApplyUiToLive(dto.Ui);
 
         cfg.Auth.Enabled = dto.Security.Enabled;
         cfg.Auth.Username = string.IsNullOrWhiteSpace(dto.Security.Username) ? null : dto.Security.Username.Trim();
@@ -497,6 +450,109 @@ public class ConfigService
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Select(id => id.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private UiConfigDto GetUiConfig()
+    {
+        var ui = _config.Ui;
+        return new UiConfigDto
+        {
+            Title = ui.Title,
+            FaviconPath = ui.FaviconPath,
+            LogoPath = ui.LogoPath,
+            TroubleshootingModeEnabled = ui.TroubleshootingModeEnabled,
+            AbbreviateCounters = ui.AbbreviateCounters,
+            RatingSystemOptions = new RatingSystemOptionsDto
+            {
+                Type = ui.RatingSystemOptions.Type,
+                StarPrecision = ui.RatingSystemOptions.StarPrecision,
+            },
+            ShowStudioAsText = ui.ShowStudioAsText,
+            CustomCss = ui.CustomCss,
+            CustomJs = ui.CustomJs,
+            EnableCSSCustomization = ui.EnableCSSCustomization,
+            EnableJSCustomization = ui.EnableJSCustomization,
+            CustomLocalesPath = ui.CustomLocalesPath,
+            AutostartVideo = ui.AutostartVideo,
+            AutostartVideoOnPlaySelected = ui.AutostartVideoOnPlaySelected,
+            AutoplayOnListClick = ui.AutoplayOnListClick,
+            MaxLoopDuration = ui.MaxLoopDuration,
+            AlwaysResumeOnPlayback = ui.AlwaysResumeOnPlayback,
+            PlayerVideoStartPercent = ui.PlayerVideoStartPercent,
+            PlayerVideoStartMinDuration = ui.PlayerVideoStartMinDuration,
+            ContinuePlaylistDefault = ui.ContinuePlaylistDefault,
+            ShowAbLoopControls = ui.ShowAbLoopControls,
+            SoundOnPreview = ui.SoundOnPreview,
+            PreviewSegmentDuration = ui.PreviewSegmentDuration,
+            PreviewSegments = ui.PreviewSegments,
+            PreviewExcludeStart = ui.PreviewExcludeStart,
+            PreviewExcludeEnd = ui.PreviewExcludeEnd,
+            WallShowTitle = ui.WallShowTitle,
+            WallPlayback = ui.WallPlayback,
+            WallPreviewType = ui.WallPreviewType,
+            ImageObjectFit = NormalizeObjectFit(ui.ImageObjectFit),
+            VideoObjectFit = NormalizeObjectFit(ui.VideoObjectFit),
+            FeedVideoSource = ui.FeedVideoSource,
+            FeedVideoSound = ui.FeedVideoSound,
+            FeedVideoStartPercent = ui.FeedVideoStartPercent,
+            FeedVideoStartMinDuration = ui.FeedVideoStartMinDuration,
+            DeleteFileDefault = ui.DeleteFileDefault,
+            SlideshowDelay = ui.SlideshowDelay,
+            NoBrowser = ui.NoBrowser,
+            NotificationsEnabled = ui.NotificationsEnabled,
+            KeybindingOverrides = new Dictionary<string, string>(ui.KeybindingOverrides, StringComparer.OrdinalIgnoreCase),
+        };
+    }
+
+    private void ApplyUiToLive(UiConfigDto dto)
+    {
+        var ui = _config.Ui;
+        ui.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title.Trim();
+        ui.FaviconPath = string.IsNullOrWhiteSpace(dto.FaviconPath) ? null : dto.FaviconPath.Trim();
+        ui.LogoPath = string.IsNullOrWhiteSpace(dto.LogoPath) ? null : dto.LogoPath.Trim();
+        ui.TroubleshootingModeEnabled = dto.TroubleshootingModeEnabled;
+        ui.AbbreviateCounters = dto.AbbreviateCounters;
+        ui.RatingSystemOptions = new RatingSystemOptions
+        {
+            Type = dto.RatingSystemOptions.Type,
+            StarPrecision = dto.RatingSystemOptions.StarPrecision,
+        };
+        ui.ShowStudioAsText = dto.ShowStudioAsText;
+        ui.CustomCss = dto.CustomCss;
+        ui.CustomJs = dto.CustomJs;
+        ui.EnableCSSCustomization = dto.EnableCSSCustomization;
+        ui.EnableJSCustomization = dto.EnableJSCustomization;
+        ui.CustomLocalesPath = string.IsNullOrWhiteSpace(dto.CustomLocalesPath) ? null : dto.CustomLocalesPath.Trim();
+        ui.AutostartVideo = dto.AutostartVideo;
+        ui.AutostartVideoOnPlaySelected = dto.AutostartVideoOnPlaySelected;
+        ui.AutoplayOnListClick = dto.AutoplayOnListClick;
+        ui.MaxLoopDuration = dto.MaxLoopDuration;
+        ui.AlwaysResumeOnPlayback = dto.AlwaysResumeOnPlayback;
+        ui.PlayerVideoStartPercent = Math.Clamp(dto.PlayerVideoStartPercent, 0, 95);
+        ui.PlayerVideoStartMinDuration = Math.Max(0, dto.PlayerVideoStartMinDuration);
+        ui.ContinuePlaylistDefault = dto.ContinuePlaylistDefault;
+        ui.ShowAbLoopControls = dto.ShowAbLoopControls;
+        ui.SoundOnPreview = dto.SoundOnPreview;
+        ui.PreviewSegmentDuration = dto.PreviewSegmentDuration;
+        ui.PreviewSegments = dto.PreviewSegments;
+        ui.PreviewExcludeStart = string.IsNullOrWhiteSpace(dto.PreviewExcludeStart) ? "0" : dto.PreviewExcludeStart.Trim();
+        ui.PreviewExcludeEnd = string.IsNullOrWhiteSpace(dto.PreviewExcludeEnd) ? "0" : dto.PreviewExcludeEnd.Trim();
+        ui.WallShowTitle = dto.WallShowTitle;
+        ui.WallPlayback = dto.WallPlayback;
+        ui.WallPreviewType = string.IsNullOrWhiteSpace(dto.WallPreviewType) ? "video" : dto.WallPreviewType.Trim();
+        ui.ImageObjectFit = NormalizeObjectFit(dto.ImageObjectFit);
+        ui.VideoObjectFit = NormalizeObjectFit(dto.VideoObjectFit);
+        ui.FeedVideoSource = string.Equals(dto.FeedVideoSource, "video", StringComparison.OrdinalIgnoreCase) ? "video" : "preview";
+        ui.FeedVideoSound = dto.FeedVideoSound;
+        ui.FeedVideoStartPercent = Math.Clamp(dto.FeedVideoStartPercent, 0, 95);
+        ui.FeedVideoStartMinDuration = Math.Max(0, dto.FeedVideoStartMinDuration);
+        ui.DeleteFileDefault = dto.DeleteFileDefault;
+        ui.SlideshowDelay = dto.SlideshowDelay;
+        ui.NoBrowser = dto.NoBrowser;
+        ui.NotificationsEnabled = dto.NotificationsEnabled;
+        ui.KeybindingOverrides = dto.KeybindingOverrides
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+            .ToDictionary(pair => pair.Key.Trim(), pair => pair.Value.Trim(), StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<string> NormalizeMenuItems(IEnumerable<string>? items)

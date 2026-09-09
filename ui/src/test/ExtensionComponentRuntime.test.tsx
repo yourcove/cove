@@ -118,12 +118,14 @@ describe("ExtensionComponentOverrideHost", () => {
     render(
       <ExtensionComponentOverrideHost
         targetComponent="sample.panel"
-        contributions={[{
-          targetComponent: "sample.panel",
-          extensionId: "extension.replacement",
-          componentName: "Replacement",
-          priority: 100,
-        }]}
+        contributions={[
+          {
+            targetComponent: "sample.panel",
+            extensionId: "extension.replacement",
+            componentName: "Replacement",
+            priority: 100,
+          },
+        ]}
         registry={registry}
         componentProps={{ label: "Sample panel" }}
         renderDefault={renderDefault}
@@ -230,12 +232,14 @@ describe("ExtensionComponentOverrideHost", () => {
       throw new Error("broken first version");
     };
     registry.register("extension.upgrade", { Panel: Broken });
-    const contributions: ExtensionComponentOverride[] = [{
-      targetComponent: "sample.panel",
-      extensionId: "extension.upgrade",
-      componentName: "Panel",
-      priority: 100,
-    }];
+    const contributions: ExtensionComponentOverride[] = [
+      {
+        targetComponent: "sample.panel",
+        extensionId: "extension.upgrade",
+        componentName: "Panel",
+        priority: 100,
+      },
+    ];
     const props = {
       targetComponent: "sample.panel",
       contributions,
@@ -264,12 +268,14 @@ describe("ExtensionComponentOverrideHost", () => {
       return <div>{label}</div>;
     };
     registry.register("extension.panel", { PanelOverride: Conditional });
-    const contributions: ExtensionComponentOverride[] = [{
-      targetComponent: "sample.panel",
-      extensionId: "extension.panel",
-      componentName: "PanelOverride",
-      priority: 100,
-    }];
+    const contributions: ExtensionComponentOverride[] = [
+      {
+        targetComponent: "sample.panel",
+        extensionId: "extension.panel",
+        componentName: "PanelOverride",
+        priority: 100,
+      },
+    ];
     const renderDefault = () => <span>native fallback</span>;
     const view = render(
       <ExtensionComponentOverrideHost

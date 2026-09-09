@@ -1,0 +1,125 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "users-roles-permissions",
+  "title": "Users, roles, and permissions",
+  "description": "Give each person deliberate access with separate accounts, reusable roles, content rules, and scoped share links.",
+  "order": 100,
+  "pages": ["users", "user"],
+  "sections": [
+    {
+      "id": "the-access-model",
+      "title": "The access model",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove supports more than one person using the same library. Avoid one shared login with full control: create a separate user for each person or integration identity, assign reusable roles for actions, and add content rules where record-level access should differ."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Users sign in separately and keep their own activity.",
+            "Roles bundle action permissions such as browsing, editing metadata, managing downloads, or changing settings.",
+            "Content rules make read access depend on the record and can narrow write or delete authority already supplied by a role.",
+            "Share links and API tokens serve narrower access patterns; they do not replace deliberate account design."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Users reference", "href": "/docs/reference/users/" },
+            { "label": "Roles reference", "href": "/docs/reference/roles/" },
+            { "label": "Role assignments reference", "href": "/docs/reference/role-assignments/" },
+            { "label": "API tokens reference", "href": "/docs/reference/api-tokens/" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a-practical-setup-order",
+      "title": "A practical setup order",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Keep the owner account protected and use it sparingly.",
+            "Create separate user accounts for people who should sign in directly.",
+            "Define roles around actual responsibilities, granting the smallest set of permissions that still lets each person do their work.",
+            "Assign those roles to users and change an assignment when a person's responsibilities change.",
+            "Add content rules when access to library records should differ between people.",
+            "Use share links for narrow access within your network instead of broad logins."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/role-permissions.webp",
+          "alt": "New role form showing role, saved-filter, segment, and streaming permission choices",
+          "caption": "Build a role from the permissions its users actually need; dangerous permissions are identified in the form."
+        }
+      ]
+    },
+    {
+      "id": "roles-versus-content-rules",
+      "title": "Roles versus content rules",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Roles grant reusable action permissions. Content rules make access depend on the record: read rules can grant a matching slice, while write and delete rules can only narrow authority already supplied by a role. Use both when someone may perform an action but only on part of the library."
+        },
+        {
+          "type": "note",
+          "text": "Review overlapping rules carefully before assigning them to a role used by other people. The complete decision order is documented in the content-rules reference."
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Content rules reference", "href": "/docs/reference/content-rules/" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "share-links",
+      "title": "Share links",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Create a share link when you want to expose selected content without giving someone a full account. Send the link for scoped access, then manage or revoke it from the same place later."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Use a share link when access is narrow.",
+            "Prefer an expiry when access is time-limited.",
+            "Use an account instead when the person needs normal library navigation or ongoing personalized activity."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Share links reference", "href": "/docs/reference/share-links/" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "internet-exposure",
+      "title": "Internet exposure",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "If you expose Cove outside your local network, treat it like any self-hosted application that can access private media."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Put it behind your own reverse proxy and TLS.",
+            "Avoid exposing administrator accounts directly.",
+            "Review roles and active share links regularly.",
+            "Assume the security model is only as strong as the way you publish the service."
+          ]
+        }
+      ]
+    }
+  ]
+}

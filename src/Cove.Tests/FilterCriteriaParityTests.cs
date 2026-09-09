@@ -25,6 +25,7 @@ public class FilterCriteriaParityTests
         var filter = new VideoFilter();
         // Original criteria
         Assert.Null(filter.RatingCriterion);
+        Assert.Null(filter.FavoriteCriterion);
         Assert.Null(filter.LikeCounterCriterion);
         Assert.Null(filter.DurationCriterion);
         Assert.Null(filter.ResolutionCriterion);
@@ -55,6 +56,7 @@ public class FilterCriteriaParityTests
         // Additional filter criteria
         Assert.Null(filter.PerformerTagsCriterion);
         Assert.Null(filter.PerformerAgeCriterion);
+        Assert.Null(filter.PerformerFilterCriterion);
         Assert.Null(filter.CaptionsCriterion);
     }
 
@@ -151,6 +153,35 @@ public class FilterCriteriaParityTests
         Assert.Equal("percent", result.ObjectFilter.TagDurationCriterion.Clauses[1].Unit);
     }
 
+    [Fact]
+    public void VideoFilter_RelatedPerformerFilter_DeserializesSavedFilterSnapshot()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "performerFilterCriterion": {
+                    "findFilter": { "q": "favorite" },
+                    "objectFilter": { "favoriteCriterion": { "value": true } },
+                    "performerIdsCriterion": { "value": [11], "modifier": "includes" },
+                    "performerOccurrenceTagsCriterion": { "value": [21], "modifier": "includesAll" },
+                    "exclude": true,
+                    "_savedFilterName": "Favorite performers"
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<VideoFilter>>(json, Options);
+
+        Assert.Equal("favorite", result?.ObjectFilter?.PerformerFilterCriterion?.FindFilter?.Q);
+        Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.ObjectFilter?.FavoriteCriterion?.Value);
+        Assert.Equal([11], result?.ObjectFilter?.PerformerFilterCriterion?.PerformerIdsCriterion?.Value);
+        Assert.Equal(CriterionModifier.Includes, result?.ObjectFilter?.PerformerFilterCriterion?.PerformerIdsCriterion?.Modifier);
+        Assert.Equal([21], result?.ObjectFilter?.PerformerFilterCriterion?.PerformerOccurrenceTagsCriterion?.Value);
+        Assert.Equal(CriterionModifier.IncludesAll, result?.ObjectFilter?.PerformerFilterCriterion?.PerformerOccurrenceTagsCriterion?.Modifier);
+        Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.Exclude);
+    }
+
     // ===== PERFORMER FILTER CRITERIA EXISTENCE =====
 
     [Fact]
@@ -179,6 +210,7 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.StudioCountCriterion);
         Assert.Null(filter.RemoteIdValueCriterion);
+        Assert.Null(filter.VideoFilterCriterion);
     }
 
     [Fact]
@@ -273,6 +305,72 @@ public class FilterCriteriaParityTests
         var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
         Assert.NotNull(result?.ObjectFilter?.GroupsCriterion);
         Assert.Equal(2, result.ObjectFilter.GroupsCriterion.Value.Count);
+    }
+
+    [Fact]
+    public void PerformerFilter_RelatedVideoFilter_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "videoFilterCriterion": {
+                    "objectFilter": {
+                        "ratingCriterion": { "value": 100, "modifier": "equals" }
+                    }
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+
+        Assert.Equal(100, result?.ObjectFilter?.VideoFilterCriterion?.ObjectFilter?.RatingCriterion?.Value);
+        Assert.Equal(CriterionModifier.Equals, result?.ObjectFilter?.VideoFilterCriterion?.ObjectFilter?.RatingCriterion?.Modifier);
+    }
+
+    [Fact]
+    public void PerformerFilter_RelatedAudioFilter_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "audioFilterCriterion": {
+                    "objectFilter": {
+                        "durationCriterion": { "value": 120, "modifier": "greaterThan" }
+                    }
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+
+        Assert.Equal(120, result?.ObjectFilter?.AudioFilterCriterion?.ObjectFilter?.DurationCriterion?.Value);
+        Assert.Equal(CriterionModifier.GreaterThan, result?.ObjectFilter?.AudioFilterCriterion?.ObjectFilter?.DurationCriterion?.Modifier);
+    }
+
+    [Fact]
+    public void PerformerFilterExpression_RepeatedRelatedVideoFilters_Deserialize()
+    {
+        var json = """
+        {
+            "filterExpression": {
+                "operator": "and",
+                "children": [
+                    { "filter": { "videoFilterCriterion": { "mode": "every", "objectFilter": { "tagsCriterion": { "value": [1, 2], "modifier": "includes" } } } } },
+                    { "filter": { "videoFilterCriterion": { "objectFilter": { "tagsCriterion": { "value": [1], "modifier": "includes" } } } } }
+                ]
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<PerformerFilteredQueryRequest>(json, Options);
+
+        Assert.Equal(FilterExpressionOperator.And, result?.FilterExpression?.Operator);
+        Assert.Equal(2, result?.FilterExpression?.Children.Count);
+        Assert.Equal(RelatedFilterMode.Every, result?.FilterExpression?.Children[0].Filter?.VideoFilterCriterion?.Mode);
+        Assert.Equal([1, 2], result?.FilterExpression?.Children[0].Filter?.VideoFilterCriterion?.ObjectFilter?.TagsCriterion?.Value);
+        Assert.Equal([1], result?.FilterExpression?.Children[1].Filter?.VideoFilterCriterion?.ObjectFilter?.TagsCriterion?.Value);
     }
 
     // ===== TAG FILTER CRITERIA EXISTENCE =====

@@ -60,7 +60,8 @@ public sealed class EmbeddingService(
         var embeddings = ApplyFilters(db.Embeddings.AsNoTracking(), options)
             .Where(embedding => embedding.Dim == dimensions);
 
-        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
+        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true
+            && db.CanUseUnfilteredEmbeddingAnn(options.HostType))
         {
             try
             {
@@ -131,12 +132,14 @@ public sealed class EmbeddingService(
 
         // ef_search must be set transaction-locally; the configured retrying execution strategy forbids
         // user-initiated transactions, so wrap the whole unit in the strategy (its retriable boundary).
-        var efSearch = Math.Clamp(k * 3, 100, 1000);
+        var efSearch = Math.Clamp((long)k * 3, 100L, 1000L);
         var strategy = db.Database.CreateExecutionStrategy();
         var rows = await strategy.ExecuteAsync(async () =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            await db.Database.ExecuteSqlRawAsync($"SET LOCAL hnsw.ef_search = {efSearch}", cancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT set_config('hnsw.ef_search', {efSearch.ToString(System.Globalization.CultureInfo.InvariantCulture)}, true)",
+                cancellationToken);
             var list = await db.Embeddings.FromSqlRaw(sql, args.ToArray()).AsNoTracking().ToListAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return list;

@@ -56,7 +56,12 @@ function LibraryFolderNode({
   probeChildren: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { data: children, isLoading, isFetching, isError } = useQuery({
+  const {
+    data: children,
+    isLoading,
+    isFetching,
+    isError,
+  } = useQuery({
     queryKey: ["library-folders", folder.path, probeChildren],
     queryFn: () => metadata.libraryFolders(folder.path, probeChildren),
     enabled: expanded && folder.hasChildren,
@@ -65,7 +70,10 @@ function LibraryFolderNode({
 
   return (
     <div>
-      <div className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-surface/70" style={{ paddingLeft: indent }}>
+      <div
+        className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-surface/70"
+        style={{ paddingLeft: indent }}
+      >
         {folder.hasChildren ? (
           <button
             type="button"
@@ -86,17 +94,25 @@ function LibraryFolderNode({
             onChange={(event) => onToggle(folder.path, event.target.checked)}
             className="border-border"
           />
-          <span className="truncate text-xs text-foreground" title={folder.path}>{folder.name}</span>
+          <span className="truncate text-xs text-foreground" title={folder.path}>
+            {folder.name}
+          </span>
         </label>
       </div>
       {expanded && folder.hasChildren ? (
         <div>
           {isLoading || (isFetching && isError) ? (
-            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>Loading…</p>
+            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>
+              Loading…
+            </p>
           ) : isError ? (
-            <p className="text-[11px] text-red-300" style={{ paddingLeft: indent + 38 }}>Unable to list subfolders</p>
+            <p className="text-[11px] text-red-300" style={{ paddingLeft: indent + 38 }}>
+              Unable to list subfolders
+            </p>
           ) : (children ?? []).length === 0 ? (
-            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>No subfolders</p>
+            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>
+              No subfolders
+            </p>
           ) : (
             (children ?? []).map((child) => (
               <LibraryFolderNode

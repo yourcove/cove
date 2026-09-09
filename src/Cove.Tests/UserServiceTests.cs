@@ -1,13 +1,16 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
 using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
@@ -18,12 +21,131 @@ namespace Cove.Tests;
 /// </summary>
 public class UserServiceTests
 {
+    [Fact]
+    public void UiPreferences_RoundTripsChordHintVisibility()
+    {
+        var preferences = new UserUiPreferencesDto(
+            null, null, null, null, null,
+            KeyboardShortcuts: new UserKeyboardShortcutPreferencesDto("cove:native", [], false));
+
+        var json = Assert.IsType<string>(UserService.SerializeUiPreferences(preferences));
+        var restored = JsonSerializer.Deserialize<UserUiPreferencesDto>(json, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+        });
+
+        Assert.False(restored?.KeyboardShortcuts?.ShowChordHints);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UiPreferences_RoundTripsMarkdownRenderingPreference(bool enabled)
+    {
+        var preferences = new UserUiPreferencesDto(
+            null, null, null, null, null,
+            RenderMarkdown: enabled);
+
+        var json = Assert.IsType<string>(UserService.SerializeUiPreferences(preferences));
+        var restored = UserService.ParseUiPreferences(json);
+
+        Assert.Equal(enabled, restored?.RenderMarkdown);
+    }
+
     private static CoveContext NewDb(string name = "users")
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseInMemoryDatabase($"{name}-{Guid.NewGuid():N}")
             .Options;
         return new TestCoveContext(options);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_removes_user_owned_library_data_and_preserves_unowned_data()
+    {
+        await using var db = NewDb("delete-owned-data");
+        var user = new User
+        {
+            Username = "disposable",
+            PasswordHash = "hash",
+            PasswordAlgo = "test",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var profile = new SegmentDisplayProfile { Name = "Personal", UserId = user.Id, Version = 1 };
+        var systemProfile = new SegmentDisplayProfile { Name = "System", IsSystem = true, Version = 1 };
+        db.SegmentDisplayProfiles.AddRange(profile, systemProfile);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var playback = new PlaybackSession
+        {
+            UserId = user.Id,
+            HostType = InteractionHostType.Video,
+            HostId = 1,
+            SessionId = Guid.NewGuid(),
+        };
+        db.PlaybackSessions.Add(playback);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        db.SavedFilters.AddRange(
+            new SavedFilter { Mode = "videos", Name = "Mine", UserId = user.Id },
+            new SavedFilter { Mode = "videos", Name = "Legacy", UserId = null });
+        db.Ratings.Add(new Rating { UserId = user.Id, HostType = RatingHostType.Video, HostId = 1, Value = 80 });
+        db.UserEntityAffinities.Add(new UserEntityAffinity { UserId = user.Id, HostType = AffinityHostType.Video, HostId = 1, IsFavorite = true });
+        db.UserBookmarks.Add(new UserBookmark { UserId = user.Id, HostType = AffinityHostType.Video, HostId = 1 });
+        db.Interactions.Add(new Interaction { UserId = user.Id, HostType = InteractionHostType.Video, HostId = 1, Kind = InteractionKind.OpenDetail });
+        db.PlaybackIntervals.Add(new PlaybackInterval { UserId = user.Id, PlaybackSessionId = playback.Id, HostType = InteractionHostType.Video, HostId = 1, StartSec = 0, EndSec = 1 });
+        db.UserSessions.Add(new UserSession { UserId = user.Id });
+        db.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { UserId = user.Id, FaceId = 1, PerformerId = 1 });
+        db.SegmentDisplayRules.AddRange(
+            new SegmentDisplayRule { ProfileId = profile.Id },
+            new SegmentDisplayRule { ProfileId = systemProfile.Id, UserId = user.Id },
+            new SegmentDisplayRule { ProfileId = systemProfile.Id });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        await new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance)
+            .DeleteAsync(user.Id, null, TestContext.Current.CancellationToken);
+
+        Assert.False(await db.Users.AnyAsync(row => row.Id == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SavedFilters.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.Ratings.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserEntityAffinities.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserBookmarks.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.Interactions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.PlaybackSessions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.PlaybackIntervals.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserSessions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.FaceSuggestionDecisions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayProfiles.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayRules.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayRules.AnyAsync(row => row.ProfileId == profile.Id, TestContext.Current.CancellationToken));
+        Assert.Single(await db.SavedFilters.Where(row => row.UserId == null).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.SegmentDisplayProfiles.Where(row => row.IsSystem).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.SegmentDisplayRules.Where(row => row.ProfileId == systemProfile.Id).ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void User_owned_entities_cascade_when_their_user_is_deleted()
+    {
+        using var db = NewDb("user-owned-model");
+        var ownedTypes = db.Model.GetEntityTypes()
+            .Where(entityType => entityType.ClrType.Assembly == typeof(User).Assembly
+                && entityType.FindProperty("UserId") is not null)
+            .ToList();
+
+        foreach (var entityType in ownedTypes)
+        {
+            var userForeignKey = entityType.GetForeignKeys().SingleOrDefault(foreignKey =>
+                foreignKey.PrincipalEntityType.ClrType == typeof(User)
+                && foreignKey.Properties.Select(property => property.Name).SequenceEqual(["UserId"]));
+            Assert.True(userForeignKey is not null, $"{entityType.DisplayName()} does not have a UserId foreign key to User.");
+            Assert.Equal(DeleteBehavior.Cascade, userForeignKey!.DeleteBehavior);
+        }
     }
 
     [Fact]
@@ -40,21 +162,21 @@ public class UserServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         });
-        await db.SaveChangesAsync();
-        var userId = (await db.Users.AsNoTracking().FirstAsync(u => u.Username == "bob")).Id;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var userId = (await db.Users.AsNoTracking().FirstAsync(u => u.Username == "bob", cancellationToken: TestContext.Current.CancellationToken)).Id;
 
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         for (var i = 0; i < UserService.MaxFailedLogins - 1; i++)
-            await svc.RecordLoginFailureAsync(userId);
+            await svc.RecordLoginFailureAsync(userId, TestContext.Current.CancellationToken);
 
-        var midway = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+        var midway = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(midway.IsLocked);
         Assert.Equal(UserService.MaxFailedLogins - 1, midway.FailedLoginCount);
 
-        await svc.RecordLoginFailureAsync(userId);
+        await svc.RecordLoginFailureAsync(userId, TestContext.Current.CancellationToken);
 
-        var locked = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+        var locked = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(locked.IsLocked);
         Assert.Equal(UserService.MaxFailedLogins, locked.FailedLoginCount);
         Assert.NotNull(locked.LockedUntil);
@@ -74,13 +196,13 @@ public class UserServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         });
-        await db.SaveChangesAsync();
-        var userId = (await db.Users.AsNoTracking().FirstAsync()).Id;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var userId = (await db.Users.AsNoTracking().FirstAsync(cancellationToken: TestContext.Current.CancellationToken)).Id;
 
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
-        Assert.True(await svc.VerifyPasswordAsync(userId, "hunter2"));
-        Assert.False(await svc.VerifyPasswordAsync(userId, "wrong"));
-        Assert.False(await svc.VerifyPasswordAsync(99999, "anything"));
+        Assert.True(await svc.VerifyPasswordAsync(userId, "hunter2", TestContext.Current.CancellationToken));
+        Assert.False(await svc.VerifyPasswordAsync(userId, "wrong", TestContext.Current.CancellationToken));
+        Assert.False(await svc.VerifyPasswordAsync(99999, "anything", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -108,7 +230,7 @@ public class UserServiceTests
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => svc.CreateAsync(new CreateUserRequest("password-required", password!), null));
+            () => svc.CreateAsync(new CreateUserRequest("password-required", password!), null, TestContext.Current.CancellationToken));
         Assert.Empty(db.Users);
     }
 
@@ -118,15 +240,15 @@ public class UserServiceTests
         await using var db = NewDb("bootstrap-owner");
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
-        Assert.False(await svc.OwnerExistsAsync());
+        Assert.False(await svc.OwnerExistsAsync(TestContext.Current.CancellationToken));
 
-        var owner = await svc.BootstrapOwnerAsync("owner", "longenough123", null);
+        var owner = await svc.BootstrapOwnerAsync("owner", "longenough123", null, TestContext.Current.CancellationToken);
 
         Assert.True(owner.IsSystem);
         Assert.True(owner.HasPassword);
         Assert.Contains(BuiltinRoles.Owner, owner.Roles);
-        Assert.True(await svc.OwnerExistsAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.BootstrapOwnerAsync("other", "longenough123", null));
+        Assert.True(await svc.OwnerExistsAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.BootstrapOwnerAsync("other", "longenough123", null, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -134,20 +256,20 @@ public class UserServiceTests
     {
         await using var db = NewDb("invite-redeem");
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
-        var user = await svc.CreateAsync(new CreateUserRequest("invitee", "oldpassword123", DisplayName: "Invitee"), null);
+        var user = await svc.CreateAsync(new CreateUserRequest("invitee", "oldpassword123", DisplayName: "Invitee"), null, TestContext.Current.CancellationToken);
 
         Assert.True(user.HasPassword);
 
-        var invite = await svc.CreateInviteAsync(user.Id, "http://cove.local", null);
+        var invite = await svc.CreateInviteAsync(user.Id, "http://cove.local", null, TestContext.Current.CancellationToken);
         Assert.Contains("/auth/redeem-invite?token=", invite.Url, StringComparison.Ordinal);
 
-        var redeemed = await svc.RedeemInviteAsync(invite.Token, "newpassword123", null, null);
+        var redeemed = await svc.RedeemInviteAsync(invite.Token, "newpassword123", null, null, TestContext.Current.CancellationToken);
 
         Assert.True(redeemed.HasPassword);
         Assert.False(redeemed.MustChangePassword);
-        Assert.False(await svc.VerifyPasswordAsync(user.Id, "oldpassword123"));
-        Assert.True(await svc.VerifyPasswordAsync(user.Id, "newpassword123"));
-        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemInviteAsync(invite.Token, "anotherpass123", null, null));
+        Assert.False(await svc.VerifyPasswordAsync(user.Id, "oldpassword123", TestContext.Current.CancellationToken));
+        Assert.True(await svc.VerifyPasswordAsync(user.Id, "newpassword123", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemInviteAsync(invite.Token, "anotherpass123", null, null, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -156,22 +278,22 @@ public class UserServiceTests
         await using var db = NewDb("pending-invite-redeem");
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
-        var invite = await svc.CreatePendingInviteAsync(new CreateInviteRequest(DisplayName: "Invited User", Email: "invitee@example.test"), "http://cove.local", null);
-        var info = await svc.GetInviteInfoAsync(invite.Token);
+        var invite = await svc.CreatePendingInviteAsync(new CreateInviteRequest(DisplayName: "Invited User", Email: "invitee@example.test"), "http://cove.local", null, TestContext.Current.CancellationToken);
+        var info = await svc.GetInviteInfoAsync(invite.Token, TestContext.Current.CancellationToken);
 
         Assert.NotNull(info);
         Assert.True(info.UsernameRequired);
         Assert.Null(info.Username);
 
-        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemInviteAsync(invite.Token, "newpassword123", null, null));
+        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemInviteAsync(invite.Token, "newpassword123", null, null, TestContext.Current.CancellationToken));
 
-        var redeemed = await svc.RedeemInviteAsync(invite.Token, "newpassword123", "chosen-name", null);
+        var redeemed = await svc.RedeemInviteAsync(invite.Token, "newpassword123", "chosen-name", null, TestContext.Current.CancellationToken);
 
         Assert.Equal("chosen-name", redeemed.Username);
         Assert.Equal("Invited User", redeemed.DisplayName);
         Assert.Equal("invitee@example.test", redeemed.Email);
         Assert.True(redeemed.HasPassword);
-        Assert.True(await svc.VerifyPasswordAsync(redeemed.Id, "newpassword123"));
+        Assert.True(await svc.VerifyPasswordAsync(redeemed.Id, "newpassword123", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -180,15 +302,15 @@ public class UserServiceTests
         await using var db = NewDb("setup-token");
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
-        var setup = await svc.CreateSetupTokenAsync(null);
-        Assert.True(await svc.HasSetupTokenAsync());
+        var setup = await svc.CreateSetupTokenAsync(null, TestContext.Current.CancellationToken);
+        Assert.True(await svc.HasSetupTokenAsync(TestContext.Current.CancellationToken));
 
-        var owner = await svc.RedeemSetupTokenAsync(setup.Token, "ownerpass123", "owner", null);
+        var owner = await svc.RedeemSetupTokenAsync(setup.Token, "ownerpass123", "owner", null, TestContext.Current.CancellationToken);
 
         Assert.Equal("owner", owner.Username);
         Assert.Contains(BuiltinRoles.Owner, owner.Roles);
-        Assert.False(await svc.HasSetupTokenAsync());
-        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemSetupTokenAsync(setup.Token, "ownerpass123", "owner", null));
+        Assert.False(await svc.HasSetupTokenAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemSetupTokenAsync(setup.Token, "ownerpass123", "owner", null, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -200,9 +322,9 @@ public class UserServiceTests
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
-        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(pair.AccessToken);
-        var principal = await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test");
+        var principal = await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
         Assert.Contains(jwt.Claims, claim => string.Equals(claim.Type, JwtRegisteredClaimNames.Exp, StringComparison.Ordinal));
         Assert.NotNull(principal);
@@ -237,12 +359,12 @@ public class UserServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
-        var principal = await tokens.ResolveExistingUserAsync(1, "127.0.0.1", "test-agent");
+        var principal = await tokens.ResolveExistingUserAsync(1, "127.0.0.1", "test-agent", TestContext.Current.CancellationToken);
 
         Assert.NotNull(principal);
         Assert.Equal(1, principal.UserId);
@@ -252,9 +374,9 @@ public class UserServiceTests
         Assert.Contains(Permissions.All, principal.Permissions);
         Assert.Equal("127.0.0.1", principal.Ip);
         Assert.Equal("test-agent", principal.UserAgent);
-        Assert.Null(await tokens.ResolveExistingUserAsync(999, null, null));
-        Assert.Null(await tokens.ResolveExistingUserAsync(2, null, null));
-        Assert.Null(await tokens.ResolveExistingUserAsync(3, null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync(999, null, null, TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveExistingUserAsync(2, null, null, TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveExistingUserAsync(3, null, null, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -266,116 +388,116 @@ public class UserServiceTests
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
-        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
-        Assert.NotNull(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
 
-        var session = await db.RefreshTokens.SingleAsync();
+        var session = await db.RefreshTokens.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         session.RevokedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Existing_sessions_and_api_tokens_reject_a_user_who_loses_their_password()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
-        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
-        var apiToken = await tokens.CreateApiTokenAsync(1, "test token", null, null, null);
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var apiToken = await tokens.CreateApiTokenAsync(1, "test token", null, null, null, TestContext.Current.CancellationToken);
 
-        var user = await db.Users.SingleAsync();
+        var user = await db.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         user.PasswordHash = string.Empty;
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<UnauthorizedException>(
-            () => tokens.RefreshAsync(pair.RefreshToken, "127.0.0.1", "test"));
-        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
-        Assert.Null(await tokens.ResolveAsync($"Bearer {apiToken.PlaintextToken}", "127.0.0.1", "test"));
+            () => tokens.RefreshAsync(pair.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {apiToken.PlaintextToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Recent_refresh_token_reuse_does_not_revoke_the_rotated_session()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
-        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
-        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
         var exception = await Record.ExceptionAsync(
-            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken));
 
         Assert.IsType<RefreshTokenConflictException>(exception);
-        Assert.NotNull(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test"));
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Recent_refresh_token_reuse_preserves_an_active_later_descendant()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
-        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
-        var firstRotation = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
-        var secondRotation = await tokens.RefreshAsync(firstRotation.RefreshToken, "127.0.0.1", "test");
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var firstRotation = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var secondRotation = await tokens.RefreshAsync(firstRotation.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<RefreshTokenConflictException>(
-            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken));
 
-        Assert.NotNull(await tokens.ResolveAsync($"Bearer {secondRotation.AccessToken}", "127.0.0.1", "test"));
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {secondRotation.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Older_refresh_token_reuse_still_revokes_the_rotated_session()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
-        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
-        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
-        var originalEntity = await db.RefreshTokens.SingleAsync(token => token.ParentId == null);
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        var originalEntity = await db.RefreshTokens.SingleAsync(token => token.ParentId == null, cancellationToken: TestContext.Current.CancellationToken);
         originalEntity.RevokedAt = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(1));
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<UnauthorizedException>(
-            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken));
 
-        Assert.Null(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test"));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -387,15 +509,15 @@ public class UserServiceTests
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
-        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
         db.RefreshTokens.RemoveRange(db.RefreshTokens);
         db.UserRoleAssignments.RemoveRange(db.UserRoleAssignments);
         db.Users.RemoveRange(db.Users);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
-        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -405,7 +527,7 @@ public class UserServiceTests
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
-        var principal = await tokens.ResolveAsync("Bearer not-a-jwt", "127.0.0.1", "test");
+        var principal = await tokens.ResolveAsync("Bearer not-a-jwt", "127.0.0.1", "test", TestContext.Current.CancellationToken);
 
         Assert.Null(principal);
     }
@@ -414,29 +536,29 @@ public class UserServiceTests
     public async Task ResolveAsync_waits_for_api_token_last_used_update()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var interceptor = new BlockingApiTokenUpdateInterceptor();
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .AddInterceptors(interceptor)
             .Options;
         await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
-        var issued = await tokens.CreateApiTokenAsync(1, "test token", null, null, null);
+        var issued = await tokens.CreateApiTokenAsync(1, "test token", null, null, null, TestContext.Current.CancellationToken);
         interceptor.BlockUpdates = true;
 
-        var resolveTask = tokens.ResolveAsync($"Bearer {issued.PlaintextToken}", "127.0.0.1", "test");
-        await interceptor.UpdateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var resolveTask = tokens.ResolveAsync($"Bearer {issued.PlaintextToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        await interceptor.UpdateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         bool resolvedBeforeUpdateCompleted;
         try
         {
             resolvedBeforeUpdateCompleted = await Task.WhenAny(
                 resolveTask,
-                Task.Delay(TimeSpan.FromSeconds(1))) == resolveTask;
+                Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken)) == resolveTask;
         }
         finally
         {
@@ -447,7 +569,7 @@ public class UserServiceTests
         var lastUsedAt = await db.ApiTokens.AsNoTracking()
             .Where(token => token.Id == issued.Id)
             .Select(token => token.LastUsedAt)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(resolvedBeforeUpdateCompleted);
         Assert.NotNull(principal);

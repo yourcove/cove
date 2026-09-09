@@ -25,7 +25,7 @@ public class VideoMutationEventTests
             var folder = new Folder { Path = "/library" };
             var file = new VideoFile { Basename = "video.mp4", ParentFolder = folder, Video = previousOwner };
             db.AddRange(previousOwner, newOwner, folder, file);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
             var published = new List<EntityEvent>();
@@ -49,7 +49,7 @@ public class VideoMutationEventTests
         {
             var video = new Video { Title = "Rated video" };
             db.Videos.Add(video);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
             var published = new List<EntityEvent>();
@@ -74,7 +74,7 @@ public class VideoMutationEventTests
             var firstSource = new Video { Title = "First source" };
             var secondSource = new Video { Title = "Second source" };
             db.Videos.AddRange(target, firstSource, secondSource);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
             var published = new List<EntityEvent>();
@@ -114,7 +114,7 @@ public class VideoMutationEventTests
         {
             var target = new Video { Title = "Target" };
             db.Videos.Add(target);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
             var published = new List<EntityEvent>();

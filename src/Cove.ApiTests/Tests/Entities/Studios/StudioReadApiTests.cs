@@ -1,10 +1,8 @@
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class StudioReadApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -13,10 +11,10 @@ public sealed class StudioReadApiTests(
     public async Task GivenStudio_WhenMemberReadsStudios_ThenStudioIsReturned()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
 
         // Act
-        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync();
+        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync(TestContext.Current.CancellationToken);
 
         // Assert
         studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);

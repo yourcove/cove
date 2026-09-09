@@ -7,6 +7,10 @@ export type KeybindingDefinition = {
 
 type KeyboardLikeEvent = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
+function isSingleCharacterLetter(value: string) {
+  return Array.from(value).length === 1 && value.toLowerCase() !== value.toUpperCase();
+}
+
 export const KEYBINDING_DEFAULTS: KeybindingDefinition[] = [
   { id: "global.home", group: "Global Navigation", label: "Home", keys: "g h" },
   { id: "global.videos", group: "Global Navigation", label: "Videos", keys: "g s" },
@@ -49,7 +53,7 @@ export const KEYBINDING_GROUPS = Array.from(
     existing.push(definition);
     groups.set(definition.group, existing);
     return groups;
-  }, new Map<string, KeybindingDefinition[]>()).entries()
+  }, new Map<string, KeybindingDefinition[]>()).entries(),
 ).map(([group, definitions]) => ({ group, definitions }));
 
 export function resolveKeybinding(overrides: Record<string, string> | undefined, id: string, fallback: string) {
@@ -107,7 +111,7 @@ export function normalizeShortcutKeyName(key: string | null | undefined) {
     case "command":
       return null;
     default:
-      return raw.length === 1 && /[a-z]/i.test(raw) ? raw.toLowerCase() : raw;
+      return isSingleCharacterLetter(raw) ? raw.toLowerCase() : raw;
   }
 }
 
@@ -120,7 +124,7 @@ export function normalizeShortcutEvent(event: KeyboardLikeEvent) {
   const parts: string[] = [];
   if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
   if (event.altKey) parts.push("Alt");
-  if (event.shiftKey && key.length > 1) parts.push("Shift");
+  if (event.shiftKey && (key.length > 1 || isSingleCharacterLetter(key))) parts.push("Shift");
   parts.push(key);
   return parts.join("+");
 }
@@ -155,7 +159,13 @@ function normalizeShortcutStroke(value: string) {
       continue;
     }
 
-    if (normalized === "ctrl" || normalized === "control" || normalized === "cmd" || normalized === "command" || normalized === "meta") {
+    if (
+      normalized === "ctrl" ||
+      normalized === "control" ||
+      normalized === "cmd" ||
+      normalized === "command" ||
+      normalized === "meta"
+    ) {
       modifiers.add("Ctrl");
       continue;
     }
@@ -175,7 +185,10 @@ function normalizeShortcutStroke(value: string) {
     return null;
   }
 
-  const orderedModifiers = ["Ctrl", "Alt", ...(key.length > 1 && modifiers.has("Shift") ? ["Shift"] : [])]
-    .filter((modifier) => modifiers.has(modifier));
+  const orderedModifiers = [
+    "Ctrl",
+    "Alt",
+    ...((key.length > 1 || isSingleCharacterLetter(key)) && modifiers.has("Shift") ? ["Shift"] : []),
+  ].filter((modifier) => modifiers.has(modifier));
   return [...orderedModifiers, key].join("+");
 }

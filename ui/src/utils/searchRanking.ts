@@ -21,7 +21,10 @@ export function rankSearchOptions<T extends LabelledSearchOption>(options: T[], 
 }
 
 export function rankByLabel<T>(items: T[], searchText: string, getLabel: (item: T) => string): T[] {
-  return rankSearchOptions(items.map((item) => ({ item, label: getLabel(item) })), searchText).map((entry) => entry.item);
+  return rankSearchOptions(
+    items.map((item) => ({ item, label: getLabel(item) })),
+    searchText,
+  ).map((entry) => entry.item);
 }
 
 function getSearchRank(label: string, needle: string) {

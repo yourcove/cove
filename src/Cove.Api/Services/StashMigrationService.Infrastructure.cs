@@ -62,14 +62,30 @@ public partial class StashMigrationService
                     map[checksum] = blobId;
                     inlineCount++;
                 }
-                else if (hasBlobFilesPath && TryResolveStashBlobFilePath(normalizedBlobFilesPath!, checksum, out var sourcePath))
+                else if (hasBlobFilesPath && TryResolveStashBlobFilePath(
+                             normalizedBlobFilesPath!,
+                             checksum,
+                             out var sourcePath,
+                             out var pathWasObserved))
                 {
-                    await using var fs = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1024 * 128, useAsync: true);
-                    var contentType = DetectImageContentType(fs);
-                    fs.Position = 0;
-                    var blobId = await _blobService.StoreBlobAsync(fs, contentType, ct);
-                    map[checksum] = blobId;
-                    fileCount++;
+                    await using var fs = FileReadRace.TryOpenRead(
+                        sourcePath,
+                        FileShare.Read | FileShare.Delete,
+                        1024 * 128,
+                        pathWasObserved: pathWasObserved);
+                    if (fs == null)
+                    {
+                        missingCount++;
+                        TraceStashMissingBlobData(_logger, checksum);
+                    }
+                    else
+                    {
+                        var contentType = DetectImageContentType(fs);
+                        fs.Position = 0;
+                        var blobId = await _blobService.StoreBlobAsync(fs, contentType, ct);
+                        map[checksum] = blobId;
+                        fileCount++;
+                    }
                 }
                 else
                 {
@@ -1085,13 +1101,18 @@ WHERE files.zip_file_id IS NOT NULL";
             || path.StartsWith(@"\\", StringComparison.Ordinal)
             || path.StartsWith("//", StringComparison.Ordinal);
 
-    private static bool TryResolveStashBlobFilePath(string blobFilesPath, string checksum, out string sourcePath)
+    private static bool TryResolveStashBlobFilePath(
+        string blobFilesPath,
+        string checksum,
+        out string sourcePath,
+        out bool pathWasObserved)
     {
         foreach (var candidate in EnumerateStashBlobPathCandidates(blobFilesPath, checksum))
         {
             if (File.Exists(candidate))
             {
                 sourcePath = candidate;
+                pathWasObserved = true;
                 return true;
             }
         }
@@ -1104,6 +1125,7 @@ WHERE files.zip_file_id IS NOT NULL";
             if (match is not null)
             {
                 sourcePath = match;
+                pathWasObserved = File.Exists(match);
                 return true;
             }
         }
@@ -1117,6 +1139,7 @@ WHERE files.zip_file_id IS NOT NULL";
                 if (match is not null)
                 {
                     sourcePath = match;
+                    pathWasObserved = File.Exists(match);
                     return true;
                 }
             }
@@ -1128,11 +1151,13 @@ WHERE files.zip_file_id IS NOT NULL";
             if (match is not null)
             {
                 sourcePath = match;
+                pathWasObserved = File.Exists(match);
                 return true;
             }
         }
 
         sourcePath = string.Empty;
+        pathWasObserved = false;
         return false;
     }
 

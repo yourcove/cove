@@ -25,9 +25,13 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
+            .Include(s => s.ChildVideos)
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
             .Include(s => s.Files).ThenInclude(f => f.Captions)
             .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Fingerprints)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Captions)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.ParentFolder)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Id == id, ct);
@@ -74,36 +78,120 @@ public class VideoRepository : IVideoRepository
             .Where(vp => videoIds.Contains(vp.VideoId) && vp.Performer != null)
             .ToListAsync(ct);
 
-    public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    internal async Task<IQueryable<Video>> BuildFilteredQueryAsync(
+        VideoFilter? filter,
+        FindFilter? findFilter,
+        bool includeRelatedFilters = true,
+        bool allowReadScopeOptimization = true,
+        CancellationToken ct = default,
+        FilterExpression<VideoFilter>? expression = null)
     {
-        ExpandedHierarchyCriterion? expandedTags = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
-        {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
-            filter.TagsCriterion = expandedTags.Criterion;
-        }
-        ExpandedHierarchyCriterion? expandedStudios = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
-        {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
-            filter.StudiosCriterion = expandedStudios.Criterion;
-        }
-
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
-            _db,
-            EntityKinds.Video,
-            currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
-            ct);
+        var hasRelatedFilter = filter?.PerformerFilterCriterion != null
+            || FilterExpressionQuery.Contains(expression, leaf => leaf.PerformerFilterCriterion != null);
+        var readScopePlan = !allowReadScopeOptimization || hasRelatedFilter
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
+                _db,
+                EntityKinds.Video,
+                currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
+                ct);
 
         // Build a lightweight filter-only query (no Includes) for COUNT and filter predicates
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
 
-        // Apply all filters to the lightweight query
-        filterQuery = ApplyFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        async Task<IQueryable<Video>> ApplyLeafAsync(IQueryable<Video> query, VideoFilter leaf, bool applyPerformerCriterion = true)
+        {
+            ExpandedHierarchyCriterion? expandedTags = null;
+            if (HierarchicalCriterionExpander.RequiresExpansion(leaf.TagsCriterion))
+            {
+                expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, leaf.TagsCriterion!, ct);
+                leaf.TagsCriterion = expandedTags.Criterion;
+            }
+            ExpandedHierarchyCriterion? expandedStudios = null;
+            if (HierarchicalCriterionExpander.RequiresExpansion(leaf.StudiosCriterion))
+            {
+                expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, leaf.StudiosCriterion!, ct);
+                leaf.StudiosCriterion = expandedStudios.Criterion;
+            }
+
+            query = ApplyFilters(query, leaf, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+            return includeRelatedFilters && applyPerformerCriterion
+                ? await RelatedFilterQuery.ApplyToVideosAsync(_db, query, leaf.PerformerFilterCriterion, ct)
+                : query;
+        }
+
+        async Task<IQueryable<Video>> ApplyExpressionNodeAsync(IQueryable<Video> input, FilterExpressionNode<VideoFilter> node)
+            => node.Filter != null ? await ApplyLeafAsync(input, node.Filter) : await ApplyExpressionAsync(input, node.Group!);
+
+        async Task<IQueryable<Video>> ApplyExpressionAsync(IQueryable<Video> input, FilterExpression<VideoFilter> group)
+        {
+            if (group.Operator == FilterExpressionOperator.And)
+            {
+                var distinctPerformerScope = group.DistinctRelatedMatches
+                    || (group.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct
+                        && string.Equals(group.RelatedScope.FilterKey, nameof(VideoFilter.PerformerFilterCriterion), StringComparison.OrdinalIgnoreCase));
+                var distinctCriteria = includeRelatedFilters && distinctPerformerScope
+                    ? group.Children
+                        .Where(child => child.Filter?.PerformerFilterCriterion is { Mode: RelatedFilterMode.AtLeastOne, Exclude: false })
+                        .Select(child => child.Filter!.PerformerFilterCriterion!)
+                        .ToArray()
+                    : [];
+                if (distinctCriteria.Length > 8)
+                    throw new ArgumentException("Distinct related-performer groups may not contain more than 8 matching conditions.", nameof(expression));
+                var current = distinctCriteria.Length > 1
+                    ? await RelatedFilterQuery.ApplyDistinctVideoPerformersAsync(_db, input, distinctCriteria, ct)
+                    : input;
+                foreach (var child in group.Children)
+                {
+                    var handledDistinctCriterion = distinctCriteria.Length > 1
+                        && child.Filter?.PerformerFilterCriterion is { Mode: RelatedFilterMode.AtLeastOne, Exclude: false };
+                    current = child.Filter != null
+                        ? await ApplyLeafAsync(current, child.Filter, !handledDistinctCriterion)
+                        : await ApplyExpressionAsync(current, child.Group!);
+                }
+                return current;
+            }
+            if (group.Operator == FilterExpressionOperator.Not)
+                return input.Except(await ApplyExpressionNodeAsync(input, group.Children[0]));
+            if (group.Operator == FilterExpressionOperator.JustOne)
+            {
+                IQueryable<Video>? seen = null;
+                IQueryable<Video>? exactlyOne = null;
+                foreach (var child in group.Children)
+                {
+                    var branch = await ApplyExpressionNodeAsync(input, child);
+                    if (seen == null) { seen = branch; exactlyOne = branch; continue; }
+                    exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
+                    seen = seen.Union(branch);
+                }
+                return exactlyOne ?? input;
+            }
+            IQueryable<Video>? union = null;
+            foreach (var child in group.Children)
+            {
+                var branch = await ApplyExpressionNodeAsync(input, child);
+                union = union == null ? branch : union.Union(branch);
+            }
+            return union ?? input;
+        }
+
+        if (filter != null)
+            filterQuery = await ApplyLeafAsync(filterQuery, filter);
+        if (!FilterExpressionQuery.TryValidate(expression, out var expressionError))
+            throw new ArgumentException(expressionError, nameof(expression));
+        if (expression is { Children.Count: > 0 })
+            filterQuery = await ApplyExpressionAsync(filterQuery, expression);
 
         filterQuery = ApplyVideoSearch(filterQuery, findFilter?.Q);
+
+        return filterQuery;
+    }
+
+    public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null)
+    {
+        var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
 
         // COUNT runs on the lightweight query â€” no JOINs from Includes
         var perPage = findFilter?.PerPage ?? 25;
@@ -129,8 +217,8 @@ public class VideoRepository : IVideoRepository
         filterQuery = sortClauses.Count > 1
             ? ApplyMultiSorting(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
-        if (!hasExplicitSort)
-            filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            filterQuery = ApplyVideoRelevanceOrdering(filterQuery, findFilter?.Q);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -154,6 +242,7 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
             .Include(s => s.Files)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .Where(s => pagedIds.Contains(s.Id))
@@ -167,31 +256,9 @@ public class VideoRepository : IVideoRepository
         return (sorted, totalCount);
     }
 
-    public async Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    public async Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null)
     {
-        ExpandedHierarchyCriterion? expandedTags = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
-        {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
-            filter.TagsCriterion = expandedTags.Criterion;
-        }
-        ExpandedHierarchyCriterion? expandedStudios = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
-        {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
-            filter.StudiosCriterion = expandedStudios.Criterion;
-        }
-
-        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
-            _db,
-            EntityKinds.Video,
-            currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
-            ct);
-        var query = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
-        query = ApplyFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplyVideoSearch(query, findFilter?.Q);
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
 
         return await query.AsNoTracking()
             .GroupBy(_ => 1)
@@ -227,7 +294,9 @@ public class VideoRepository : IVideoRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, currentUserId, RatingHostType.Video, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, currentUserId, AffinityHostType.Video, filter.FavoriteCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, currentUserId, AffinityHostType.Video, filter.FavoriteCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
 
             if (filter.PerformerCountCriterion != null)
@@ -353,18 +422,7 @@ public class VideoRepository : IVideoRepository
                 query = ApplyMultiIdCriterion(query, filter.GalleriesCriterion, s => s.VideoGalleries.Select(sg => sg.GalleryId));
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Urls.Count > 0),
-                    _ => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, s => s.Urls.Select(u => u.Url));
 
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, s => s.CreatedAt);
@@ -397,7 +455,7 @@ public class VideoRepository : IVideoRepository
         return query;
     }
 
-    private IQueryable<Video> ApplyVideoSearch(IQueryable<Video> query, string? search)
+    internal IQueryable<Video> ApplyVideoSearch(IQueryable<Video> query, string? search)
     {
         var textQuery = FullTextSearchHelpers.Apply(_db, query, search,
             s => s.Title,
@@ -415,19 +473,108 @@ public class VideoRepository : IVideoRepository
         // PostgreSQL and the SQLite test provider.
         var tagWordTerm = $" {normalizedLower} ";
 
-        var relationalQuery = query.Where(s =>
-            (s.Studio != null && s.Studio.Name.ToLower().Contains(normalizedLower)) ||
-            s.VideoPerformers.Any(sp => sp.Performer != null && (
-                sp.Performer.Name.ToLower().Contains(normalizedLower) ||
-                sp.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower)))) ||
-            s.VideoTags.Any(st => st.Tag != null && (
-                (" " + st.Tag.Name.ToLower() + " ").Contains(tagWordTerm) ||
-                st.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(tagWordTerm)))) ||
-            s.VideoGalleries.Any(sg => sg.Gallery != null && sg.Gallery.Title != null && sg.Gallery.Title.ToLower().Contains(normalizedLower)) ||
-            s.GroupItems.Any(item => item.Group != null && item.Group.Name.ToLower().Contains(normalizedLower)));
+        // Build relationship matches from the relationship tables toward videos. Starting from every
+        // video and evaluating correlated Any expressions makes common tag searches revisit the same
+        // tag and alias rows hundreds of thousands of times. Projecting only IDs also keeps UNION ALL
+        // narrow and lets the final IN predicate provide set semantics without DISTINCT over video rows.
+        var matchingIds = textQuery.Select(video => video.Id)
+            .Concat(_db.Studios
+                .Where(studio => studio.Name.ToLower().Contains(normalizedLower))
+                .SelectMany(studio => studio.Videos.Select(video => video.Id)))
+            .Concat(_db.Set<VideoPerformer>()
+                .Where(videoPerformer => videoPerformer.Performer != null && (
+                    videoPerformer.Performer.Name.ToLower().Contains(normalizedLower) ||
+                    videoPerformer.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))))
+                .Select(videoPerformer => videoPerformer.VideoId))
+            .Concat(_db.Set<VideoTag>()
+                .Where(videoTag => videoTag.Tag != null && (
+                    (" " + videoTag.Tag.Name.ToLower() + " ").Contains(tagWordTerm) ||
+                    videoTag.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(tagWordTerm))))
+                .Select(videoTag => videoTag.VideoId))
+            .Concat(_db.Set<VideoGallery>()
+                .Where(videoGallery => videoGallery.Gallery != null
+                    && videoGallery.Gallery.Title != null
+                    && videoGallery.Gallery.Title.ToLower().Contains(normalizedLower))
+                .Select(videoGallery => videoGallery.VideoId))
+            .Concat(_db.Set<GroupItem>()
+                .Where(item => item.VideoId != null
+                    && item.Group != null
+                    && item.Group.Name.ToLower().Contains(normalizedLower))
+                .Select(item => item.VideoId!.Value));
 
-        var combined = textQuery.Concat(relationalQuery).Distinct();
-        return FullTextSearchHelpers.ApplyFilePathMatch(combined, query, search, s => s.Files);
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        if (tokens.Count > 0)
+        {
+            var matchingFiles = _db.VideoFiles.Where(file => file.VideoId != null);
+            foreach (var token in tokens)
+                matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+            matchingIds = matchingIds.Concat(matchingFiles.Select(file => file.VideoId!.Value));
+        }
+
+        return query.Where(video => matchingIds.Contains(video.Id));
+    }
+
+    internal IQueryable<Video> ApplyVideoRelevanceOrdering(IQueryable<Video> query, string? search)
+    {
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return query;
+
+        var lower = normalized.ToLowerInvariant();
+        var exactRelationshipIds = _db.Set<VideoPerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower() == lower
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+            .Select(link => link.VideoId)
+            .Concat(_db.Set<VideoTag>()
+                .Where(link => link.Tag != null && (
+                    link.Tag.Name.ToLower() == lower
+                    || link.Tag.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+                .Select(link => link.VideoId))
+            .Concat(_db.Studios
+                .Where(studio => studio.Name.ToLower() == lower)
+                .SelectMany(studio => studio.Videos.Select(video => video.Id)))
+            .Concat(_db.Set<VideoGallery>()
+                .Where(link => link.Gallery != null && link.Gallery.Title != null && link.Gallery.Title.ToLower() == lower)
+                .Select(link => link.VideoId))
+            .Concat(_db.Set<GroupItem>()
+                .Where(item => item.VideoId != null && item.Group != null && item.Group.Name.ToLower() == lower)
+                .Select(item => item.VideoId!.Value));
+
+        var relationshipIds = _db.Set<VideoPerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower().Contains(lower)
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))))
+            .Select(link => link.VideoId)
+            .Concat(_db.Set<VideoTag>()
+                .Where(link => link.Tag != null && (
+                    (" " + link.Tag.Name.ToLower() + " ").Contains(" " + lower + " ")
+                    || link.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(" " + lower + " "))))
+                .Select(link => link.VideoId))
+            .Concat(_db.Studios
+                .Where(studio => studio.Name.ToLower().Contains(lower))
+                .SelectMany(studio => studio.Videos.Select(video => video.Id)))
+            .Concat(_db.Set<VideoGallery>()
+                .Where(link => link.Gallery != null && link.Gallery.Title != null && link.Gallery.Title.ToLower().Contains(lower))
+                .Select(link => link.VideoId))
+            .Concat(_db.Set<GroupItem>()
+                .Where(item => item.VideoId != null && item.Group != null && item.Group.Name.ToLower().Contains(lower))
+                .Select(item => item.VideoId!.Value));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        var matchingFiles = tokens.Count > 0
+            ? _db.VideoFiles.Where(file => file.VideoId != null)
+            : _db.VideoFiles.Where(_ => false);
+        foreach (var token in tokens)
+            matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+
+        return FullTextSearchHelpers.OrderByExactThenRelevance(
+            _db,
+            query,
+            normalized,
+            video => video.Title,
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.VideoId!.Value)],
+            [video => video.Title, video => video.Details, video => video.Code, video => video.Director]);
     }
 
     private IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)
@@ -519,7 +666,7 @@ public class VideoRepository : IVideoRepository
 
         registry.Apply(compound, clauses);
 
-        return compound.Finish(video => video.Id);
+        return compound.Finish(video => video.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private static IOrderedQueryable<Video> AppendSort<TKey>(
@@ -541,40 +688,40 @@ public class VideoRepository : IVideoRepository
 
         return sort switch
         {
-            "title" => desc ? query.OrderByDescending(s => s.Title) : query.OrderBy(s => s.Title),
+            "title" => desc ? query.OrderByDescending(s => s.Title).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Title).ThenBy(s => s.Id),
             // Null dates sort to bottom: treat null as MinValue so they come last when desc
-            "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue) : query.OrderBy(s => s.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Date ?? DateOnly.MinValue).ThenBy(s => s.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Video, desc),
             "play_count" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc),
             "last_like_at" => EngagementQueryHelpers.ApplyInteractionTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), InteractionHostType.Video, InteractionKind.LikeCount, desc),
-            "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),
+            "organized" => desc ? query.OrderByDescending(s => s.Organized).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Organized).ThenBy(s => s.Id),
             "last_played_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc),
             "play_duration" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc),
             "resume_time" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastPositionSec), desc),
             "random" => query.OrderBy(s => s.Id),
-            "duration" => desc ? query.OrderByDescending(s => s.MaxDuration) : query.OrderBy(s => s.MaxDuration),
-            "file_size" => desc ? query.OrderByDescending(s => s.MaxFileSize) : query.OrderBy(s => s.MaxFileSize),
+            "duration" => desc ? query.OrderByDescending(s => s.MaxDuration).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxDuration).ThenBy(s => s.Id),
+            "file_size" => desc ? query.OrderByDescending(s => s.MaxFileSize).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxFileSize).ThenBy(s => s.Id),
             "file_mod_time" => ApplyFileModTimeSort(query, desc),
-            "file_count" => desc ? query.OrderByDescending(s => s.FileCount) : query.OrderBy(s => s.FileCount),
+            "file_count" => desc ? query.OrderByDescending(s => s.FileCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.FileCount).ThenBy(s => s.Id),
             "path" => ApplyPathSort(query, desc),
-            "resolution" => desc ? query.OrderByDescending(s => s.MaxHeight) : query.OrderBy(s => s.MaxHeight),
-            "framerate" => desc ? query.OrderByDescending(s => s.MaxFrameRate) : query.OrderBy(s => s.MaxFrameRate),
+            "resolution" => desc ? query.OrderByDescending(s => s.MaxHeight).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxHeight).ThenBy(s => s.Id),
+            "framerate" => desc ? query.OrderByDescending(s => s.MaxFrameRate).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxFrameRate).ThenBy(s => s.Id),
             "bitrate" => ApplyBitrateSort(query, desc),
             "phash" => ApplyPhashSort(query, desc),
             "perceptual_similarity" => ApplyPhashSort(query, desc),
             "tag_count" => desc
-                ? query.OrderByDescending(s => s.VideoTags.Count)
-                : query.OrderBy(s => s.VideoTags.Count),
+                ? query.OrderByDescending(s => s.VideoTags.Count).ThenByDescending(s => s.Id)
+                : query.OrderBy(s => s.VideoTags.Count).ThenBy(s => s.Id),
             "performer_count" => desc
-                ? query.OrderByDescending(s => s.VideoPerformers.Count)
-                : query.OrderBy(s => s.VideoPerformers.Count),
+                ? query.OrderByDescending(s => s.VideoPerformers.Count).ThenByDescending(s => s.Id)
+                : query.OrderBy(s => s.VideoPerformers.Count).ThenBy(s => s.Id),
             "performer_age" => ApplyPerformerAgeSort(query, desc),
             "studio" => ApplyStudioSort(query, desc),
             "code" => ApplyStudioCodeSort(query, desc),
             "studio_code" => ApplyStudioCodeSort(query, desc),
-            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
-            _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.CreatedAt).ThenBy(s => s.Id),
+            _ => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
         };
     }
 
@@ -604,8 +751,8 @@ public class VideoRepository : IVideoRepository
     private static IQueryable<Video> ApplyFileModTimeSort(IQueryable<Video> query, bool desc)
     {
         return desc
-            ? query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenByDescending(video => video.MaxFileModTime)
-            : query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenBy(video => video.MaxFileModTime);
+            ? query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenByDescending(video => video.MaxFileModTime).ThenByDescending(video => video.Id)
+            : query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenBy(video => video.MaxFileModTime).ThenBy(video => video.Id);
     }
 
     private static IQueryable<Video> ApplyPathSort(IQueryable<Video> query, bool desc)
@@ -633,6 +780,7 @@ public class VideoRepository : IVideoRepository
             return descendingQuery
                 .OrderBy(item => item.Phash == null ? 1 : 0)
                 .ThenByDescending(item => item.Phash)
+                .ThenByDescending(item => item.Video.Id)
                 .Select(item => item.Video);
         }
 
@@ -650,6 +798,7 @@ public class VideoRepository : IVideoRepository
         return ascendingQuery
             .OrderBy(item => item.Phash == null ? 1 : 0)
             .ThenBy(item => item.Phash)
+            .ThenBy(item => item.Video.Id)
             .Select(item => item.Video);
     }
 
@@ -662,8 +811,8 @@ public class VideoRepository : IVideoRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Video)
-            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Video);
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).ThenByDescending(item => item.Video.Id).Select(item => item.Video)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).ThenBy(item => item.Video.Id).Select(item => item.Video);
     }
 
     private static IQueryable<Video> ApplyStudioCodeSort(IQueryable<Video> query, bool desc)
@@ -675,8 +824,8 @@ public class VideoRepository : IVideoRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenByDescending(item => item.Code).Select(item => item.Video)
-            : sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenBy(item => item.Code).Select(item => item.Video);
+            ? sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenByDescending(item => item.Code).ThenByDescending(item => item.Video.Id).Select(item => item.Video)
+            : sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenBy(item => item.Code).ThenBy(item => item.Video.Id).Select(item => item.Video);
     }
 
     private static IQueryable<Video> ApplyPerformerAgeSort(IQueryable<Video> query, bool desc)
@@ -698,6 +847,7 @@ public class VideoRepository : IVideoRepository
             return descendingQuery
                 .OrderBy(item => item.PerformerAge == null ? 1 : 0)
                 .ThenByDescending(item => item.PerformerAge)
+                .ThenByDescending(item => item.Video.Id)
                 .Select(item => item.Video);
         }
 
@@ -716,6 +866,7 @@ public class VideoRepository : IVideoRepository
         return ascendingQuery
             .OrderBy(item => item.PerformerAge == null ? 1 : 0)
             .ThenBy(item => item.PerformerAge)
+            .ThenBy(item => item.Video.Id)
             .Select(item => item.Video);
     }
 

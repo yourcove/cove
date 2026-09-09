@@ -72,7 +72,9 @@ class MockAudioContext {
   createGain = vi.fn(() => new MockGainNode());
   createDelay = vi.fn(() => new MockDelayNode());
   createMediaElementSource = vi.fn(() => new MockAudioNode());
-  createBuffer = vi.fn((_channels: number, length: number, sampleRate: number) => new MockAudioBuffer(length, sampleRate));
+  createBuffer = vi.fn(
+    (_channels: number, length: number, sampleRate: number) => new MockAudioBuffer(length, sampleRate),
+  );
   createBufferSource = vi.fn(() => new MockBufferSourceNode());
   close = vi.fn(() => Promise.resolve());
   resume = vi.fn(() => Promise.resolve());

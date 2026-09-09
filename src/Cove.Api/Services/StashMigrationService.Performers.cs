@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data.Services;
 using System.Text;
@@ -35,15 +36,19 @@ public partial class StashMigrationService
         var hasCareerLength = await ColumnExistsAsync(conn, "performers", "career_length", ct);
         var hasCareerStart = await ColumnExistsAsync(conn, "performers", "career_start", ct);
         var hasCareerEnd = await ColumnExistsAsync(conn, "performers", "career_end", ct);
+        var hasBirthdatePrecision = await ColumnExistsAsync(conn, "performers", "birthdate_precision", ct);
+        var hasDeathDatePrecision = await ColumnExistsAsync(conn, "performers", "death_date_precision", ct);
+        var hasCareerStartPrecision = hasCareerStart && await ColumnExistsAsync(conn, "performers", "career_start_precision", ct);
+        var hasCareerEndPrecision = hasCareerEnd && await ColumnExistsAsync(conn, "performers", "career_end_precision", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var careerLengthExpr = hasCareerLength ? "career_length" : "NULL";
-            var careerStartExpr = hasCareerStart ? "career_start" : "NULL";
-            var careerEndExpr = hasCareerEnd ? "career_end" : "NULL";
-            cmd.CommandText = @"SELECT id, name, disambiguation, gender, birthdate, ethnicity, country, eye_color,
+            var careerStartExpr = hasCareerStart ? PartialDateSql("career_start", hasCareerStartPrecision) : "NULL";
+            var careerEndExpr = hasCareerEnd ? PartialDateSql("career_end", hasCareerEndPrecision) : "NULL";
+            cmd.CommandText = @"SELECT id, name, disambiguation, gender, " + PartialDateSql("birthdate", hasBirthdatePrecision) + @" AS birthdate, ethnicity, country, eye_color,
                 hair_color, height, weight, measurements, fake_tits, penis_length, circumcised, " + careerLengthExpr + @" AS career_length,
                 " + careerStartExpr + @" AS career_start, " + careerEndExpr + @" AS career_end,
-                death_date, tattoos, piercings, favorite, rating, details, image_blob, created_at, updated_at
+                " + PartialDateSql("death_date", hasDeathDatePrecision) + @" AS death_date, tattoos, piercings, favorite, rating, details, image_blob, created_at, updated_at
                 FROM performers";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
@@ -157,7 +162,12 @@ public partial class StashMigrationService
                 => !string.IsNullOrWhiteSpace(current) ? current : incoming;
 
             entity.Gender ??= ParseGender(row.Gender);
-            entity.Birthdate ??= ParseDate(row.Birthdate);
+            if (entity.Birthdate is null)
+            {
+                var date = ParsePartialDate(row.Birthdate);
+                entity.Birthdate = date.Value;
+                entity.BirthdatePrecision = date.Precision;
+            }
             entity.Ethnicity = FirstText(entity.Ethnicity, row.Ethnicity);
             entity.Country = FirstText(entity.Country, row.Country);
             entity.EyeColor = FirstText(entity.EyeColor, row.EyeColor);
@@ -169,9 +179,24 @@ public partial class StashMigrationService
             entity.PenisLength ??= row.PenisLength;
             entity.Circumcised ??= ParseCircumcised(row.Circumcised);
             var (legacyCareerStart, legacyCareerEnd) = ParseCareerLength(row.CareerLength);
-            entity.CareerStart ??= ParseDate(row.CareerStart) ?? legacyCareerStart;
-            entity.CareerEnd ??= ParseDate(row.CareerEnd) ?? legacyCareerEnd;
-            entity.DeathDate ??= ParseDate(row.DeathDate);
+            if (entity.CareerStart is null)
+            {
+                var date = ParsePartialDate(row.CareerStart);
+                entity.CareerStart = date.Value ?? legacyCareerStart;
+                entity.CareerStartPrecision = date.Value.HasValue ? date.Precision : DatePrecision.Year;
+            }
+            if (entity.CareerEnd is null)
+            {
+                var date = ParsePartialDate(row.CareerEnd);
+                entity.CareerEnd = date.Value ?? legacyCareerEnd;
+                entity.CareerEndPrecision = date.Value.HasValue ? date.Precision : DatePrecision.Year;
+            }
+            if (entity.DeathDate is null)
+            {
+                var date = ParsePartialDate(row.DeathDate);
+                entity.DeathDate = date.Value;
+                entity.DeathDatePrecision = date.Precision;
+            }
             entity.Tattoos = FirstText(entity.Tattoos, row.Tattoos);
             entity.Piercings = FirstText(entity.Piercings, row.Piercings);
             entity.Details = FirstText(entity.Details, row.Details);

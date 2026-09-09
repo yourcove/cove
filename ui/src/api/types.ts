@@ -32,7 +32,8 @@ export interface Video {
   imagePath?: string | null;
 }
 
-export type GlobalSearchEntityType = "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
+export type GlobalSearchEntityType =
+  "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
 
 export interface GlobalSearchItem {
   id: number;
@@ -101,8 +102,8 @@ export interface Performer {
   gender?: string;
   birthdate?: string;
   deathDate?: string;
-  ethnicity?: string;
   country?: string;
+  ethnicity?: string;
   eyeColor?: string;
   hairColor?: string;
   heightCm?: number;
@@ -135,6 +136,14 @@ export interface Performer {
   fieldProvenance?: FieldProvenance[];
 }
 
+export interface PerformerCountryOption {
+  value: string;
+  code?: string | null;
+  name: string;
+  performerCount: number;
+  isCustom: boolean;
+}
+
 export interface PerformerRemoteId {
   endpoint: string;
   remoteId: string;
@@ -146,6 +155,8 @@ export interface PerformerSummary {
   disambiguation?: string;
   gender?: string;
   birthdate?: string;
+  deathDate?: string;
+  country?: string;
   favorite: boolean;
   imagePath?: string;
   videoCount?: number;
@@ -240,6 +251,8 @@ export interface Tag {
   tagGroupId?: number | null;
   tagGroupName?: string | null;
   tagGroupColor?: string | null;
+  tagGroupSortOrder?: number | null;
+  sortName?: string | null;
   minOccurrenceSec?: number | null;
   minOccurrencePercent?: number | null;
   isDerived?: boolean;
@@ -255,6 +268,8 @@ export interface Tag {
   groupCount?: number;
   performerCount?: number;
   studioCount?: number;
+  audioCount?: number;
+  textCount?: number;
   provenance?: TagProvenance[];
 }
 
@@ -336,7 +351,6 @@ export interface TagApplicationCreate {
 }
 
 export interface TagDetail extends Tag {
-  sortName?: string;
   parents: Tag[];
   children: Tag[];
   videoCount: number;
@@ -573,7 +587,6 @@ export interface Image {
   fieldProvenance?: FieldProvenance[];
 }
 
-
 export interface VisualSimilarVideo {
   video: Video;
   distance: number;
@@ -782,6 +795,61 @@ export interface DeleteEntityOptions {
   deleteGenerated?: boolean;
 }
 
+export interface BulkDeletionJobStart {
+  jobId: string;
+  itemCount: number;
+}
+
+export type DuplicateSearchStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+
+export interface DuplicateSearchRequest {
+  matchType: "fingerprint" | "phash" | "title" | "remoteId";
+  distance?: number;
+  durationDiff?: number | null;
+}
+
+export interface DuplicateSearchStart {
+  searchId: string;
+  jobId: string;
+  candidateCount: number;
+}
+
+export interface DuplicateSearchInfo {
+  id: string;
+  jobId?: string | null;
+  matchType: string;
+  distance: number;
+  durationDiff: number;
+  status: DuplicateSearchStatus;
+  error?: string | null;
+  candidateCount: number;
+  groupCount: number;
+  videoCount: number;
+  unkeptVideoCount: number;
+  unkeptFileCount: number;
+  unkeptBytes: number;
+  deletionJobId?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  expiresAt: string;
+}
+
+export interface DuplicateSearchGroup {
+  id: number;
+  position: number;
+  videos: Video[];
+  keepVideoIds: number[];
+}
+
+export interface DuplicateSearchGroupPage {
+  items: DuplicateSearchGroup[];
+  totalCount: number;
+  page: number;
+  perPage: number;
+  hasMore: boolean;
+}
+
 export type GroupKind = "static" | "dynamic";
 
 export interface Group {
@@ -836,7 +904,19 @@ export interface GroupSummary {
   videoIndex: number;
 }
 
-export type GroupItemKind = "video" | "videoRange" | "image" | "audio" | "text" | "group" | "performer" | "studio" | "tag" | "gallery" | "face" | "segment";
+export type GroupItemKind =
+  | "video"
+  | "videoRange"
+  | "image"
+  | "audio"
+  | "text"
+  | "group"
+  | "performer"
+  | "studio"
+  | "tag"
+  | "gallery"
+  | "face"
+  | "segment";
 
 export interface GroupItem {
   id: number;
@@ -923,7 +1003,7 @@ export interface GroupPlaybackManifestItem {
   videoTitle?: string;
   src: string;
   startSec: number;
-  endSec?: number;
+  endSec?: number | null;
   durationSec?: number;
   displayDurationSec?: number | null;
   posterPath?: string;
@@ -1043,7 +1123,8 @@ export interface TagSegmentWall {
 
 export type SegmentHostType = "video" | "image" | "audio";
 export type DetectionHostType = "video" | "image";
-export type AffinityHostType = "video" | "audio" | "text" | "image" | "performer" | "face" | "tag" | "studio" | "gallery" | "group" | "segment";
+export type AffinityHostType =
+  "video" | "audio" | "text" | "image" | "performer" | "face" | "tag" | "studio" | "gallery" | "group" | "segment";
 export type InteractionHostType = AffinityHostType | "segment" | "search" | "collection";
 
 export interface Segment {
@@ -1871,11 +1952,38 @@ export interface UserUiPreferences {
   tracking?: UserTrackingPreferences | null;
   videos?: UserVideosPreferences | null;
   keybindingOverrides?: Record<string, string> | null;
+  keyboardShortcuts?: UserKeyboardShortcutPreferences | null;
   playback?: UserPlaybackPreferences | null;
   /** JSON blob of the user's customized home page rows (opaque to the server). */
   homePageContent?: string | null;
   /** Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON. */
   defaultFilters?: Record<string, string> | null;
+  /** Whether narrative metadata is rendered as safe Markdown instead of literal text. */
+  renderMarkdown?: boolean | null;
+}
+
+export interface UserKeyboardShortcutPreferences {
+  activePresetId?: string | null;
+  personalPresets?: KeyboardShortcutPresetDocument[] | null;
+  showChordHints?: boolean | null;
+}
+
+export interface KeyboardShortcutPresetDocument {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description?: string;
+  author?: string;
+  version?: string;
+  basePresetId?: string;
+  unmappedActions: "action-defaults" | "unbound";
+  bindings: Record<string, string[]>;
+  requirements?: { extensions?: Array<{ id: string; minimumVersion?: string }> };
+  provenance?: {
+    source: "cove" | "extension" | "import" | "personal" | "instance";
+    providerId?: string;
+    originalPresetId?: string;
+  };
 }
 
 export interface UserTrackingPreferences {
@@ -1921,8 +2029,36 @@ export interface InterfaceConfig {
   disableDropdownCreateTag: boolean;
 }
 
-export type CustomFieldEntityType = "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
-export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
+export type CustomFieldEntityType =
+  "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
+export type CustomFieldType =
+  | "text"
+  | "longText"
+  | "number"
+  | "boolean"
+  | "date"
+  | "timestamp"
+  | "duration"
+  | "percent"
+  | "url"
+  | "enum"
+  | "json"
+  | "tag"
+  | "performer"
+  | "studio"
+  | "video"
+  | "gallery"
+  | "image"
+  | "group";
+export type CustomFieldJsonPathType = Extract<CustomFieldType, "text" | "number" | "boolean">;
+
+export interface CustomFieldJsonPathDefinition {
+  path: string;
+  label: string;
+  type: CustomFieldJsonPathType;
+  filterable: boolean;
+  sortable: boolean;
+}
 
 export interface CustomFieldDefinition {
   id?: number;
@@ -1934,6 +2070,7 @@ export interface CustomFieldDefinition {
   filterable: boolean;
   sortable: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -1948,6 +2085,7 @@ export interface CustomFieldDefinitionCreate {
   filterable: boolean;
   sortable: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number | null;
 }
 
@@ -1960,6 +2098,7 @@ export interface CustomFieldDefinitionUpdate {
   filterable?: boolean;
   sortable?: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number | null;
 }
 
@@ -2147,6 +2286,8 @@ export interface JobInfo {
   etaSeconds?: number | null;
   /** UTC timestamp the ETA was computed at, so the client can count it down smoothly. */
   updatedAt?: string | null;
+  /** Internal application route for durable job output. */
+  resultUrl?: string | null;
 }
 
 export interface SortClause {
@@ -2162,6 +2303,36 @@ export interface FindFilter {
   direction?: "asc" | "desc";
   sorts?: SortClause[];
   seed?: number;
+}
+
+export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
+  findFilter?: Pick<FindFilter, "q">;
+  objectFilter?: TObjectFilter;
+  mode?: "atLeastOne" | "every" | "none";
+  conditionOperator?: "and" | "or";
+  /** Legacy negative mode retained when loading older saved filters. */
+  exclude?: boolean;
+  ageAtHostDateCriterion?: IntCriterion;
+  performerIdsCriterion?: MultiIdCriterion;
+  performerOccurrenceTagsCriterion?: MultiIdCriterion;
+  /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
+  _savedFilterName?: string;
+  /** Client-only marker for an explicit existence check with no nested conditions. */
+  _matchAll?: boolean;
+}
+
+export type FilterExpressionNode<TFilter = Record<string, unknown>> =
+  { filter: TFilter; group?: never } | { group: FilterExpression<TFilter>; filter?: never };
+
+export interface FilterExpression<TFilter = Record<string, unknown>> {
+  operator: "AND" | "OR" | "JUST_ONE" | "NOT";
+  relatedScope?: {
+    filterKey: string;
+    matchMode: "reuse" | "distinct";
+  };
+  /** Legacy marker accepted when opening older URLs and saved filters. */
+  distinctRelatedMatches?: boolean;
+  children: FilterExpressionNode<TFilter>[];
 }
 
 export interface SavedFilter {
@@ -2545,11 +2716,22 @@ export interface MetadataServerVideoImportRequest {
 // ===== Filter Criteria =====
 
 export type CriterionModifier =
-  | "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN"
-  | "INCLUDES" | "EXCLUDES" | "INCLUDES_ALL" | "EXCLUDES_ALL"
-  | "IS_NULL" | "NOT_NULL" | "BETWEEN" | "NOT_BETWEEN"
-  | "MATCHES_REGEX" | "NOT_MATCHES_REGEX"
-  | "UNDER_PATH" | "NOT_UNDER_PATH";
+  | "EQUALS"
+  | "NOT_EQUALS"
+  | "GREATER_THAN"
+  | "LESS_THAN"
+  | "INCLUDES"
+  | "EXCLUDES"
+  | "INCLUDES_ALL"
+  | "EXCLUDES_ALL"
+  | "IS_NULL"
+  | "NOT_NULL"
+  | "BETWEEN"
+  | "NOT_BETWEEN"
+  | "MATCHES_REGEX"
+  | "NOT_MATCHES_REGEX"
+  | "UNDER_PATH"
+  | "NOT_UNDER_PATH";
 
 export interface IntCriterion {
   value: number;
@@ -2565,6 +2747,7 @@ export interface StringCriterion {
 export interface CustomFieldCriterion extends StringCriterion {
   key: string;
   type?: CustomFieldType;
+  jsonPath?: string;
   value2?: string;
   displayValue?: string;
   displayValue2?: string;
@@ -2632,6 +2815,7 @@ export interface VideoFilterCriteria {
   performerIds?: number[];
   ratingCriterion?: IntCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   durationCriterion?: IntCriterion;
   resolutionCriterion?: IntCriterion;
   playCountCriterion?: IntCriterion;
@@ -2677,6 +2861,7 @@ export interface VideoFilterCriteria {
   galleriesCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
   performerAgeCriterion?: IntCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   captionsCriterion?: StringCriterion;
   orientationCriterion?: StringCriterion;
   customFieldCriterion?: CustomFieldCriterion;
@@ -2704,6 +2889,8 @@ export interface PerformerFilterCriteria {
   tagsCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   videoCountCriterion?: IntCriterion;
+  audioCountCriterion?: IntCriterion;
+  textCountCriterion?: IntCriterion;
   studioCountCriterion?: IntCriterion;
   imageCountCriterion?: IntCriterion;
   galleryCountCriterion?: IntCriterion;
@@ -2737,6 +2924,8 @@ export interface PerformerFilterCriteria {
   likeCounterCriterion?: IntCriterion;
   groupsCriterion?: MultiIdCriterion;
   tagCountCriterion?: IntCriterion;
+  videoFilterCriterion?: RelatedFilterCriterion<VideoFilterCriteria>;
+  audioFilterCriterion?: RelatedFilterCriterion<AudioFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -2831,6 +3020,7 @@ export interface GalleryFilterCriteria {
   studiosCriterion?: MultiIdCriterion;
   imageCountCriterion?: IntCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   lastLikedAtCriterion?: TimestampCriterion;
   titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
@@ -2852,6 +3042,7 @@ export interface GalleryFilterCriteria {
   typicalResolutionCriterion?: IntCriterion;
   videosCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -2871,6 +3062,7 @@ export interface ImageFilterCriteria {
   galleriesCriterion?: MultiIdCriterion;
   titleCriterion?: StringCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   resolutionCriterion?: IntCriterion;
   pathCriterion?: StringCriterion;
   fingerprintCriterion?: FingerprintCriterion;
@@ -2890,12 +3082,14 @@ export interface ImageFilterCriteria {
   performerAgeCriterion?: IntCriterion;
   orientationCriterion?: StringCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
 
 export interface AudioFilterCriteria {
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   titleCriterion?: StringCriterion;
   codeCriterion?: StringCriterion;
   detailsCriterion?: StringCriterion;
@@ -2923,6 +3117,7 @@ export interface AudioFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -2935,6 +3130,7 @@ export interface AudioFilterCriteria {
 
 export interface TextFilterCriteria {
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   titleCriterion?: StringCriterion;
   codeCriterion?: StringCriterion;
   detailsCriterion?: StringCriterion;
@@ -2957,6 +3153,7 @@ export interface TextFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -2972,6 +3169,7 @@ export interface GroupFilterCriteria {
   studioId?: number;
   nameCriterion?: StringCriterion;
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   durationCriterion?: IntCriterion;
   studiosCriterion?: MultiIdCriterion;
   tagsCriterion?: MultiIdCriterion;
@@ -3014,13 +3212,37 @@ export interface GroupFilterCriteria {
 export interface FilteredQueryRequest<T = Record<string, unknown>> {
   findFilter?: FindFilter;
   objectFilter?: T;
+  filterExpression?: FilterExpression<T>;
   ids?: number[];
 }
 
-export interface ImageAggregate { count: number; fileSize: number }
-export interface AudioAggregate { count: number; duration: number; fileSize: number }
-export interface TextAggregate { count: number; fileSize: number }
-export interface GalleryAggregate { count: number; fileSize: number }
+export interface VideoFilteredQueryRequest extends FilteredQueryRequest<VideoFilterCriteria> {
+  filterExpression?: FilterExpression<VideoFilterCriteria>;
+}
+
+export interface PerformerFilteredQueryRequest extends FilteredQueryRequest<PerformerFilterCriteria> {
+  filterExpression?: FilterExpression<PerformerFilterCriteria>;
+}
+
+export type AudioFilteredQueryRequest = FilteredQueryRequest<AudioFilterCriteria>;
+
+export interface ImageAggregate {
+  count: number;
+  fileSize: number;
+}
+export interface AudioAggregate {
+  count: number;
+  duration: number;
+  fileSize: number;
+}
+export interface TextAggregate {
+  count: number;
+  fileSize: number;
+}
+export interface GalleryAggregate {
+  count: number;
+  fileSize: number;
+}
 
 // ===== Bulk Edit Types =====
 
@@ -3052,9 +3274,11 @@ export interface BulkVideoUpdate {
 
 export interface BulkPerformerUpdate {
   ids: number[];
+  clearFields?: string[];
   rating?: number;
   favorite?: boolean;
   gender?: string;
+  country?: string;
   details?: string;
   tagIds?: number[];
   tagMode?: BulkUpdateMode;
@@ -3212,12 +3436,85 @@ export interface ExtensionManifest {
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
   actions: ExtensionAction[];
+  keyboardActions?: ExtensionKeyboardAction[];
+  keyboardShortcutPresets?: ExtensionKeyboardShortcutPreset[];
   tutorialTopics?: ExtensionTutorialTopic[];
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
+  dashboardWidgets?: ExtensionDashboardWidgetContribution[];
   frontendRuntimeVersion?: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
+}
+
+export interface ExtensionKeyboardActionScope {
+  surface: "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+  page?: string;
+  entityType?: string;
+  tab?: string;
+}
+
+export interface ExtensionKeyboardAction {
+  id: string;
+  label: string;
+  extensionId: string;
+  defaultBindings: string[];
+  scopes: ExtensionKeyboardActionScope[];
+  description?: string;
+  group?: string;
+  handlerName?: string;
+  apiEndpoint?: string;
+  order: number;
+  repeatable?: boolean;
+  allowInEditable?: boolean;
+  requiredPermission?: string;
+}
+
+export interface ExtensionKeyboardShortcutPreset extends KeyboardShortcutPresetDocument {
+  extensionId: string;
+  order: number;
+}
+
+export interface ExtensionDashboardWidgetContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  componentName: string;
+  editorComponentName?: string;
+  description?: string;
+  icon?: string;
+  defaultConfiguration?: unknown;
+  allowMultiple: boolean;
+  order: number;
+  requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
+  supportedPresentations?: DashboardWidgetPresentation[];
+  defaultPresentation?: DashboardWidgetPresentation;
+}
+
+export type DashboardWidgetPresentation = "flow" | "canvas";
+
+export interface DashboardWidget {
+  instanceId: string;
+  owner: string;
+  widgetKey: string;
+  label: string;
+  configuration: unknown;
+  presentation?: DashboardWidgetPresentation;
+}
+
+export interface DashboardSummary {
+  id: number;
+  name: string;
+  isDefault: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Dashboard extends DashboardSummary {
+  widgets: DashboardWidget[];
 }
 
 export interface ExtensionUiBundle {

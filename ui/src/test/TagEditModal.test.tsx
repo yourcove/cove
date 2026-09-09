@@ -51,7 +51,9 @@ describe("TagEditModal", () => {
 
   it("shows a name conflict inside the dialog without API formatting", async () => {
     const user = userEvent.setup();
-    mocks.tagsUpdate.mockRejectedValue(new Error('API Error 409: {"message":"Tag name or alias \'Existing\' already exists"}'));
+    mocks.tagsUpdate.mockRejectedValue(
+      new Error('API Error 409: {"message":"Tag name or alias \'Existing\' already exists"}'),
+    );
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });

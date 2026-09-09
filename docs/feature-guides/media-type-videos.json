@@ -1,0 +1,70 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-type-videos",
+  "title": "Videos",
+  "parentTopicId": "media-types",
+  "description": "Browse and play videos, work with their files and timelines, and choose video-specific views and actions.",
+  "order": 21,
+  "pages": ["videos"],
+  "sections": [
+    {
+      "id": "video-records-and-files",
+      "title": "Keep the video record separate from its files",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A video is the library record that owns its title, description, relationships, and other shared metadata. Attached files own technical properties such as path, resolution, codecs, duration, and fingerprints. One video can have no file, one file, or several files."
+        },
+        {
+          "type": "image",
+          "src": "assets/video-detail.webp",
+          "alt": "Cove video detail page with player, metadata, and related information"
+        }
+      ]
+    },
+    {
+      "id": "browse-and-play",
+      "title": "Choose a view for the way you want to watch",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Use Grid for cover-oriented browsing, List for denser comparison, Wall for visual browsing, or Tagger for metadata review. Feed and Vertical Viewer provide continuous playback layouts and load results as you move through them."
+        },
+        {
+          "type": "paragraph",
+          "text": "Open a video to play it, resume where you left off, review its relationships and history, inspect attached files, or edit metadata. Available tabs and actions depend on permissions, configured services, and installed extensions."
+        }
+      ]
+    },
+    {
+      "id": "timeline-structure",
+      "title": "Use the timeline without duplicating media",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Segments mark points or ranges on a video. A sub-video presents a range from a parent video as its own video record while reusing the parent's media. Compilations play chosen videos or ranges in an ordered group."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Use playback and the timeline",
+              "href": "/docs/user/library/playback/",
+              "topicId": "detail-pages-playback"
+            },
+            {
+              "label": "Segments and compilations",
+              "href": "/docs/user/library/segments-and-compilations/",
+              "topicId": "segments-and-compilations"
+            },
+            {
+              "label": "Videos reference",
+              "href": "/docs/reference/videos/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

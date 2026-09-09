@@ -23,6 +23,7 @@ interface WallMediaCardProps extends HTMLAttributes<HTMLDivElement> {
   useVideo?: boolean;
   muted?: boolean;
   videoStartTimeSec?: number;
+  videoEndTimeSec?: number;
   videoLoadRootMargin?: string;
   videoPlayThreshold?: number;
   aspectRatio?: string;
@@ -50,6 +51,7 @@ export function WallMediaCard({
   useVideo = false,
   muted = true,
   videoStartTimeSec = 0,
+  videoEndTimeSec,
   videoLoadRootMargin = "320px 0px",
   videoPlayThreshold = 0.6,
   aspectRatio = "1 / 1",
@@ -111,7 +113,10 @@ export function WallMediaCard({
       muted,
       autoplay: shouldPlayVideo,
       fullscreen: isFullscreen,
-      route: typeof window === "undefined" ? playbackTracking.route : playbackTracking.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      route:
+        typeof window === "undefined"
+          ? playbackTracking.route
+          : (playbackTracking.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`),
     };
   }, [isFullscreen, muted, playbackTracking, shouldPlayVideo, trackingEnabled]);
   const playbackTrackingSignature = useMemo(() => JSON.stringify(playbackTrackingTarget), [playbackTrackingTarget]);
@@ -130,9 +135,12 @@ export function WallMediaCard({
     void playbackTracker.current.setTarget(playbackTrackingTarget);
   }, [playbackTrackingSignature]);
 
-  useEffect(() => () => {
-    void playbackTracker.current.dispose();
-  }, []);
+  useEffect(
+    () => () => {
+      void playbackTracker.current.dispose();
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === mediaRef.current);
@@ -156,15 +164,20 @@ export function WallMediaCard({
       return;
     }
 
-    const loadObserver = new IntersectionObserver(([entry]) => {
-      setShouldLoadVideo(entry.isIntersecting);
-    }, { rootMargin: videoLoadRootMargin, threshold: 0 });
-    const playObserver = new IntersectionObserver(([entry]) => {
-      const intersectionRatio = typeof entry.intersectionRatio === "number"
-        ? entry.intersectionRatio
-        : (entry.isIntersecting ? 1 : 0);
-      setVideoPlayEligibility(entry.isIntersecting && intersectionRatio >= videoPlayThreshold);
-    }, { threshold: [0, Math.min(1, Math.max(0.01, videoPlayThreshold)), 1] });
+    const loadObserver = new IntersectionObserver(
+      ([entry]) => {
+        setShouldLoadVideo(entry.isIntersecting);
+      },
+      { rootMargin: videoLoadRootMargin, threshold: 0 },
+    );
+    const playObserver = new IntersectionObserver(
+      ([entry]) => {
+        const intersectionRatio =
+          typeof entry.intersectionRatio === "number" ? entry.intersectionRatio : entry.isIntersecting ? 1 : 0;
+        setVideoPlayEligibility(entry.isIntersecting && intersectionRatio >= videoPlayThreshold);
+      },
+      { threshold: [0, Math.min(1, Math.max(0.01, videoPlayThreshold)), 1] },
+    );
 
     loadObserver.observe(element);
     playObserver.observe(element);
@@ -190,7 +203,7 @@ export function WallMediaCard({
     setVideoAvailable(false);
     serverAwareFetch(videoStatusSrc, { method: "GET", signal: controller.signal })
       .then((response) => {
-        return response.ok ? response.json() as Promise<{ available?: boolean }> : { available: false };
+        return response.ok ? (response.json() as Promise<{ available?: boolean }>) : { available: false };
       })
       .then((status) => {
         if (!controller.signal.aborted) setVideoAvailable(status.available === true);
@@ -210,6 +223,23 @@ export function WallMediaCard({
     }
   };
 
+  const restartBoundedVideo = (video: HTMLVideoElement, nextTime: number) => {
+    if (videoEndTimeSec == null || !Number.isFinite(videoEndTimeSec) || nextTime < videoEndTimeSec) return false;
+
+    lastSeenTime.current = roundPlaybackTime(videoEndTimeSec);
+    flushInterval("active");
+    intervalStart.current = null;
+    const restartTime = Number.isFinite(videoStartTimeSec) && videoStartTimeSec >= 0 ? videoStartTimeSec : 0;
+    video.currentTime = restartTime;
+    setCurrentTime(restartTime);
+    lastSeenTime.current = roundPlaybackTime(restartTime);
+    if (restartTime >= videoEndTimeSec) {
+      video.pause();
+      setIsPlaying(false);
+    }
+    return true;
+  };
+
   const syncVideoMetrics = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -219,24 +249,26 @@ export function WallMediaCard({
     lastSeenTime.current = roundPlaybackTime(nextTime);
   };
 
-  const flushInterval = useCallback((state: string, mode: "default" | "keepalive" = "default") => {
-    const video = videoRef.current;
-    if (!playbackTrackingTarget || !video || intervalStart.current === null) return;
-    const startSec = intervalStart.current;
-    const endSec = roundPlaybackTime(lastSeenTime.current);
-    if (endSec <= startSec) return;
-    const mediaDurationSec = Number.isFinite(video.duration) && video.duration > 0
-      ? video.duration
-      : Math.max(videoDuration, endSec, 0);
-    playbackTracker.current.recordInterval({
-      startSec,
-      endSec,
-      mediaDurationSec,
-      currentPositionSec: endSec,
-      state,
-      mode,
-    });
-  }, [playbackTrackingTarget, videoDuration]);
+  const flushInterval = useCallback(
+    (state: string, mode: "default" | "keepalive" = "default") => {
+      const video = videoRef.current;
+      if (!playbackTrackingTarget || !video || intervalStart.current === null) return;
+      const startSec = intervalStart.current;
+      const endSec = roundPlaybackTime(lastSeenTime.current);
+      if (endSec <= startSec) return;
+      const mediaDurationSec =
+        Number.isFinite(video.duration) && video.duration > 0 ? video.duration : Math.max(videoDuration, endSec, 0);
+      playbackTracker.current.recordInterval({
+        startSec,
+        endSec,
+        mediaDurationSec,
+        currentPositionSec: endSec,
+        state,
+        mode,
+      });
+    },
+    [playbackTrackingTarget, videoDuration],
+  );
 
   const startTrackedInterval = useCallback((time: number) => {
     intervalStart.current = roundPlaybackTime(time);
@@ -278,7 +310,7 @@ export function WallMediaCard({
 
   useEffect(() => {
     seekToStartTime();
-  }, [videoSrc, videoStartTimeSec, videoAvailable, shouldLoadVideo]);
+  }, [videoSrc, videoStartTimeSec, videoEndTimeSec, videoAvailable, shouldLoadVideo]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -325,12 +357,12 @@ export function WallMediaCard({
   const mediaContainerClassName = chromeless ? "bg-transparent" : "bg-surface";
 
   return (
-    <div
-      {...props}
-      className={wrapperClassName}
-      title={title}
-    >
-      <div ref={mediaRef} className={`relative w-full ${mediaContainerClassName} ${fillMedia ? "h-full" : ""}`.trim()} style={fillMedia ? undefined : { aspectRatio }}>
+    <div {...props} className={wrapperClassName} title={title}>
+      <div
+        ref={mediaRef}
+        className={`relative w-full ${mediaContainerClassName} ${fillMedia ? "h-full" : ""}`.trim()}
+        style={fillMedia ? undefined : { aspectRatio }}
+      >
         {useVideo && videoSrc && shouldLoadVideo && videoAvailable && !videoFailed ? (
           <video
             ref={videoRef}
@@ -341,7 +373,10 @@ export function WallMediaCard({
             playsInline
             loop
             preload={shouldPlayVideo ? "auto" : "metadata"}
-            onLoadedMetadata={() => { seekToStartTime(); syncVideoMetrics(); }}
+            onLoadedMetadata={() => {
+              seekToStartTime();
+              syncVideoMetrics();
+            }}
             onDurationChange={syncVideoMetrics}
             onPlay={() => {
               const video = videoRef.current;
@@ -368,6 +403,7 @@ export function WallMediaCard({
             onTimeUpdate={() => {
               const video = videoRef.current;
               const nextTime = roundPlaybackTime(video && Number.isFinite(video.currentTime) ? video.currentTime : 0);
+              if (video && restartBoundedVideo(video, nextTime)) return;
               const previousTime = lastSeenTime.current;
               if (intervalStart.current !== null && nextTime + 0.25 < previousTime) {
                 flushInterval("active");
@@ -399,21 +435,21 @@ export function WallMediaCard({
             loading="lazy"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            {fallback}
-          </div>
+          <div className="absolute inset-0 flex items-center justify-center">{fallback}</div>
         )}
         {children}
-        {videoControls && useVideo && videoSrc && shouldLoadVideo && videoAvailable && !videoFailed ? videoControls({
-          currentTime,
-          duration: videoDuration,
-          progressPercent: videoDuration > 0 ? Math.min(100, Math.max(0, (currentTime / videoDuration) * 100)) : 0,
-          isPlaying,
-          seekToPercent,
-          togglePlayback,
-          toggleFullscreen,
-          isFullscreen,
-        }) : null}
+        {videoControls && useVideo && videoSrc && shouldLoadVideo && videoAvailable && !videoFailed
+          ? videoControls({
+              currentTime,
+              duration: videoDuration,
+              progressPercent: videoDuration > 0 ? Math.min(100, Math.max(0, (currentTime / videoDuration) * 100)) : 0,
+              isPlaying,
+              seekToPercent,
+              togglePlayback,
+              toggleFullscreen,
+              isFullscreen,
+            })
+          : null}
       </div>
     </div>
   );

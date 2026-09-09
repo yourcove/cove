@@ -78,8 +78,10 @@ public static class RelationNameResolver
     }
 
     /// <summary>
-    /// Resolves studios by the same trimmed, invariant-case-folded canonical identity used by writes,
-    /// cleanup, and enforcement. Ambiguous legacy identities are rejected instead of picking a row.
+    /// Resolves studios by canonical name first, then by alias. Canonical identities use the same
+    /// trimmed, invariant-case-folded policy as writes, cleanup, and enforcement. Ambiguous legacy
+    /// canonical identities are rejected instead of picking a row; duplicate aliases resolve
+    /// deterministically to the oldest alias row.
     /// </summary>
     public static async Task<Dictionary<string, Studio>> ResolveStudiosAsync(CoveContext db, IReadOnlyCollection<string> names, CancellationToken ct = default)
     {
@@ -102,7 +104,22 @@ public static class RelationNameResolver
             studio => EntityNameRules.StudioIdentityKey(studio.Name),
             requestedKeys,
             NameConflictEntityTypes.Studio);
-        var matchedIds = idsByIdentity.Values.Select(row => row.Id).ToArray();
+        var idsByAlias = new Dictionary<string, int>(StringComparer.Ordinal);
+        var aliases = await db.Set<StudioAlias>().AsNoTracking()
+            .OrderBy(alias => alias.Id)
+            .Select(alias => new StudioAliasRow(alias.StudioId, alias.Alias))
+            .ToListAsync(ct);
+        foreach (var alias in aliases)
+        {
+            var aliasKey = EntityNameRules.StudioIdentityKey(alias.Alias);
+            if (requestedKeys.Contains(aliasKey))
+                idsByAlias.TryAdd(aliasKey, alias.StudioId);
+        }
+
+        var matchedIds = idsByIdentity.Values.Select(row => row.Id)
+            .Concat(idsByAlias.Values)
+            .Distinct()
+            .ToArray();
         var candidates = await db.Studios
             .Where(studio => matchedIds.Contains(studio.Id))
             .ToDictionaryAsync(studio => studio.Id, ct);
@@ -111,23 +128,20 @@ public static class RelationNameResolver
         foreach (var item in requested)
             if (idsByIdentity.TryGetValue(item.IdentityKey, out var row))
                 result[item.LookupName] = candidates[row.Id];
+            else if (idsByAlias.TryGetValue(item.IdentityKey, out var studioId)
+                && candidates.TryGetValue(studioId, out var aliasMatch))
+                result[item.LookupName] = aliasMatch;
         return result;
     }
 
     public static async Task<Studio?> ResolveStudioAsync(CoveContext db, string name, CancellationToken ct = default)
     {
-        var identityKey = EntityNameRules.StudioIdentityKey(name);
-        var rows = await db.Studios.AsNoTracking()
-            .Select(studio => new StudioIdentityRow(studio.Id, studio.Name))
-            .ToListAsync(ct);
-        var matched = BuildUniqueIdentityLookup(
-            rows,
-            studio => EntityNameRules.StudioIdentityKey(studio.Name),
-            new HashSet<string>(StringComparer.Ordinal) { identityKey },
-            NameConflictEntityTypes.Studio).GetValueOrDefault(identityKey);
-        return matched == null
-            ? null
-            : await db.Studios.SingleAsync(studio => studio.Id == matched.Id, ct);
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var lookupName = EntityNameRules.NormalizeCanonicalName(name);
+        var matches = await ResolveStudiosAsync(db, [lookupName], ct);
+        return matches.GetValueOrDefault(lookupName);
     }
 
     /// <summary>
@@ -201,5 +215,6 @@ public static class RelationNameResolver
 
     private sealed record PerformerIdentityRow(int Id, string Name, string? Disambiguation);
     private sealed record StudioIdentityRow(int Id, string Name);
+    private sealed record StudioAliasRow(int StudioId, string Alias);
     private sealed record RequestedName(string LookupName, string IdentityKey);
 }

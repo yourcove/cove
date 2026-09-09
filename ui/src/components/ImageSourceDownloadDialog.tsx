@@ -38,7 +38,11 @@ function getDefaultTitle(sourceUrl: string, fallback?: string) {
   try {
     const parsed = new URL(sourceUrl);
     const segment = parsed.pathname.split("/").filter(Boolean).at(-1);
-    return segment ? decodeURIComponent(segment).replace(/[._-]+/g, " ").trim() : parsed.hostname;
+    return segment
+      ? decodeURIComponent(segment)
+          .replace(/[._-]+/g, " ")
+          .trim()
+      : parsed.hostname;
   } catch {
     return sourceUrl;
   }
@@ -57,7 +61,13 @@ function loadImageSourceDownloadPreferences(): ImageSourceDownloadPreferences {
       parentGroupId: typeof parsed.parentGroupId === "number" ? parsed.parentGroupId : null,
     };
   } catch {
-    return { galleryMode: "none", groupMode: "none", selectedGalleryId: null, selectedGroupId: null, parentGroupId: null };
+    return {
+      galleryMode: "none",
+      groupMode: "none",
+      selectedGalleryId: null,
+      selectedGroupId: null,
+      parentGroupId: null,
+    };
   }
 }
 
@@ -65,7 +75,16 @@ function saveImageSourceDownloadPreferences(preferences: ImageSourceDownloadPref
   localStorage.setItem(IMAGE_SOURCE_DOWNLOAD_PREFERENCES_KEY, JSON.stringify(preferences));
 }
 
-export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle, metadata, autoApplyMetadata = false, onClose, onQueued }: Props) {
+export function ImageSourceDownloadDialog({
+  open,
+  sourceUrl,
+  matches,
+  baseTitle,
+  metadata,
+  autoApplyMetadata = false,
+  onClose,
+  onQueued,
+}: Props) {
   const [selectedIndexes, setSelectedIndexes] = useState<Set<number>>(new Set());
   const [galleryMode, setGalleryMode] = useState<ContainerMode>("none");
   const [groupMode, setGroupMode] = useState<ContainerMode>("none");
@@ -78,24 +97,30 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
   const [galleryTitle, setGalleryTitle] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
   const [allowDuplicateDownloads, setAllowDuplicateDownloads] = useState(false);
-  const resolvedBaseTitle = useMemo(() => getDefaultTitle(sourceUrl, baseTitle || metadata?.title), [baseTitle, metadata?.title, sourceUrl]);
+  const resolvedBaseTitle = useMemo(
+    () => getDefaultTitle(sourceUrl, baseTitle || metadata?.title),
+    [baseTitle, metadata?.title, sourceUrl],
+  );
 
   const galleryOptionsQuery = useQuery({
     queryKey: ["image-source-download-galleries", gallerySearch],
     enabled: open && galleryMode === "existing",
-    queryFn: () => galleries.find({ page: 1, perPage: 20, sort: "title", direction: "asc", q: gallerySearch.trim() || undefined }),
+    queryFn: () =>
+      galleries.find({ page: 1, perPage: 20, sort: "title", direction: "asc", q: gallerySearch.trim() || undefined }),
   });
 
   const groupOptionsQuery = useQuery({
     queryKey: ["image-source-download-groups", groupSearch],
     enabled: open && groupMode === "existing",
-    queryFn: () => groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
+    queryFn: () =>
+      groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
   });
 
   const parentGroupOptionsQuery = useQuery({
     queryKey: ["image-source-download-parent-groups", parentGroupSearch],
     enabled: open && (galleryMode === "create" || groupMode === "create"),
-    queryFn: () => groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: parentGroupSearch.trim() || undefined }),
+    queryFn: () =>
+      groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: parentGroupSearch.trim() || undefined }),
   });
 
   useEffect(() => {
@@ -147,7 +172,13 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
         selectedGalleryIds.push(gallery.id);
 
         if (parentGroupId) {
-          await groups.items.create(parentGroupId, { orderIndex: 0, kind: "gallery", hostType: "gallery", hostId: gallery.id, title: nextGalleryTitle });
+          await groups.items.create(parentGroupId, {
+            orderIndex: 0,
+            kind: "gallery",
+            hostType: "gallery",
+            hostId: gallery.id,
+            title: nextGalleryTitle,
+          });
         }
       }
 
@@ -243,7 +274,12 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
             </h2>
             <p className="mt-0.5 max-w-2xl truncate text-xs text-secondary">{sourceUrl}</p>
           </div>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground" aria-label="Close download dialog">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted hover:text-foreground"
+            aria-label="Close download dialog"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -254,7 +290,11 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
               <label className="text-sm font-medium text-foreground">Items</label>
               <button
                 type="button"
-                onClick={() => setSelectedIndexes(selectedIndexes.size === matches.length ? new Set() : new Set(matches.map((_, index) => index)))}
+                onClick={() =>
+                  setSelectedIndexes(
+                    selectedIndexes.size === matches.length ? new Set() : new Set(matches.map((_, index) => index)),
+                  )
+                }
                 className="text-xs text-accent hover:text-accent-hover"
               >
                 {selectedIndexes.size === matches.length ? "Clear" : "Select all"}
@@ -272,12 +312,16 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
                       selected ? "border-accent bg-accent/10" : "border-border bg-card hover:border-accent/40"
                     }`}
                   >
-                    <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${selected ? "border-accent bg-accent text-white" : "border-border text-transparent"}`}>
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${selected ? "border-accent bg-accent text-white" : "border-border text-transparent"}`}
+                    >
                       <Check className="h-3.5 w-3.5" />
                     </span>
                     <ImageIcon className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">{getMatchTitle(match, resolvedBaseTitle, index)}</span>
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {getMatchTitle(match, resolvedBaseTitle, index)}
+                      </span>
                       <span className="block text-xs text-secondary">{match.downloaderName}</span>
                       <span className="mt-1 block truncate text-xs text-muted">{match.normalizedUrl || sourceUrl}</span>
                     </span>
@@ -288,7 +332,12 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
           </div>
 
           <div className="space-y-3 rounded-lg border border-border bg-card/50 px-3 py-2.5 text-sm text-foreground">
-            <ContainerModeRow icon={<FolderOpen className="h-4 w-4 text-muted" />} label="Gallery" mode={galleryMode} onModeChange={setGalleryMode} />
+            <ContainerModeRow
+              icon={<FolderOpen className="h-4 w-4 text-muted" />}
+              label="Gallery"
+              mode={galleryMode}
+              onModeChange={setGalleryMode}
+            />
             {galleryMode === "existing" ? (
               <div className="pl-0 lg:pl-[8.75rem]">
                 <EntityPicker
@@ -296,7 +345,12 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
                   value={selectedGalleryId}
                   search={gallerySearch}
                   onSearchChange={setGallerySearch}
-                  items={galleryOptionsQuery.data?.items.map((gallery) => ({ id: gallery.id, label: gallery.title || `Gallery ${gallery.id}` })) ?? []}
+                  items={
+                    galleryOptionsQuery.data?.items.map((gallery) => ({
+                      id: gallery.id,
+                      label: gallery.title || `Gallery ${gallery.id}`,
+                    })) ?? []
+                  }
                   onSelect={setSelectedGalleryId}
                 />
               </div>
@@ -312,7 +366,12 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
               </label>
             ) : null}
 
-            <ContainerModeRow icon={<Layers3 className="h-4 w-4 text-muted" />} label="Group" mode={groupMode} onModeChange={setGroupMode} />
+            <ContainerModeRow
+              icon={<Layers3 className="h-4 w-4 text-muted" />}
+              label="Group"
+              mode={groupMode}
+              onModeChange={setGroupMode}
+            />
             {groupMode === "existing" ? (
               <div className="pl-0 lg:pl-[8.75rem]">
                 <EntityPicker
@@ -343,7 +402,9 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
                   value={parentGroupId}
                   search={parentGroupSearch}
                   onSearchChange={setParentGroupSearch}
-                  items={parentGroupOptionsQuery.data?.items.map((group) => ({ id: group.id, label: group.name })) ?? []}
+                  items={
+                    parentGroupOptionsQuery.data?.items.map((group) => ({ id: group.id, label: group.name })) ?? []
+                  }
                   onSelect={setParentGroupId}
                   allowNone
                 />
@@ -371,7 +432,11 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
           <div className="text-xs text-muted">{selectedMatches.length} selected</div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-secondary hover:text-foreground">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-secondary hover:text-foreground"
+            >
               Cancel
             </button>
             <button
@@ -380,7 +445,11 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
               disabled={!hasSelection || queueMutation.isPending}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
             >
-              {queueMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {queueMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
               Queue Selected
             </button>
           </div>
@@ -390,10 +459,23 @@ export function ImageSourceDownloadDialog({ open, sourceUrl, matches, baseTitle,
   );
 }
 
-function ContainerModeRow({ icon, label, mode, onModeChange }: { icon: ReactNode; label: string; mode: ContainerMode; onModeChange: (mode: ContainerMode) => void }) {
+function ContainerModeRow({
+  icon,
+  label,
+  mode,
+  onModeChange,
+}: {
+  icon: ReactNode;
+  label: string;
+  mode: ContainerMode;
+  onModeChange: (mode: ContainerMode) => void;
+}) {
   return (
     <div className="grid gap-3 lg:grid-cols-[8rem_minmax(0,1fr)] lg:items-center">
-      <div className="flex items-center gap-2 font-medium">{icon}{label}</div>
+      <div className="flex items-center gap-2 font-medium">
+        {icon}
+        {label}
+      </div>
       <div className="inline-grid w-full grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1 sm:w-auto sm:min-w-[24rem]">
         <ContainerModeButton label="None" selected={mode === "none"} onClick={() => onModeChange("none")} />
         <ContainerModeButton label="Existing" selected={mode === "existing"} onClick={() => onModeChange("existing")} />
@@ -415,7 +497,23 @@ function ContainerModeButton({ label, selected, onClick }: { label: string; sele
   );
 }
 
-function EntityPicker({ label, value, search, onSearchChange, items, onSelect, allowNone = false }: { label: string; value: number | null; search: string; onSearchChange: (value: string) => void; items: { id: number; label: string }[]; onSelect: (id: number | null) => void; allowNone?: boolean }) {
+function EntityPicker({
+  label,
+  value,
+  search,
+  onSearchChange,
+  items,
+  onSelect,
+  allowNone = false,
+}: {
+  label: string;
+  value: number | null;
+  search: string;
+  onSearchChange: (value: string) => void;
+  items: { id: number; label: string }[];
+  onSelect: (id: number | null) => void;
+  allowNone?: boolean;
+}) {
   const selected = items.find((item) => item.id === value);
   return (
     <div className="space-y-2 text-sm">
@@ -431,12 +529,21 @@ function EntityPicker({ label, value, search, onSearchChange, items, onSelect, a
       {selected ? <div className="text-xs text-secondary">Selected: {selected.label}</div> : null}
       <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-card">
         {allowNone ? (
-          <button type="button" onClick={() => onSelect(null)} className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value == null ? "text-accent" : "text-foreground"}`}>
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value == null ? "text-accent" : "text-foreground"}`}
+          >
             None
           </button>
         ) : null}
         {items.map((item) => (
-          <button key={item.id} type="button" onClick={() => onSelect(item.id)} className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value === item.id ? "text-accent" : "text-foreground"}`}>
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelect(item.id)}
+            className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value === item.id ? "text-accent" : "text-foreground"}`}
+          >
             {item.label}
           </button>
         ))}

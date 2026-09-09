@@ -1,9 +1,10 @@
 import { StrictMode, useState, type ComponentType, type FC, type ReactNode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import dynamicIconImports from "lucide-react/dynamicIconImports.mjs";
 import type { ExtensionManifest } from "../api/types";
 import { ExtensionLoaderProvider, useExtensions } from "../extensions/ExtensionLoader";
-import { ExtensionSlot, RouteRegistryProvider } from "../router/RouteRegistry";
+import { ExtensionSlot, RouteRegistryProvider, useRouteRegistry } from "../router/RouteRegistry";
 
 const { getManifestMock } = vi.hoisted(() => ({
   getManifestMock: vi.fn(),
@@ -172,9 +173,77 @@ describe("ExtensionLoaderProvider reconciliation", () => {
 
   afterEach(() => {
     cleanup();
-    document
-      .querySelectorAll('[data-cove-extension-bundle="true"]')
-      .forEach((element) => element.remove());
+    vi.restoreAllMocks();
+    document.querySelectorAll('[data-cove-extension-bundle="true"]').forEach((element) => element.remove());
+  });
+
+  it.each([
+    ["scissors", "circle[cx='6'][cy='6']"],
+    ["square-scissors", "circle[cx='8.5'][cy='8.5']"],
+    ["SCISSORS", "circle[cx='6'][cy='6']"],
+    ["music", "path[d='M9 18V5l12-2v13']"],
+    ["not-an-icon", ".lucide-puzzle"],
+    ["toString", ".lucide-puzzle"],
+    [undefined, ".lucide-puzzle"],
+    ["", ".lucide-puzzle"],
+  ])("resolves manifest icon %s and preserves its identity on refresh", async (icon, selector) => {
+    const originalScissorsImport = dynamicIconImports.scissors;
+    let releaseIcon: (() => void) | undefined;
+    const pendingIcon = new Promise<void>((resolve) => {
+      releaseIcon = resolve;
+    });
+    const scissorsImport =
+      icon === "scissors"
+        ? vi.spyOn(dynamicIconImports, "scissors").mockImplementationOnce(async () => {
+            await pendingIcon;
+            return originalScissorsImport();
+          })
+        : undefined;
+    const manifest = buildManifest(
+      { extensionId: "ext.icons", version: "1", jsBundleUrl: "/icons.mjs" },
+      { id: "icons-component", componentName: "Unused" },
+      { id: "icons-html", html: "<span>Icons</span>" },
+    );
+    manifest.extensionBundles = [];
+    manifest.slots = [];
+    manifest.pages = [{ route: "icon-test", label: "Icon test", icon, showInNav: true, navOrder: 1 }];
+    getManifestMock.mockImplementation(async () => structuredClone(manifest));
+    const seenIcons: unknown[] = [];
+    function IconProbe() {
+      const { routes } = useRouteRegistry();
+      const { refreshManifest } = useExtensions();
+      const Icon = routes.find((route) => route.page === "icon-test")?.navItem?.icon;
+      if (Icon) seenIcons.push(Icon);
+      return (
+        <>
+          <button onClick={() => void refreshManifest()}>Refresh icons</button>
+          <div data-testid="nav-icon">{Icon && <Icon className="navigation-icon" />}</div>
+        </>
+      );
+    }
+    render(
+      <RouteRegistryProvider>
+        <ExtensionLoaderProvider>
+          <IconProbe />
+        </ExtensionLoaderProvider>
+      </RouteRegistryProvider>,
+    );
+    if (scissorsImport) {
+      await waitFor(() => expect(scissorsImport).toHaveBeenCalledOnce());
+      expect(screen.getByTestId("nav-icon")).toBeEmptyDOMElement();
+      await act(async () => {
+        releaseIcon!();
+      });
+    }
+    await waitFor(() => expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull());
+    expect(screen.getByTestId("nav-icon").querySelector("svg")).toHaveClass("navigation-icon");
+    const firstIcon = seenIcons[0];
+    const renderCount = seenIcons.length;
+    fireEvent.click(screen.getByText("Refresh icons"));
+    await waitFor(() => expect(getManifestMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(seenIcons.length).toBeGreaterThan(renderCount));
+    expect(seenIcons.every((component) => component === firstIcon)).toBe(true);
+    expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull();
   });
 
   it("loads per-extension bundle descriptors with the injected importer and resolves components by owner", async () => {
@@ -211,9 +280,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     expect(screen.getByText("Alpha owned component")).toBeInTheDocument();
     expect(screen.getByText("Alpha component slot")).toBeInTheDocument();
     expect(screen.getByText("Alpha HTML slot")).toBeInTheDocument();
-    const stylesheet = document.querySelector(
-      'link[data-cove-extension-bundle="true"][data-extension-id="ext.alpha"]',
-    );
+    const stylesheet = document.querySelector('link[data-cove-extension-bundle="true"][data-extension-id="ext.alpha"]');
     expect(stylesheet).toHaveAttribute("href", alphaBundle.cssBundleUrl);
   });
 
@@ -302,9 +369,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
           : undefined,
       },
     }));
-    getManifestMock
-      .mockResolvedValueOnce(legacyManifest)
-      .mockResolvedValueOnce(ownedManifest);
+    getManifestMock.mockResolvedValueOnce(legacyManifest).mockResolvedValueOnce(ownedManifest);
     const InjectableProvider = ExtensionLoaderProvider as ComponentType<{
       children: ReactNode;
       importBundle: BundleImporter;
@@ -426,9 +491,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       },
     };
     const importer = vi.fn<BundleImporter>(async (url) => modules[url]);
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(betaManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(betaManifest);
 
     const view = renderRuntime(importer);
 
@@ -507,9 +570,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       },
     };
     const importer = vi.fn<BundleImporter>(async (url) => modules[url]);
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(betaManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(betaManifest);
     const InjectableProvider = ExtensionLoaderProvider as ComponentType<{
       children: ReactNode;
       importBundle: BundleImporter;
@@ -558,9 +619,12 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     );
     let resolveInitialManifest!: (manifest: ExtensionManifest) => void;
     getManifestMock
-      .mockImplementationOnce(() => new Promise<ExtensionManifest>((resolve) => {
-        resolveInitialManifest = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<ExtensionManifest>((resolve) => {
+            resolveInitialManifest = resolve;
+          }),
+      )
       .mockResolvedValueOnce(betaManifest);
 
     const importer = vi.fn<BundleImporter>(async (url) => {
@@ -609,9 +673,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       { id: "beta-component", componentName: "BetaSlot" },
       { id: "beta-html", html: "<span>Beta HTML slot</span>" },
     );
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(failedRefreshManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(failedRefreshManifest);
     let resolveAlphaImport!: (module: { default: ExtensionBundleModule }) => void;
     const alphaImport = new Promise<{ default: ExtensionBundleModule }>((resolve) => {
       resolveAlphaImport = resolve;

@@ -1,0 +1,59 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "extensions",
+  "title": "Discover and install extensions",
+  "description": "Add optional downloaders, scrapers, panels, and other capabilities to Cove.",
+  "order": 130,
+  "pages": ["extensions", "registry", "discover"],
+  "contexts": ["settings-tab:extensions/discover", "route:/settings/extensions/discover"],
+  "sections": [
+    {
+      "id": "understand-extensions",
+      "title": "Add only the capabilities you need",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Extensions add optional behavior without making it part of Cove's core. An extension can provide a downloader, scraper, metadata or automation capability, settings panel, interface panel, or its own User Guide topics."
+        }
+      ]
+    },
+    {
+      "id": "discover-install",
+      "title": "Find and install an extension",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings and expand Extensions.",
+            "Choose Discover.",
+            "Search the registry or narrow it by type and category.",
+            "Review the extension's description and capabilities, then choose Install.",
+            "Open Installed Extensions to configure, update, disable, or remove it."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/extensions-discover.webp",
+          "alt": "Cove Discover settings with extension search, filters, and install buttons"
+        },
+        {
+          "type": "note",
+          "text": "Install extensions only from sources you trust. Extensions can contribute server or interface behavior according to the capabilities they declare."
+        }
+      ]
+    },
+    {
+      "id": "continue",
+      "title": "Continue with the capability you installed",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            { "label": "Providers, scrapers, and downloaders", "href": "/docs/user/metadata/providers-scrapers-downloaders/", "topicId": "providers-scrapers-downloaders" }
+          ]
+        }
+      ]
+    }
+  ]
+}

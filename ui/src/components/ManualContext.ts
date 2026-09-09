@@ -61,7 +61,7 @@ export async function withManualContext<T>(contexts: ManualContextValue[], actio
 export function useManualContext(contexts: ManualContextValue | ManualContextValue[], enabled = true) {
   const contextKey = Array.isArray(contexts)
     ? uniqueManualContexts(contexts).join("\u001f")
-    : normalizeManualContext(contexts) ?? "";
+    : (normalizeManualContext(contexts) ?? "");
 
   useEffect(() => {
     if (!enabled) return;
@@ -76,7 +76,11 @@ export function getActiveManualContexts() {
   return [...activeContextCounts.keys()].reverse();
 }
 
-export function createManualOpenRequest(currentPage: string, activePage: string, pathname = window.location.pathname): TutorialOpenRequest {
+export function createManualOpenRequest(
+  currentPage: string,
+  activePage: string,
+  pathname = window.location.pathname,
+): TutorialOpenRequest {
   return {
     page: activePage,
     contexts: uniqueManualContexts([
@@ -107,10 +111,10 @@ export function createPageManualContexts(currentPage: string, activePage: string
     }
   }
 
-  contexts.push(`page:${activePage}`);
   if (currentPage !== activePage) {
     contexts.push(`page:${currentPage}`);
   }
+  contexts.push(`page:${activePage}`);
 
   return uniqueManualContexts(contexts);
 }

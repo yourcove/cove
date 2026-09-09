@@ -13,6 +13,9 @@ using Serilog;
 using Serilog.Events;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
+using Cove.Core.Auth;
+using Cove.Core.DTOs;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Entities.Galleries;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
@@ -264,6 +267,7 @@ try
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
     builder.Services.AddSingleton(coveCfgInstance);
+    builder.Services.AddSingleton<IFileManagerLauncher, FileManagerLauncher>();
 
     // Database - EF Core + PostgreSQL
     var pgSection = coveConfig.GetSection("Postgres");
@@ -327,8 +331,19 @@ try
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
     builder.Services.AddScoped<StashMigrationService>();
     builder.Services.AddScoped<ITagProvenanceService, TagProvenanceService>();
+    builder.Services.AddScoped<ImageDeletionService>();
+    builder.Services.AddScoped<EntityHostDependencyService>();
+    builder.Services.AddSingleton(PhysicalFileAccessCoordinator.Shared);
+    builder.Services.AddSingleton<PhysicalFileDeletionRecoverySignal>();
+    builder.Services.AddScoped<PhysicalFileDeletionService>();
+    builder.Services.AddScoped<BulkEntityDeletionService>();
+    builder.Services.AddScoped<BulkDeletionJobService>();
+    builder.Services.AddScoped<DuplicateSearchJobService>();
+    builder.Services.AddScoped<DuplicateSearchExecutionService>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
+    builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();
+    builder.Services.AddSingleton<CustomFieldJsonIndexJobService>();
     builder.Services.AddScoped<CustomFieldService>();
     builder.Services.AddSingleton<TextExtractionService>();
     builder.Services.AddScoped<AiDataPurgeService>();
@@ -395,7 +410,10 @@ try
         var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
         var http = httpFactory.CreateClient("ExtensionRegistry");
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Cove/1.0");
-        return new GitHubExtensionRegistry(http, coveVersion: extensionContext.CoveVersion);
+        return new GitHubExtensionRegistry(
+            http,
+            coveVersion: extensionContext.CoveVersion,
+            registryBaseUrl: coveConfig.GetValue<string>("ExtensionRegistryBaseUrl"));
     });
     builder.Services.AddHttpClient("ExtensionRegistry");
     builder.Services.AddHostedService<ExtensionEventBridge>();
@@ -405,6 +423,11 @@ try
     var pgManaged = pgSection.GetValue<bool?>("Managed") ?? true;
     if (pgManaged)
         builder.Services.AddHostedService<PostgresManagerService>();
+
+    // Recovery touches the database during startup, so it must run after the managed PostgreSQL
+    // service has made that database reachable.
+    builder.Services.AddHostedService<DuplicateSearchRecoveryService>();
+    builder.Services.AddHostedService<PhysicalFileDeletionRecoveryService>();
 
     // Auth bootstrap (must run AFTER PostgresManagerService so the DB is reachable).
     builder.Services.AddSingleton<Cove.Data.Auth.BootstrapAuthService>();
@@ -460,12 +483,18 @@ try
         options.Filters.Add<Cove.Api.Middleware.EntityEventFilter>();
         options.Filters.Add<Cove.Api.Middleware.AuthExceptionFilter>();
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
+        options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();
     })
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
+    // Minimal APIs + extension endpoints + generated schema document
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    });
     builder.Services.AddOpenApi();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
@@ -627,6 +656,7 @@ try
         app.MapPost("/health/test-reset", async (
             HttpContext httpContext,
             JobService jobs,
+            CustomFieldJsonIndexReconciler jsonIndexes,
             Cove.Data.Auth.AuditService audit,
             Cove.Data.Services.SegmentSpanCacheRegistry segmentCache,
             Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache,
@@ -645,13 +675,18 @@ try
                 return Results.NotFound();
             }
 
+            var request = await httpContext.Request.ReadFromJsonAsync<IntegrationTestResetRequest>(
+                cancellationToken: cancellationToken);
+            if (request is null)
+                return Results.BadRequest();
+
             await jobs.CancelAllAndWaitAsync(cancellationToken);
             await audit.FlushAsync(cancellationToken);
 
             await using (var scope = scopeFactory.CreateAsyncScope())
             {
-                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                await db.Database.ExecuteSqlRawAsync("""
+                var resetDb = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                await resetDb.Database.ExecuteSqlRawAsync("""
                     DO $reset$
                     DECLARE
                         table_list text;
@@ -670,6 +705,10 @@ try
                     """, cancellationToken);
             }
 
+            // Expression indexes are schema objects and survive TRUNCATE. Reconcile synchronously so
+            // one API test's custom-field settings cannot leak physical indexes into the next test.
+            await jsonIndexes.ReconcileAsync(cancellationToken: cancellationToken);
+
             segmentCache.InvalidateAll();
             if (memoryCache is Microsoft.Extensions.Caching.Memory.MemoryCache concreteMemoryCache)
                 concreteMemoryCache.Compact(1);
@@ -683,7 +722,50 @@ try
                     .EnsureBuiltInGroupsAsync(cancellationToken);
             }
 
-            return Results.NoContent();
+            await using var personaScope = scopeFactory.CreateAsyncScope();
+            var personaDb = personaScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var roleNames = request.Personas.Select(persona => persona.Role).Distinct().ToArray();
+            var roles = await personaDb.Roles
+                .Where(role => roleNames.Contains(role.Name))
+                .ToDictionaryAsync(role => role.Name, StringComparer.Ordinal, cancellationToken);
+            if (roles.Count != roleNames.Length)
+                return Results.Problem("One or more integration-test roles are unavailable.");
+
+            var now = DateTime.UtcNow;
+            var users = request.Personas.Select(persona => new User
+            {
+                Username = persona.Username,
+                DisplayName = persona.DisplayName,
+                PasswordHash = request.PasswordHash,
+                PasswordAlgo = Cove.Data.Auth.PasswordHasher.Algorithm,
+                IsActive = true,
+                IsLocked = false,
+                IsSystem = persona.IsSystem,
+                CreatedAt = now,
+                UpdatedAt = now,
+            }).ToArray();
+            personaDb.Users.AddRange(users);
+            await personaDb.SaveChangesAsync(cancellationToken);
+            personaDb.UserRoleAssignments.AddRange(users.Zip(request.Personas, (user, persona) => new UserRoleAssignment
+            {
+                UserId = user.Id,
+                RoleId = roles[persona.Role].Id,
+                GrantedAt = now,
+            }));
+            await personaDb.SaveChangesAsync(cancellationToken);
+
+            var tokens = personaScope.ServiceProvider.GetRequiredService<ITokenService>();
+            var sessions = new List<LoginResponse>(users.Length);
+            foreach (var user in users)
+            {
+                var pair = await tokens.IssueForUserAsync(
+                    user.Id,
+                    httpContext.Connection.RemoteIpAddress?.ToString(),
+                    httpContext.Request.Headers.UserAgent.ToString(),
+                    cancellationToken);
+                sessions.Add(new LoginResponse(pair.AccessToken, pair.User.Username));
+            }
+            return Results.Ok(sessions);
         }).AllowAnonymous();
 
         app.MapPost("/health/test-shutdown", (
@@ -700,7 +782,11 @@ try
                 return Results.NotFound();
             }
 
-            lifetime.StopApplication();
+            httpContext.Response.OnCompleted(() =>
+            {
+                lifetime.StopApplication();
+                return Task.CompletedTask;
+            });
             return Results.Accepted();
         }).AllowAnonymous();
     }
@@ -857,6 +943,9 @@ try
                     .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
                     .Take(1).AsSplitQuery().ToListAsync();
                 Log.Information("EF Core and connection pool pre-warmed");
+
+                if (isPostgresProvider)
+                    scope.ServiceProvider.GetRequiredService<CustomFieldJsonIndexJobService>().RequestReconcile();
             }
             else
             {
@@ -953,3 +1042,13 @@ finally
 public partial class Program
 {
 }
+
+internal sealed record IntegrationTestResetRequest(
+    string PasswordHash,
+    IReadOnlyList<IntegrationTestPersona> Personas);
+
+internal sealed record IntegrationTestPersona(
+    string Username,
+    string DisplayName,
+    string Role,
+    bool IsSystem);

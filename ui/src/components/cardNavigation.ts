@@ -1,6 +1,6 @@
 import type { MouseEventHandler } from "react";
 import type { Route } from "../router/location";
-import { buildRouteUrl, navigateToUrl } from "../router/location";
+import { buildRouteUrl, navigateToUrl, resolveContextualDetailRoute } from "../router/location";
 
 function isPlainPrimaryClick(event: {
   button: number;
@@ -15,7 +15,7 @@ function isPlainPrimaryClick(event: {
 function createRouteLinkClickHandler<T extends HTMLElement>(
   route: Route,
   onDefault?: () => void,
-  options?: { stopPropagation?: boolean }
+  options?: { stopPropagation?: boolean },
 ): MouseEventHandler<T> {
   const href = buildRouteUrl(route);
 
@@ -39,22 +39,30 @@ function createRouteLinkClickHandler<T extends HTMLElement>(
   };
 }
 
-export function createRouteLinkProps<T extends HTMLAnchorElement>(route: Route, onDefault?: () => void): {
+export function createRouteLinkProps<T extends HTMLAnchorElement>(
+  route: Route,
+  onDefault?: () => void,
+): {
   href: string;
   onClick: MouseEventHandler<T>;
 } {
+  const contextualRoute = resolveContextualDetailRoute(route);
   return {
-    href: buildRouteUrl(route),
-    onClick: createRouteLinkClickHandler<T>(route, onDefault),
+    href: buildRouteUrl(contextualRoute),
+    onClick: createRouteLinkClickHandler<T>(contextualRoute, onDefault),
   };
 }
 
-export function createNestedRouteLinkProps<T extends HTMLAnchorElement>(route: Route, onDefault?: () => void): {
+export function createNestedRouteLinkProps<T extends HTMLAnchorElement>(
+  route: Route,
+  onDefault?: () => void,
+): {
   href: string;
   onClick: MouseEventHandler<T>;
 } {
+  const contextualRoute = resolveContextualDetailRoute(route);
   return {
-    href: buildRouteUrl(route),
-    onClick: createRouteLinkClickHandler<T>(route, onDefault, { stopPropagation: true }),
+    href: buildRouteUrl(contextualRoute),
+    onClick: createRouteLinkClickHandler<T>(contextualRoute, onDefault, { stopPropagation: true }),
   };
 }

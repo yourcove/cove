@@ -31,8 +31,7 @@ describe("extension API runtime", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(extensionFetch("https://example.invalid/collect"))
-      .rejects.toThrow("same-origin Cove API URL");
+    await expect(extensionFetch("https://example.invalid/collect")).rejects.toThrow("same-origin Cove API URL");
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -41,8 +40,7 @@ describe("extension API runtime", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(extensionFetch("/settings"))
-      .rejects.toThrow("same-origin Cove API URL");
+    await expect(extensionFetch("/settings")).rejects.toThrow("same-origin Cove API URL");
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -84,12 +82,18 @@ describe("extension API runtime", () => {
   it("retries a same-origin API request with a refreshed bearer token", async () => {
     localStorage.setItem("cove_access_token", "expired-access-token");
     localStorage.setItem("cove_refresh_token", "refresh-token");
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        token: "new-access-token",
-        refreshToken: "new-refresh-token",
-      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token: "new-access-token",
+            refreshToken: "new-refresh-token",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -100,27 +104,37 @@ describe("extension API runtime", () => {
       "/api/auth/refresh",
       `${window.location.origin}/api/plugins/example/status`,
     ]);
-    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"))
-      .toBe("Bearer expired-access-token");
-    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization"))
-      .toBe("Bearer new-access-token");
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer expired-access-token");
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization")).toBe("Bearer new-access-token");
   });
 
   it("does not time out extension requests by default", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
-      const timer = window.setTimeout(() => resolve(new Response(null, { status: 204 })), 20_000);
-      init?.signal?.addEventListener("abort", () => {
-        window.clearTimeout(timer);
-        reject(init.signal?.reason);
-      }, { once: true });
-    }));
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const timer = window.setTimeout(() => resolve(new Response(null, { status: 204 })), 20_000);
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              window.clearTimeout(timer);
+              reject(init.signal?.reason);
+            },
+            { once: true },
+          );
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     let settled = false;
     const outcome = extensionFetch("/api/plugins/example/long-running")
-      .then(() => "resolved", (error: Error) => error.name)
-      .finally(() => { settled = true; });
+      .then(
+        () => "resolved",
+        (error: Error) => error.name,
+      )
+      .finally(() => {
+        settled = true;
+      });
 
     await vi.advanceTimersByTimeAsync(15_001);
     expect(settled).toBe(false);
@@ -132,9 +146,12 @@ describe("extension API runtime", () => {
 
   it("supports an explicit extension request timeout", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-    }));
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const request = extensionFetch("/api/plugins/example/status", { timeoutMs: 100 });
@@ -145,9 +162,12 @@ describe("extension API runtime", () => {
   });
 
   it("preserves caller cancellation without a default timeout", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-    }));
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();
 

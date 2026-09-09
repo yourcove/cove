@@ -30,18 +30,24 @@ export function InfiniteScrollSentinel({
       return;
     }
 
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onLoadMore();
-      }
-    }, { rootMargin: rootMargin ?? (direction === "previous" ? "120px 0px 0px 0px" : "800px 0px") });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: rootMargin ?? (direction === "previous" ? "120px 0px 0px 0px" : "800px 0px") },
+    );
 
     observer.observe(node);
     return () => observer.disconnect();
   }, [direction, hasMore, isLoading, onLoadMore, rootMargin]);
 
   return (
-    <div ref={ref} className={`flex items-center justify-center px-4 py-6 text-sm text-muted ${className ?? ""}`.trim()}>
+    <div
+      ref={ref}
+      className={`flex items-center justify-center px-4 py-6 text-sm text-muted ${className ?? ""}`.trim()}
+    >
       {isLoading ? (
         <span className="inline-flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />

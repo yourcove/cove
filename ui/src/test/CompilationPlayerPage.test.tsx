@@ -150,4 +150,3 @@ describe("Compilation player autoplay token wiring", () => {
     expect(source?.getAttribute("type")).toBeNull();
   });
 });
-

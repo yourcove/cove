@@ -27,8 +27,10 @@ public class PerformerRepository : IPerformerRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        var withAliases = textQuery
-            .Concat(query.Where(p => p.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
+        var withAliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(p => p.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
 
         return FullTextSearchHelpers.ApplyRelationalMatches(withAliases, query, search,
             tagSelectors: [p => p.PerformerTags.Where(pt => pt.Tag != null).Select(pt => pt.Tag!)]);
@@ -313,7 +315,13 @@ public class PerformerRepository : IPerformerRepository
     public async Task<int> CountAsync(CancellationToken ct = default)
         => await _db.Performers.CountAsync(ct);
 
-    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    internal async Task<IQueryable<Performer>> BuildFilteredQueryAsync(
+        PerformerFilter? filter,
+        FindFilter? findFilter,
+        bool includeRelatedFilters = true,
+        bool allowReadScopeOptimization = true,
+        CancellationToken ct = default,
+        FilterExpression<PerformerFilter>? expression = null)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -330,12 +338,29 @@ public class PerformerRepository : IPerformerRepository
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Performer>(
-            _db,
-            EntityKinds.Performer,
-            currentPrincipal?.Has(PermissionKeys.PerformersRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Performer) == true,
-            ct);
+        // The root-plan optimization may ignore query filters on the whole query tree, including the
+        // relationship counts below, so keep the normal authorization filters for count queries.
+        var usesRelatedMediaCount = filter?.VideoFilterCriterion != null
+            || filter?.AudioFilterCriterion != null
+            || FilterExpressionQuery.Contains(expression, leaf => leaf.VideoFilterCriterion != null
+                || leaf.AudioFilterCriterion != null
+                || leaf.AudioCountCriterion != null
+                || leaf.TextCountCriterion != null)
+            || filter?.AudioCountCriterion != null
+            || filter?.TextCountCriterion != null
+            || string.Equals(findFilter?.Sort, "audio_count", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(findFilter?.Sort, "text_count", StringComparison.OrdinalIgnoreCase)
+            || findFilter?.Sorts?.Any(clause => clause is not null
+                && (clause.Key.Equals("audio_count", StringComparison.OrdinalIgnoreCase)
+                    || clause.Key.Equals("text_count", StringComparison.OrdinalIgnoreCase))) == true;
+        var readScopePlan = !allowReadScopeOptimization || usesRelatedMediaCount
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Performer>(
+                _db,
+                EntityKinds.Performer,
+                currentPrincipal?.Has(PermissionKeys.PerformersRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Performer) == true,
+                ct);
 
         var query = (readScopePlan ?? new ReadScopeRootPlan<Performer>(false, null)).Apply(_db.Performers.AsQueryable());
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
@@ -369,6 +394,9 @@ public class PerformerRepository : IPerformerRepository
                 };
             }
 
+            query = FilterHelpers.ApplyInt(query, filter.AudioCountCriterion, p => p.AudioPerformers.Count);
+            query = FilterHelpers.ApplyInt(query, filter.TextCountCriterion, p => p.TextPerformers.Count);
+
             if (filter.StudioCountCriterion != null)
             {
                 query = filter.StudioCountCriterion.Modifier switch
@@ -387,32 +415,115 @@ public class PerformerRepository : IPerformerRepository
             query = FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, p => p.GalleryPerformers.Count);
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, p => p.RemoteIds.Count);
 
-            // Age criterion â€” computed from Birthdate
+            // Age criterion — computed at death for deceased performers, otherwise today.
             if (filter.AgeCriterion != null && filter.AgeCriterion.Value > 0)
             {
-                var now = DateOnly.FromDateTime(DateTime.Today);
-                // Convert age to birth date range
+                var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
                 var val = filter.AgeCriterion.Value;
                 var val2 = filter.AgeCriterion.Value2 ?? val;
-                var oldestBirth = now.AddYears(-val2 - 1).AddDays(1);
-                var youngestBirth = now.AddYears(-val);
-                query = filter.AgeCriterion.Modifier switch
+                var ageBoundsQuery = query.Select(performer => new
                 {
-                    CriterionModifier.Equals => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value >= now.AddYears(-val - 1).AddDays(1) && p.Birthdate.Value <= now.AddYears(-val)),
-                    CriterionModifier.NotEquals => query.Where(p => !p.Birthdate.HasValue || p.Birthdate.Value < now.AddYears(-val - 1).AddDays(1) || p.Birthdate.Value > now.AddYears(-val)),
-                    CriterionModifier.GreaterThan => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value < youngestBirth),
-                    CriterionModifier.LessThan => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value > youngestBirth),
-                    CriterionModifier.Between => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value >= oldestBirth && p.Birthdate.Value <= youngestBirth),
-                    CriterionModifier.NotBetween => query.Where(p => p.Birthdate.HasValue && (p.Birthdate.Value < oldestBirth || p.Birthdate.Value > youngestBirth)),
-                    _ => query,
+                    Performer = performer,
+                    Birthdate = performer.Birthdate,
+                    BirthdateLatest = performer.Birthdate.HasValue
+                        ? performer.BirthdatePrecision == Core.Enums.DatePrecision.Year
+                            ? performer.Birthdate.Value.AddYears(1).AddDays(-1)
+                            : performer.BirthdatePrecision == Core.Enums.DatePrecision.Month
+                                ? performer.Birthdate.Value.AddMonths(1).AddDays(-1)
+                                : performer.Birthdate.Value
+                        : (DateOnly?)null,
+                    AgeDateEarliest = performer.DeathDate.HasValue && performer.DeathDate.Value <= today
+                        ? performer.DeathDate.Value
+                        : today,
+                    AgeDateLatest = performer.DeathDate.HasValue && performer.DeathDate.Value <= today
+                        ? performer.DeathDatePrecision == Core.Enums.DatePrecision.Year
+                            ? performer.DeathDate.Value.AddYears(1).AddDays(-1) <= today
+                                ? performer.DeathDate.Value.AddYears(1).AddDays(-1)
+                                : today
+                            : performer.DeathDatePrecision == Core.Enums.DatePrecision.Month
+                                ? performer.DeathDate.Value.AddMonths(1).AddDays(-1) <= today
+                                    ? performer.DeathDate.Value.AddMonths(1).AddDays(-1)
+                                    : today
+                                : performer.DeathDate.Value
+                        : today,
+                }).Select(item => new
+                {
+                    item.Performer,
+                    item.Birthdate,
+                    HasAge = item.Birthdate.HasValue && item.Birthdate.Value <= item.AgeDateLatest,
+                    MinimumAge = item.BirthdateLatest.HasValue
+                        ? item.AgeDateEarliest.Year - item.BirthdateLatest.Value.Year
+                            - ((item.AgeDateEarliest.Month < item.BirthdateLatest.Value.Month
+                                || (item.AgeDateEarliest.Month == item.BirthdateLatest.Value.Month && item.AgeDateEarliest.Day < item.BirthdateLatest.Value.Day)) ? 1 : 0) < 0
+                            ? 0
+                            : item.AgeDateEarliest.Year - item.BirthdateLatest.Value.Year
+                                - ((item.AgeDateEarliest.Month < item.BirthdateLatest.Value.Month
+                                    || (item.AgeDateEarliest.Month == item.BirthdateLatest.Value.Month && item.AgeDateEarliest.Day < item.BirthdateLatest.Value.Day)) ? 1 : 0)
+                        : 0,
+                    MaximumAge = item.Birthdate.HasValue
+                        ? item.AgeDateLatest.Year - item.Birthdate.Value.Year
+                            - ((item.AgeDateLatest.Month < item.Birthdate.Value.Month
+                                || (item.AgeDateLatest.Month == item.Birthdate.Value.Month && item.AgeDateLatest.Day < item.Birthdate.Value.Day)) ? 1 : 0)
+                        : 0,
+                });
+
+                var filteredAges = filter.AgeCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals => ageBoundsQuery.Where(item => item.HasAge && item.MinimumAge <= val && item.MaximumAge >= val),
+                    CriterionModifier.NotEquals => ageBoundsQuery.Where(item => !item.Birthdate.HasValue || (item.HasAge && (item.MaximumAge < val || item.MinimumAge > val))),
+                    CriterionModifier.GreaterThan => ageBoundsQuery.Where(item => item.HasAge && item.MaximumAge > val),
+                    CriterionModifier.LessThan => ageBoundsQuery.Where(item => item.HasAge && item.MinimumAge < val),
+                    CriterionModifier.Between => ageBoundsQuery.Where(item => item.HasAge && item.MaximumAge >= val && item.MinimumAge <= val2),
+                    CriterionModifier.NotBetween => ageBoundsQuery.Where(item => item.HasAge && (item.MaximumAge < val || item.MinimumAge > val2)),
+                    _ => ageBoundsQuery,
                 };
+                query = filteredAges.Select(item => item.Performer);
             }
 
             // String criteria
             query = FilterHelpers.ApplyString(query, filter.GenderCriterion, p => p.Gender != null ? p.Gender.ToString() : null);
             query = FilterHelpers.ApplyString(query, filter.EthnicityCriterion, p => p.Ethnicity);
-            query = FilterHelpers.ApplyString(query, filter.CountryCriterion, p => p.Country);
-            query = FilterHelpers.ApplyString(query, filter.UrlCriterion, p => p.Urls.Select(u => u.Url).FirstOrDefault());
+            var countryCriterion = filter.CountryCriterion;
+            if (countryCriterion is not null)
+            {
+                var originalValue = countryCriterion.Value;
+                var normalizedValue = CountryCatalog.Normalize(originalValue) ?? "";
+                if (!normalizedValue.Equals(originalValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    switch (countryCriterion.Modifier)
+                    {
+                        case CriterionModifier.Includes:
+                            query = query.Where(p => p.Country != null
+                                && (p.Country.ToLower().Contains(originalValue.ToLower())
+                                    || p.Country == normalizedValue));
+                            countryCriterion = null;
+                            break;
+                        case CriterionModifier.Excludes:
+                            query = query.Where(p => p.Country == null
+                                || (!p.Country.ToLower().Contains(originalValue.ToLower())
+                                    && p.Country != normalizedValue));
+                            countryCriterion = null;
+                            break;
+                        case CriterionModifier.MatchesRegex:
+                        case CriterionModifier.NotMatchesRegex:
+                            countryCriterion = new StringCriterion
+                            {
+                                Modifier = countryCriterion.Modifier,
+                                Value = $"(?:{originalValue})|(?:^{Regex.Escape(normalizedValue)}$)",
+                            };
+                            break;
+                        default:
+                            countryCriterion = new StringCriterion
+                            {
+                                Modifier = countryCriterion.Modifier,
+                                Value = normalizedValue,
+                            };
+                            break;
+                    }
+                }
+            }
+            query = FilterHelpers.ApplyString(query, countryCriterion, p => p.Country);
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, p => p.Urls.Select(u => u.Url));
 
             if (filter.FavoriteCriterion != null)
                 query = query.Where(p => p.Favorite == filter.FavoriteCriterion.Value);
@@ -514,18 +625,7 @@ public class PerformerRepository : IPerformerRepository
             query = ApplyCareerLengthCriterion(query, filter.CareerLengthCriterion);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(p => !p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(p => p.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(p => p.Aliases.Count > 0),
-                    _ => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, p => p.Aliases.Select(a => a.Alias));
 
             // PenisLength as int (rounded)
             query = FilterHelpers.ApplyInt(query, filter.PenisLengthCriterion, p => (int)(p.PenisLength ?? 0));
@@ -557,6 +657,44 @@ public class PerformerRepository : IPerformerRepository
 
         query = ApplyPerformerSearch(query, findFilter?.Q);
 
+        if (includeRelatedFilters)
+        {
+            query = await RelatedFilterQuery.ApplyToPerformersAsync(_db, query, filter?.VideoFilterCriterion, ct);
+            query = await RelatedFilterQuery.ApplyAudioFilterToPerformersAsync(_db, query, filter?.AudioFilterCriterion, ct);
+        }
+
+        query = await FilterExpressionQuery.ApplyAsync(
+            query,
+            expression,
+            async (input, leaf) =>
+            {
+                var leafQuery = await BuildFilteredQueryAsync(
+                    leaf,
+                    findFilter: null,
+                    includeRelatedFilters: includeRelatedFilters,
+                    allowReadScopeOptimization: false,
+                    ct: ct,
+                    expression: null);
+                return input.Intersect(leafQuery);
+            },
+            async (input, scope, leaves) =>
+            {
+                if (!string.Equals(scope.FilterKey, nameof(PerformerFilter.AudioFilterCriterion), StringComparison.OrdinalIgnoreCase))
+                    throw new NotSupportedException($"Distinct assignment is not supported for related scope '{scope.FilterKey}' by this repository.");
+                return await RelatedFilterQuery.ApplyDistinctAudiosToPerformersAsync(
+                    _db,
+                    input,
+                    leaves.Select(leaf => leaf.AudioFilterCriterion!).ToArray(),
+                    ct);
+            });
+
+        return query;
+    }
+
+    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
+
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
         var multiSortRegistry = CreatePerformerMultiSortRegistry(EngagementQueryHelpers.CurrentUserId(_db));
@@ -572,29 +710,35 @@ public class PerformerRepository : IPerformerRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Performer, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
+            "name" => desc ? query.OrderByDescending(p => p.Name).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Name).ThenBy(p => p.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Performer, desc),
-            "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt),
-            "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate) : query.OrderBy(p => p.Birthdate),
-            "video_count" => desc ? query.OrderByDescending(p => p.VideoPerformers.Count) : query.OrderBy(p => p.VideoPerformers.Count),
-            "image_count" => desc ? query.OrderByDescending(p => p.ImagePerformers.Count) : query.OrderBy(p => p.ImagePerformers.Count),
-            "gallery_count" => desc ? query.OrderByDescending(p => p.GalleryPerformers.Count) : query.OrderBy(p => p.GalleryPerformers.Count),
-            "latest_video_date" => desc ? query.OrderByDescending(p => p.VideoPerformers.Max(sp => sp.Video!.Date)) : query.OrderBy(p => p.VideoPerformers.Max(sp => sp.Video!.Date)),
-            "total_file_size" => desc ? query.OrderByDescending(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L) : query.OrderBy(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L),
+            "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id) : query.OrderBy(p => p.CreatedAt).ThenBy(p => p.Id),
+            "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Birthdate).ThenBy(p => p.Id),
+            "video_count" => desc ? query.OrderByDescending(p => p.VideoPerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Count).ThenBy(p => p.Id),
+            "audio_count" => desc
+                ? query.OrderByDescending(p => p.AudioPerformers.Count).ThenByDescending(p => p.Id)
+                : query.OrderBy(p => p.AudioPerformers.Count).ThenBy(p => p.Id),
+            "text_count" => desc
+                ? query.OrderByDescending(p => p.TextPerformers.Count).ThenByDescending(p => p.Id)
+                : query.OrderBy(p => p.TextPerformers.Count).ThenBy(p => p.Id),
+            "image_count" => desc ? query.OrderByDescending(p => p.ImagePerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.ImagePerformers.Count).ThenBy(p => p.Id),
+            "gallery_count" => desc ? query.OrderByDescending(p => p.GalleryPerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.GalleryPerformers.Count).ThenBy(p => p.Id),
+            "latest_video_date" => desc ? query.OrderByDescending(p => p.VideoPerformers.Max(sp => sp.Video!.Date)).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Max(sp => sp.Video!.Date)).ThenBy(p => p.Id),
+            "total_file_size" => desc ? query.OrderByDescending(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L).ThenBy(p => p.Id),
             "career_length" => ApplyCareerLengthSort(query, desc),
             "height" => ApplyHeightSort(query, desc),
-            "weight" => desc ? query.OrderByDescending(p => p.Weight) : query.OrderBy(p => p.Weight),
+            "weight" => desc ? query.OrderByDescending(p => p.Weight).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Weight).ThenBy(p => p.Id),
             "measurements" => ApplyMeasurementsSort(query, desc),
-            "tag_count" => desc ? query.OrderByDescending(p => p.TagCount) : query.OrderBy(p => p.TagCount),
+            "tag_count" => desc ? query.OrderByDescending(p => p.TagCount).ThenByDescending(p => p.Id) : query.OrderBy(p => p.TagCount).ThenBy(p => p.Id),
             "like_counter" => ApplyVideoAffinityIntSumSort(query, nameof(UserEntityAffinity.LikeCount), desc),
             "play_count" => ApplyPlayCountSort(query, desc),
             "last_like_at" => ApplyLastLikeAtSort(query, desc),
             "last_played_at" => ApplyLastPlayedAtSort(query, desc),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
-            _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
+            _ => desc ? query.OrderByDescending(p => p.UpdatedAt).ThenByDescending(p => p.Id) : query.OrderBy(p => p.UpdatedAt).ThenBy(p => p.Id),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, performer => performer.Name);
 
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
@@ -640,6 +784,8 @@ public class PerformerRepository : IPerformerRepository
             ["updated_at"] = (compound, desc) => compound.Append(performer => performer.UpdatedAt, desc),
             ["birthdate"] = (compound, desc) => compound.Append(performer => performer.Birthdate, desc),
             ["video_count"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Count, desc),
+            ["audio_count"] = (compound, desc) => compound.Append(performer => performer.AudioPerformers.Count, desc),
+            ["text_count"] = (compound, desc) => compound.Append(performer => performer.TextPerformers.Count, desc),
             ["image_count"] = (compound, desc) => compound.Append(performer => performer.ImagePerformers.Count, desc),
             ["gallery_count"] = (compound, desc) => compound.Append(performer => performer.GalleryPerformers.Count, desc),
             ["latest_video_date"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc),
@@ -695,7 +841,7 @@ public class PerformerRepository : IPerformerRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(performer => performer.Id);
+        return compound.Finish(performer => performer.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<Performer> ApplyLastLikeAtSort(IQueryable<Performer> query, bool desc)
@@ -740,9 +886,10 @@ public class TagRepository : ITagRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        return textQuery
-            .Concat(query.Where(t => t.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))))
-            .Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(t => t.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
     }
 
     public async Task<Tag?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -798,6 +945,20 @@ public class TagRepository : ITagRepository
 
     public async Task<(IReadOnlyList<Tag> Items, int TotalCount)> FindAsync(TagFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchyCriterion? expandedParents = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.ParentsCriterion))
+        {
+            expandedParents = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.ParentsCriterion!, ct);
+        }
+        var parentsCriterion = expandedParents?.Criterion ?? filter?.ParentsCriterion;
+
+        ExpandedHierarchyCriterion? expandedChildren = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.ChildrenCriterion))
+        {
+            expandedChildren = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.ChildrenCriterion!, ct);
+        }
+        var childrenCriterion = expandedChildren?.Criterion ?? filter?.ChildrenCriterion;
+
         var query = _db.Tags.AsQueryable();
 
         if (filter != null)
@@ -818,8 +979,8 @@ public class TagRepository : ITagRepository
                 query = query.Where(t => t.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.ParentsCriterion, t => t.ParentRelations.Select(tp => tp.ParentId));
-            query = FilterHelpers.ApplyMultiId(query, filter.ChildrenCriterion, t => t.ChildRelations.Select(tp => tp.ChildId));
+            query = FilterHelpers.ApplyMultiId(query, parentsCriterion, t => t.ParentRelations.Select(tp => tp.ParentId), expandedParents?.ValueGroups, expandedParents?.RequiredIdGroups);
+            query = FilterHelpers.ApplyMultiId(query, childrenCriterion, t => t.ChildRelations.Select(tp => tp.ChildId), expandedChildren?.ValueGroups, expandedChildren?.RequiredIdGroups);
             query = FilterHelpers.ApplyStudioCriterion(query, filter.TagGroupsCriterion, t => t.TagGroupId);
 
             // Timestamp criteria
@@ -836,18 +997,7 @@ public class TagRepository : ITagRepository
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, t => t.RemoteIds.Count);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(t => !t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(t => t.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(t => t.Aliases.Count > 0),
-                    _ => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, t => t.Aliases.Select(a => a.Alias));
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Tag, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }
@@ -897,8 +1047,8 @@ public class TagRepository : ITagRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id, desc),
             _ => ApplyStableTagSort(query, t => t.UpdatedAt, desc),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, tag => tag.Name);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await query
@@ -938,7 +1088,7 @@ public class TagRepository : ITagRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag)
+            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).ThenByDescending(item => item.Tag.Id).Select(item => item.Tag)
             : sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenBy(item => item.GroupSortOrder).ThenBy(item => item.GroupName).ThenBy(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag);
     }
 
@@ -947,7 +1097,7 @@ public class TagRepository : ITagRepository
         Expression<Func<Tag, TKey>> keySelector,
         bool desc)
         => desc
-            ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
+            ? query.OrderByDescending(keySelector).ThenByDescending(tag => tag.Id)
             : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
 
     private static CompoundSortRegistry<Tag> CreateTagMultiSortRegistry()
@@ -976,7 +1126,7 @@ public class TagRepository : ITagRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(tag => tag.Id);
+        return compound.Finish(tag => tag.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
@@ -1315,8 +1465,10 @@ public class StudioRepository : IStudioRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        var withAliases = textQuery
-            .Concat(query.Where(s => s.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
+        var withAliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(s => s.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
 
         return FullTextSearchHelpers.ApplyRelationalMatches(withAliases, query, search,
             tagSelectors: [s => s.StudioTags.Where(st => st.Tag != null).Select(st => st.Tag!)]);
@@ -1397,18 +1549,7 @@ public class StudioRepository : IStudioRepository
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId), expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
 
             // String criteria
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Urls.Count > 0),
-                    _ => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, s => s.Urls.Select(u => u.Url));
 
             query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, studio => studio.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
@@ -1423,18 +1564,7 @@ public class StudioRepository : IStudioRepository
             query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, s => s.Details);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Aliases.Count > 0),
-                    _ => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, s => s.Aliases.Select(a => a.Alias));
 
             // Parents (multi-ID on the single parent studio FK)
             query = FilterHelpers.ApplyStudioCriterion(query, filter.ParentsCriterion, s => s.ParentId);
@@ -1474,23 +1604,23 @@ public class StudioRepository : IStudioRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Studio, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(s => s.Name) : query.OrderBy(s => s.Name),
-            "video_count" => desc ? query.OrderByDescending(s => s.VideoCount) : query.OrderBy(s => s.VideoCount),
-            "gallery_count" => desc ? query.OrderByDescending(s => s.GalleryCount) : query.OrderBy(s => s.GalleryCount),
-            "image_count" => desc ? query.OrderByDescending(s => s.ImageCount) : query.OrderBy(s => s.ImageCount),
-            "latest_video_date" => desc ? query.OrderByDescending(s => s.Videos.Max(video => video.Date)) : query.OrderBy(s => s.Videos.Max(video => video.Date)),
-            "total_file_size" => desc ? query.OrderByDescending(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L) : query.OrderBy(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L),
+            "name" => desc ? query.OrderByDescending(s => s.Name).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Name).ThenBy(s => s.Id),
+            "video_count" => desc ? query.OrderByDescending(s => s.VideoCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.VideoCount).ThenBy(s => s.Id),
+            "gallery_count" => desc ? query.OrderByDescending(s => s.GalleryCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.GalleryCount).ThenBy(s => s.Id),
+            "image_count" => desc ? query.OrderByDescending(s => s.ImageCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ImageCount).ThenBy(s => s.Id),
+            "latest_video_date" => desc ? query.OrderByDescending(s => s.Videos.Max(video => video.Date)).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Videos.Max(video => video.Date)).ThenBy(s => s.Id),
+            "total_file_size" => desc ? query.OrderByDescending(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L).ThenBy(s => s.Id),
             "rating" => ApplyStudioRatingSort(query, desc),
             "parent_count" => desc ? query.OrderByDescending(s => s.ParentId.HasValue ? 1 : 0).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ParentId.HasValue ? 1 : 0).ThenBy(s => s.Id),
-            "child_count" => desc ? query.OrderByDescending(s => s.ChildStudioCount) : query.OrderBy(s => s.ChildStudioCount),
-            "tag_count" => desc ? query.OrderByDescending(s => s.TagCount) : query.OrderBy(s => s.TagCount),
-            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
-            "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            "child_count" => desc ? query.OrderByDescending(s => s.ChildStudioCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ChildStudioCount).ThenBy(s => s.Id),
+            "tag_count" => desc ? query.OrderByDescending(s => s.TagCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.TagCount).ThenBy(s => s.Id),
+            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.CreatedAt).ThenBy(s => s.Id),
+            "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id, desc),
-            _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            _ => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, studio => studio.Name);
         var page = findFilter?.Page ?? 1;
         var pagedIds = await query
             .Skip((page - 1) * perPage)
@@ -1545,7 +1675,7 @@ public class StudioRepository : IStudioRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(studio => studio.Id);
+        return compound.Finish(studio => studio.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 }
 
@@ -1581,7 +1711,8 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task UpdateAsync(Gallery entity, CancellationToken ct = default)
     {
-        _db.Galleries.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Galleries.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -1622,6 +1753,7 @@ public class GalleryRepository : IGalleryRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Gallery, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Gallery, filter.FavoriteCriterion);
             query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, g => g.ImageCount);
             query = FilterHelpers.ApplyInt(query, filter.LikeCounterCriterion, gallery =>
                 (gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
@@ -1670,18 +1802,7 @@ public class GalleryRepository : IGalleryRepository
             query = ApplyTypicalResolutionCriterion(query, filter.TypicalResolutionCriterion);
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(g => !g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(g => g.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(g => g.Urls.Count > 0),
-                    _ => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, g => g.Urls.Select(u => u.Url));
 
             // Date criterion
             query = FilterHelpers.ApplyDate(query, filter.DateCriterion, g => g.Date);
@@ -1752,10 +1873,15 @@ public class GalleryRepository : IGalleryRepository
         if (!string.IsNullOrWhiteSpace(galleryPathTerm))
         {
             var pathTerm = galleryPathTerm.ToLowerInvariant().Replace('\\', '/');
-            query = query.Concat(galleryBase.Where(g =>
-                g.Files.Any(f => f.Path.ToLower().Contains(pathTerm)) ||
-                (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm)))).Distinct();
+            query = FullTextSearchHelpers.UnionMatchesById(
+                galleryBase,
+                query,
+                galleryBase.Where(g =>
+                    g.Files.Any(f => f.Path.ToLower().Contains(pathTerm)) ||
+                    (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm))));
         }
+
+        query = await RelatedFilterQuery.ApplyToGalleriesAsync(_db, query, filter?.PerformerFilterCriterion, ct);
 
         return query;
     }
@@ -1790,18 +1916,18 @@ public class GalleryRepository : IGalleryRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Gallery, sort, desc)
             : sort switch
             {
-            "updated_at" => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
-            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "updated_at" => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
+            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Date ?? DateOnly.MinValue).ThenBy(g => g.Id),
             "studio" => ApplyGalleryStudioSort(query, desc),
             "file_mod_time" => ApplyGalleryFileModTimeSort(query, desc),
-            "file_count" => desc ? query.OrderByDescending(g => g.Files.Count) : query.OrderBy(g => g.Files.Count),
+            "file_count" => desc ? query.OrderByDescending(g => g.Files.Count).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Files.Count).ThenBy(g => g.Id),
             "path" => ApplyGalleryPathSort(query, desc),
-            "title" => desc ? query.OrderByDescending(g => g.Title) : query.OrderBy(g => g.Title),
-            "code" => desc ? query.OrderByDescending(g => g.Code) : query.OrderBy(g => g.Code),
-            "photographer" => desc ? query.OrderByDescending(g => g.Photographer) : query.OrderBy(g => g.Photographer),
+            "title" => desc ? query.OrderByDescending(g => g.Title).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Title).ThenBy(g => g.Id),
+            "code" => desc ? query.OrderByDescending(g => g.Code).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Code).ThenBy(g => g.Id),
+            "photographer" => desc ? query.OrderByDescending(g => g.Photographer).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Photographer).ThenBy(g => g.Id),
             "organized" => desc ? query.OrderByDescending(g => g.Organized).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Organized).ThenBy(g => g.Id),
-            "image_count" => desc ? query.OrderByDescending(g => g.ImageCount) : query.OrderBy(g => g.ImageCount),
-            "video_count" => desc ? query.OrderByDescending(g => g.VideoCount) : query.OrderBy(g => g.VideoCount),
+            "image_count" => desc ? query.OrderByDescending(g => g.ImageCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.ImageCount).ThenBy(g => g.Id),
+            "video_count" => desc ? query.OrderByDescending(g => g.VideoCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.VideoCount).ThenBy(g => g.Id),
             "rating" => ApplyGalleryRatingSort(query, desc),
             "like_counter" => desc
                 ? query.OrderByDescending(gallery =>
@@ -1813,18 +1939,18 @@ public class GalleryRepository : IGalleryRepository
             "last_like_at" => desc
                 ? query.OrderByDescending(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MinValue).ThenByDescending(gallery => gallery.Id)
                 : query.OrderBy(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MaxValue).ThenBy(gallery => gallery.Id),
-            "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount) : query.OrderBy(g => g.PerformerCount),
-            "tag_count" => desc ? query.OrderByDescending(g => g.TagCount) : query.OrderBy(g => g.TagCount),
+            "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.PerformerCount).ThenBy(g => g.Id),
+            "tag_count" => desc ? query.OrderByDescending(g => g.TagCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.TagCount).ThenBy(g => g.Id),
             "typical_resolution" => ApplyGalleryTypicalResolutionSort(query, desc),
             "zip_file_count" => desc
-                ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip")))
-                : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))),
-            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
+                ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))).ThenByDescending(g => g.Id)
+                : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))).ThenBy(g => g.Id),
+            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.CreatedAt).ThenBy(g => g.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
-            _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
+            _ => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, gallery => gallery.Title);
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
 
@@ -1868,8 +1994,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     internal CompoundSortRegistry<Gallery> CreateGalleryMultiSortRegistry(int currentUserId)
@@ -1930,7 +2056,7 @@ public class GalleryRepository : IGalleryRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(gallery => gallery.Id);
+        return compound.Finish(gallery => gallery.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private static IQueryable<Gallery> ApplyGalleryStudioSort(IQueryable<Gallery> query, bool desc)
@@ -1942,8 +2068,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     private static IQueryable<Gallery> ApplyGalleryPathSort(IQueryable<Gallery> query, bool desc)
@@ -1963,6 +2089,7 @@ public class GalleryRepository : IGalleryRepository
             return descendingQuery
                 .OrderBy(item => item.Path == null ? 1 : 0)
                 .ThenByDescending(item => item.Path)
+                .ThenByDescending(item => item.Gallery.Id)
                 .Select(item => item.Gallery);
         }
 
@@ -1977,6 +2104,7 @@ public class GalleryRepository : IGalleryRepository
         return ascendingQuery
             .OrderBy(item => item.Path == null ? 1 : 0)
             .ThenBy(item => item.Path)
+            .ThenBy(item => item.Gallery.Id)
             .Select(item => item.Gallery);
     }
 
@@ -2013,8 +2141,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenByDescending(item => item.TypicalResolution).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenBy(item => item.TypicalResolution).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenByDescending(item => item.TypicalResolution).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenBy(item => item.TypicalResolution).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     private static IQueryable<Gallery> ApplyGalleryPathCriterion(IQueryable<Gallery> query, StringCriterion? criterion)
@@ -2252,7 +2380,8 @@ public class ImageRepository : IImageRepository
 
     public async Task UpdateAsync(Image entity, CancellationToken ct = default)
     {
-        _db.Images.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Images.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -2264,7 +2393,92 @@ public class ImageRepository : IImageRepository
 
     public async Task<int> CountAsync(CancellationToken ct = default) => await _db.Images.CountAsync(ct);
 
-    public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    internal IQueryable<Image> ApplyImageSearch(IQueryable<Image> query, string? search)
+    {
+        var textQuery = FullTextSearchHelpers.Apply(_db, query, search,
+            image => image.Title,
+            image => image.Details,
+            image => image.Code,
+            image => image.Photographer,
+            image => image.FileSearchText,
+            image => image.SearchText);
+
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return textQuery;
+
+        var normalizedLower = normalized.ToLowerInvariant();
+        var tagWordTerm = $" {normalizedLower} ";
+        var matchingIds = textQuery.Select(image => image.Id)
+            .Concat(_db.Set<ImageTag>()
+                .Where(imageTag => imageTag.Tag != null && (
+                    (" " + imageTag.Tag.Name.ToLower() + " ").Contains(tagWordTerm) ||
+                    imageTag.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(tagWordTerm))))
+                .Select(imageTag => imageTag.ImageId))
+            .Concat(_db.Set<ImagePerformer>()
+                .Where(imagePerformer => imagePerformer.Performer != null && (
+                    imagePerformer.Performer.Name.ToLower().Contains(normalizedLower) ||
+                    imagePerformer.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))))
+                .Select(imagePerformer => imagePerformer.ImageId));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        if (tokens.Count > 0)
+        {
+            var matchingFiles = _db.ImageFiles.Where(file => file.ImageId != null);
+            foreach (var token in tokens)
+                matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+            matchingIds = matchingIds.Concat(matchingFiles.Select(file => file.ImageId!.Value));
+        }
+
+        return query.Where(image => matchingIds.Contains(image.Id));
+    }
+
+    internal IQueryable<Image> ApplyImageRelevanceOrdering(IQueryable<Image> query, string? search)
+    {
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return query;
+
+        var lower = normalized.ToLowerInvariant();
+        var exactRelationshipIds = _db.Set<ImagePerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower() == lower
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+            .Select(link => link.ImageId)
+            .Concat(_db.Set<ImageTag>()
+                .Where(link => link.Tag != null && (
+                    link.Tag.Name.ToLower() == lower
+                    || link.Tag.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+                .Select(link => link.ImageId));
+
+        var relationshipIds = _db.Set<ImagePerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower().Contains(lower)
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))))
+            .Select(link => link.ImageId)
+            .Concat(_db.Set<ImageTag>()
+                .Where(link => link.Tag != null && (
+                    (" " + link.Tag.Name.ToLower() + " ").Contains(" " + lower + " ")
+                    || link.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(" " + lower + " "))))
+                .Select(link => link.ImageId));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        var matchingFiles = tokens.Count > 0
+            ? _db.ImageFiles.Where(file => file.ImageId != null)
+            : _db.ImageFiles.Where(_ => false);
+        foreach (var token in tokens)
+            matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+
+        return FullTextSearchHelpers.OrderByExactThenRelevance(
+            _db,
+            query,
+            normalized,
+            image => image.Title,
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.ImageId!.Value)],
+            [image => image.Title, image => image.Details, image => image.Code, image => image.Photographer]);
+    }
+
+    private async Task<IQueryable<Image>> BuildFilteredQueryAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -2280,28 +2494,26 @@ public class ImageRepository : IImageRepository
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
-            _db,
-            EntityKinds.Image,
-            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true,
-            ct);
+        var readScopePlan = filter?.PerformerFilterCriterion != null
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
+                _db,
+                EntityKinds.Image,
+                currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true,
+                ct);
 
         // Build filter query once (lightweight, no includes)
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
         filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        var imageBase = filterQuery;
-        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
-            i => i.Title,
-            i => i.Details,
-            i => i.Code,
-            i => i.Photographer,
-            i => i.FileSearchText,
-            i => i.SearchText);
-        filterQuery = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
-            tagSelectors: [i => i.ImageTags.Where(it => it.Tag != null).Select(it => it.Tag!)],
-            performerSelectors: [i => i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!)]);
-        filterQuery = FullTextSearchHelpers.ApplyFilePathMatch(filterQuery, imageBase, findFilter?.Q, i => i.Files);
+        filterQuery = ApplyImageSearch(filterQuery, findFilter?.Q);
+
+        return await RelatedFilterQuery.ApplyToImagesAsync(_db, filterQuery, filter?.PerformerFilterCriterion, ct);
+    }
+
+    public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         var perPage = findFilter?.PerPage ?? 25;
 
@@ -2324,8 +2536,8 @@ public class ImageRepository : IImageRepository
         filterQuery = sortClauses.Count > 1
             ? ApplyImageMultiSort(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
-        if (!hasExplicitSort)
-            filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            filterQuery = ApplyImageRelevanceOrdering(filterQuery, findFilter?.Q);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -2359,34 +2571,7 @@ public class ImageRepository : IImageRepository
 
     public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchyCriterion? expandedTags = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
-        {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
-            filter.TagsCriterion = expandedTags.Criterion;
-        }
-        ExpandedHierarchyCriterion? expandedStudios = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
-        {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
-            filter.StudiosCriterion = expandedStudios.Criterion;
-        }
-
-        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
-            _db, EntityKinds.Image,
-            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true, ct);
-        var query = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
-        query = ApplyImageFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        var imageBase = query;
-        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
-            image => image.Title, image => image.Details, image => image.Code,
-            image => image.Photographer, image => image.FileSearchText, image => image.SearchText);
-        query = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
-            tagSelectors: [image => image.ImageTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
-            performerSelectors: [image => image.ImagePerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
-        query = FullTextSearchHelpers.ApplyFilePathMatch(query, imageBase, findFilter?.Q, image => image.Files);
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         return await query.AsNoTracking()
             .GroupBy(_ => 1)
@@ -2417,6 +2602,7 @@ public class ImageRepository : IImageRepository
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Image, filter.RatingCriterion);
         if (filter.LikeCounterCriterion != null)
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, filter.FavoriteCriterion);
         if (filter.OrganizedCriterion != null)
             query = query.Where(i => i.Organized == filter.OrganizedCriterion.Value);
         if (filter.ResolutionCriterion != null)
@@ -2453,18 +2639,7 @@ public class ImageRepository : IImageRepository
         query = FilterHelpers.ApplyString(query, filter.PhotographerCriterion, i => i.Photographer);
 
         // URL criterion
-        if (filter.UrlCriterion != null)
-        {
-            var urlVal = filter.UrlCriterion.Value;
-            query = filter.UrlCriterion.Modifier switch
-            {
-                CriterionModifier.Includes => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-                CriterionModifier.Excludes => query.Where(i => !i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-                CriterionModifier.IsNull => query.Where(i => i.Urls.Count == 0),
-                CriterionModifier.NotNull => query.Where(i => i.Urls.Count > 0),
-                _ => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-            };
-        }
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, i => i.Urls.Select(u => u.Url));
 
         // Date criterion
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, i => i.Date);
@@ -2606,7 +2781,7 @@ public class ImageRepository : IImageRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(image => image.Id);
+        return compound.Finish(image => image.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<Image> ApplySortingSwitch(IQueryable<Image> query, string sort, bool desc)
@@ -2617,18 +2792,18 @@ public class ImageRepository : IImageRepository
         return sort switch
         {
             "title" => ApplyDisplayTitleSort(query, desc),
-            "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue) : query.OrderBy(i => i.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue).ThenByDescending(i => i.Id) : query.OrderBy(i => i.Date ?? DateOnly.MinValue).ThenBy(i => i.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Image, desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), desc),
             "random" => query.OrderBy(i => i.Id),
             "file_mod_time" => ApplyFileModTimeSort(query, desc),
-            "file_size" => desc ? query.OrderByDescending(i => i.MaxFileSize) : query.OrderBy(i => i.MaxFileSize),
-            "resolution" => desc ? query.OrderByDescending(i => i.MaxResolution) : query.OrderBy(i => i.MaxResolution),
+            "file_size" => desc ? query.OrderByDescending(i => i.MaxFileSize).ThenByDescending(i => i.Id) : query.OrderBy(i => i.MaxFileSize).ThenBy(i => i.Id),
+            "resolution" => desc ? query.OrderByDescending(i => i.MaxResolution).ThenByDescending(i => i.Id) : query.OrderBy(i => i.MaxResolution).ThenBy(i => i.Id),
             "path" => ApplyPathSort(query, desc),
-            "tag_count" => desc ? query.OrderByDescending(i => i.TagCount) : query.OrderBy(i => i.TagCount),
-            "performer_count" => desc ? query.OrderByDescending(i => i.ImagePerformers.Count) : query.OrderBy(i => i.ImagePerformers.Count),
-            "created_at" => desc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
-            _ => desc ? query.OrderByDescending(i => i.UpdatedAt) : query.OrderBy(i => i.UpdatedAt),
+            "tag_count" => desc ? query.OrderByDescending(i => i.TagCount).ThenByDescending(i => i.Id) : query.OrderBy(i => i.TagCount).ThenBy(i => i.Id),
+            "performer_count" => desc ? query.OrderByDescending(i => i.ImagePerformers.Count).ThenByDescending(i => i.Id) : query.OrderBy(i => i.ImagePerformers.Count).ThenBy(i => i.Id),
+            "created_at" => desc ? query.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id) : query.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id),
+            _ => desc ? query.OrderByDescending(i => i.UpdatedAt).ThenByDescending(i => i.Id) : query.OrderBy(i => i.UpdatedAt).ThenBy(i => i.Id),
         };
     }
 
@@ -2650,6 +2825,7 @@ public class ImageRepository : IImageRepository
             return descendingQuery
                 .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
                 .ThenByDescending(item => item.DisplayTitle)
+                .ThenByDescending(item => item.Image.Id)
                 .Select(item => item.Image);
         }
 
@@ -2667,14 +2843,15 @@ public class ImageRepository : IImageRepository
         return ascendingQuery
             .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
             .ThenBy(item => item.DisplayTitle)
+            .ThenBy(item => item.Image.Id)
             .Select(item => item.Image);
     }
 
     private static IQueryable<Image> ApplyFileModTimeSort(IQueryable<Image> query, bool desc)
     {
         return desc
-            ? query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenByDescending(image => image.MaxFileModTime)
-            : query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenBy(image => image.MaxFileModTime);
+            ? query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenByDescending(image => image.MaxFileModTime).ThenByDescending(image => image.Id)
+            : query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenBy(image => image.MaxFileModTime).ThenBy(image => image.Id);
     }
 
     private static IQueryable<Image> ApplyPathSort(IQueryable<Image> query, bool desc)
@@ -2864,7 +3041,8 @@ public class GroupRepository : IGroupRepository
 
     public async Task UpdateAsync(Group entity, CancellationToken ct = default)
     {
-        _db.Groups.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Groups.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -2901,6 +3079,7 @@ public class GroupRepository : IGroupRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Group, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Group, filter.FavoriteCriterion);
             query = FilterHelpers.ApplyInt(query, filter.DurationCriterion, g => g.Duration ?? 0);
 
             if (filter.KindCriterion != null)
@@ -2922,18 +3101,7 @@ public class GroupRepository : IGroupRepository
             query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(g => !g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(g => g.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(g => g.Urls.Count > 0),
-                    _ => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, g => g.Urls.Select(u => u.Url));
 
             // Date criterion
             query = FilterHelpers.ApplyDate(query, filter.DateCriterion, g => g.Date);
@@ -3009,13 +3177,13 @@ public class GroupRepository : IGroupRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Group, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(g => g.Name) : query.OrderBy(g => g.Name),
+            "name" => desc ? query.OrderByDescending(g => g.Name).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Name).ThenBy(g => g.Id),
             "sort_order" or "sortOrder" => desc
                 ? query.OrderByDescending(g => g.SortOrder).ThenByDescending(g => g.Name).ThenByDescending(g => g.Id)
                 : query.OrderBy(g => g.SortOrder).ThenBy(g => g.Name).ThenBy(g => g.Id),
-            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Date ?? DateOnly.MinValue).ThenBy(g => g.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Group, desc),
-            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
+            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.CreatedAt).ThenBy(g => g.Id),
             "updated_at" or "updatedAt" => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             "item_count" => ApplyGroupIntSort(query, g => g.GroupItems.Count, desc),
             "video_count" => ApplyGroupIntSort(query, g => g.GroupItems.Where(item => item.VideoId != null).Select(item => item.VideoId).Distinct().Count(), desc),
@@ -3037,10 +3205,10 @@ public class GroupRepository : IGroupRepository
             "show_in_video_lists" => desc ? query.OrderByDescending(g => g.ShowInVideoLists).ThenByDescending(g => g.Id) : query.OrderBy(g => g.ShowInVideoLists).ThenBy(g => g.Id),
             "aliases" => desc ? query.OrderByDescending(g => g.Aliases ?? g.Name).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Aliases ?? g.Name).ThenBy(g => g.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
-            _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
+            _ => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, group => group.Name);
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
         if (perPage <= 0)
@@ -3094,18 +3262,29 @@ public class GroupRepository : IGroupRepository
 
     private static IQueryable<Group> ApplyAllowedHostTypesCriterion(IQueryable<Group> query, StringCriterion? criterion)
     {
-        if (criterion == null)
-            return query;
+        if (criterion?.Modifier is not (CriterionModifier.MatchesRegex or CriterionModifier.NotMatchesRegex))
+            return FilterHelpers.ApplyStringCollection(query, criterion, group => group.AllowedHostTypes);
 
-        var value = criterion.Value.Trim().ToLowerInvariant();
-        return criterion.Modifier switch
+        var matchingHostTypes = new Group().AllowedHostTypes
+            .Where(hostType => Regex.IsMatch(hostType, criterion.Value, RegexOptions.IgnoreCase))
+            .ToArray();
+        if (matchingHostTypes.Length == 0)
+            return criterion.Modifier == CriterionModifier.MatchesRegex ? query.Where(_ => false) : query;
+
+        var groupParam = Expression.Parameter(typeof(Group), "group");
+        var allowedHostTypes = Expression.Property(groupParam, nameof(Group.AllowedHostTypes));
+        var containsMethod = typeof(Enumerable).GetMethods()
+            .Single(method => method.Name == nameof(Enumerable.Contains) && method.GetParameters().Length == 2)
+            .MakeGenericMethod(typeof(string));
+        Expression? anyMatch = null;
+        foreach (var hostType in matchingHostTypes)
         {
-            CriterionModifier.Equals or CriterionModifier.Includes => query.Where(group => group.AllowedHostTypes.Any(hostType => hostType.ToLower() == value)),
-            CriterionModifier.NotEquals or CriterionModifier.Excludes => query.Where(group => !group.AllowedHostTypes.Any(hostType => hostType.ToLower() == value)),
-            CriterionModifier.IsNull => query.Where(group => group.AllowedHostTypes.Count == 0),
-            CriterionModifier.NotNull => query.Where(group => group.AllowedHostTypes.Count > 0),
-            _ => query,
-        };
+            var contains = Expression.Call(containsMethod, allowedHostTypes, Expression.Constant(hostType));
+            anyMatch = anyMatch == null ? contains : Expression.OrElse(anyMatch, contains);
+        }
+
+        var predicate = criterion.Modifier == CriterionModifier.MatchesRegex ? anyMatch! : Expression.Not(anyMatch!);
+        return query.Where(Expression.Lambda<Func<Group, bool>>(predicate, groupParam));
     }
 }
 

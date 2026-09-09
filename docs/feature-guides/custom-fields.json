@@ -1,0 +1,281 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "custom-fields",
+  "title": "Custom fields",
+  "description": "Define extra metadata, add values to library records, and use custom fields for filtering and sorting.",
+  "order": 54,
+  "pages": ["settings", "videos", "images", "audios", "texts", "performers", "tags", "studios", "galleries", "groups", "search"],
+  "contexts": ["settings-tab:library/custom-fields", "route:/settings/library/custom-fields"],
+  "sections": [
+    {
+      "id": "definitions-and-values",
+      "title": "Define the field, then fill in its values",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A custom field adds metadata that Cove does not provide as a standard field. The definition controls its key, label, type, eligible record types, and query behavior. Each eligible video, audio, image, text, performer, tag, studio, gallery, or group can then store its own value for that definition."
+        },
+        {
+          "type": "note",
+          "text": "Create definitions in Settings. Enter values on the individual records that own the metadata. Custom-field values are stored in Cove's library database; editing one does not write the value into the source media file."
+        }
+      ]
+    },
+    {
+      "id": "choose-a-type",
+      "title": "Choose a type that matches the value",
+      "blocks": [
+        {
+          "type": "table",
+          "caption": "Types available when you add a custom field in Settings",
+          "columns": ["Type", "Use it for", "Filtering and sorting"],
+          "rows": [
+            ["Text", "A short name, identifier, or other single-line value", "Optional"],
+            ["Long Text", "Notes, transcripts, or other unbounded multiline text", "Presence filter only; no content filtering or sorting"],
+            ["Number", "A score, count, rank, or measurement", "Optional, with numeric comparisons and order"],
+            ["Boolean", "A true or false state", "Optional"],
+            ["Date", "A calendar date", "Optional, with date comparisons and order"],
+            ["URL", "A web address that should open as a link", "Optional"],
+            ["Enum", "One value from a controlled list you define", "Optional"],
+            ["JSON", "A structured document containing objects, arrays, or scalar values", "Presence filter, plus configured Text, Number, or Boolean paths"]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Prefer the narrowest type that represents the value. A Number sorts numerically, a Date sorts chronologically, and an Enum prevents spelling variants. Use Long Text when the value is primarily for reading. Use JSON when several related properties belong together and you need to preserve their structure."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Configure JSON custom fields",
+              "href": "/docs/user/library/custom-fields/json/",
+              "topicId": "json-custom-fields"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "add-a-field",
+      "title": "Add your own custom field",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings → Library → Custom Fields and choose Add field.",
+            "Enter a stable Key for Cove and integrations, and a readable Label for people. For example, use review_notes as the key and Review notes as the label.",
+            "Choose the Type. For Enum, enter one allowed option per line. For JSON, configure queryable paths only for properties that need filtering or sorting.",
+            "Under Entities, select every kind of record that should carry this field.",
+            "For an ordinary queryable type, enable Filterable, Sortable, or both only when the field should appear in those controls.",
+            "Move focus out of a text control after editing it. Cove saves valid custom-field settings automatically."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/custom-field-definition.png",
+          "alt": "Long Text custom-field definition for review notes, enabled for videos and performers",
+          "caption": "The definition decides where a field appears. Long Text accepts multiline values beyond 4,000 characters; its presence can be filtered, but its contents are not filterable or sortable."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Open Custom Fields settings",
+              "href": "/docs/user/library/custom-fields/#add-a-field",
+              "appHref": "/settings/library/custom-fields"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Treat the key as a durable identifier. You can improve the label later, but changing the field type requires removing its existing values first. Removing a definition also removes the metadata stored under it. Faces can currently be selected in a definition, but the face editor does not yet provide a Custom Fields section for entering values."
+        }
+      ]
+    },
+    {
+      "id": "store-values",
+      "title": "Store a value on a record",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open an eligible video, audio, image, text, performer, tag, studio, gallery, or group.",
+            "Choose Edit and find Custom Fields.",
+            "Enter or select the value using the type-specific control. JSON opens a validated editor with Format JSON and Apply JSON actions.",
+            "Choose Save on the record editor.",
+            "Return to Details to confirm the value. Long Text keeps line breaks, URLs become links, and JSON appears as a readable expandable document."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Leaving a field unset means that record has no value. To clear an existing value, empty its control or choose Unset where available, then save the record. A definition may be shared by several entity types, but every value still belongs to one specific record."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Open Videos to choose a record",
+              "href": "/docs/user/library/detail-pages/#edit-metadata",
+              "appHref": "/videos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "filter-and-sort",
+      "title": "Filter or sort with a custom field",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Filter records"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open the list page for an entity type enabled on the field and choose Filters.",
+            "Select Custom Fields, then choose Add custom field filter.",
+            "Choose the Field. For JSON, also choose either Presence or one configured path under Target.",
+            "Choose a Match operator, enter the value when the operator needs one, and choose Apply. The available operators follow the field or JSON-path type."
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Sort records"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open the Primary sort menu above a list.",
+            "Choose the entry beginning with Custom: and the field label. A JSON target is shown as Custom: field label › path label.",
+            "Use the adjacent direction button to switch between ascending and descending order.",
+            "Choose Add another sort when a second field should break ties."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Filterable and Sortable are independent. Filterable enables type-specific content filters; Long Text and JSON still provide a Presence filter even when their contents are not directly filterable. Sort choices appear only when enabled. Existing saved filters retain an unavailable field as a warning instead of silently changing its meaning."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Search and filters",
+              "href": "/docs/user/library/search-and-filters/",
+              "topicId": "search-and-filters"
+            },
+            {
+              "label": "Use saved filters",
+              "href": "/docs/user/library/search-and-filters/saved/",
+              "topicId": "saved-filters"
+            },
+            {
+              "label": "Open Videos to filter or sort",
+              "href": "/docs/user/library/search-and-filters/#what-filters-are-for",
+              "appHref": "/videos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Recipes",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "These starting points show when a simple typed field is clearer than a JSON document."
+        },
+        {
+          "type": "recipes",
+          "items": [
+            {
+              "id": "keep-review-notes",
+              "title": "Keep detailed review notes",
+              "description": "Store readable multiline text without making its contents a query target.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Add a field with key review_notes, label Review notes, and type Long Text.",
+                    "Enable the supported entity types whose records need notes.",
+                    "Open one eligible record, choose Edit, and enter the notes under Custom Fields.",
+                    "Save and read the formatted multiline value on the detail page."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "Long Text is unbounded. You can filter whether a value is present, but you cannot filter its contents or sort by it. Pair it with a separate Enum or Number when a long note also needs a queryable status or score."
+                }
+              ]
+            },
+            {
+              "id": "prioritize-a-review-queue",
+              "title": "Prioritize a review queue",
+              "description": "Use a Number for range filters and stable numeric ordering.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Add a Number field named Review priority and enable both Filterable and Sortable.",
+                    "Store a priority value on the records that belong in the workflow.",
+                    "On the matching list page, filter Review priority with Not Null to show only records in the queue.",
+                    "Select Custom: Review priority as the Primary sort and choose descending order to put the highest values first."
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "control-a-workflow-state",
+              "title": "Control a workflow state",
+              "description": "Use an Enum to avoid several spellings for the same status.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Add an Enum field named Review status.",
+                    "Enter Draft, Ready, and Complete as separate options and enable Filterable.",
+                    "Choose one of those values when editing each eligible record.",
+                    "Filter Custom Fields → Review status with Equals and select the stage you want to work on."
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stash-imports",
+      "title": "Custom fields imported from Stash",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "During a first-run Stash import, Cove creates custom-field definitions with readable normalized keys and preserves the values on their imported records. A field becomes Number when all of its values are compatible numbers, JSON when all values are Cove-compatible JSON and the field is not numeric, and Long Text otherwise. Imported Number fields are filterable and sortable. Imported JSON fields keep the full documents but have no queryable paths until you configure them."
+        },
+        {
+          "type": "note",
+          "text": "Review imported definitions in Settings → Library → Custom Fields before building saved filters. A single incompatible source value intentionally makes the shared definition Long Text so Cove does not discard or reinterpret that value."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Import an existing library",
+              "href": "/docs/user/getting-started/import-existing-library/"
+            },
+            {
+              "label": "Add queryable paths to imported JSON",
+              "href": "/docs/user/library/custom-fields/json/",
+              "topicId": "json-custom-fields"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

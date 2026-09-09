@@ -41,8 +41,9 @@ public static class CompoundSortOrdering
     public static IQueryable<TEntity> Finish<TEntity>(
         IQueryable<TEntity> query,
         IOrderedQueryable<TEntity>? ordered,
-        Expression<Func<TEntity, int>> idSelector)
-        => ordered is null ? query.OrderBy(idSelector) : ordered.ThenBy(idSelector);
+        Expression<Func<TEntity, int>> idSelector,
+        bool descending)
+        => Append(query, ordered, idSelector, descending);
 }
 
 public sealed class CompoundSortRegistry<TEntity> where TEntity : class
@@ -256,9 +257,10 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
             descending);
     }
 
-    public IQueryable<TEntity> Finish(Expression<Func<TEntity, int>> idSelector)
+    // Use the primary clause direction even when secondary clauses have different directions.
+    public IQueryable<TEntity> Finish(Expression<Func<TEntity, int>> idSelector, bool descending)
     {
-        Append(idSelector, descending: false);
+        Append(idSelector, descending);
         return _ordered!.Select(row => row.Entity);
     }
 

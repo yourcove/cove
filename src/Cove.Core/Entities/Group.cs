@@ -15,6 +15,7 @@ public class Group : BaseEntity
     public string? Aliases { get; set; }
     public int? Duration { get; set; } // seconds
     public DateOnly? Date { get; set; }
+    public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
     public int? StudioId { get; set; }
     public string? Director { get; set; }
     public string? Synopsis { get; set; }
@@ -105,4 +106,3 @@ public class GroupRelation
     public Group? ContainingGroup { get; set; }
     public Group? SubGroup { get; set; }
 }
-

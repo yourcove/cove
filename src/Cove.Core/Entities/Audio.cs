@@ -8,6 +8,7 @@ public class Audio : BaseEntity
     public bool Organized { get; set; }
     public int? StudioId { get; set; }
     public DateOnly? Date { get; set; }
+    public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
     public string? ImageBlobId { get; set; }
 
     public int[] TagIds { get; set; } = [];

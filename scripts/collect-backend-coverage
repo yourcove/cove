@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd -- "$script_dir/.." && pwd)"
+cd "$repository_root"
+
+source gitignored/dev/agent.env
+
+# The devbox PostgreSQL sidecar is also the default performance-test server.
+# Keep explicitly configured performance settings authoritative, while deriving
+# the local defaults from the generated devbox environment.
+export COVE_PERF_PG_HOST="${COVE_PERF_PG_HOST:-${PGHOST:-127.0.0.1}}"
+export COVE_PERF_PG_PORT="${COVE_PERF_PG_PORT:-${PGPORT:-5432}}"
+export COVE_PERF_PG_USER="${COVE_PERF_PG_USER:-postgres}"
+export COVE_PERF_PG_ADMIN_DB="${COVE_PERF_PG_ADMIN_DB:-postgres}"
+if [[ ! -v COVE_PERF_PG_PASSWORD ]]; then
+  export COVE_PERF_PG_PASSWORD="${PGPASSWORD:-}"
+fi
+
+coverage_directory="artifacts/coverage"
+raw_report="$coverage_directory/all-dotnet-tests-single-session.cobertura.xml"
+gutters_report="$coverage_directory/all-dotnet-tests-single-session.coverage-gutters.xml"
+
+mkdir -p "$coverage_directory"
+
+dotnet tool restore
+dotnet build src/Cove.slnx -c Release --no-restore
+
+test_commands=$(cat <<'TEST_COMMANDS'
+set -euo pipefail
+dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
+dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
+dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
+TEST_COMMANDS
+)
+
+dotnet tool run dotnet-coverage -- collect \
+  --settings src/Cove.ApiTests/coverage.config \
+  --output "$raw_report" \
+  --output-format cobertura \
+  bash -c "$test_commands"
+
+node scripts/prepare-coverage-gutters.mjs "$raw_report" "$gutters_report"
+node scripts/check-api-controller-coverage.mjs "$raw_report"
+
+printf 'Raw backend coverage: %s\n' "$repository_root/$raw_report"
+printf 'Coverage Gutters report: %s\n' "$repository_root/$gutters_report"

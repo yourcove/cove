@@ -40,4 +40,5 @@ public class User : BaseEntity
     public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<ApiToken> ApiTokens { get; set; } = [];
     public ICollection<ExternalIdentityLink> ExternalIdentities { get; set; } = [];
+    public ICollection<Dashboard> Dashboards { get; set; } = [];
 }

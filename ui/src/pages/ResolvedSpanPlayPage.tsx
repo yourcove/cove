@@ -2,7 +2,15 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, ExternalLink, Info, ListVideo, MoreVertical, Network, Sparkles } from "lucide-react";
 import { faces, performers, videos, segmentDisplayProfiles, segmentLibrary, tags } from "../api/client";
-import type { Face, ResolvedSpan, ResolvedSpanDetail, ResolvedSpanInterval, SegmentDerivedQueryDescriptor, SegmentSpanOperator, TagProvenance } from "../api/types";
+import type {
+  Face,
+  ResolvedSpan,
+  ResolvedSpanDetail,
+  ResolvedSpanInterval,
+  SegmentDerivedQueryDescriptor,
+  SegmentSpanOperator,
+  TagProvenance,
+} from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { DetailSkeleton } from "../components/DetailSkeleton";
@@ -32,13 +40,19 @@ type ResolvedSpanTab = "overview" | "context" | "intervals" | "similar";
 
 export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQueryDescriptor, onNavigate }: Props) {
   const { backLabel, goBack } = useBackNavigation({ page: "video", id: videoId }, onNavigate);
-  const { data: detail, isLoading, error: detailError, refetch: retryDetail } = useQuery({
+  const {
+    data: detail,
+    isLoading,
+    error: detailError,
+    refetch: retryDetail,
+  } = useQuery({
     queryKey: ["video", videoId, "span", spanKey, profileId],
     queryFn: () => videos.segments.spanDetail(videoId, spanKey, profileId),
   });
   const detailLoadError = getLoadError(detail, detailError);
 
-  const title = detail?.span.tagName || detail?.span.kind || detail?.videoTitle || (detail ? `Span ${detail.span.spanKey}` : null);
+  const title =
+    detail?.span.tagName || detail?.span.kind || detail?.videoTitle || (detail ? `Span ${detail.span.spanKey}` : null);
   useDocumentTitle(title);
 
   if (isLoading) {
@@ -54,7 +68,16 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
   }
 
   if (detailLoadError) {
-    return <ListLoadError error={detailLoadError} onRetry={() => { void retryDetail(); }} title="Could not load segment" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={detailLoadError}
+        onRetry={() => {
+          void retryDetail();
+        }}
+        title="Could not load segment"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!detail) {
@@ -99,7 +122,8 @@ function ResolvedSpanPlayerCard({
   const opsMenuRef = useRef<HTMLDivElement>(null);
 
   const intervals = useMemo(
-    () => detail.intervals.length > 0 ? detail.intervals : [{ startSec: detail.span.startSec, endSec: detail.span.endSec }],
+    () =>
+      detail.intervals.length > 0 ? detail.intervals : [{ startSec: detail.span.startSec, endSec: detail.span.endSec }],
     [detail.intervals, detail.span.endSec, detail.span.startSec],
   );
   const isDerivedQuery = useMemo(() => detail.span.spanKey.startsWith("dq-"), [detail.span.spanKey]);
@@ -211,9 +235,15 @@ function ResolvedSpanPlayerCard({
     staleTime: 60_000,
   });
   const currentFile = currentVideo?.files[0];
-  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", detail.videoId != null ? [detail.videoId] : []);
-  const contextFollowTagId = detail.span.tagId ?? derivedQueryDescriptor?.operands.find((operand) => (operand.tagIds?.length ?? 0) > 0)?.tagIds?.[0];
-  const contextFollowTagName = detail.span.tagName ?? (contextFollowTagId != null ? tagNamesById.get(contextFollowTagId) : undefined);
+  const { engagementById: videoEngagement } = useEntityEngagementBatch(
+    "video",
+    detail.videoId != null ? [detail.videoId] : [],
+  );
+  const contextFollowTagId =
+    detail.span.tagId ??
+    derivedQueryDescriptor?.operands.find((operand) => (operand.tagIds?.length ?? 0) > 0)?.tagIds?.[0];
+  const contextFollowTagName =
+    detail.span.tagName ?? (contextFollowTagId != null ? tagNamesById.get(contextFollowTagId) : undefined);
   const spanContext = useMemo(
     () => buildSpanContext(videoSpansQuery.data?.spans ?? [], detail.span, contextFollowTagId, contextFollowTagName),
     [contextFollowTagId, contextFollowTagName, detail.span, videoSpansQuery.data?.spans],
@@ -235,13 +265,16 @@ function ResolvedSpanPlayerCard({
 
   const currentInterval = intervals[activeIntervalIndex] ?? intervals[0];
 
-  const seekAbsolute = useCallback((nextTime: number) => {
-    const nextIndex = findIntervalIndex(nextTime, intervals);
-    const bounded = clampNumber(nextTime, intervals[nextIndex].startSec, intervals[nextIndex].endSec);
-    setActiveIntervalIndex(nextIndex);
-    setResumeTime(bounded);
-    setCurrentAbsoluteTime(bounded);
-  }, [intervals]);
+  const seekAbsolute = useCallback(
+    (nextTime: number) => {
+      const nextIndex = findIntervalIndex(nextTime, intervals);
+      const bounded = clampNumber(nextTime, intervals[nextIndex].startSec, intervals[nextIndex].endSec);
+      setActiveIntervalIndex(nextIndex);
+      setResumeTime(bounded);
+      setCurrentAbsoluteTime(bounded);
+    },
+    [intervals],
+  );
 
   const advanceInterval = useCallback(() => {
     const nextIndex = activeIntervalIndex + 1;
@@ -261,13 +294,16 @@ function ResolvedSpanPlayerCard({
     setCurrentAbsoluteTime(endTime);
   }, [activeIntervalIndex, detail.span.endSec, intervals]);
 
-  const handlePlayerTimeUpdate = useCallback((nextTime: number) => {
-    setCurrentAbsoluteTime(nextTime);
-    const nextIndex = findIntervalIndex(nextTime, intervals);
-    if (nextIndex !== activeIntervalIndex) {
-      setActiveIntervalIndex(nextIndex);
-    }
-  }, [activeIntervalIndex, intervals]);
+  const handlePlayerTimeUpdate = useCallback(
+    (nextTime: number) => {
+      setCurrentAbsoluteTime(nextTime);
+      const nextIndex = findIntervalIndex(nextTime, intervals);
+      if (nextIndex !== activeIntervalIndex) {
+        setActiveIntervalIndex(nextIndex);
+      }
+    },
+    [activeIntervalIndex, intervals],
+  );
 
   const spanTitle = detail.span.tagName || detail.span.kind || detail.videoTitle || `Span ${detail.span.spanKey}`;
   const canCreateSubVideo = canWriteEntity("video", hasPermission) && !!currentVideo && !!currentFile;
@@ -277,12 +313,19 @@ function ResolvedSpanPlayerCard({
         throw new Error("Video not loaded");
       }
 
-      return videos.createSubVideo(detail.videoId, buildSubVideoCreate(currentVideo, {
-        startSec: detail.span.startSec,
-        endSec: detail.span.endSec,
-      }, {
-        title: spanTitle,
-      }));
+      return videos.createSubVideo(
+        detail.videoId,
+        buildSubVideoCreate(
+          currentVideo,
+          {
+            startSec: detail.span.startSec,
+            endSec: detail.span.endSec,
+          },
+          {
+            title: spanTitle,
+          },
+        ),
+      );
     },
     onSuccess: (newVideo) => {
       queryClient.invalidateQueries({ queryKey: ["videos"] });
@@ -345,12 +388,15 @@ function ResolvedSpanPlayerCard({
     intervals: intervals.map((interval) => ({ startSec: interval.startSec, endSec: interval.endSec })),
   });
 
-  const tabs = useMemo(() => [
-    { key: "overview", label: "Overview", icon: <Info className="h-4 w-4" /> },
-    { key: "context", label: "Context", icon: <Network className="h-4 w-4" /> },
-    ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
-    { key: "intervals", label: "Intervals", icon: <ListVideo className="h-4 w-4" />, count: intervals.length },
-  ], [hasVisualSimilarity, intervals.length]);
+  const tabs = useMemo(
+    () => [
+      { key: "overview", label: "Overview", icon: <Info className="h-4 w-4" /> },
+      { key: "context", label: "Context", icon: <Network className="h-4 w-4" /> },
+      ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
+      { key: "intervals", label: "Intervals", icon: <ListVideo className="h-4 w-4" />, count: intervals.length },
+    ],
+    [hasVisualSimilarity, intervals.length],
+  );
 
   const intervalsContent = (
     <div className="space-y-2">
@@ -364,7 +410,9 @@ function ResolvedSpanPlayerCard({
             className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition-colors ${index === activeIntervalIndex ? "border-accent bg-accent/10 text-foreground" : "border-border bg-card/60 text-secondary hover:border-accent"}`}
           >
             <span>Interval {index + 1}</span>
-            <span className="font-mono text-xs">{formatTime(interval.startSec)} - {formatTime(interval.endSec)}</span>
+            <span className="font-mono text-xs">
+              {formatTime(interval.startSec)} - {formatTime(interval.endSec)}
+            </span>
           </button>
         ))}
       </div>
@@ -388,14 +436,21 @@ function ResolvedSpanPlayerCard({
     <div className="space-y-4">
       {sourceDetailsContent}
       <div className="grid grid-cols-2 gap-2">
-        {buildResolvedSpanSummaryMetrics(detail.span, intervals.length, profileQuery.data?.name ?? `Profile ${detail.profileId}`, derivedOperator).map((metric) => (
+        {buildResolvedSpanSummaryMetrics(
+          detail.span,
+          intervals.length,
+          profileQuery.data?.name ?? `Profile ${detail.profileId}`,
+          derivedOperator,
+        ).map((metric) => (
           <SummaryMetric key={metric.label} label={metric.label} value={metric.value} />
         ))}
       </div>
       <dl className="mt-4 space-y-2 text-sm text-secondary">
         <div className="flex items-start justify-between gap-3">
           <dt className="text-muted">Range</dt>
-          <dd className="text-right text-foreground">{formatTime(detail.span.startSec)} - {formatTime(detail.span.endSec)}</dd>
+          <dd className="text-right text-foreground">
+            {formatTime(detail.span.startSec)} - {formatTime(detail.span.endSec)}
+          </dd>
         </div>
         <div className="flex items-start justify-between gap-3">
           <dt className="text-muted">Profile</dt>
@@ -422,14 +477,23 @@ function ResolvedSpanPlayerCard({
     <div className="space-y-4">
       {currentVideo ? (
         <div className="max-w-sm">
-          <VideoCard video={currentVideo} engagement={videoEngagement.get(detail.videoId)} onClick={() => onNavigate({ page: "video", id: detail.videoId, seekTo: detail.span.startSec })} onNavigate={onNavigate} />
+          <VideoCard
+            video={currentVideo}
+            engagement={videoEngagement.get(detail.videoId)}
+            onClick={() => onNavigate({ page: "video", id: detail.videoId, seekTo: detail.span.startSec })}
+            onNavigate={onNavigate}
+          />
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">Loading parent video...</div>
+        <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">
+          Loading parent video...
+        </div>
       )}
       {!isDerivedQuery ? (
         <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Raw segments in this span</div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Raw segments in this span
+          </div>
           {rawSegmentsQuery.isLoading ? (
             <div className="rounded-xl border border-border bg-card/70 px-3 py-3">Loading raw segments...</div>
           ) : (rawSegmentsQuery.data ?? []).length > 0 ? (
@@ -442,31 +506,72 @@ function ResolvedSpanPlayerCard({
                   className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-3 py-3 text-left transition-colors hover:border-accent"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">#{segment.id} {segment.title?.trim() || segment.tagName || segment.kind || segment.sourceKey}</div>
+                    <div className="truncate text-sm font-medium text-foreground">
+                      #{segment.id} {segment.title?.trim() || segment.tagName || segment.kind || segment.sourceKey}
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-2 text-xs text-secondary">
                       {segment.sourceKey ? <span>{segment.sourceKey}</span> : null}
                       {segment.kind ? <span>{segment.kind}</span> : null}
                       {segment.confidence != null ? <span>{segment.confidence.toFixed(2)} conf</span> : null}
                     </div>
                   </div>
-                  <div className="shrink-0 text-xs font-mono text-secondary">{formatTime(segment.startSec)} - {formatTime(segment.endSec ?? segment.startSec)}</div>
+                  <div className="shrink-0 text-xs font-mono text-secondary">
+                    {formatTime(segment.startSec)} - {formatTime(segment.endSec ?? segment.startSec)}
+                  </div>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">No raw segments were returned for this resolved span.</div>
+            <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">
+              No raw segments were returned for this resolved span.
+            </div>
           )}
         </div>
       ) : null}
       <div className="space-y-4">
         {videoSpansQuery.isLoading ? (
-          <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">Loading timeline context...</div>
+          <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">
+            Loading timeline context...
+          </div>
         ) : (
           <>
-            <ResolvedSpanContextSection title="Previous Segments" items={spanContext.previous} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the first segment in the video." />
-            <ResolvedSpanContextSection title="Next Segments" items={spanContext.next} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the last segment in the video." />
-            <ResolvedSpanContextSection title="Intersecting Segments" items={spanContext.intersecting} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="No other segments overlap this time range." />
-            <ResolvedSpanContextSection title="Next With Same Tag" items={spanContext.nextSameTag ? [spanContext.nextSameTag] : []} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage={contextFollowTagName ? `No later ${contextFollowTagName} segment is in this video.` : "This segment does not have a tag to follow."} compact />
+            <ResolvedSpanContextSection
+              title="Previous Segments"
+              items={spanContext.previous}
+              videoId={detail.videoId}
+              profileId={detail.profileId}
+              onNavigate={onNavigate}
+              emptyMessage="This is the first segment in the video."
+            />
+            <ResolvedSpanContextSection
+              title="Next Segments"
+              items={spanContext.next}
+              videoId={detail.videoId}
+              profileId={detail.profileId}
+              onNavigate={onNavigate}
+              emptyMessage="This is the last segment in the video."
+            />
+            <ResolvedSpanContextSection
+              title="Intersecting Segments"
+              items={spanContext.intersecting}
+              videoId={detail.videoId}
+              profileId={detail.profileId}
+              onNavigate={onNavigate}
+              emptyMessage="No other segments overlap this time range."
+            />
+            <ResolvedSpanContextSection
+              title="Next With Same Tag"
+              items={spanContext.nextSameTag ? [spanContext.nextSameTag] : []}
+              videoId={detail.videoId}
+              profileId={detail.profileId}
+              onNavigate={onNavigate}
+              emptyMessage={
+                contextFollowTagName
+                  ? `No later ${contextFollowTagName} segment is in this video.`
+                  : "This segment does not have a tag to follow."
+              }
+              compact
+            />
           </>
         )}
       </div>
@@ -481,13 +586,14 @@ function ResolvedSpanPlayerCard({
     />
   );
 
-  const activeContent = activeTab === "intervals"
-    ? intervalsContent
-    : activeTab === "similar"
-      ? similarContent
-      : activeTab === "context"
-        ? contextContent
-        : overviewContent;
+  const activeContent =
+    activeTab === "intervals"
+      ? intervalsContent
+      : activeTab === "similar"
+        ? similarContent
+        : activeTab === "context"
+          ? contextContent
+          : overviewContent;
 
   return (
     <MediaDetailLayout
@@ -522,27 +628,31 @@ function ResolvedSpanPlayerCard({
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
-              <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[190px] py-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      createSubVideoMutation.mutate();
-                      setShowOpsMenu(false);
-                    }}
-                    disabled={createSubVideoMutation.isPending}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:opacity-60"
-                  >
-                    <Clapperboard className="h-3.5 w-3.5" /> {createSubVideoMutation.isPending ? "Creating video" : "Make video"}
-                  </button>
+              <FloatingActionMenu
+                open={showOpsMenu}
+                anchorRef={opsMenuRef}
+                onClose={() => setShowOpsMenu(false)}
+                className="min-w-[190px] py-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    createSubVideoMutation.mutate();
+                    setShowOpsMenu(false);
+                  }}
+                  disabled={createSubVideoMutation.isPending}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:opacity-60"
+                >
+                  <Clapperboard className="h-3.5 w-3.5" />{" "}
+                  {createSubVideoMutation.isPending ? "Creating video" : "Make video"}
+                </button>
               </FloatingActionMenu>
             </div>
           ) : null}
         </>
       }
     >
-      <MediaDetailLayout.Content>
-        {activeContent}
-      </MediaDetailLayout.Content>
+      <MediaDetailLayout.Content>{activeContent}</MediaDetailLayout.Content>
     </MediaDetailLayout>
   );
 }
@@ -570,73 +680,105 @@ function ResolvedSpanSourceDetails({
 
   return (
     <div className="flex flex-wrap gap-2 text-xs">
-      {isDerivedQuery && derivedQueryDescriptor ? derivedQueryDescriptor.operands.map((operand, index) => {
-        const chips: ReactNode[] = [];
-        operand.tagIds?.forEach((tagId) => chips.push(
-          <TagBadge
-            key={`tag-${index}-${tagId}`}
-            name={tagNamesById.get(tagId) ?? `Tag #${tagId}`}
-            provenance={buildOperandTagProvenance(operand, derivedOperator ?? derivedQueryDescriptor.operator, profileName)}
-            onClick={() => onNavigate({ page: "tag", id: tagId })}
-          />,
-        ));
-        operand.performerIds?.forEach((performerId) => chips.push(
-          <ProvenanceBadge
-            key={`performer-${index}-${performerId}`}
-            name={performerNamesById.get(performerId) ?? `Performer #${performerId}`}
-            sourceLabel="Performer"
-            provenance={buildOperandTagProvenance(operand, derivedOperator ?? derivedQueryDescriptor.operator, profileName)}
-            onClick={() => onNavigate({ page: "performer", id: performerId })}
-          />,
-        ));
-        operand.faceIds?.forEach((faceId) => chips.push(
-          <ProvenanceBadge
-            key={`face-${index}-${faceId}`}
-            name={faceLabelsById.get(faceId) ?? `Face #${faceId}`}
-            sourceLabel="Face"
-            provenance={buildOperandTagProvenance(operand, derivedOperator ?? derivedQueryDescriptor.operator, profileName)}
-            onClick={() => onNavigate({ page: "face", id: faceId })}
-          />,
-        ));
+      {isDerivedQuery && derivedQueryDescriptor ? (
+        derivedQueryDescriptor.operands.map((operand, index) => {
+          const chips: ReactNode[] = [];
+          operand.tagIds?.forEach((tagId) =>
+            chips.push(
+              <TagBadge
+                key={`tag-${index}-${tagId}`}
+                name={tagNamesById.get(tagId) ?? `Tag #${tagId}`}
+                provenance={buildOperandTagProvenance(
+                  operand,
+                  derivedOperator ?? derivedQueryDescriptor.operator,
+                  profileName,
+                )}
+                onClick={() => onNavigate({ page: "tag", id: tagId })}
+              />,
+            ),
+          );
+          operand.performerIds?.forEach((performerId) =>
+            chips.push(
+              <ProvenanceBadge
+                key={`performer-${index}-${performerId}`}
+                name={performerNamesById.get(performerId) ?? `Performer #${performerId}`}
+                sourceLabel="Performer"
+                provenance={buildOperandTagProvenance(
+                  operand,
+                  derivedOperator ?? derivedQueryDescriptor.operator,
+                  profileName,
+                )}
+                onClick={() => onNavigate({ page: "performer", id: performerId })}
+              />,
+            ),
+          );
+          operand.faceIds?.forEach((faceId) =>
+            chips.push(
+              <ProvenanceBadge
+                key={`face-${index}-${faceId}`}
+                name={faceLabelsById.get(faceId) ?? `Face #${faceId}`}
+                sourceLabel="Face"
+                provenance={buildOperandTagProvenance(
+                  operand,
+                  derivedOperator ?? derivedQueryDescriptor.operator,
+                  profileName,
+                )}
+                onClick={() => onNavigate({ page: "face", id: faceId })}
+              />,
+            ),
+          );
 
-        return chips.length > 0 ? chips : (
-          <SourceChip key={`operand-${index}`}>{operand.kind || operand.sourceKey || `Operand ${index + 1}`}</SourceChip>
-        );
-      }) : (
-        detail.span.tagId && detail.span.tagName ? (
-          <TagBadge name={detail.span.tagName} provenance={buildSpanTagProvenance(detail, profileName)} onClick={() => onNavigate({ page: "tag", id: detail.span.tagId! })} />
-        ) : (
-          <SourceChip>{detail.span.tagName || detail.span.kind || detail.span.sourceKey || "Segment"}</SourceChip>
-        )
+          return chips.length > 0 ? (
+            chips
+          ) : (
+            <SourceChip key={`operand-${index}`}>
+              {operand.kind || operand.sourceKey || `Operand ${index + 1}`}
+            </SourceChip>
+          );
+        })
+      ) : detail.span.tagId && detail.span.tagName ? (
+        <TagBadge
+          name={detail.span.tagName}
+          provenance={buildSpanTagProvenance(detail, profileName)}
+          onClick={() => onNavigate({ page: "tag", id: detail.span.tagId! })}
+        />
+      ) : (
+        <SourceChip>{detail.span.tagName || detail.span.kind || detail.span.sourceKey || "Segment"}</SourceChip>
       )}
     </div>
   );
 }
 
 function buildSpanTagProvenance(detail: ResolvedSpanDetail, profileName?: string): TagProvenance[] {
-  return [{
-    sourceKey: detail.span.sourceKey || "resolved-span",
-    appliedAt: "",
-    contextType: profileName ? `profile:${profileName}` : "profile",
-    contextId: detail.profileId,
-    totalDurationSec: detail.span.endSec - detail.span.startSec,
-  }];
+  return [
+    {
+      sourceKey: detail.span.sourceKey || "resolved-span",
+      appliedAt: "",
+      contextType: profileName ? `profile:${profileName}` : "profile",
+      contextId: detail.profileId,
+      totalDurationSec: detail.span.endSec - detail.span.startSec,
+    },
+  ];
 }
 
-function buildOperandTagProvenance(operand: SegmentDerivedQueryDescriptor["operands"][number], operator: SegmentSpanOperator, profileName?: string): TagProvenance[] {
-  return [{
-    sourceKey: operand.sourceKey || `derived:${operator}`,
-    confidence: operand.minConfidence,
-    appliedAt: "",
-    contextType: profileName ? `profile:${profileName}` : `derived:${operator}`,
-  }];
+function buildOperandTagProvenance(
+  operand: SegmentDerivedQueryDescriptor["operands"][number],
+  operator: SegmentSpanOperator,
+  profileName?: string,
+): TagProvenance[] {
+  return [
+    {
+      sourceKey: operand.sourceKey || `derived:${operator}`,
+      confidence: operand.minConfidence,
+      appliedAt: "",
+      contextType: profileName ? `profile:${profileName}` : `derived:${operator}`,
+    },
+  ];
 }
 
 function SourceChip({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-foreground">
-      {children}
-    </span>
+    <span className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-foreground">{children}</span>
   );
 }
 
@@ -672,7 +814,9 @@ function ResolvedSpanContextSection({
               className="min-w-0 rounded-lg border border-border bg-surface/70 px-3 py-2 text-left transition-colors hover:border-accent/70 hover:bg-surface"
             >
               <div className="truncate text-sm font-medium text-foreground">{formatResolvedSpanTitle(item)}</div>
-              <div className="mt-1 text-xs text-secondary">{formatTime(item.startSec)}-{formatTime(item.endSec)}</div>
+              <div className="mt-1 text-xs text-secondary">
+                {formatTime(item.startSec)}-{formatTime(item.endSec)}
+              </div>
             </button>
           ))}
         </div>
@@ -681,24 +825,33 @@ function ResolvedSpanContextSection({
   );
 }
 
-function buildSpanContext(videoSpans: ResolvedSpan[], current: ResolvedSpan, followTagId?: number, followTagName?: string) {
+function buildSpanContext(
+  videoSpans: ResolvedSpan[],
+  current: ResolvedSpan,
+  followTagId?: number,
+  followTagName?: string,
+) {
   const currentEnd = current.endSec ?? current.startSec;
-  const spans = [...videoSpans.filter((span) => span.spanKey !== current.spanKey), current]
-    .sort((left, right) => left.startSec - right.startSec || left.endSec - right.endSec || left.spanKey.localeCompare(right.spanKey));
-  const currentIndex = Math.max(0, spans.findIndex((span) => span.spanKey === current.spanKey));
+  const spans = [...videoSpans.filter((span) => span.spanKey !== current.spanKey), current].sort(
+    (left, right) =>
+      left.startSec - right.startSec || left.endSec - right.endSec || left.spanKey.localeCompare(right.spanKey),
+  );
+  const currentIndex = Math.max(
+    0,
+    spans.findIndex((span) => span.spanKey === current.spanKey),
+  );
   const isCurrent = (span: ResolvedSpan) => span.spanKey === current.spanKey;
-  const previous = spans
-    .filter((span) => !isCurrent(span) && span.endSec <= current.startSec)
-    .slice(-3);
-  const next = spans
-    .filter((span) => !isCurrent(span) && span.startSec >= currentEnd)
-    .slice(0, 3);
+  const previous = spans.filter((span) => !isCurrent(span) && span.endSec <= current.startSec).slice(-3);
+  const next = spans.filter((span) => !isCurrent(span) && span.startSec >= currentEnd).slice(0, 3);
   const intersecting = spans
     .filter((span) => !isCurrent(span) && span.startSec < currentEnd && span.endSec > current.startSec)
     .slice(0, 6);
-  const nextSameTag = followTagId != null || followTagName
-    ? spans.slice(currentIndex + 1).find((span) => !isCurrent(span) && spanMatchesCurrentTag(span, followTagId, followTagName))
-    : undefined;
+  const nextSameTag =
+    followTagId != null || followTagName
+      ? spans
+          .slice(currentIndex + 1)
+          .find((span) => !isCurrent(span) && spanMatchesCurrentTag(span, followTagId, followTagName))
+      : undefined;
 
   return { previous, next, intersecting, nextSameTag };
 }
@@ -715,7 +868,12 @@ function formatResolvedSpanTitle(span: ResolvedSpan) {
   return span.tagName || span.kind || span.sourceKey || "Segment";
 }
 
-function buildResolvedSpanSummaryMetrics(span: ResolvedSpan, intervalCount: number, profileName: string, derivedOperator?: SegmentSpanOperator) {
+function buildResolvedSpanSummaryMetrics(
+  span: ResolvedSpan,
+  intervalCount: number,
+  profileName: string,
+  derivedOperator?: SegmentSpanOperator,
+) {
   const metrics: Array<{ label: string; value: string }> = [
     { label: "Duration", value: formatTime(span.endSec - span.startSec) },
     { label: "Intervals", value: `${intervalCount}` },
@@ -767,9 +925,7 @@ function clampNumber(value: number, min: number, max: number) {
 function parseDerivedOperator(spanKey: string): SegmentSpanOperator | undefined {
   const parts = spanKey.split("-", 4);
   const operator = parts[1];
-  return operator === "intersection" || operator === "union" || operator === "difference"
-    ? operator
-    : undefined;
+  return operator === "intersection" || operator === "union" || operator === "difference" ? operator : undefined;
 }
 
 function formatOperatorLabel(operator: SegmentSpanOperator) {
@@ -800,9 +956,7 @@ function formatTime(value: number) {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
-  const fractional = hundredths % 10 === 0
-    ? String(Math.floor(hundredths / 10))
-    : String(hundredths).padStart(2, "0");
+  const fractional = hundredths % 10 === 0 ? String(Math.floor(hundredths / 10)) : String(hundredths).padStart(2, "0");
 
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${fractional}`;

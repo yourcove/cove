@@ -114,7 +114,7 @@ public class DirectFileDownloaderExtensionTests
             Assert.NotNull(result);
             Assert.Equal("Example Story.html", result!.OriginalFilename);
 
-            var savedHtml = await File.ReadAllTextAsync(Path.Combine(tempDirectory, result.LocalPath));
+            var savedHtml = await File.ReadAllTextAsync(Path.Combine(tempDirectory, result.LocalPath), TestContext.Current.CancellationToken);
             Assert.Contains("<p>First paragraph.</p>", savedHtml);
             Assert.Contains("<p>Second paragraph.</p>", savedHtml);
             Assert.DoesNotContain("Site header junk", savedHtml);

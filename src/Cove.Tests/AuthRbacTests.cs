@@ -94,6 +94,65 @@ public class PermissionRegistryTests
     }
 
     [Fact]
+    public void Permission_set_intersection_narrows_superuser_to_explicit_scope()
+    {
+        var actual = PermissionSet.Intersect([Permissions.All], [Permissions.VideosRead]);
+
+        Assert.Equal([Permissions.VideosRead], actual);
+    }
+
+    [Fact]
+    public void Permission_set_intersection_combines_resource_and_action_wildcards()
+    {
+        var actual = PermissionSet.Intersect(["videos.*"], ["*.read"]);
+
+        Assert.Equal([Permissions.VideosRead], actual);
+    }
+
+    [Fact]
+    public void Permission_set_intersection_does_not_treat_multi_dot_exact_key_as_resource_wildcard()
+    {
+        var actual = PermissionSet.Intersect(["extension.feature.*"], ["*.read"]);
+
+        Assert.Empty(actual);
+    }
+
+    [Fact]
+    public void Permission_set_intersection_preserves_multi_dot_action_wildcard_semantics()
+    {
+        var actual = PermissionSet.Intersect(["videos.*"], ["*.delete.file"]);
+
+        Assert.Equal([Permissions.VideosDeleteFile], actual);
+    }
+
+    [Fact]
+    public void Permission_set_intersection_never_expands_an_explicit_grant_to_scope_wildcard()
+    {
+        var registry = new PermissionRegistry();
+        var granted = registry.Expand([Permissions.VideosWrite]);
+
+        var actual = PermissionSet.Intersect(granted, ["videos.*"]);
+
+        Assert.Equal(
+            new HashSet<string>([Permissions.VideosWrite, Permissions.VideosRead], StringComparer.Ordinal),
+            actual);
+    }
+
+    [Theory]
+    [InlineData("*", Permissions.VideosRead, true)]
+    [InlineData("videos.*", Permissions.VideosRead, true)]
+    [InlineData("*.read", Permissions.VideosRead, true)]
+    [InlineData(Permissions.VideosRead, Permissions.VideosRead, true)]
+    [InlineData(Permissions.ApiTokensWrite, Permissions.VideosRead, false)]
+    public void Permission_set_grant_check_uses_principal_wildcard_semantics(
+        string grant,
+        string required,
+        bool expected)
+    {
+        Assert.Equal(expected, PermissionSet.Grants([grant], required));
+    }
+
+    [Fact]
     public void RegisterExtensionPermissions_reports_unprefixed_keys()
     {
         var reg = new PermissionRegistry();
@@ -141,4 +200,3 @@ public class PermissionRegistryTests
         Assert.Contains("notif.read", expanded);
     }
 }
-

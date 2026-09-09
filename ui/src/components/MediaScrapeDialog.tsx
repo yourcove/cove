@@ -132,7 +132,10 @@ function normalizeTagList(values: string[]) {
   return values
     .map((value) => normalizeTagName(value))
     .filter(Boolean)
-    .filter((value, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index);
+    .filter(
+      (value, index, items) =>
+        items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index,
+    );
 }
 
 function getCreatorValue(entityType: MediaEntityType, raw: Record<string, unknown> | null) {
@@ -151,10 +154,17 @@ function getPerformerValues(entityType: MediaEntityType, raw: Record<string, unk
         ? getNamedList(raw, "Author", "author", "Creator", "creator", "Artist", "artist")
         : [];
 
-  return [...explicit, ...legacyCreatorValues].filter((value, index, values) => values.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index);
+  return [...explicit, ...legacyCreatorValues].filter(
+    (value, index, values) =>
+      values.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index,
+  );
 }
 
-function normalizeAttemptData(entityType: MediaEntityType, attempt?: ScrapeAttempt | null, rawOverride?: Record<string, unknown> | null): MediaReviewData | null {
+function normalizeAttemptData(
+  entityType: MediaEntityType,
+  attempt?: ScrapeAttempt | null,
+  rawOverride?: Record<string, unknown> | null,
+): MediaReviewData | null {
   const raw = rawOverride ?? parseJsonObject(attempt?.resultJson);
   if (!raw) {
     return null;
@@ -186,7 +196,11 @@ function getAttemptCandidates(entityType: MediaEntityType, attempt?: ScrapeAttem
   return single ? [single] : [];
 }
 
-function normalizeSnapshot(entity: MediaScrapeEntity, entityType: MediaEntityType, attempt?: ScrapeAttempt | null): MediaReviewData {
+function normalizeSnapshot(
+  entity: MediaScrapeEntity,
+  entityType: MediaEntityType,
+  attempt?: ScrapeAttempt | null,
+): MediaReviewData {
   const snapshot = parseJsonObject(attempt?.entitySnapshotJson);
   const snapshotTags = normalizeTagList(getNamedList(snapshot, "tags"));
   const snapshotPerformers = getNamedList(snapshot, "performers");
@@ -196,17 +210,23 @@ function normalizeSnapshot(entity: MediaScrapeEntity, entityType: MediaEntityTyp
     title: getString(snapshot, "title") ?? entity.title,
     code: getString(snapshot, "code") ?? entity.code,
     details: getString(snapshot, "details") ?? entity.details,
-    creator: entityType === "image" ? getString(snapshot, "photographer") ?? entity.creator : undefined,
+    creator: entityType === "image" ? (getString(snapshot, "photographer") ?? entity.creator) : undefined,
     date: normalizeVideoDate(getString(snapshot, "date") ?? entity.date),
     studio: getString(snapshot, "studio") ?? entity.studioName,
     urls: snapshotUrls.length > 0 ? snapshotUrls : entity.urls,
     tags: snapshotTags.length > 0 ? snapshotTags : normalizeTagList(entity.tags.map((tag) => tag.name)),
-    performers: snapshotPerformers.length > 0 ? snapshotPerformers : entity.performers.map((performer) => performer.name),
+    performers:
+      snapshotPerformers.length > 0 ? snapshotPerformers : entity.performers.map((performer) => performer.name),
     raw: snapshot,
   };
 }
 
-function buildDefaultApplyPlan(entity: MediaScrapeEntity, entityType: MediaEntityType, attempt?: ScrapeAttempt | null, selectedPayload?: Record<string, unknown> | null): MediaApplyPlan {
+function buildDefaultApplyPlan(
+  entity: MediaScrapeEntity,
+  entityType: MediaEntityType,
+  attempt?: ScrapeAttempt | null,
+  selectedPayload?: Record<string, unknown> | null,
+): MediaApplyPlan {
   const currentData = normalizeSnapshot(entity, entityType, attempt);
   const scrapedData = normalizeAttemptData(entityType, attempt, selectedPayload);
 
@@ -224,7 +244,8 @@ function buildDefaultApplyPlan(entity: MediaScrapeEntity, entityType: MediaEntit
   if (scrapedData.code && scrapedData.code !== currentData.code) replaceFields.push("code");
   if (scrapedData.details && scrapedData.details !== currentData.details) replaceFields.push("details");
 
-  if (entityType === "image" && scrapedData.creator && scrapedData.creator !== currentData.creator) replaceFields.push("photographer");
+  if (entityType === "image" && scrapedData.creator && scrapedData.creator !== currentData.creator)
+    replaceFields.push("photographer");
   if (scrapedData.date && scrapedData.date !== currentData.date) replaceFields.push("date");
 
   return {
@@ -235,7 +256,10 @@ function buildDefaultApplyPlan(entity: MediaScrapeEntity, entityType: MediaEntit
       studio: scrapedData.studio && scrapedData.studio !== currentData.studio ? "replace" : "skip",
       urls: scrapedData.urls.length > 0 && !listsEqual(scrapedData.urls, currentData.urls) ? "merge" : "skip",
       tags: scrapedData.tags.length > 0 && !listsEqual(scrapedData.tags, currentData.tags) ? "merge" : "skip",
-      performers: scrapedData.performers.length > 0 && !listsEqual(scrapedData.performers, currentData.performers) ? "merge" : "skip",
+      performers:
+        scrapedData.performers.length > 0 && !listsEqual(scrapedData.performers, currentData.performers)
+          ? "merge"
+          : "skip",
     },
   };
 }
@@ -286,7 +310,10 @@ function normalizeSourceUrls(urls: string[]) {
   return urls
     .map((value) => value.trim())
     .filter(Boolean)
-    .filter((value, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index);
+    .filter(
+      (value, index, items) =>
+        items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index,
+    );
 }
 
 function getSourceUrlSortScore(scrapers: ScraperSummary[], sourceUrl: string) {
@@ -297,20 +324,26 @@ function getSourceUrlSortScore(scrapers: ScraperSummary[], sourceUrl: string) {
   return scrapers.reduce((score, scraper) => score + (matchesUrlPattern(scraper, sourceUrl) ? 1 : 0), 0);
 }
 
-function chooseInitialSourceUrl(sourceUrls: string[], scrapers: ScraperSummary[], scraperPreferences: { site: string; scraperId: string }[]) {
+function chooseInitialSourceUrl(
+  sourceUrls: string[],
+  scrapers: ScraperSummary[],
+  scraperPreferences: { site: string; scraperId: string }[],
+) {
   if (sourceUrls.length <= 1) {
     return sourceUrls[0] ?? "";
   }
 
-  return [...sourceUrls].sort((left, right) => {
-    const leftScore = getSourceUrlSortScore(sortScrapersForVideo(scrapers, left, scraperPreferences), left);
-    const rightScore = getSourceUrlSortScore(sortScrapersForVideo(scrapers, right, scraperPreferences), right);
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
+  return (
+    [...sourceUrls].sort((left, right) => {
+      const leftScore = getSourceUrlSortScore(sortScrapersForVideo(scrapers, left, scraperPreferences), left);
+      const rightScore = getSourceUrlSortScore(sortScrapersForVideo(scrapers, right, scraperPreferences), right);
+      if (leftScore !== rightScore) {
+        return rightScore - leftScore;
+      }
 
-    return sourceUrls.indexOf(left) - sourceUrls.indexOf(right);
-  })[0] ?? "";
+      return sourceUrls.indexOf(left) - sourceUrls.indexOf(right);
+    })[0] ?? ""
+  );
 }
 
 export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) {
@@ -326,7 +359,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   const [selectedAttempt, setSelectedAttempt] = useState<ScrapeAttempt | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
   const [replaceFields, setReplaceFields] = useState<string[]>([]);
-  const [collectionModes, setCollectionModes] = useState<Record<string, CollectionMode>>({ ...DEFAULT_COLLECTION_MODES });
+  const [collectionModes, setCollectionModes] = useState<Record<string, CollectionMode>>({
+    ...DEFAULT_COLLECTION_MODES,
+  });
   const [tagActions, setTagActions] = useState<ScrapeRelationActionMap>({});
   const [performerActions, setPerformerActions] = useState<ScrapeRelationActionMap>({});
   const [error, setError] = useState<string | null>(null);
@@ -362,7 +397,10 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     () => entityScrapers.find((scraper) => scraper.id === selectedScraperId),
     [entityScrapers, selectedScraperId],
   );
-  const candidateResults = useMemo(() => getAttemptCandidates(entityType, selectedAttempt), [entityType, selectedAttempt]);
+  const candidateResults = useMemo(
+    () => getAttemptCandidates(entityType, selectedAttempt),
+    [entityType, selectedAttempt],
+  );
   const selectedCandidate = candidateResults[selectedCandidateIndex] ?? candidateResults[0] ?? null;
   const applyPlan = useMemo(
     () => buildDefaultApplyPlan(entity, entityType, selectedAttempt, selectedCandidate?.raw ?? null),
@@ -383,24 +421,43 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     enabled: open && (scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0),
     staleTime: 30_000,
   });
-  const existingTagNames = useMemo(() => (resolvedRelations?.tags ?? []).map((match) => match.input), [resolvedRelations]);
-  const existingPerformerNames = useMemo(() => (resolvedRelations?.performers ?? []).map((match) => match.input), [resolvedRelations]);
+  const existingTagNames = useMemo(
+    () => (resolvedRelations?.tags ?? []).map((match) => match.input),
+    [resolvedRelations],
+  );
+  const existingPerformerNames = useMemo(
+    () => (resolvedRelations?.performers ?? []).map((match) => match.input),
+    [resolvedRelations],
+  );
   const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
   const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
   const suggestedReplaceKey = useMemo(() => applyPlan.replaceFields.join("|"), [applyPlan.replaceFields]);
-  const suggestedCollectionModesKey = useMemo(() => JSON.stringify(applyPlan.collectionModes), [applyPlan.collectionModes]);
+  const suggestedCollectionModesKey = useMemo(
+    () => JSON.stringify(applyPlan.collectionModes),
+    [applyPlan.collectionModes],
+  );
   const relationDefaultsKey = useMemo(
-    () => JSON.stringify({
-      tags: scrapedData?.tags ?? [],
-      performers: scrapedData?.performers ?? [],
-      currentTags: currentData.tags,
-      currentPerformers: currentData.performers,
-      existingTags: existingTagNames,
-      existingPerformers: existingPerformerNames,
-      createMissingTags: preferences.createMissingTags,
-      createMissingPerformers: preferences.createMissingPerformers,
-    }),
-    [currentData.performers, currentData.tags, existingPerformerNames, existingTagNames, preferences.createMissingPerformers, preferences.createMissingTags, scrapedData?.performers, scrapedData?.tags],
+    () =>
+      JSON.stringify({
+        tags: scrapedData?.tags ?? [],
+        performers: scrapedData?.performers ?? [],
+        currentTags: currentData.tags,
+        currentPerformers: currentData.performers,
+        existingTags: existingTagNames,
+        existingPerformers: existingPerformerNames,
+        createMissingTags: preferences.createMissingTags,
+        createMissingPerformers: preferences.createMissingPerformers,
+      }),
+    [
+      currentData.performers,
+      currentData.tags,
+      existingPerformerNames,
+      existingTagNames,
+      preferences.createMissingPerformers,
+      preferences.createMissingTags,
+      scrapedData?.performers,
+      scrapedData?.tags,
+    ],
   );
 
   useEffect(() => {
@@ -476,7 +533,11 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
       return;
     }
 
-    setError(selectedAttempt.status.toLowerCase() === "failure" ? selectedAttempt.error || "Scrape returned no results." : null);
+    setError(
+      selectedAttempt.status.toLowerCase() === "failure"
+        ? selectedAttempt.error || "Scrape returned no results."
+        : null,
+    );
   }, [selectedAttempt]);
 
   useEffect(() => {
@@ -505,8 +566,17 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
       return;
     }
 
-    setTagActions(buildRelationActionMap(scrapedData.tags, currentData.tags, existingTagNames, preferences.createMissingTags));
-    setPerformerActions(buildRelationActionMap(scrapedData.performers, currentData.performers, existingPerformerNames, preferences.createMissingPerformers));
+    setTagActions(
+      buildRelationActionMap(scrapedData.tags, currentData.tags, existingTagNames, preferences.createMissingTags),
+    );
+    setPerformerActions(
+      buildRelationActionMap(
+        scrapedData.performers,
+        currentData.performers,
+        existingPerformerNames,
+        preferences.createMissingPerformers,
+      ),
+    );
   }, [entity.id, relationDefaultsKey, scrapedData, selectedAttempt?.id]);
 
   const runMutation = useMutation({
@@ -568,8 +638,12 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
         createMissingStudio: preferences.createMissingStudio,
         markOrganized: preferences.markOrganized,
         selectedCandidateIndex: candidateResults.length > 1 ? selectedCandidateIndex : undefined,
-        tagSelections: scrapedData?.tags.length ? buildRelationSelectionPayload(scrapedData.tags, tagActions) : undefined,
-        performerSelections: scrapedData?.performers.length ? buildRelationSelectionPayload(scrapedData.performers, performerActions) : undefined,
+        tagSelections: scrapedData?.tags.length
+          ? buildRelationSelectionPayload(scrapedData.tags, tagActions)
+          : undefined,
+        performerSelections: scrapedData?.performers.length
+          ? buildRelationSelectionPayload(scrapedData.performers, performerActions)
+          : undefined,
       });
     },
     onSuccess: async (attempt) => {
@@ -594,12 +668,16 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   const canApply = Boolean(selectedAttempt && scrapedData && selectedAttempt.status.toLowerCase() !== "failure");
   const entityLabel = getEntityLabel(entityType, entity);
   const collectionChangeCount = Object.values(collectionModes).filter((mode) => mode !== "skip").length;
-  const rawPayload = selectedCandidate?.raw ? JSON.stringify(selectedCandidate.raw, null, 2) : selectedAttempt?.resultJson || "No result JSON";
+  const rawPayload = selectedCandidate?.raw
+    ? JSON.stringify(selectedCandidate.raw, null, 2)
+    : selectedAttempt?.resultJson || "No result JSON";
   const scalarRows = [
     { key: "title", label: "Title", current: currentData.title, scraped: scrapedData?.title },
     { key: "code", label: "Code", current: currentData.code, scraped: scrapedData?.code },
     { key: "details", label: "Details", current: currentData.details, scraped: scrapedData?.details, multiline: true },
-    ...(entityType === "image" ? [{ key: "photographer", label: "Photographer", current: currentData.creator, scraped: scrapedData?.creator }] : []),
+    ...(entityType === "image"
+      ? [{ key: "photographer", label: "Photographer", current: currentData.creator, scraped: scrapedData?.creator }]
+      : []),
     { key: "date", label: "Date", current: currentData.date, scraped: scrapedData?.date },
   ].filter((row) => Boolean(row.scraped));
   const collectionRows = [
@@ -621,7 +699,11 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
               Run a scraper for {entityLabel} and review the incoming metadata before it touches the {entityType}.
             </p>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-foreground" aria-label="Close scrape review dialog">
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-foreground"
+            aria-label="Close scrape review dialog"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -634,7 +716,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                   <div>
                     <div className="text-xs uppercase tracking-[0.18em] text-muted">{ENTITY_LABELS[entityType]}</div>
                     <div className="mt-1 text-sm font-semibold text-foreground">{entityLabel}</div>
-                    <div className="mt-2 break-all text-xs text-secondary">{activeSourceUrl ? activeSourceUrl : "No source URL stored yet."}</div>
+                    <div className="mt-2 break-all text-xs text-secondary">
+                      {activeSourceUrl ? activeSourceUrl : "No source URL stored yet."}
+                    </div>
                     {sourceUrls.length > 1 ? (
                       <div className="mt-3 space-y-1.5">
                         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Source URL</div>
@@ -643,7 +727,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                           onChange={(event) => {
                             const nextSourceUrl = event.target.value;
                             setSelectedSourceUrl(nextSourceUrl);
-                            setSelectedScraperId(findPreferredScraperId(availableEntityScrapers, nextSourceUrl, scraperPreferences));
+                            setSelectedScraperId(
+                              findPreferredScraperId(availableEntityScrapers, nextSourceUrl, scraperPreferences),
+                            );
                             setUrl(nextSourceUrl);
                             setFragmentJson(buildFragmentDraftForUrl(entityType, entity, nextSourceUrl));
                             setSelectedAttempt(null);
@@ -658,7 +744,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                             </option>
                           ))}
                         </select>
-                        <div className="text-[11px] text-muted">Choose which stored URL should drive scraper selection and the default scrape input.</div>
+                        <div className="text-[11px] text-muted">
+                          Choose which stored URL should drive scraper selection and the default scrape input.
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -727,7 +815,8 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                       className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none"
                     />
                     <div className="text-xs text-secondary">
-                      Edit the search text before running if the stored title contains extra site prefixes or punctuation.
+                      Edit the search text before running if the stored title contains extra site prefixes or
+                      punctuation.
                     </div>
                   </div>
                 ) : null}
@@ -785,7 +874,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                                 {attemptCandidates.length > 1 ? ` • ${attemptCandidates.length} matches` : ""}
                               </div>
                             </div>
-                            <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusTone(attempt.status)}`}>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${statusTone(attempt.status)}`}
+                            >
                               {attempt.status}
                             </span>
                           </div>
@@ -832,7 +923,8 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted">
                     <Sparkles className="h-4 w-4 text-accent" />
-                    {replaceFields.length} replace field{replaceFields.length === 1 ? "" : "s"} selected, {collectionChangeCount} collection action{collectionChangeCount === 1 ? "" : "s"}
+                    {replaceFields.length} replace field{replaceFields.length === 1 ? "" : "s"} selected,{" "}
+                    {collectionChangeCount} collection action{collectionChangeCount === 1 ? "" : "s"}
                   </div>
                 </div>
 
@@ -841,7 +933,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-foreground">Search Matches</div>
-                        <div className="text-xs text-secondary">Choose the candidate that best matches the {entityType} before applying any fields.</div>
+                        <div className="text-xs text-secondary">
+                          Choose the candidate that best matches the {entityType} before applying any fields.
+                        </div>
                       </div>
                       <div className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
                         {candidateResults.length} options
@@ -851,8 +945,17 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                       {candidateResults.map((candidate, index) => {
                         const title = candidate.title || candidate.code || candidate.urls[0] || `Result ${index + 1}`;
                         const candidatePerformers = candidate.performers.join(", ");
-                        const subtitle = [entityType === "image" ? candidate.creator : candidatePerformers, candidate.studio, candidate.date].filter(Boolean).join(" • ");
-                        const missingSubtitle = entityType === "image" ? "No photographer, studio, or date available" : "No performers, studio, or date available";
+                        const subtitle = [
+                          entityType === "image" ? candidate.creator : candidatePerformers,
+                          candidate.studio,
+                          candidate.date,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ");
+                        const missingSubtitle =
+                          entityType === "image"
+                            ? "No photographer, studio, or date available"
+                            : "No performers, studio, or date available";
                         return (
                           <button
                             key={`${title}-${index}`}
@@ -864,10 +967,15 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                             }`}
                           >
                             <div className="text-sm font-semibold text-foreground">{title}</div>
-                            <div className="mt-1 min-h-[1.25rem] text-xs text-secondary">{subtitle || missingSubtitle}</div>
-                            <div className="mt-2 line-clamp-2 break-all text-xs text-muted">{candidate.urls[0] || candidate.details || "No URL available"}</div>
+                            <div className="mt-1 min-h-[1.25rem] text-xs text-secondary">
+                              {subtitle || missingSubtitle}
+                            </div>
+                            <div className="mt-2 line-clamp-2 break-all text-xs text-muted">
+                              {candidate.urls[0] || candidate.details || "No URL available"}
+                            </div>
                             <div className="mt-3 text-[11px] uppercase tracking-[0.18em] text-muted">
-                              {candidate.performers.length} performer{candidate.performers.length === 1 ? "" : "s"} • {candidate.tags.length} tag{candidate.tags.length === 1 ? "" : "s"}
+                              {candidate.performers.length} performer{candidate.performers.length === 1 ? "" : "s"} •{" "}
+                              {candidate.tags.length} tag{candidate.tags.length === 1 ? "" : "s"}
                             </div>
                           </button>
                         );
@@ -881,10 +989,16 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-foreground">{row.label}</div>
-                        <div className="text-xs text-secondary">Apply the scraped value only if it is the one you want to keep.</div>
+                        <div className="text-xs text-secondary">
+                          Apply the scraped value only if it is the one you want to keep.
+                        </div>
                       </div>
                       <button
-                        onClick={() => setReplaceFields((current) => upsertReplaceField(current, row.key, !replaceFields.includes(row.key)))}
+                        onClick={() =>
+                          setReplaceFields((current) =>
+                            upsertReplaceField(current, row.key, !replaceFields.includes(row.key)),
+                          )
+                        }
                         className={`rounded-full border px-3 py-1 text-xs font-medium ${
                           replaceFields.includes(row.key)
                             ? "border-accent/40 bg-accent/10 text-accent"
@@ -903,7 +1017,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                       </div>
                       <div className="rounded-2xl border border-accent/30 bg-accent/5 p-3">
                         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">Scraped</div>
-                        <div className={`mt-2 text-sm text-foreground ${row.multiline ? "whitespace-pre-wrap" : ""}`}>{row.scraped}</div>
+                        <div className={`mt-2 text-sm text-foreground ${row.multiline ? "whitespace-pre-wrap" : ""}`}>
+                          {row.scraped}
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -914,11 +1030,18 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-foreground">Studio</div>
-                        <div className="text-xs text-secondary">Choose whether the scraped studio should replace the current one.</div>
+                        <div className="text-xs text-secondary">
+                          Choose whether the scraped studio should replace the current one.
+                        </div>
                       </div>
                       <select
                         value={collectionModes.studio}
-                        onChange={(event) => setCollectionModes((current) => ({ ...current, studio: event.target.value as CollectionMode }))}
+                        onChange={(event) =>
+                          setCollectionModes((current) => ({
+                            ...current,
+                            studio: event.target.value as CollectionMode,
+                          }))
+                        }
                         className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none"
                       >
                         <option value="skip">Skip</option>
@@ -928,7 +1051,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                     <div className="mt-4 grid gap-3 lg:grid-cols-2">
                       <div className="rounded-2xl border border-border bg-surface p-3">
                         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Current</div>
-                        <div className="mt-2 text-sm text-secondary">{currentData.studio || <span className="text-muted">Empty</span>}</div>
+                        <div className="mt-2 text-sm text-secondary">
+                          {currentData.studio || <span className="text-muted">Empty</span>}
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-accent/30 bg-accent/5 p-3">
                         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">Scraped</div>
@@ -951,45 +1076,64 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
 
                       return (
                         <>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">{row.label}</div>
-                        {!showRelationChoices ? <div className="text-xs text-secondary">Merge the incoming list, replace it entirely, or leave the current values untouched.</div> : null}
-                      </div>
-                      <select
-                        value={collectionModes[row.key]}
-                        onChange={(event) => setCollectionModes((current) => ({ ...current, [row.key]: event.target.value as CollectionMode }))}
-                        className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none"
-                      >
-                        <option value="skip">Skip</option>
-                        <option value="merge">Merge</option>
-                        <option value="replace">Replace</option>
-                      </select>
-                    </div>
-                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-2xl border border-border bg-surface p-3">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Current</div>
-                        <div className="mt-2 text-sm text-secondary">
-                          {row.current.length > 0 ? row.current.join(", ") : <span className="text-muted">Empty</span>}
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-accent/30 bg-accent/5 p-3">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">Scraped</div>
-                        {showRelationChoices ? (
-                          <ScrapeRelationChoices
-                            names={row.scraped}
-                            currentNames={row.current}
-                            existingNames={existingNames}
-                            matchInfo={matchInfo}
-                            actions={relationActions}
-                            disabled={collectionModes[row.key] === "skip"}
-                            onActionChange={(name, action) => setRelationActions((current) => ({ ...current, [relationKey(name)]: action }))}
-                          />
-                        ) : (
-                          <div className="mt-2 text-sm text-foreground">{row.scraped.join(", ")}</div>
-                        )}
-                      </div>
-                    </div>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{row.label}</div>
+                              {!showRelationChoices ? (
+                                <div className="text-xs text-secondary">
+                                  Merge the incoming list, replace it entirely, or leave the current values untouched.
+                                </div>
+                              ) : null}
+                            </div>
+                            <select
+                              value={collectionModes[row.key]}
+                              onChange={(event) =>
+                                setCollectionModes((current) => ({
+                                  ...current,
+                                  [row.key]: event.target.value as CollectionMode,
+                                }))
+                              }
+                              className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none"
+                            >
+                              <option value="skip">Skip</option>
+                              <option value="merge">Merge</option>
+                              <option value="replace">Replace</option>
+                            </select>
+                          </div>
+                          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-2xl border border-border bg-surface p-3">
+                              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+                                Current
+                              </div>
+                              <div className="mt-2 text-sm text-secondary">
+                                {row.current.length > 0 ? (
+                                  row.current.join(", ")
+                                ) : (
+                                  <span className="text-muted">Empty</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-accent/30 bg-accent/5 p-3">
+                              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
+                                Scraped
+                              </div>
+                              {showRelationChoices ? (
+                                <ScrapeRelationChoices
+                                  names={row.scraped}
+                                  currentNames={row.current}
+                                  existingNames={existingNames}
+                                  matchInfo={matchInfo}
+                                  actions={relationActions}
+                                  disabled={collectionModes[row.key] === "skip"}
+                                  onActionChange={(name, action) =>
+                                    setRelationActions((current) => ({ ...current, [relationKey(name)]: action }))
+                                  }
+                                />
+                              ) : (
+                                <div className="mt-2 text-sm text-foreground">{row.scraped.join(", ")}</div>
+                              )}
+                            </div>
+                          </div>
                         </>
                       );
                     })()}
@@ -999,13 +1143,17 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                 <div className="grid gap-4 rounded-2xl border border-border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                   <div>
                     <div className="text-sm font-semibold text-foreground">Apply Defaults</div>
-                    <div className="mt-1 text-xs text-secondary">These options persist for future scrape review runs.</div>
+                    <div className="mt-1 text-xs text-secondary">
+                      These options persist for future scrape review runs.
+                    </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <label className="flex items-center gap-2 text-sm text-secondary">
                         <input
                           type="checkbox"
                           checked={preferences.createMissingStudio}
-                          onChange={(event) => setPreferences((current) => ({ ...current, createMissingStudio: event.target.checked }))}
+                          onChange={(event) =>
+                            setPreferences((current) => ({ ...current, createMissingStudio: event.target.checked }))
+                          }
                           className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
                         />
                         Create missing studio
@@ -1014,7 +1162,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                         <input
                           type="checkbox"
                           checked={preferences.createMissingTags}
-                          onChange={(event) => setPreferences((current) => ({ ...current, createMissingTags: event.target.checked }))}
+                          onChange={(event) =>
+                            setPreferences((current) => ({ ...current, createMissingTags: event.target.checked }))
+                          }
                           className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
                         />
                         Default new tags to create
@@ -1023,7 +1173,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                         <input
                           type="checkbox"
                           checked={preferences.createMissingPerformers}
-                          onChange={(event) => setPreferences((current) => ({ ...current, createMissingPerformers: event.target.checked }))}
+                          onChange={(event) =>
+                            setPreferences((current) => ({ ...current, createMissingPerformers: event.target.checked }))
+                          }
                           className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
                         />
                         Default new performers to create
@@ -1032,7 +1184,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                         <input
                           type="checkbox"
                           checked={preferences.markOrganized}
-                          onChange={(event) => setPreferences((current) => ({ ...current, markOrganized: event.target.checked }))}
+                          onChange={(event) =>
+                            setPreferences((current) => ({ ...current, markOrganized: event.target.checked }))
+                          }
                           className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
                         />
                         Mark {entityType} organized after apply
@@ -1041,20 +1195,28 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                   </div>
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Ready To Apply</div>
-                    <div className="mt-2 text-2xl font-semibold text-foreground">{replaceFields.length + collectionChangeCount}</div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">
+                      {replaceFields.length + collectionChangeCount}
+                    </div>
                     <div className="mt-1 text-xs text-secondary">
-                      {replaceFields.length} direct field change{replaceFields.length === 1 ? "" : "s"} and {collectionChangeCount} collection rule{collectionChangeCount === 1 ? "" : "s"}.
+                      {replaceFields.length} direct field change{replaceFields.length === 1 ? "" : "s"} and{" "}
+                      {collectionChangeCount} collection rule{collectionChangeCount === 1 ? "" : "s"}.
                     </div>
                   </div>
                 </div>
 
                 <details className="rounded-2xl border border-border bg-card p-4">
                   <summary className="cursor-pointer text-sm font-medium text-foreground">Raw scrape payload</summary>
-                  <pre className="mt-3 overflow-x-auto rounded-xl bg-black/30 p-3 text-xs text-secondary">{rawPayload}</pre>
+                  <pre className="mt-3 overflow-x-auto rounded-xl bg-black/30 p-3 text-xs text-secondary">
+                    {rawPayload}
+                  </pre>
                 </details>
 
                 <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
-                  <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-secondary hover:text-foreground">
+                  <button
+                    onClick={onClose}
+                    className="rounded-xl px-4 py-2 text-sm text-secondary hover:text-foreground"
+                  >
                     Close
                   </button>
                   <button
@@ -1062,7 +1224,11 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                     disabled={!canApply || applyMutation.isPending || runMutation.isPending}
                     className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                   >
-                    {applyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                    {applyMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ExternalLink className="h-4 w-4" />
+                    )}
                     Apply Selected Fields
                   </button>
                 </div>

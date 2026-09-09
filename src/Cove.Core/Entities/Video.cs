@@ -7,6 +7,7 @@ public class Video : BaseEntity
     public string? Details { get; set; }
     public string? Director { get; set; }
     public DateOnly? Date { get; set; }
+    public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
     public bool Organized { get; set; }
     public bool IsVr { get; set; }
     public int? StudioId { get; set; }
@@ -102,4 +103,3 @@ public class VideoPlayHistory
     public DateTime PlayedAt { get; set; }
     public Video? Video { get; set; }
 }
-

@@ -2,6 +2,8 @@ export const PERFORMER_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "rating", label: "Rating" },
   { value: "video_count", label: "Video Count" },
+  { value: "audio_count", label: "Audio Count" },
+  { value: "text_count", label: "Text Count" },
   { value: "image_count", label: "Image Count" },
   { value: "gallery_count", label: "Gallery Count" },
   { value: "latest_video_date", label: "Latest Video Date" },

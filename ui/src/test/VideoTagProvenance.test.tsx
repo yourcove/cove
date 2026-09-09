@@ -47,7 +47,7 @@ describe("Video tag provenance", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <DetailsTab video={video as any} onNavigate={vi.fn()} />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByText("AI Tagged")).toBeInTheDocument();

@@ -28,8 +28,14 @@ export function ListQueryState({
 }: ListQueryStateProps) {
   let content = children;
   if (isLoading) content = loading;
-  else if (loadError) content = <ListLoadError error={loadError} onRetry={onRetry} title={errorTitle} className={errorClassName} />;
+  else if (loadError)
+    content = <ListLoadError error={loadError} onRetry={onRetry} title={errorTitle} className={errorClassName} />;
   else if (isEmpty) content = empty;
 
-  return <>{header}{content}</>;
+  return (
+    <>
+      {header}
+      {content}
+    </>
+  );
 }

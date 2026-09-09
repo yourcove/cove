@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -27,7 +28,9 @@ public class TagsController(
     ExtensionEntityFilterService? extensionFilters = null,
     ICurrentPrincipalAccessor? principalAccessor = null,
     IEventBus? eventBus = null,
-    TagMergeService? tagMergeService = null) : ControllerBase
+    TagMergeService? tagMergeService = null,
+    BulkDeletionJobService? bulkDeletionJobService = null,
+    BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private const int ExtensionFilterCandidateLimit = 5_000;
 
@@ -299,6 +302,7 @@ public class TagsController(
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<TagDetailDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {
@@ -423,23 +427,24 @@ public class TagsController(
 
         if (dto.Aliases != null)
         {
-            tag.Aliases.Clear();
-            tag.Aliases = dto.Aliases.Select(a => new TagAlias { Alias = a, TagId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.Aliases, dto.Aliases, item => item.Alias, alias => new TagAlias { Alias = alias, TagId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.ParentIds != null)
         {
-            tag.ParentRelations.Clear();
-            tag.ParentRelations = dto.ParentIds.Select(pid => new TagParent { ParentId = pid, ChildId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.ParentRelations, dto.ParentIds, item => item.ParentId, parentId => new TagParent { ParentId = parentId, ChildId = id }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.ChildIds != null)
         {
-            tag.ChildRelations.Clear();
-            tag.ChildRelations = dto.ChildIds.Select(cid => new TagParent { ParentId = id, ChildId = cid }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.ChildRelations, dto.ChildIds, item => item.ChildId, childId => new TagParent { ParentId = id, ChildId = childId }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.RemoteIds != null)
         {
-            tag.RemoteIds.Clear();
-            tag.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new TagRemoteId { TagId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new TagRemoteId { TagId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         try
         {
@@ -452,8 +457,14 @@ public class TagsController(
         {
             return Conflict(new { message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(tag);
+            if (tagRepo != null)
+                await tagRepo.UpdateAsync(tag, ct);
+            else
+                await db.SaveChangesAsync(ct);
+        }
         await EvictSegmentSpanCachesForTagsAsync([id], ct);
         var updated = tagRepo != null
             ? await tagRepo.GetByIdWithRelationsAsync(id, ct)
@@ -580,7 +591,8 @@ public class TagsController(
                 return Forbid();
         }
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principal),
             "metadata-server:tags",
             $"Tagging {ids.Count} tags from {dto.Endpoint}",
             async (progress, jobCt) =>
@@ -598,6 +610,19 @@ public class TagsController(
     [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Tag,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var tag = await tagRepo.GetByIdAsync(id, ct);
         if (tag == null) return NotFound();
         await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, id, ct);
@@ -660,14 +685,14 @@ public class TagsController(
             t.ParentRelations
                 .Where(pr => pr.Parent != null)
                 .Select(pr => pr.Parent!)
-                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(parent => MapTagDto(parent))
+                .OrderForDisplay()
                 .ToList(),
             t.ChildRelations
                 .Where(cr => cr.Child != null)
                 .Select(cr => cr.Child!)
-                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(child => MapTagDto(child))
+                .OrderForDisplay()
                 .ToList(),
             usageCounts.VideoCount,
             usageCounts.PerformerCount,
@@ -752,6 +777,8 @@ public class TagsController(
                 usageCounts.GroupCount,
                 usageCounts.PerformerCount,
                 usageCounts.StudioCount,
+                usageCounts.AudioCount,
+                usageCounts.TextCount,
                 EntityImageUrls.TagOrNull(ControllerContext.HttpContext, t),
                 t.ShowAsSegment,
                 t.SegmentColorOverride,
@@ -762,7 +789,11 @@ public class TagsController(
                 t.TagGroup?.Color,
                 t.MinOccurrenceSec,
                 t.MinOccurrencePercent,
-                t.Organized);
+                t.Organized)
+            {
+                TagGroupSortOrder = t.TagGroup?.SortOrder,
+                SortName = t.SortName,
+            };
         }).ToList();
     }
 
@@ -862,7 +893,11 @@ public class TagsController(
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
             Organized: tag.Organized,
-            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null)
+        {
+            TagGroupSortOrder = tag.TagGroup?.SortOrder,
+            SortName = tag.SortName,
+        };
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -1011,17 +1046,17 @@ public class TagsController(
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.TagsDelete)]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var tags = await db.Tags.Where(t => dto.Ids.Contains(t.Id)).ToListAsync(ct);
-        if (tags.Count == 0)
-            return Ok(new BulkDeleteResult([]));
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one tag to delete.");
 
-        db.Tags.RemoveRange(tags);
-        foreach (var tag in tags)
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, tag.Id, ct);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(tags.Select(tag => tag.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Tag,
+            ids));
     }
 
     // ===== Merge =====

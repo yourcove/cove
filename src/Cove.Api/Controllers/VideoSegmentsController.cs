@@ -143,7 +143,6 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
             return BadRequest("A segment with kind 'tag' must reference a tag.");
 
         var segment = await db.Segments
-            .Include(item => item.Tag)
             .FirstOrDefaultAsync(item => item.Id == id && item.HostType == SegmentHostType.Video && item.HostId == videoId, ct);
         if (segment is null) return NotFound();
 
@@ -170,7 +169,6 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
         segment.Confidence = dto.Confidence;
         segment.Title = dto.Title;
         segment.ColorHint = dto.ColorHint;
-        segment.Tag = null;
 
         var manualFields = new Dictionary<string, object?>();
         if (!originalStartSec.Equals(segment.StartSec)) manualFields["start_sec"] = segment.StartSec;

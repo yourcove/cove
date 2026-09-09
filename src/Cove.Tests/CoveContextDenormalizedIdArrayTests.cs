@@ -20,14 +20,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SaveChanges_NewMediaGraphs_StoreGeneratedPerformerAndTagIds(bool saveAsynchronously)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
 
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var performer = new Performer { Name = "New performer" };
         var tag = new Tag { Name = "New tag" };
@@ -43,14 +43,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
         context.AddRange(video, image, gallery);
 
         if (saveAsynchronously)
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         else
             context.SaveChanges();
         context.ChangeTracker.Clear();
 
-        var savedVideo = await context.Videos.SingleAsync();
-        var savedImage = await context.Images.SingleAsync();
-        var savedGallery = await context.Galleries.SingleAsync();
+        var savedVideo = await context.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var savedImage = await context.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var savedGallery = await context.Galleries.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([performer.Id], savedVideo.PerformerIds);
         Assert.Equal([tag.Id], savedVideo.TagIds);
         Assert.Equal([performer.Id], savedImage.PerformerIds);
@@ -65,14 +65,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SaveChanges_ExistingVideoWithNewRelationships_ReplacesTemporaryIds(bool saveAsynchronously)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
 
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var existingPerformer = new Performer { Name = "Existing performer" };
         var existingTag = new Tag { Name = "Existing tag" };
@@ -80,7 +80,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         video.VideoPerformers.Add(new VideoPerformer { Performer = existingPerformer });
         video.VideoTags.Add(new VideoTag { Tag = existingTag });
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var performer = new Performer { Name = "New performer" };
         var tag = new Tag { Name = "New tag" };
@@ -88,12 +88,12 @@ public sealed class CoveContextDenormalizedIdArrayTests
         video.VideoTags.Add(new VideoTag { Tag = tag });
 
         if (saveAsynchronously)
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         else
             context.SaveChanges();
         context.ChangeTracker.Clear();
 
-        var saved = await context.Videos.SingleAsync();
+        var saved = await context.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([existingPerformer.Id, performer.Id], saved.PerformerIds);
         Assert.Equal([existingTag.Id, tag.Id], saved.TagIds);
     }
@@ -102,7 +102,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SaveChanges_ReplacingRelationshipWithSameKey_PreservesDerivedArray()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
@@ -112,14 +112,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int tagId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var performer = new Performer { Name = "Existing performer" };
             var tag = new Tag { Name = "Existing tag" };
             var video = new Video { Title = "Existing video" };
             video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
             video.VideoTags.Add(new VideoTag { Tag = tag });
             setup.Add(video);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
             performerId = performer.Id;
             tagId = tag.Id;
@@ -130,7 +130,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
             var video = await update.Videos
                 .Include(entity => entity.VideoPerformers)
                 .Include(entity => entity.VideoTags)
-                .SingleAsync(entity => entity.Id == videoId);
+                .SingleAsync(entity => entity.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
             video.VideoPerformers.Clear();
             video.VideoPerformers =
             [
@@ -141,14 +141,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
             [
                 new VideoTag { VideoId = videoId, TagId = tagId },
             ];
-            await update.SaveChangesAsync();
+            await update.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var verification = new CoveContext(options);
         var stored = await verification.Videos
             .Include(video => video.VideoPerformers)
             .Include(video => video.VideoTags)
-            .SingleAsync(video => video.Id == videoId);
+            .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([performerId], stored.VideoPerformers.Select(link => link.PerformerId).ToArray());
         Assert.Equal([performerId], stored.PerformerIds);
         Assert.Equal([tagId], stored.VideoTags.Select(link => link.TagId).ToArray());
@@ -161,20 +161,20 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SaveChanges_ExistingVideoAssignedNewStudio_RefreshesGeneratedStudioCounts(bool saveAsynchronously)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
 
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var existingPerformer = new Performer { Name = "Existing performer" };
         var video = new Video { Title = "Existing video" };
         video.VideoPerformers.Add(new VideoPerformer { Performer = existingPerformer });
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var scrapedPerformer = new Performer { Name = "Scraped performer" };
         var scrapedStudio = new Studio { Name = "Scraped studio" };
@@ -182,12 +182,12 @@ public sealed class CoveContextDenormalizedIdArrayTests
         video.VideoPerformers.Add(new VideoPerformer { Performer = scrapedPerformer });
 
         if (saveAsynchronously)
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         else
             context.SaveChanges();
         context.ChangeTracker.Clear();
 
-        var savedStudio = await context.Studios.SingleAsync();
+        var savedStudio = await context.Studios.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(1, savedStudio.VideoCount);
         Assert.Equal(2, savedStudio.PerformerCount);
     }
@@ -196,19 +196,19 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task RecomputeAllDerivedCountsAsync_RepairsStaleMediaIdArrays()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
 
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var performer = new Performer { Name = "Existing performer" };
         var tag = new Tag { Name = "Existing tag" };
         await context.AddRangeAsync(performer, tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var video = new Video { Title = "Existing video" };
         video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
@@ -220,28 +220,28 @@ public sealed class CoveContextDenormalizedIdArrayTests
         gallery.GalleryPerformers.Add(new GalleryPerformer { Performer = performer });
         gallery.GalleryTags.Add(new GalleryTag { Tag = tag });
         context.AddRange(video, image, gallery);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await context.Videos
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.PerformerIds, [0])
-                .SetProperty(item => item.TagIds, Array.Empty<int>()));
+                .SetProperty(item => item.TagIds, Array.Empty<int>()), cancellationToken: TestContext.Current.CancellationToken);
         await context.Images
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.PerformerIds, [0])
-                .SetProperty(item => item.TagIds, Array.Empty<int>()));
+                .SetProperty(item => item.TagIds, Array.Empty<int>()), cancellationToken: TestContext.Current.CancellationToken);
         await context.Galleries
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.PerformerIds, [0])
-                .SetProperty(item => item.TagIds, Array.Empty<int>()));
+                .SetProperty(item => item.TagIds, Array.Empty<int>()), cancellationToken: TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
-        await context.RecomputeAllDerivedCountsAsync();
+        await context.RecomputeAllDerivedCountsAsync(cancellationToken: TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
-        var repairedVideo = await context.Videos.SingleAsync();
-        var repairedImage = await context.Images.SingleAsync();
-        var repairedGallery = await context.Galleries.SingleAsync();
+        var repairedVideo = await context.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var repairedImage = await context.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var repairedGallery = await context.Galleries.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([performer.Id], repairedVideo.PerformerIds);
         Assert.Equal([tag.Id], repairedVideo.TagIds);
         Assert.Equal([performer.Id], repairedImage.PerformerIds);
@@ -254,13 +254,13 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SaveChanges_DirectMediaArrayWritesWithoutLinkChanges_AreIgnored()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var performer = new Performer { Name = "Existing performer" };
         var tag = new Tag { Name = "Existing tag" };
@@ -274,7 +274,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         gallery.GalleryPerformers.Add(new GalleryPerformer { Performer = performer });
         gallery.GalleryTags.Add(new GalleryTag { Tag = tag });
         context.AddRange(video, image, gallery);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         video.PerformerIds = [];
         video.TagIds = [];
@@ -282,12 +282,12 @@ public sealed class CoveContextDenormalizedIdArrayTests
         image.TagIds = [];
         gallery.PerformerIds = [];
         gallery.TagIds = [];
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
-        var storedVideo = await context.Videos.SingleAsync();
-        var storedImage = await context.Images.SingleAsync();
-        var storedGallery = await context.Galleries.SingleAsync();
+        var storedVideo = await context.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var storedImage = await context.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var storedGallery = await context.Galleries.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([performer.Id], storedVideo.PerformerIds);
         Assert.Equal([tag.Id], storedVideo.TagIds);
         Assert.Equal([performer.Id], storedImage.PerformerIds);
@@ -300,7 +300,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task StaleVideoUpdate_PreservesPerformerArrayAndAuthoritativeJoin()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
@@ -309,12 +309,12 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int firstPerformerId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var firstPerformer = new Performer { Name = "First performer" };
             var video = new Video { Title = "Original title" };
             video.VideoPerformers.Add(new VideoPerformer { Performer = firstPerformer });
             setup.Add(video);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
             firstPerformerId = firstPerformer.Id;
         }
@@ -322,28 +322,28 @@ public sealed class CoveContextDenormalizedIdArrayTests
         await using var staleContext = new CoveContext(options);
         var staleVideo = await staleContext.Videos
             .Include(video => video.VideoPerformers)
-            .SingleAsync(video => video.Id == videoId);
+            .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
 
         int secondPerformerId;
         await using (var relationshipContext = new CoveContext(options))
         {
             var currentVideo = await relationshipContext.Videos
                 .Include(video => video.VideoPerformers)
-                .SingleAsync(video => video.Id == videoId);
+                .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
             var secondPerformer = new Performer { Name = "Second performer" };
             currentVideo.VideoPerformers.Add(new VideoPerformer { Performer = secondPerformer });
-            await relationshipContext.SaveChangesAsync();
+            await relationshipContext.SaveChangesAsync(TestContext.Current.CancellationToken);
             secondPerformerId = secondPerformer.Id;
         }
 
         staleVideo.Title = "Unrelated title update";
         staleContext.Videos.Update(staleVideo);
-        await staleContext.SaveChangesAsync();
+        await staleContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         staleContext.ChangeTracker.Clear();
 
         var stored = await staleContext.Videos
             .Include(video => video.VideoPerformers)
-            .SingleAsync(video => video.Id == videoId);
+            .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([firstPerformerId, secondPerformerId], stored.PerformerIds);
         Assert.Equal(
             [firstPerformerId, secondPerformerId],
@@ -354,16 +354,16 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task VideoRepository_UpdateAsync_RejectsDetachedEntities()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var repository = new VideoRepository(context);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => repository.UpdateAsync(new Video { Id = 123, Title = "Detached video" }));
+            () => repository.UpdateAsync(new Video { Id = 123, Title = "Detached video" }, TestContext.Current.CancellationToken));
 
         Assert.Contains("requires an entity tracked", exception.Message, StringComparison.Ordinal);
     }
@@ -372,7 +372,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task GenerateScreenshot_OverlappingPerformerImport_PreservesDerivedState()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
@@ -381,12 +381,12 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int firstPerformerId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var firstPerformer = new Performer { Name = "First performer" };
             var video = new Video { Title = "Original title" };
             video.VideoPerformers.Add(new VideoPerformer { Performer = firstPerformer });
             setup.Add(video);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
             firstPerformerId = firstPerformer.Id;
         }
@@ -415,10 +415,10 @@ public sealed class CoveContextDenormalizedIdArrayTests
         {
             var currentVideo = await importContext.Videos
                 .Include(video => video.VideoPerformers)
-                .SingleAsync(video => video.Id == videoId);
+                .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
             var importedPerformer = new Performer { Name = "Imported performer" };
             currentVideo.VideoPerformers.Add(new VideoPerformer { Performer = importedPerformer });
-            await importContext.SaveChangesAsync();
+            await importContext.SaveChangesAsync(TestContext.Current.CancellationToken);
             importedPerformerId = importedPerformer.Id;
         }
 
@@ -428,7 +428,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
 
         var stored = await screenshotContext.Videos
             .Include(video => video.VideoPerformers)
-            .SingleAsync(video => video.Id == videoId);
+            .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([firstPerformerId, importedPerformerId], stored.PerformerIds);
         Assert.Equal(
             [firstPerformerId, importedPerformerId],
@@ -441,7 +441,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         var databaseName = $"concurrent-derived-arrays-{Guid.NewGuid():N}";
         var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared;Default Timeout=30";
         await using var keeperConnection = new SqliteConnection(connectionString);
-        await keeperConnection.OpenAsync();
+        await keeperConnection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connectionString)
             .Options;
@@ -451,14 +451,14 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int thirdPerformerId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var firstPerformer = new Performer { Name = "First performer" };
             var secondPerformer = new Performer { Name = "Second performer" };
             var thirdPerformer = new Performer { Name = "Third performer" };
             var video = new Video { Title = "Concurrent relationship video" };
             video.VideoPerformers.Add(new VideoPerformer { Performer = firstPerformer });
             setup.AddRange(video, secondPerformer, thirdPerformer);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
             secondPerformerId = secondPerformer.Id;
             thirdPerformerId = thirdPerformer.Id;
@@ -477,7 +477,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         await using var verification = new CoveContext(options);
         var stored = await verification.Videos
             .Include(video => video.VideoPerformers)
-            .SingleAsync(video => video.Id == videoId);
+            .SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken);
         var authoritativeIds = stored.VideoPerformers
             .Select(link => link.PerformerId)
             .Order()
@@ -492,7 +492,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         var databaseName = $"concurrent-cover-{Guid.NewGuid():N}";
         var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared;Default Timeout=30";
         await using var keeperConnection = new SqliteConnection(connectionString);
-        await keeperConnection.OpenAsync();
+        await keeperConnection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connectionString)
             .Options;
@@ -500,10 +500,10 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int videoId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var video = new Video { Title = "Concurrent cover video", ImageBlobId = "old-cover" };
             setup.Add(video);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
         }
 
@@ -541,7 +541,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         var storedBlobId = await verification.Videos
             .Where(video => video.Id == videoId)
             .Select(video => video.ImageBlobId)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("new-cover-1", storedBlobId);
         Assert.Contains("old-cover", blobService.DeletedBlobIds);
         Assert.Contains("new-cover-2", blobService.DeletedBlobIds);
@@ -552,7 +552,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
     public async Task SetCoverFromFrame_CleanupFailure_IsReported()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
             .Options;
@@ -560,10 +560,10 @@ public sealed class CoveContextDenormalizedIdArrayTests
         int videoId;
         await using (var setup = new CoveContext(options))
         {
-            await setup.Database.EnsureCreatedAsync();
+            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var video = new Video { Title = "Cover cleanup video", ImageBlobId = "old-cover" };
             setup.Add(video);
-            await setup.SaveChangesAsync();
+            await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
             videoId = video.Id;
         }
 
@@ -588,7 +588,7 @@ public sealed class CoveContextDenormalizedIdArrayTests
         var storedBlobId = await context.Videos
             .Where(video => video.Id == videoId)
             .Select(video => video.ImageBlobId)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("new-cover", storedBlobId);
     }
 

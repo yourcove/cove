@@ -3,6 +3,8 @@ using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Cove.Tests;
@@ -64,6 +66,24 @@ public sealed class ExtensionServiceOverlayTests
         overlay.Dispose();
 
         Assert.False(host.IsDisposed);
+    }
+
+    [Fact]
+    public void Removing_provider_does_not_dispose_host_logger_factory()
+    {
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var services = CreateHostServices();
+        services.Replace(ServiceDescriptor.Singleton<ILoggerFactory>(loggerFactory));
+        using var root = services.BuildServiceProvider();
+        var overlay = CreateOverlay(root, services);
+        overlay.BuildProvider("test", new TestExtension(), CreateContext(), (_, _) => { });
+
+        Assert.Same(loggerFactory, Resolve<ILoggerFactory>(overlay));
+
+        overlay.Remove("test");
+
+        _ = loggerFactory.CreateLogger("host-remains-live");
+        overlay.Dispose();
     }
 
     [Fact]
@@ -175,7 +195,7 @@ public sealed class ExtensionServiceOverlayTests
 
         using var scope = root.CreateScope();
         await using var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.OpenConnectionAsync();
+        await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(System.Data.ConnectionState.Open, db.Database.GetDbConnection().State);
     }
 

@@ -95,7 +95,7 @@ public sealed partial class CoveClient
     {
         using var handler = new HttpClientHandler { AllowAutoRedirect = false };
         using var client = new HttpClient(handler) { BaseAddress = BaseAddress };
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
+        _configureHeaders(client.DefaultRequestHeaders);
         requestUri = WithCacheNonce(requestUri);
         using var redirect = await client.GetAsync(requestUri, cancellationToken);
         if ((int)redirect.StatusCode is < 300 or >= 400 || redirect.Headers.Location is null)

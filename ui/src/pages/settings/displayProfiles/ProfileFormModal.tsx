@@ -13,15 +13,7 @@ interface Props {
   saving: boolean;
 }
 
-export function ProfileFormModal({
-  open,
-  editingProfile,
-  form,
-  setForm,
-  onClose,
-  onSave,
-  saving,
-}: Props) {
+export function ProfileFormModal({ open, editingProfile, form, setForm, onClose, onSave, saving }: Props) {
   return (
     <EditModal title={editingProfile ? "Edit Display Profile" : "Create Display Profile"} open={open} onClose={onClose}>
       <div className="py-4">
@@ -29,7 +21,10 @@ export function ProfileFormModal({
           <TextInput value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
         </Field>
         <Field label="Description">
-          <TextInput value={form.description} onChange={(value) => setForm((current) => ({ ...current, description: value }))} />
+          <TextInput
+            value={form.description}
+            onChange={(value) => setForm((current) => ({ ...current, description: value }))}
+          />
         </Field>
         {!editingProfile ? (
           <label className="flex items-center gap-2 text-sm text-foreground">

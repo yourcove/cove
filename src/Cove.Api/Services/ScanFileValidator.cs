@@ -29,6 +29,9 @@ public sealed record ScanFileValidationResult(
     string? ProbeJson,
     IReadOnlyList<ZipEntryInfo>? GalleryEntries)
 {
+    public int? Width { get; init; }
+    public int? Height { get; init; }
+
     public static ScanFileValidationResult Ready(string? probeJson = null, IReadOnlyList<ZipEntryInfo>? galleryEntries = null)
         => new(ScanFileValidationStatus.Ready, null, probeJson, galleryEntries);
     public static ScanFileValidationResult Deferred(string reason)
@@ -46,6 +49,10 @@ public interface IScanFileValidator
         long discoveredSize,
         DateTime discoveredModTime,
         ScanMediaKind kind,
+        CancellationToken ct = default);
+
+    Task<ScanFileValidationResult> ValidateImageContentAsync(
+        string path,
         CancellationToken ct = default);
 }
 
@@ -110,6 +117,10 @@ public sealed class ScanFileValidator(
         {
             return ScanFileValidationResult.Deferred("the file disappeared during validation");
         }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return ScanFileValidationResult.Failed(ex.Message);
@@ -130,12 +141,50 @@ public sealed class ScanFileValidator(
         {
             return ScanFileValidationResult.Deferred("the file disappeared during validation");
         }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return ScanFileValidationResult.Failed(ex.Message);
         }
 
         return validation;
+    }
+
+    public async Task<ScanFileValidationResult> ValidateImageContentAsync(
+        string path,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await ValidateImageFileAsync(path, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is InvalidDataException
+            or SixLabors.ImageSharp.InvalidImageContentException
+            or SixLabors.ImageSharp.UnknownImageFormatException
+            or XmlException
+            or JsonException)
+        {
+            return ScanFileValidationResult.Invalid(ex.Message);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ScanFileValidationResult.Failed(ex.Message);
+        }
     }
 
     public static bool DidFileChangeDuringValidation(
@@ -181,14 +230,25 @@ public sealed class ScanFileValidator(
                 return ScanFileValidationResult.Failed("FFprobe returned no metadata");
         }
 
-        if (!HasUsableMediaStream(probe.Json!, streamType, requireDimensions))
+        if (!TryGetUsableMediaStream(probe.Json!, streamType, requireDimensions, out var width, out var height))
             return ScanFileValidationResult.Invalid($"FFprobe did not report a usable {streamType} stream");
 
-        return ScanFileValidationResult.Ready(probeJson: probe.Json);
+        return ScanFileValidationResult.Ready(probeJson: probe.Json) with
+        {
+            Width = width,
+            Height = height,
+        };
     }
 
-    private static bool HasUsableMediaStream(string json, string streamType, bool requireDimensions)
+    private static bool TryGetUsableMediaStream(
+        string json,
+        string streamType,
+        bool requireDimensions,
+        out int? widthValue,
+        out int? heightValue)
     {
+        widthValue = null;
+        heightValue = null;
         using var document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty("streams", out var streams)
             || streams.ValueKind != JsonValueKind.Array)
@@ -200,15 +260,22 @@ public sealed class ScanFileValidator(
                 || !string.Equals(codecType.GetString(), streamType, StringComparison.Ordinal))
                 continue;
 
-            if (requireDimensions
-                && (!stream.TryGetProperty("width", out var width)
-                    || !width.TryGetInt32(out var widthValue)
-                    || widthValue <= 0
-                    || !stream.TryGetProperty("height", out var height)
-                    || !height.TryGetInt32(out var heightValue)
-                    || heightValue <= 0))
+            if (!requireDimensions)
+                return true;
+
+            var parsedWidth = 0;
+            var parsedHeight = 0;
+            var hasWidth = stream.TryGetProperty("width", out var width)
+                && width.TryGetInt32(out parsedWidth)
+                && parsedWidth > 0;
+            var hasHeight = stream.TryGetProperty("height", out var height)
+                && height.TryGetInt32(out parsedHeight)
+                && parsedHeight > 0;
+            if (!hasWidth || !hasHeight)
                 continue;
 
+            widthValue = hasWidth ? parsedWidth : null;
+            heightValue = hasHeight ? parsedHeight : null;
             return true;
         }
 
@@ -222,11 +289,19 @@ public sealed class ScanFileValidator(
 
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
         if (string.Equals(Path.GetExtension(path), ".svg", StringComparison.OrdinalIgnoreCase))
+        {
             await ValidateSvgStreamAsync(stream, ct);
-        else
-            await ValidateImageStreamAsync(stream, ct);
+            await ValidateImageContainerTailAsync(stream, Path.GetExtension(path), ct);
+            return ScanFileValidationResult.Ready();
+        }
+
+        var (width, height) = await ValidateImageStreamAsync(stream, ct);
         await ValidateImageContainerTailAsync(stream, Path.GetExtension(path), ct);
-        return ScanFileValidationResult.Ready();
+        return ScanFileValidationResult.Ready() with
+        {
+            Width = width,
+            Height = height,
+        };
     }
 
     private async Task<ScanFileValidationResult> ValidateGalleryFileAsync(string path, CancellationToken ct)
@@ -235,16 +310,17 @@ public sealed class ScanFileValidator(
         if (entries.Count == 0)
             return ScanFileValidationResult.Invalid("the gallery archive contains no readable images");
 
-        // Reading the central directory is the same work gallery import already needs. Reuse this list
-        // rather than extracting every payload during scanning, which can be prohibitively expensive.
+        // Reading the central directory is the same work gallery import already needs. Reuse this list;
+        // the processor preflights payload extraction only for new or confirmed-changed archives.
         return ScanFileValidationResult.Ready(galleryEntries: entries);
     }
 
-    private static async Task ValidateImageStreamAsync(Stream stream, CancellationToken ct)
+    private static async Task<(int Width, int Height)> ValidateImageStreamAsync(Stream stream, CancellationToken ct)
     {
         var image = await SixLabors.ImageSharp.Image.IdentifyAsync(stream, ct);
         if (image == null || image.Width <= 0 || image.Height <= 0)
             throw new InvalidDataException("the image has invalid dimensions");
+        return (image.Width, image.Height);
     }
 
     private static async Task ValidateSvgStreamAsync(FileStream stream, CancellationToken ct)

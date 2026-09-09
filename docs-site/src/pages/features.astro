@@ -237,8 +237,8 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <MarketingShot
           src={withBase('images/screenshots/thumbnails/ai-faces.webp')}
-          alt="Cove faces page showing recognized people with suggested performer matches."
-          caption="Facial recognition groups the same person together and suggests who they are."
+          alt="Cove faces page showing three recognized demo performers and their grouped detection counts."
+          caption="Facial recognition groups multiple appearances of each performer together."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Facial recognition</p>
@@ -256,11 +256,6 @@ import { withBase } from '../lib/paths';
       </article>
 
       <article class="feature-section two-column">
-        <MarketingShot
-          src={withBase('images/screenshots/thumbnails/roles-permission-editor.webp')}
-          alt="Cove role permission editor showing detailed permission controls."
-          caption="Roles decide exactly what each kind of user is allowed to do."
-        />
         <div class="feature-section-copy">
           <p class="section-kicker">Users, roles, and permissions</p>
           <h2>One library, separate accounts</h2>
@@ -274,9 +269,18 @@ import { withBase } from '../lib/paths';
           </ul>
           <a href={withBase('docs/user/security/users-roles-permissions/')}>Read security docs</a>
         </div>
+        <MarketingShot
+          src={withBase('images/screenshots/thumbnails/roles-permission-editor.webp')}
+          alt="Cove role permission editor showing detailed permission controls."
+          caption="Roles decide exactly what each kind of user is allowed to do."
+        />
       </article>
 
       <article class="feature-section two-column">
+        <ThemeReel
+          frames={themeFrames}
+          caption="20 built-in themes."
+        />
         <div class="feature-section-copy">
           <p class="section-kicker">Themes and customization</p>
           <h2>20 built-in themes</h2>
@@ -290,18 +294,9 @@ import { withBase } from '../lib/paths';
           </ul>
           <a href={withBase('screenshots/')}>View the screenshot tour</a>
         </div>
-        <ThemeReel
-          frames={themeFrames}
-          caption="20 built-in themes."
-        />
       </article>
 
       <article class="feature-section two-column">
-        <MarketingShot
-          src={withBase('images/screenshots/thumbnails/extensions-registry.webp')}
-          alt="Cove extension registry page."
-          caption="Extensions can add downloaders, scrapers, pages, jobs, settings, APIs, and themes."
-        />
         <div class="feature-section-copy">
           <p class="section-kicker">Extensions</p>
           <h2>Add what Cove doesn't have yet</h2>
@@ -315,9 +310,19 @@ import { withBase } from '../lib/paths';
           </ul>
           <a href={withBase('docs/developer/extensions/overview/')}>Read extension docs</a>
         </div>
+        <MarketingShot
+          src={withBase('images/screenshots/thumbnails/extensions-registry.webp')}
+          alt="Cove extension registry page."
+          caption="Extensions can add downloaders, scrapers, pages, jobs, settings, APIs, and themes."
+        />
       </article>
 
       <article class="feature-section two-column">
+        <MarketingShot
+          src={withBase('images/screenshots/thumbnails/instance-manager.webp')}
+          alt="Cove instance manager with local file paths hidden."
+          caption="The instance manager runs separate local Cove libraries from one place."
+        />
         <div class="feature-section-copy">
           <p class="section-kicker">Multiple libraries</p>
           <h2>Run more than one library</h2>
@@ -331,19 +336,9 @@ import { withBase } from '../lib/paths';
           </ul>
           <a href={withBase('download/')}>See install options</a>
         </div>
-        <MarketingShot
-          src={withBase('images/screenshots/thumbnails/instance-manager.webp')}
-          alt="Cove instance manager with local file paths hidden."
-          caption="The instance manager runs separate local Cove libraries from one place."
-        />
       </article>
 
       <article class="feature-section two-column">
-        <MarketingShot
-          src={withBase('images/screenshots/thumbnails/search-and-filters.webp')}
-          alt="Cove videos page with large-library browsing controls."
-          caption="Search, filters, sorting, and page-size controls keep large libraries usable."
-        />
         <div class="feature-section-copy">
           <p class="section-kicker">Speed and scale</p>
           <h2>Stays fast as the library grows</h2>
@@ -358,6 +353,11 @@ import { withBase } from '../lib/paths';
           </ul>
           <a href={withBase('download/')}>See install options</a>
         </div>
+        <MarketingShot
+          src={withBase('images/screenshots/thumbnails/search-and-filters.webp')}
+          alt="Cove videos page with large-library browsing controls."
+          caption="Search, filters, sorting, and page-size controls keep large libraries usable."
+        />
       </article>
     </div>
   </section>

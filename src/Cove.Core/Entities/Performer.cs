@@ -4,15 +4,23 @@ namespace Cove.Core.Entities;
 
 public class Performer : BaseEntity
 {
+    private string? _country;
+
     public string Name { get; set; } = string.Empty;
     public string? Disambiguation { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public string IdentityKey { get; set; } = string.Empty;
     public GenderEnum? Gender { get; set; }
     public DateOnly? Birthdate { get; set; }
+    public DatePrecision BirthdatePrecision { get; set; }
     public DateOnly? DeathDate { get; set; }
+    public DatePrecision DeathDatePrecision { get; set; }
     public string? Ethnicity { get; set; }
-    public string? Country { get; set; }
+    public string? Country
+    {
+        get => _country;
+        set => _country = Common.CountryCatalog.Normalize(value);
+    }
     public string? EyeColor { get; set; }
     public string? HairColor { get; set; }
     public int? HeightCm { get; set; }
@@ -22,7 +30,9 @@ public class Performer : BaseEntity
     public double? PenisLength { get; set; }
     public CircumcisedEnum? Circumcised { get; set; }
     public DateOnly? CareerStart { get; set; }
+    public DatePrecision CareerStartPrecision { get; set; }
     public DateOnly? CareerEnd { get; set; }
+    public DatePrecision CareerEndPrecision { get; set; }
     public string? Tattoos { get; set; }
     public string? Piercings { get; set; }
     public bool Favorite { get; set; }
@@ -44,6 +54,8 @@ public class Performer : BaseEntity
     public ICollection<PerformerAlias> Aliases { get; set; } = [];
     public ICollection<PerformerTag> PerformerTags { get; set; } = [];
     public ICollection<VideoPerformer> VideoPerformers { get; set; } = [];
+    public ICollection<AudioPerformer> AudioPerformers { get; set; } = [];
+    public ICollection<TextPerformer> TextPerformers { get; set; } = [];
     public ICollection<ImagePerformer> ImagePerformers { get; set; } = [];
     public ICollection<GalleryPerformer> GalleryPerformers { get; set; } = [];
     public ICollection<PerformerRemoteId> RemoteIds { get; set; } = [];

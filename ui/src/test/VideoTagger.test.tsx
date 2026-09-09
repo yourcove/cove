@@ -41,38 +41,43 @@ vi.mock("../state/AppConfigContext", () => ({
 describe("VideoTagger", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.stubGlobal("IntersectionObserver", class {
-      observe() {}
-      disconnect() {}
-      unobserve() {}
-    });
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
     mocks.findMetadataServerByIds.mockReset();
     mocks.importFromMetadataServer.mockReset();
     mocks.searchMetadataServer.mockReset();
     mocks.videoObjectFit = "cover";
     mocks.importFromMetadataServer.mockResolvedValue({});
     mocks.searchMetadataServer.mockResolvedValue([]);
-    mocks.findMetadataServerByIds.mockResolvedValue([{
-      id: "first-video-id",
-      endpoint: "https://first.example/graphql",
-      metadataServerName: "First provider",
-      title: "First provider result",
-      code: null,
-      details: null,
-      director: null,
-      date: null,
-      duration: 60,
-      urls: [],
-      images: [],
-      studioName: null,
-      studioCandidate: null,
-      performerNames: [],
-      performerCandidates: [],
-      tagNames: [],
-      tagCandidates: [],
-      fingerprints: [],
-      fingerprintAlgorithms: [],
-    }]);
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      {
+        id: "first-video-id",
+        endpoint: "https://first.example/graphql",
+        metadataServerName: "First provider",
+        title: "First provider result",
+        code: null,
+        details: null,
+        director: null,
+        date: null,
+        duration: 60,
+        urls: [],
+        images: [],
+        studioName: null,
+        studioCandidate: null,
+        performerNames: [],
+        performerCandidates: [],
+        tagNames: [],
+        tagCandidates: [],
+        fingerprints: [],
+        fingerprintAlgorithms: [],
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -210,13 +215,31 @@ describe("VideoTagger", () => {
     await userEvent.click(screen.getByRole("button", { name: /Fingerprint only/ }));
 
     await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledTimes(2));
-    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(123, "First local video", "https://first.example/graphql", "fingerprint");
-    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(456, "Second local video", "https://first.example/graphql", "fingerprint");
+    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+      123,
+      "First local video",
+      "https://first.example/graphql",
+      "fingerprint",
+    );
+    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+      456,
+      "Second local video",
+      "https://first.example/graphql",
+      "fingerprint",
+    );
   });
 
   it("saves and uses a default bulk match strategy", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const video = { id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] } as any;
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -230,13 +253,26 @@ describe("VideoTagger", () => {
     await userEvent.click(screen.getByRole("button", { name: "Scrape All" }));
 
     await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledOnce());
-    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(123, "Local video", "https://first.example/graphql", "remote-id");
+    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+      123,
+      "Local video",
+      "https://first.example/graphql",
+      "remote-id",
+    );
     expect(JSON.parse(localStorage.getItem("cove-tagger-config") ?? "{}").bulkMatchStrategy).toBe("remote-id");
   });
 
   it("uses text only for the row search field", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const video = { id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] } as any;
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -247,13 +283,26 @@ describe("VideoTagger", () => {
     await userEvent.type(screen.getByRole("textbox"), "{enter}");
 
     await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledOnce());
-    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(123, "Local video", "https://first.example/graphql", undefined);
+    expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+      123,
+      "Local video",
+      "https://first.example/graphql",
+      undefined,
+    );
   });
 
   it("rehydrates the saved bulk strategy and keeps the fingerprint row action strict", async () => {
     localStorage.setItem("cove-tagger-config", JSON.stringify({ bulkMatchStrategy: "remote-id-fingerprint" }));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const video = { id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] } as any;
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -262,10 +311,24 @@ describe("VideoTagger", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Scrape All" }));
-    await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledWith(123, "Local video", "https://first.example/graphql", "remote-id-fingerprint"));
+    await waitFor(() =>
+      expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+        123,
+        "Local video",
+        "https://first.example/graphql",
+        "remote-id-fingerprint",
+      ),
+    );
 
     mocks.searchMetadataServer.mockClear();
     await userEvent.click(screen.getByTitle("Search by fingerprint only"));
-    await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledWith(123, undefined, "https://first.example/graphql", "fingerprint"));
+    await waitFor(() =>
+      expect(mocks.searchMetadataServer).toHaveBeenCalledWith(
+        123,
+        undefined,
+        "https://first.example/graphql",
+        "fingerprint",
+      ),
+    );
   });
 });

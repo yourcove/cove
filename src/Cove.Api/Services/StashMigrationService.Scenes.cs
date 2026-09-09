@@ -34,11 +34,12 @@ public partial class StashMigrationService
             double ResumeTime, double PlayDuration, string CreatedAt, string UpdatedAt, string? CoverBlob, string? LastPlayedAt)>();
         var hasSceneCoverBlob = await ColumnExistsAsync(conn, "scenes", "cover_blob", ct);
         var hasSceneLastPlayedAt = await ColumnExistsAsync(conn, "scenes", "last_played_at", ct);
+        var hasDatePrecision = await ColumnExistsAsync(conn, "scenes", "date_precision", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var coverBlobExpr = hasSceneCoverBlob ? "cover_blob" : "NULL";
             var lastPlayedAtExpr = hasSceneLastPlayedAt ? "last_played_at" : "NULL";
-            cmd.CommandText = $@"SELECT id, title, details, date, rating, studio_id, organized, code, director,
+            cmd.CommandText = $@"SELECT id, title, details, {PartialDateSql("date", hasDatePrecision)} AS date, rating, studio_id, organized, code, director,
                 resume_time, play_duration, created_at, updated_at, {coverBlobExpr} AS cover_blob, {lastPlayedAtExpr} AS last_played_at FROM scenes";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
@@ -239,6 +240,7 @@ public partial class StashMigrationService
 
         foreach (var row in sceneRows)
         {
+            var date = ParsePartialDate(row.Date);
             var coverBlobId = GetBlobId(blobMap, row.CoverBlob);
             var viewHistory = sceneViewDates.GetValueOrDefault(row.Id, []);
             var importedLastPlayedAt = ParseDateTimeOrNull(row.LastPlayedAt);
@@ -247,7 +249,8 @@ public partial class StashMigrationService
             {
                 Title = row.Title,
                 Details = row.Details,
-                Date = ParseDate(row.Date),
+                Date = date.Value,
+                DatePrecision = date.Precision,
                 StudioId = row.StudioId.HasValue && studioIdMap.TryGetValue(row.StudioId.Value, out var sId) ? sId : null,
                 Organized = row.Organized,
                 Code = row.Code,

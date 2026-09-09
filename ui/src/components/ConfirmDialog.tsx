@@ -18,7 +18,19 @@ interface Props {
   showDeleteGenerated?: boolean;
 }
 
-export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", onConfirm, onCancel, destructive = true, isPending = false, errorMessage = null, showDeleteFile, showDeleteGenerated }: Props) {
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Delete",
+  onConfirm,
+  onCancel,
+  destructive = true,
+  isPending = false,
+  errorMessage = null,
+  showDeleteFile,
+  showDeleteGenerated,
+}: Props) {
   const appConfig = useOptionalAppConfig();
   const [deleteFile, setDeleteFile] = useState(false);
   const [deleteGenerated, setDeleteGenerated] = useState(false);
@@ -44,7 +56,13 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
 
     setDeleteFile(showDeleteFile ? (appConfig?.config?.ui.deleteFileDefault ?? false) : false);
     setDeleteGenerated(showDeleteGenerated ? (appConfig?.config?.deleteGeneratedDefault ?? false) : false);
-  }, [appConfig?.config?.deleteGeneratedDefault, appConfig?.config?.ui.deleteFileDefault, open, showDeleteFile, showDeleteGenerated]);
+  }, [
+    appConfig?.config?.deleteGeneratedDefault,
+    appConfig?.config?.ui.deleteFileDefault,
+    open,
+    showDeleteFile,
+    showDeleteGenerated,
+  ]);
 
   if (!open) return null;
 
@@ -67,9 +85,11 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
     }
 
     if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
-    ));
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ),
+    );
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -84,7 +104,12 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/60" onClick={() => { if (!isPending) cancel(); }} />
+      <div
+        className="fixed inset-0 bg-black/60"
+        onClick={() => {
+          if (!isPending) cancel();
+        }}
+      />
       <div
         ref={dialogRef}
         role="dialog"
@@ -93,17 +118,29 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
         onKeyDown={handleKeyDown}
         className="relative bg-surface rounded-lg border border-border shadow-xl p-6 max-w-sm w-full mx-4"
       >
-        <h3 id={titleId} className="text-lg font-semibold mb-2">{title}</h3>
+        <h3 id={titleId} className="text-lg font-semibold mb-2">
+          {title}
+        </h3>
         <p className="text-sm text-secondary mb-4">{message}</p>
         {showDeleteFile && (
           <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer mb-4">
-            <input type="checkbox" checked={deleteFile} onChange={(e) => setDeleteFile(e.target.checked)} className="rounded border-border bg-surface accent-accent" />
+            <input
+              type="checkbox"
+              checked={deleteFile}
+              onChange={(e) => setDeleteFile(e.target.checked)}
+              className="rounded border-border bg-surface accent-accent"
+            />
             Also delete file from disk
           </label>
         )}
         {showDeleteGenerated && (
           <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer mb-4">
-            <input type="checkbox" checked={deleteGenerated} onChange={(e) => setDeleteGenerated(e.target.checked)} className="rounded border-border bg-surface accent-accent" />
+            <input
+              type="checkbox"
+              checked={deleteGenerated}
+              onChange={(e) => setDeleteGenerated(e.target.checked)}
+              className="rounded border-border bg-surface accent-accent"
+            />
             Also delete generated files
           </label>
         )}
@@ -123,19 +160,18 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
           </button>
           <button
             onClick={() => {
-              const options = showDeleteFile || showDeleteGenerated
-                ? {
-                    deleteFile: showDeleteFile ? deleteFile : false,
-                    deleteGenerated: showDeleteGenerated ? deleteGenerated : false,
-                  }
-                : undefined;
+              const options =
+                showDeleteFile || showDeleteGenerated
+                  ? {
+                      deleteFile: showDeleteFile ? deleteFile : false,
+                      deleteGenerated: showDeleteGenerated ? deleteGenerated : false,
+                    }
+                  : undefined;
               void onConfirm(options);
             }}
             disabled={isPending}
             className={`px-4 py-2 text-sm rounded-md transition-colors ${
-              destructive
-                ? "bg-red-600 hover:bg-red-500 text-white"
-                : "bg-accent hover:bg-accent-hover text-white"
+              destructive ? "bg-red-600 hover:bg-red-500 text-white" : "bg-accent hover:bg-accent-hover text-white"
             } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <span className="inline-flex items-center gap-2">

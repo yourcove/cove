@@ -28,13 +28,17 @@ export function FaceSuggestionsPanel({
     <div className="space-y-3 border-t border-border pt-4">
       <div>
         <div className="text-xs font-semibold uppercase tracking-wide text-muted">Suggested matches</div>
-        <p className="mt-1 text-sm text-secondary">Extension-provided performer and reference matches ranked by confidence and supporting evidence.</p>
+        <p className="mt-1 text-sm text-secondary">
+          Extension-provided performer and reference matches ranked by confidence and supporting evidence.
+        </p>
       </div>
 
       {isLoading ? (
         <p className="text-xs text-secondary">Loading face suggestions...</p>
       ) : suggestions.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-secondary">No suggestions are available for this face yet.</p>
+        <p className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-secondary">
+          No suggestions are available for this face yet.
+        </p>
       ) : (
         <div className="space-y-3">
           {suggestions.map((suggestion) => {
@@ -49,7 +53,12 @@ export function FaceSuggestionsPanel({
                   {isReferenceOnly ? (
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-surface/90 text-left">
                       {suggestion.coverImageUrl ? (
-                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
+                        <img
+                          src={suggestion.coverImageUrl}
+                          alt={suggestion.performerName}
+                          className="h-full w-full object-cover object-top"
+                          loading="lazy"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-muted">
                           <Fingerprint className="h-6 w-6" />
@@ -65,7 +74,12 @@ export function FaceSuggestionsPanel({
                       aria-label={`Open performer ${suggestion.performerName}`}
                     >
                       {suggestion.coverImageUrl ? (
-                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
+                        <img
+                          src={suggestion.coverImageUrl}
+                          alt={suggestion.performerName}
+                          className="h-full w-full object-cover object-top"
+                          loading="lazy"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-muted">
                           <Fingerprint className="h-6 w-6" />
@@ -83,7 +97,9 @@ export function FaceSuggestionsPanel({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => canReadPerformers && onNavigate({ page: "performer", id: suggestion.performerId })}
+                              onClick={() =>
+                                canReadPerformers && onNavigate({ page: "performer", id: suggestion.performerId })
+                              }
                               className={`text-left text-sm font-semibold ${canReadPerformers ? "text-accent hover:underline" : "text-foreground"}`}
                               disabled={!canReadPerformers}
                             >
@@ -91,7 +107,9 @@ export function FaceSuggestionsPanel({
                             </button>
                           )}
                           {isReferenceMatch ? (
-                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">Reference DB</span>
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                              Reference DB
+                            </span>
                           ) : null}
                         </div>
                         <p className="mt-1 text-xs text-secondary">{suggestion.why}</p>
@@ -126,7 +144,12 @@ export function FaceSuggestionsPanel({
                               title={`${formatPercent(evidence.similarity)}% similar`}
                             >
                               {evidence.thumbnailUrl ? (
-                                <img src={evidence.thumbnailUrl} alt={`Face ${evidence.faceId}`} className="h-full w-full object-cover" loading="lazy" />
+                                <img
+                                  src={evidence.thumbnailUrl}
+                                  alt={`Face ${evidence.faceId}`}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
                               ) : (
                                 <div className="flex h-full w-full items-center justify-center text-[10px] text-secondary">
                                   #{evidence.faceId}
@@ -166,7 +189,7 @@ export function FaceSuggestionsPanel({
                         {isReferenceOnly ? "Dismiss" : "Reject"}
                       </button>
                     </div>
-                </div>
+                  </div>
                 </div>
               </article>
             );

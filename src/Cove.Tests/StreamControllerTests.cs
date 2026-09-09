@@ -25,7 +25,7 @@ public class StreamControllerTests
     public async Task HeadPreview_ReturnsVideoHeaders_WhenPreviewFileExists()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-preview-{Guid.NewGuid():N}.mp4");
-        await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3, 4], TestContext.Current.CancellationToken);
 
         try
         {
@@ -59,14 +59,14 @@ public class StreamControllerTests
     public async Task GetHlsMasterPlaylist_AppendsMediaAuthQueryToVariantPlaylistUrls()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var context = CreateContext(connection);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var video = new Video { Title = "HLS video" };
         var folder = new Folder { Path = Path.GetTempPath() };
         context.AddRange(video, folder);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.VideoFiles.Add(new VideoFile
         {
             VideoId = video.Id,
@@ -75,7 +75,7 @@ public class StreamControllerTests
             Width = 1920,
             Height = 1080,
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateController(context, new FakeTranscodeService());
         SetQuery(controller, "?access_token=access token&share_token=share/token&ignored=true");
@@ -93,19 +93,19 @@ public class StreamControllerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"cove-hls-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         var videoPath = Path.Combine(tempDir, "video.mp4");
-        await File.WriteAllBytesAsync(videoPath, [1, 2, 3]);
+        await File.WriteAllBytesAsync(videoPath, [1, 2, 3], TestContext.Current.CancellationToken);
 
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var context = CreateContext(connection);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         try
         {
             var video = new Video { Title = "HLS media video" };
             var folder = new Folder { Path = tempDir };
             context.AddRange(video, folder);
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
             context.VideoFiles.Add(new VideoFile
             {
                 VideoId = video.Id,
@@ -114,7 +114,7 @@ public class StreamControllerTests
                 Width = 1920,
                 Height = 1080,
             });
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var controller = CreateController(context, new FakeTranscodeService());
             SetQuery(controller, "?access_token=access token&share_token=share/token&share_password=p@ss&ignored=true");

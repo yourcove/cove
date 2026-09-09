@@ -100,9 +100,10 @@ public partial class StashMigrationService
 
         var galleryRows = new List<(int StashId, int? FolderId, string? Title, string? Date, string? Details,
             int? StudioId, int? Rating, bool Organized, string CreatedAt, string UpdatedAt, string? Code, string? Photographer)>();
+        var hasDatePrecision = await ColumnExistsAsync(conn, "galleries", "date_precision", ct);
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, folder_id, title, date, details, studio_id, rating, organized, created_at, updated_at, code, photographer FROM galleries";
+            cmd.CommandText = $"SELECT id, folder_id, title, {PartialDateSql("date", hasDatePrecision)} AS date, details, studio_id, rating, organized, created_at, updated_at, code, photographer FROM galleries";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 galleryRows.Add((r.GetInt32(0), ReadIntNull(r, 1), ReadStringNull(r, 2), ReadStringNull(r, 3),
@@ -130,12 +131,14 @@ public partial class StashMigrationService
         foreach (var row in galleryRows)
         {
             var stashId = row.StashId;
+            var date = ParsePartialDate(row.Date);
 
             var gallery = new Gallery
             {
                 Title = ResolveImportedGalleryTitle(row.Title, row.FolderId, stashId, galleryToFile, fileData, stashFolderNames),
                 Code = row.Code,
-                Date = ParseDate(row.Date),
+                Date = date.Value,
+                DatePrecision = date.Precision,
                 Details = row.Details,
                 Photographer = row.Photographer,
                 Organized = row.Organized,

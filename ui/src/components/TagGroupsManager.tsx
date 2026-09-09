@@ -5,13 +5,26 @@ import { tagGroups } from "../api/client";
 import type { TagGroup } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
-export function TagGroupsManager({ title = "Tag Groups", description = "Organize tag selectors, badge colors, and occurrence thresholds.", framed = true }: { title?: string; description?: string; framed?: boolean }) {
+export function TagGroupsManager({
+  title = "Tag Groups",
+  description = "Organize tag selectors, badge colors, and occurrence thresholds.",
+  framed = true,
+}: {
+  title?: string;
+  description?: string;
+  framed?: boolean;
+}) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canWrite = hasPermission("taggroups.write") || hasPermission("tags.write");
   const canDelete = hasPermission("taggroups.delete");
   const { data: groups = [], isLoading } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
-  const [draft, setDraft] = useState({ name: "", description: "", color: "#6ee7b7", sortOrder: undefined as number | undefined });
+  const [draft, setDraft] = useState({
+    name: "",
+    description: "",
+    color: "#6ee7b7",
+    sortOrder: undefined as number | undefined,
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const saveMutation = useMutation({
@@ -58,8 +71,16 @@ export function TagGroupsManager({ title = "Tag Groups", description = "Organize
       </div>
       {canWrite ? (
         <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(8rem,1fr)_minmax(12rem,1.5fr)_8.25rem_4.5rem] lg:items-end">
-          <TagGroupTextField label="Name" value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
-          <TagGroupTextField label="Description" value={draft.description} onChange={(value) => setDraft((current) => ({ ...current, description: value }))} />
+          <TagGroupTextField
+            label="Name"
+            value={draft.name}
+            onChange={(value) => setDraft((current) => ({ ...current, name: value }))}
+          />
+          <TagGroupTextField
+            label="Description"
+            value={draft.description}
+            onChange={(value) => setDraft((current) => ({ ...current, description: value }))}
+          />
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">Color</span>
             <div className="flex items-center gap-2">
@@ -77,7 +98,11 @@ export function TagGroupsManager({ title = "Tag Groups", description = "Organize
               />
             </div>
           </label>
-          <TagGroupNumberField label="Order" value={draft.sortOrder} onChange={(value) => setDraft((current) => ({ ...current, sortOrder: value }))} />
+          <TagGroupNumberField
+            label="Order"
+            value={draft.sortOrder}
+            onChange={(value) => setDraft((current) => ({ ...current, sortOrder: value }))}
+          />
           <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4 lg:justify-end">
             <button
               type="button"
@@ -90,7 +115,10 @@ export function TagGroupsManager({ title = "Tag Groups", description = "Organize
             {editingId != null ? (
               <button
                 type="button"
-                onClick={() => { setEditingId(null); setDraft({ name: "", description: "", color: "#6ee7b7", sortOrder: undefined }); }}
+                onClick={() => {
+                  setEditingId(null);
+                  setDraft({ name: "", description: "", color: "#6ee7b7", sortOrder: undefined });
+                }}
                 className="rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:text-foreground"
               >
                 Cancel
@@ -103,22 +131,38 @@ export function TagGroupsManager({ title = "Tag Groups", description = "Organize
       <div className="space-y-2">
         {isLoading ? <div className="text-sm text-muted">Loading...</div> : null}
         {groups.map((group) => (
-          <div key={group.id} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            key={group.id}
+            className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div className="flex min-w-0 items-center gap-3">
-              <span className="h-4 w-4 rounded-full border border-border" style={{ backgroundColor: group.color ?? "transparent" }} />
+              <span
+                className="h-4 w-4 rounded-full border border-border"
+                style={{ backgroundColor: group.color ?? "transparent" }}
+              />
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-foreground">{group.name}</div>
-                <div className="text-xs text-muted">{group.tagCount} tag{group.tagCount === 1 ? "" : "s"}</div>
+                <div className="text-xs text-muted">
+                  {group.tagCount} tag{group.tagCount === 1 ? "" : "s"}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {canWrite ? (
-                <button type="button" onClick={() => startEdit(group)} className="rounded-lg border border-border px-2 py-1 text-xs text-secondary hover:text-foreground">Edit</button>
+                <button
+                  type="button"
+                  onClick={() => startEdit(group)}
+                  className="rounded-lg border border-border px-2 py-1 text-xs text-secondary hover:text-foreground"
+                >
+                  Edit
+                </button>
               ) : null}
               {canDelete ? (
                 <button
                   type="button"
-                  onClick={() => { if (confirm(`Delete tag group "${group.name}"?`)) deleteMutation.mutate(group.id); }}
+                  onClick={() => {
+                    if (confirm(`Delete tag group "${group.name}"?`)) deleteMutation.mutate(group.id);
+                  }}
                   className="rounded-lg border border-border px-2 py-1 text-xs text-red-300 hover:border-red-500 hover:text-red-200"
                 >
                   Delete
@@ -134,7 +178,15 @@ export function TagGroupsManager({ title = "Tag Groups", description = "Organize
   return framed ? <section className="rounded-xl border border-border bg-surface p-4">{content}</section> : content;
 }
 
-function TagGroupTextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TagGroupTextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">{label}</span>
@@ -148,7 +200,15 @@ function TagGroupTextField({ label, value, onChange }: { label: string; value: s
   );
 }
 
-function TagGroupNumberField({ label, value, onChange }: { label: string; value?: number; onChange: (value: number | undefined) => void }) {
+function TagGroupNumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value?: number;
+  onChange: (value: number | undefined) => void;
+}) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">{label}</span>

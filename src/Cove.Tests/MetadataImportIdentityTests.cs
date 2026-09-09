@@ -13,7 +13,7 @@ public sealed class MetadataImportIdentityTests
         await using var db = CreateContext();
         var existing = new Studio { Name = "Existing studio", Details = "Old" };
         db.Studios.Add(existing);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await MetadataController.ImportStudiosAsync(
             db,
@@ -25,7 +25,7 @@ public sealed class MetadataImportIdentityTests
             CancellationToken.None);
 
         db.ChangeTracker.Clear();
-        var studio = await db.Studios.SingleAsync();
+        var studio = await db.Studios.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(existing.Id, studio.Id);
         Assert.Equal("Existing studio", studio.Name);
         Assert.Equal("Last", studio.Details);
@@ -48,7 +48,7 @@ public sealed class MetadataImportIdentityTests
             CancellationToken.None);
 
         db.ChangeTracker.Clear();
-        var performers = await db.Performers.OrderBy(performer => performer.Disambiguation).ToListAsync();
+        var performers = await db.Performers.OrderBy(performer => performer.Disambiguation).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, performers.Count);
         var first = performers.Single(performer => performer.Disambiguation == "First");
         Assert.Equal("Shared name", first.Name);
@@ -65,7 +65,7 @@ public sealed class MetadataImportIdentityTests
             new Performer { Name = "Legacy", Disambiguation = "Pair" },
             new Performer { Name = " legacy ", Disambiguation = " pair " });
         using (db.SuppressEntityNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() =>
             MetadataController.ImportPerformersAsync(

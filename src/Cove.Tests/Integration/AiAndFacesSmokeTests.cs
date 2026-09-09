@@ -43,10 +43,10 @@ public sealed class AiDataControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync("/api/ai-data/summary");
+        var response = await client.GetAsync("/api/ai-data/summary", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var summary = await response.Content.ReadApiJsonAsync<AiDataSummaryDto>();
+        var summary = await response.Content.ReadApiJsonAsync<AiDataSummaryDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(summary);
         Assert.NotEmpty(summary.Items);
     }
@@ -78,10 +78,10 @@ public sealed class AiRunsControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync("/api/ai-runs?page=1&perPage=10");
+        var response = await client.GetAsync("/api/ai-runs?page=1&perPage=10", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<PaginatedResponse<AiRunDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<PaginatedResponse<AiRunDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Single(payload.Items);
     }
@@ -117,10 +117,10 @@ public sealed class EmbeddingsControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync("/api/embeddings?page=1&perPage=10");
+        var response = await client.GetAsync("/api/embeddings?page=1&perPage=10", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<PaginatedResponse<EmbeddingDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<PaginatedResponse<EmbeddingDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Single(payload.Items);
     }
@@ -148,15 +148,15 @@ public sealed class FacesControllerSmokeTests
 
         using var client = factory.CreateAuthenticatedClient();
 
-        var listResponse = await client.GetAsync("/api/faces?page=1&perPage=10");
+        var listResponse = await client.GetAsync("/api/faces?page=1&perPage=10", TestContext.Current.CancellationToken);
         listResponse.EnsureSuccessStatusCode();
-        var listPayload = await listResponse.Content.ReadApiJsonAsync<PaginatedResponse<FaceDto>>();
+        var listPayload = await listResponse.Content.ReadApiJsonAsync<PaginatedResponse<FaceDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(listPayload);
         Assert.Single(listPayload.Items);
 
-        var suggestionsResponse = await client.GetAsync($"/api/faces/{faceId}/suggestions?maxResults=5");
+        var suggestionsResponse = await client.GetAsync($"/api/faces/{faceId}/suggestions?maxResults=5", TestContext.Current.CancellationToken);
         suggestionsResponse.EnsureSuccessStatusCode();
-        var suggestions = await suggestionsResponse.Content.ReadApiJsonAsync<List<FaceSuggestionDto>>();
+        var suggestions = await suggestionsResponse.Content.ReadApiJsonAsync<List<FaceSuggestionDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(suggestions);
     }
 }

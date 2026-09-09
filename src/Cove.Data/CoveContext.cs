@@ -84,7 +84,14 @@ public partial class CoveContext : DbContext
     public DbSet<Audio> Audios => Set<Audio>();
     public DbSet<TextDocument> TextDocuments => Set<TextDocument>();
     public DbSet<Group> Groups => Set<Group>();
+    public DbSet<DuplicateSearch> DuplicateSearches => Set<DuplicateSearch>();
+    public DbSet<DuplicateSearchGroup> DuplicateSearchGroups => Set<DuplicateSearchGroup>();
+    public DbSet<DuplicateSearchItem> DuplicateSearchItems => Set<DuplicateSearchItem>();
+    public DbSet<DuplicateDeletionKeeperReservation> DuplicateDeletionKeeperReservations => Set<DuplicateDeletionKeeperReservation>();
+    public DbSet<PendingPhysicalFileDeletion> PendingPhysicalFileDeletions => Set<PendingPhysicalFileDeletion>();
+    public DbSet<VideoDeletionCommitMarker> VideoDeletionCommitMarkers => Set<VideoDeletionCommitMarker>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
+    public DbSet<CustomFieldJsonPathDefinition> CustomFieldJsonPathDefinitions => Set<CustomFieldJsonPathDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
     public DbSet<FieldProvenance> FieldProvenance => Set<FieldProvenance>();
@@ -122,6 +129,7 @@ public partial class CoveContext : DbContext
     public DbSet<ExternalIdentityLink> ExternalIdentityLinks => Set<ExternalIdentityLink>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
 
     // Extensions
     public DbSet<ExtensionData> ExtensionData => Set<ExtensionData>();
@@ -169,6 +177,14 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<VideoCaption>()
             .ToTable("video_captions");
 
+        modelBuilder.Entity<UnfilteredVideoPerformerLink>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("video_performers");
+            entity.Property(link => link.VideoId).HasColumnName("VideoId");
+            entity.Property(link => link.PerformerId).HasColumnName("PerformerId");
+        });
+
         // Secondary tables that historically defaulted to their CLR type name (PascalCase). Map them to
         // snake_case so every table follows one convention. (The 20260707 migration renames them in the DB.)
         modelBuilder.Entity<VideoUrl>().ToTable("video_urls");
@@ -195,12 +211,14 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<UserSession>(entity =>
         {
             entity.ToTable("user_sessions");
+            entity.HasOne<User>().WithMany().HasForeignKey(session => session.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(session => new { session.UserId, session.LastSeenAt });
         });
 
         modelBuilder.Entity<PlaybackSession>(entity =>
         {
             entity.ToTable("playback_sessions");
+            entity.HasOne<User>().WithMany().HasForeignKey(session => session.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(session => new { session.UserId, session.HostType, session.HostId, session.StartedAt });
             // The per-entity session within a user-global session. This is the lookup + concurrency key now;
             // a reload reuses the same UserSession (within the idle timeout) so it merges into one row.
@@ -221,6 +239,7 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<PlaybackInterval>(entity =>
         {
             entity.ToTable("playback_intervals");
+            entity.HasOne<User>().WithMany().HasForeignKey(interval => interval.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(interval => new { interval.UserId, interval.HostType, interval.HostId });
             entity.HasIndex(interval => new { interval.PlaybackSessionId, interval.StartSec });
             entity.HasIndex(interval => new { interval.UserId, interval.Surface, interval.RecordedAt });
@@ -249,11 +268,28 @@ public partial class CoveContext : DbContext
 
         if (isNpgsql)
         {
+            ConfigureCustomFieldJsonFunctions(modelBuilder);
             ConfigureSearchVectors(modelBuilder);
             ConfigureAuthorizationFilters(modelBuilder);
         }
         else
             ConfigureProviderFallbacks(modelBuilder);
+    }
+
+    private static void ConfigureCustomFieldJsonFunctions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Text))!)
+            .HasName("cove_json_pointer_text")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.TextIndexKey))!)
+            .HasName("cove_json_pointer_text_index_key")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Number))!)
+            .HasName("cove_json_pointer_number")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Boolean))!)
+            .HasName("cove_json_pointer_boolean")
+            .HasSchema("public");
     }
 
     private static void ConfigureSearchVectors(ModelBuilder modelBuilder)
@@ -373,6 +409,15 @@ public partial class CoveContext : DbContext
             document => GetJsonDocumentHash(document),
             document => CloneJsonDocument(document));
 
+        var jsonElementConverter = new ValueConverter<JsonElement?, string?>(
+            element => SerializeJsonElement(element),
+            json => DeserializeJsonElement(json));
+
+        var jsonElementComparer = new ValueComparer<JsonElement?>(
+            (left, right) => JsonElementsEqual(left, right),
+            element => GetJsonElementHash(element),
+            element => CloneJsonElement(element));
+
         var objectDictionaryConverter = new ValueConverter<Dictionary<string, object>?, string?>(
             dictionary => SerializeObjectDictionary(dictionary),
             json => DeserializeObjectDictionary(json));
@@ -388,6 +433,13 @@ public partial class CoveContext : DbContext
             {
                 property.SetValueConverter(jsonConverter);
                 property.SetValueComparer(jsonComparer);
+            }
+
+            if (property.ClrType == typeof(JsonElement?))
+            {
+                property.SetValueConverter(jsonElementConverter);
+                property.SetValueComparer(jsonElementComparer);
+                property.SetColumnType("text");
             }
 
             if (property.ClrType == typeof(Dictionary<string, object>))
@@ -415,6 +467,21 @@ public partial class CoveContext : DbContext
 
     private static string? GetJsonText(JsonDocument? document) =>
         document is null ? null : document.RootElement.GetRawText();
+
+    private static string? SerializeJsonElement(JsonElement? element) =>
+        element?.GetRawText();
+
+    private static JsonElement? DeserializeJsonElement(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? null : JsonDocument.Parse(json).RootElement.Clone();
+
+    private static bool JsonElementsEqual(JsonElement? left, JsonElement? right) =>
+        string.Equals(SerializeJsonElement(left), SerializeJsonElement(right), StringComparison.Ordinal);
+
+    private static int GetJsonElementHash(JsonElement? element) =>
+        element?.GetRawText().GetHashCode(StringComparison.Ordinal) ?? 0;
+
+    private static JsonElement? CloneJsonElement(JsonElement? element) =>
+        element?.Clone();
 
     private static string? SerializeObjectDictionary(Dictionary<string, object>? dictionary)
     {
@@ -1230,55 +1297,25 @@ public partial class CoveContext : DbContext
 
     private void CleanupEngagementRowsForDeletedEntities()
     {
-        var deletedUserIds = ChangeTracker.Entries<User>()
-            .Where(entry => entry.State == EntityState.Deleted && entry.Entity.Id > 0)
-            .Select(entry => entry.Entity.Id)
-            .Distinct()
-            .ToArray();
-        if (deletedUserIds.Length > 0)
-        {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Interactions.RemoveRange(Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserSessions.RemoveRange(UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Ratings.RemoveRange(Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-        }
-
         foreach (var target in CollectDeletedEngagementTargets())
         {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            Interactions.RemoveRange(Interactions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            Ratings.RemoveRange(Ratings.Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToList());
+            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
+            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
+            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
+            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
+            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToList());
         }
     }
 
     private async Task CleanupEngagementRowsForDeletedEntitiesAsync(CancellationToken cancellationToken)
     {
-        var deletedUserIds = ChangeTracker.Entries<User>()
-            .Where(entry => entry.State == EntityState.Deleted && entry.Entity.Id > 0)
-            .Select(entry => entry.Entity.Id)
-            .Distinct()
-            .ToArray();
-        if (deletedUserIds.Length > 0)
-        {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserSessions.RemoveRange(await UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-        }
-
         foreach (var target in CollectDeletedEngagementTargets())
         {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
         }
     }
 

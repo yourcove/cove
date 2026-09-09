@@ -41,6 +41,15 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendAsync<ImageDto>(HttpMethod.Post, "/api/images", image, cancellationToken);
 
+    public Task<ImageDto> CreateImageFromFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDto>(
+            HttpMethod.Post,
+            "/api/images/from-file",
+            new FileBackedCreateDto(filePath),
+            cancellationToken);
+
     public Task<ImageDto> GetImageByIdAsync(
         int imageId,
         CancellationToken cancellationToken = default)

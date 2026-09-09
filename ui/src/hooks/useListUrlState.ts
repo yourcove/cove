@@ -23,7 +23,19 @@ export interface UseListUrlStateOptions<TDisplayMode extends string> {
   initialState?: ListUrlState<TDisplayMode>;
 }
 
-export const LIST_URL_MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "sorts", "view", "viewMode", "filters", "seed", "searchMode"] as const;
+export const LIST_URL_MANAGED_KEYS = [
+  "q",
+  "page",
+  "perPage",
+  "sort",
+  "direction",
+  "sorts",
+  "view",
+  "viewMode",
+  "filters",
+  "seed",
+  "searchMode",
+] as const;
 const DEFAULT_SEARCH_MODE = "text";
 const MAX_RANDOM_SORT_SEED = 2147483647;
 
@@ -56,7 +68,11 @@ function normalizeInteger(value: string | null, fallback?: number): number | und
   return parsed;
 }
 
-function normalizePerPage(value: string | null, fallback: number | undefined, allowInfinite: boolean): number | undefined {
+function normalizePerPage(
+  value: string | null,
+  fallback: number | undefined,
+  allowInfinite: boolean,
+): number | undefined {
   if (allowInfinite && (value === "infinite" || value === "0")) {
     return 0;
   }
@@ -95,7 +111,9 @@ function readObjectFilter(value: string | null, fallback: Record<string, unknown
   return cloneObjectFilter(fallback);
 }
 
-function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateOptions<TDisplayMode>): ListUrlState<TDisplayMode> {
+function readStateFromUrl<TDisplayMode extends string>(
+  options: UseListUrlStateOptions<TDisplayMode>,
+): ListUrlState<TDisplayMode> {
   const params = new URLSearchParams(window.location.search);
   const defaultSearchMode = options.defaultSearchMode ?? DEFAULT_SEARCH_MODE;
   const allowedSearchModes = options.allowedSearchModes ?? [defaultSearchMode];
@@ -104,14 +122,14 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   const defaultSorts = getSortClauses(options.defaultFilter);
   const legacySort = params.get("sort");
   const legacyDirection = normalizeDirection(params.get("direction"), options.defaultFilter.direction);
-  const activeSorts = urlSorts.length > 0
-    ? urlSorts
-    : legacySort
-      ? [{ key: legacySort, direction: legacyDirection ?? "asc" }]
-      : defaultSorts;
+  const activeSorts =
+    urlSorts.length > 0
+      ? urlSorts
+      : legacySort
+        ? [{ key: legacySort, direction: legacyDirection ?? "asc" }]
+        : defaultSorts;
   const sort = activeSorts[0]?.key ?? options.defaultFilter.sort;
-  const direction = activeSorts[0]?.direction
-    ?? legacyDirection;
+  const direction = activeSorts[0]?.direction ?? legacyDirection;
   let seed = normalizeInteger(params.get("seed"), options.defaultFilter.seed);
   // Random sort with no seed (e.g. a saved/default filter that intentionally omits one) would
   // otherwise fall back to the backend's fixed default seed and produce the *same* "random" order
@@ -123,7 +141,11 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   const filter: FindFilter = {
     q: params.get("q") ?? options.defaultFilter.q,
     page: normalizeInteger(params.get("page"), options.defaultFilter.page),
-    perPage: normalizePerPage(params.get("perPage"), options.defaultFilter.perPage, options.allowInfinitePageSize === true),
+    perPage: normalizePerPage(
+      params.get("perPage"),
+      options.defaultFilter.perPage,
+      options.allowInfinitePageSize === true,
+    ),
     sort,
     direction,
     sorts: activeSorts.length > 1 ? activeSorts : undefined,
@@ -131,12 +153,8 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   };
 
   const rawView = params.get("view");
-  const view = rawView && options.allowedDisplayModes.includes(rawView as TDisplayMode)
-    ? rawView
-    : null;
-  const displayMode = view
-    ? (view as TDisplayMode)
-    : options.defaultDisplayMode;
+  const view = rawView && options.allowedDisplayModes.includes(rawView as TDisplayMode) ? rawView : null;
+  const displayMode = view ? (view as TDisplayMode) : options.defaultDisplayMode;
 
   return {
     filter,
@@ -146,7 +164,9 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   };
 }
 
-function readDefaultState<TDisplayMode extends string>(options: UseListUrlStateOptions<TDisplayMode>): ListUrlState<TDisplayMode> {
+function readDefaultState<TDisplayMode extends string>(
+  options: UseListUrlStateOptions<TDisplayMode>,
+): ListUrlState<TDisplayMode> {
   const filter = cloneFilter(options.defaultFilter);
   if (filter.sort === "random" && filter.seed == null) filter.seed = generateRandomSortSeed();
   return {
@@ -299,20 +319,23 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
     setState((current) => ({ ...current, searchMode }));
   }, []);
 
-  const replaceState = useCallback((nextState: Omit<ListUrlState<TDisplayMode>, "searchMode"> & { searchMode?: string }) => {
-    const normalizedState: ListUrlState<TDisplayMode> = {
-      ...nextState,
-      searchMode: nextState.searchMode ?? options.defaultSearchMode ?? DEFAULT_SEARCH_MODE,
-    };
-    setState(normalizedState);
+  const replaceState = useCallback(
+    (nextState: Omit<ListUrlState<TDisplayMode>, "searchMode"> & { searchMode?: string }) => {
+      const normalizedState: ListUrlState<TDisplayMode> = {
+        ...nextState,
+        searchMode: nextState.searchMode ?? options.defaultSearchMode ?? DEFAULT_SEARCH_MODE,
+      };
+      setState(normalizedState);
 
-    // Write the complete state before emitting a location change. Consumers that also update
-    // page-specific URL parameters can then navigate without the URL listener restoring stale
-    // list state from the previous mode.
-    const params = new URLSearchParams(window.location.search);
-    writeStateToParams(params, normalizedState, options);
-    navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
-  }, [options]);
+      // Write the complete state before emitting a location change. Consumers that also update
+      // page-specific URL parameters can then navigate without the URL listener restoring stale
+      // list state from the previous mode.
+      const params = new URLSearchParams(window.location.search);
+      writeStateToParams(params, normalizedState, options);
+      navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
+    },
+    [options],
+  );
 
   return {
     filter: state.filter,

@@ -16,8 +16,12 @@ function ListStateProbe() {
     <div>
       <div data-testid="display-mode">{displayMode}</div>
       <div data-testid="per-page">{filter.perPage}</div>
-      <button type="button" onClick={() => setDisplayMode("feed")}>Feed</button>
-      <button type="button" onClick={() => setFilter({ ...filter, perPage: 60 })}>Sixty</button>
+      <button type="button" onClick={() => setDisplayMode("feed")}>
+        Feed
+      </button>
+      <button type="button" onClick={() => setFilter({ ...filter, perPage: 60 })}>
+        Sixty
+      </button>
     </div>
   );
 }
@@ -57,25 +61,29 @@ function MultiSortProbe() {
       <div data-testid="sort-clauses">{JSON.stringify(filter.sorts ?? [])}</div>
       <button
         type="button"
-        onClick={() => setFilter({
-          ...filter,
-          sort: "studio",
-          direction: "asc",
-          sorts: [
-            { key: "studio", direction: "asc" },
-            { key: "date", direction: "desc" },
-          ],
-        })}
+        onClick={() =>
+          setFilter({
+            ...filter,
+            sort: "studio",
+            direction: "asc",
+            sorts: [
+              { key: "studio", direction: "asc" },
+              { key: "date", direction: "desc" },
+            ],
+          })
+        }
       >
         Group by studio
       </button>
       <button
         type="button"
-        onClick={() => setFilter({
-          ...filter,
-          direction: filter.direction === "desc" ? "asc" : "desc",
-          sorts: undefined,
-        })}
+        onClick={() =>
+          setFilter({
+            ...filter,
+            direction: filter.direction === "desc" ? "asc" : "desc",
+            sorts: undefined,
+          })
+        }
       >
         Toggle direction
       </button>

@@ -9,7 +9,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { Layers, Trash2, Loader2, Edit } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
-import { GROUP_CRITERIA } from "../components/FilterDialog";
+import { GROUP_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { BulkEditDialog, GROUP_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
@@ -18,7 +18,12 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
 import { CustomFieldsEditor } from "../components/shared";
-import { DynamicGroupFilterEditor, FILTER_DYNAMIC_SOURCE_KEY, defaultDynamicGroupFilterQueryJson, isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
+import {
+  DynamicGroupFilterEditor,
+  FILTER_DYNAMIC_SOURCE_KEY,
+  defaultDynamicGroupFilterQueryJson,
+  isProtectedBuiltInGroup,
+} from "../components/DynamicGroupFilterEditor";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
@@ -38,7 +43,11 @@ export function GroupsPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "tagger"] as const, "grid") as DisplayMode,
+      displayMode: resolveSavedDisplayMode(
+        savedFilter?.uiOptions,
+        ["grid", "list", "tagger"] as const,
+        "grid",
+      ) as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({
@@ -58,11 +67,13 @@ export function GroupsPage({ onNavigate }: Props) {
   const canDeleteGroup = canDeleteEntity("group", hasPermission);
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryGroupsPage = useCallback((nextFilter: FindFilter) =>
-    hasObjectFilter
-      ? groups.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as GroupFilterCriteria })
-      : groups.find(nextFilter),
-  [hasObjectFilter, objectFilter]);
+  const queryGroupsPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter
+        ? groups.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as GroupFilterCriteria })
+        : groups.find(nextFilter),
+    [hasObjectFilter, objectFilter],
+  );
   const listData = useInfiniteListData<Group>({
     queryKey: ["groups", filter, objectFilter],
     filter,
@@ -73,18 +84,38 @@ export function GroupsPage({ onNavigate }: Props) {
   const items = listData.items;
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
-  const manualOrderingEnabled = !listData.infinitePageSize && displayMode === "grid" && !hasObjectFilter && !filter.q && (filter.sort ?? "sort_order") === "sort_order" && (filter.direction ?? "asc") !== "desc";
-  const { engagementById } = useEntityEngagementBatch("group", items.map((item) => item.id));
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
+  const manualOrderingEnabled =
+    !listData.infinitePageSize &&
+    displayMode === "grid" &&
+    !hasObjectFilter &&
+    !filter.q &&
+    (filter.sort ?? "sort_order") === "sort_order" &&
+    (filter.direction ?? "asc") !== "desc";
+  const { engagementById } = useEntityEngagementBatch(
+    "group",
+    items.map((item) => item.id),
+  );
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }),
+    [listData.infiniteFilterKey, objectFilter],
+  );
   // Built-in/system groups (Save for Later, Watch History, Continue Watching) can't be deleted,
   // so they must not be selectable for bulk actions.
   const protectedBuiltInGroupIds = useMemo(
     () => new Set(items.filter((group) => isProtectedBuiltInGroup(group.querySourceKey)).map((group) => group.id)),
     [items],
   );
-  const isSelectableGroupId = useCallback((id: number) => !protectedBuiltInGroupIds.has(id), [protectedBuiltInGroupIds]);
+  const isSelectableGroupId = useCallback(
+    (id: number) => !protectedBuiltInGroupIds.has(id),
+    [protectedBuiltInGroupIds],
+  );
   const isSelectableGroupItem = useCallback((group: Group) => !isProtectedBuiltInGroup(group.querySourceKey), []);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey, isSelectable: isSelectableGroupItem, isSelectableId: isSelectableGroupId });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, {
+    preserveOnItemsChange: listData.infinitePageSize,
+    resetKey: selectionResetKey,
+    isSelectable: isSelectableGroupItem,
+    isSelectableId: isSelectableGroupId,
+  });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -114,14 +145,8 @@ export function GroupsPage({ onNavigate }: Props) {
     }
   };
 
-  const bulkDeleteMut = useMutation({
-    mutationFn: () => groups.bulkDelete([...selectedIds]),
-    onSuccess: () => { selectNone(); queryClient.invalidateQueries({ queryKey: ["groups"] }); },
-  });
-
   const bulkEditMut = useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      groups.bulkUpdate({ ids: [...selectedIds], ...values } as any),
+    mutationFn: (values: Record<string, unknown>) => groups.bulkUpdate({ ids: [...selectedIds], ...values } as any),
     onSuccess: () => {
       setShowBulkEdit(false);
       selectNone();
@@ -130,12 +155,19 @@ export function GroupsPage({ onNavigate }: Props) {
   });
 
   const reorderMut = useMutation({
-    mutationFn: (nextItems: Group[]) => groups.reorder({ ids: nextItems.map((item) => item.id), startIndex: ((filter.page ?? 1) - 1) * (filter.perPage ?? 40) }),
+    mutationFn: (nextItems: Group[]) =>
+      groups.reorder({
+        ids: nextItems.map((item) => item.id),
+        startIndex: ((filter.page ?? 1) - 1) * (filter.perPage ?? 40),
+      }),
     onMutate: async (nextItems) => {
       await queryClient.cancelQueries({ queryKey: ["groups", filter, objectFilter] });
       const previousData = queryClient.getQueryData<PaginatedResponse<Group>>(["groups", filter, objectFilter]);
       if (previousData) {
-        queryClient.setQueryData<PaginatedResponse<Group>>(["groups", filter, objectFilter], { ...previousData, items: nextItems });
+        queryClient.setQueryData<PaginatedResponse<Group>>(["groups", filter, objectFilter], {
+          ...previousData,
+          items: nextItems,
+        });
       }
       return { previousData };
     },
@@ -149,7 +181,11 @@ export function GroupsPage({ onNavigate }: Props) {
 
   return (
     <>
-      <GroupCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "group", id })} />
+      <GroupCreateModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => onNavigate({ page: "group", id })}
+      />
       <ListPage
         title="Groups"
         pageKey="groups"
@@ -159,7 +195,9 @@ export function GroupsPage({ onNavigate }: Props) {
         totalCount={totalCount}
         isLoading={isLoading}
         error={listData.loadError}
-        onRetry={() => { void listData.refetch(); }}
+        onRetry={() => {
+          void listData.refetch();
+        }}
         sortOptions={SORT_OPTIONS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
@@ -180,77 +218,98 @@ export function GroupsPage({ onNavigate }: Props) {
         onInvertSelection={invertSelection}
         selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />}
       >
-      {displayMode === "tagger" ? (
-        <ScraperEntityTagger
-          entityType="group"
-          label="Group"
-          items={items}
-          selectedIds={selectedIds}
-          selecting={selecting}
-          onSelect={toggle}
-          getTitle={(group) => group.name}
-          getImageUrl={(group) => group.frontImagePath}
-          getRoute={(group) => ({ page: "group", id: group.id })}
-          queryKey="groups"
-        />
-      ) : displayMode === "grid" ? (
-        manualOrderingEnabled ? (
-          <SortableList
+        {displayMode === "tagger" ? (
+          <ScraperEntityTagger
+            entityType="group"
+            label="Group"
             items={items}
-            getKey={(group) => group.id}
-            onReorder={(nextItems) => reorderMut.mutate(nextItems)}
-            disabled={!canWriteGroup || selecting || reorderMut.isPending}
-            className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(var(--card-min-width, 160px), 1fr))" }}
-            renderItem={(g, { dragHandleProps, isDragging, isOver }) => (
-              <GroupTile
-                group={g}
-                engagement={engagementById.get(g.id)}
-                onClick={(toggleOptions) => selecting && isSelectableGroupItem(g) ? toggle(g.id, toggleOptions) : onNavigate({ page: "group", id: g.id })}
-                onNavigate={onNavigate}
-                selected={selectedIds.has(g.id)}
-                onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
-                selecting={selecting}
-                selectable={isSelectableGroupItem(g)}
-                dragHandleProps={canWriteGroup ? dragHandleProps : undefined}
-                isDragging={isDragging}
-                isOver={isOver}
-              />
-            )}
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onSelect={toggle}
+            getTitle={(group) => group.name}
+            getImageUrl={(group) => group.frontImagePath}
+            getRoute={(group) => ({ page: "group", id: group.id })}
+            queryKey="groups"
           />
+        ) : displayMode === "grid" ? (
+          manualOrderingEnabled ? (
+            <SortableList
+              items={items}
+              getKey={(group) => group.id}
+              onReorder={(nextItems) => reorderMut.mutate(nextItems)}
+              disabled={!canWriteGroup || selecting || reorderMut.isPending}
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(var(--card-min-width, 160px), 1fr))" }}
+              renderItem={(g, { dragHandleProps, isDragging, isOver }) => (
+                <GroupTile
+                  group={g}
+                  engagement={engagementById.get(g.id)}
+                  onClick={(toggleOptions) =>
+                    selecting && isSelectableGroupItem(g)
+                      ? toggle(g.id, toggleOptions)
+                      : onNavigate({ page: "group", id: g.id })
+                  }
+                  onNavigate={onNavigate}
+                  selected={selectedIds.has(g.id)}
+                  onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
+                  selecting={selecting}
+                  selectable={isSelectableGroupItem(g)}
+                  dragHandleProps={canWriteGroup ? dragHandleProps : undefined}
+                  isDragging={isDragging}
+                  isOver={isOver}
+                />
+              )}
+            />
+          ) : (
+            <VirtualizedEntityGrid
+              items={items}
+              getItemKey={(group) => group.id}
+              minCardWidth="var(--card-min-width, 160px)"
+              estimateRowHeight={280}
+              infinitePageSize={listData.infinitePageSize}
+              hasNextPage={listData.infiniteQuery.hasNextPage}
+              isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+              loadMore={listData.loadMore}
+              renderItem={(g) => (
+                <GroupTile
+                  group={g}
+                  engagement={engagementById.get(g.id)}
+                  onClick={(toggleOptions) =>
+                    selecting && isSelectableGroupItem(g)
+                      ? toggle(g.id, toggleOptions)
+                      : onNavigate({ page: "group", id: g.id })
+                  }
+                  onNavigate={onNavigate}
+                  selected={selectedIds.has(g.id)}
+                  onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
+                  selecting={selecting}
+                  selectable={isSelectableGroupItem(g)}
+                />
+              )}
+            />
+          )
         ) : (
-          <VirtualizedEntityGrid
+          <RelatedEntityListView
+            entityType="groups"
             items={items}
-            getItemKey={(group) => group.id}
-            minCardWidth="var(--card-min-width, 160px)"
-            estimateRowHeight={280}
+            displayMode="list"
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onToggle={toggle}
+            isSelectable={isSelectableGroupItem}
+            onNavigate={onNavigate}
             infinitePageSize={listData.infinitePageSize}
             hasNextPage={listData.infiniteQuery.hasNextPage}
             isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
             loadMore={listData.loadMore}
-            renderItem={(g) => (
-              <GroupTile
-                group={g}
-                engagement={engagementById.get(g.id)}
-                onClick={(toggleOptions) => selecting && isSelectableGroupItem(g) ? toggle(g.id, toggleOptions) : onNavigate({ page: "group", id: g.id })}
-                onNavigate={onNavigate}
-                selected={selectedIds.has(g.id)}
-                onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
-                selecting={selecting}
-                selectable={isSelectableGroupItem(g)}
-              />
-            )}
           />
-        )
-      ) : (
-        <RelatedEntityListView entityType="groups" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} isSelectable={isSelectableGroupItem} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
-      )}
-      {items.length === 0 && (
-        <div className="text-center text-secondary py-16">
-          <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <p>No groups found</p>
-        </div>
-      )}
+        )}
+        {items.length === 0 && (
+          <div className="text-center text-secondary py-16">
+            <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>No groups found</p>
+          </div>
+        )}
       </ListPage>
       <BulkEditDialog
         open={showBulkEdit}
@@ -266,7 +325,15 @@ export function GroupsPage({ onNavigate }: Props) {
 }
 
 /* â”€â”€ Group Create Modal â”€â”€ */
-function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+function GroupCreateModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
   const qc = useQueryClient();
   const { data: dynamicSources = [] } = useQuery({
     queryKey: ["group-dynamic-sources"],
@@ -288,11 +355,20 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
     queryJson: defaultDynamicGroupFilterQueryJson(),
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [parentGroupIds, setParentGroupIds] = useState<number[]>([]);
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
-    setForm({ name: "", date: "", director: "", description: "", kind: "static", querySourceKey: defaultDynamicSourceKey, queryJson: defaultDynamicGroupFilterQueryJson() });
+    setForm({
+      name: "",
+      date: "",
+      director: "",
+      description: "",
+      kind: "static",
+      querySourceKey: defaultDynamicSourceKey,
+      queryJson: defaultDynamicGroupFilterQueryJson(),
+    });
     setParentGroupIds([]);
     setCustomFields({});
   };
@@ -332,7 +408,8 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
         customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
         kind: form.kind,
         querySourceKey: form.kind === "dynamic" ? form.querySourceKey : undefined,
-        queryJson: form.kind === "dynamic" && form.querySourceKey === FILTER_DYNAMIC_SOURCE_KEY ? form.queryJson : undefined,
+        queryJson:
+          form.kind === "dynamic" && form.querySourceKey === FILTER_DYNAMIC_SOURCE_KEY ? form.queryJson : undefined,
       },
       parentIds: parentGroupIds,
     });
@@ -349,7 +426,15 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
             <button
               key={kind}
               type="button"
-              onClick={() => setForm({ ...form, kind, querySourceKey: kind === "dynamic" ? (form.querySourceKey || defaultDynamicSourceKey) : form.querySourceKey, queryJson: form.queryJson || defaultDynamicGroupFilterQueryJson() })}
+              onClick={() =>
+                setForm({
+                  ...form,
+                  kind,
+                  querySourceKey:
+                    kind === "dynamic" ? form.querySourceKey || defaultDynamicSourceKey : form.querySourceKey,
+                  queryJson: form.queryJson || defaultDynamicGroupFilterQueryJson(),
+                })
+              }
               className={`rounded-md px-3 py-1.5 text-sm capitalize transition-colors ${form.kind === kind ? "bg-accent text-white" : "text-secondary hover:text-foreground"}`}
             >
               {kind}
@@ -362,21 +447,39 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
           <Field label="Source">
             <select
               value={form.querySourceKey}
-              onChange={(event) => setForm({ ...form, querySourceKey: event.target.value, queryJson: event.target.value === FILTER_DYNAMIC_SOURCE_KEY ? (form.queryJson || defaultDynamicGroupFilterQueryJson()) : form.queryJson })}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  querySourceKey: event.target.value,
+                  queryJson:
+                    event.target.value === FILTER_DYNAMIC_SOURCE_KEY
+                      ? form.queryJson || defaultDynamicGroupFilterQueryJson()
+                      : form.queryJson,
+                })
+              }
               className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
             >
               {dynamicSourceOptions.map((source) => (
-                <option key={source.key} value={source.key}>{source.displayName}</option>
+                <option key={source.key} value={source.key}>
+                  {source.displayName}
+                </option>
               ))}
             </select>
           </Field>
         </div>
       ) : null}
       {form.kind === "dynamic" && form.querySourceKey === FILTER_DYNAMIC_SOURCE_KEY ? (
-        <DynamicGroupFilterEditor queryJson={form.queryJson} onChange={(queryJson) => setForm({ ...form, queryJson })} />
+        <DynamicGroupFilterEditor
+          queryJson={form.queryJson}
+          onChange={(queryJson) => setForm({ ...form, queryJson })}
+        />
       ) : null}
       <Field label="Date">
-        <IsoDateInput value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" />
+        <IsoDateInput
+          value={form.date}
+          onChange={(event) => setForm({ ...form, date: event.target.value })}
+          className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+        />
       </Field>
       <Field label="Director">
         <TextInput value={form.director} onChange={(v) => setForm({ ...form, director: v })} />
@@ -385,12 +488,28 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
         <TextArea value={form.description} onChange={(v) => setForm({ ...form, description: v })} rows={3} />
       </Field>
       <Field label="Parent Groups">
-        <EntityReferenceMultiSelector entityType="group" values={parentGroupIds} onChange={setParentGroupIds} placeholder="Search parent groups..." />
+        <EntityReferenceMultiSelector
+          entityType="group"
+          values={parentGroupIds}
+          onChange={setParentGroupIds}
+          placeholder="Search parent groups..."
+        />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="group" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="group"
+        />
       </Field>
-      <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions
+        loading={mutation.isPending}
+        disabled={!customFieldsValid}
+        onSave={save}
+        createAnother={createAnother}
+        onCreateAnotherChange={setCreateAnother}
+      />
     </EditModal>
   );
 }

@@ -31,9 +31,7 @@ describe("canonical entity sort options", () => {
     ["segments", RAW_SEGMENT_SORT_OPTIONS],
     ["faces", FACE_SORT_OPTIONS],
   ])("includes one Random option for %s", (_entity, options) => {
-    expect(options.filter((option) => option.value === "random")).toEqual([
-      { value: "random", label: "Random" },
-    ]);
+    expect(options.filter((option) => option.value === "random")).toEqual([{ value: "random", label: "Random" }]);
   });
 
   it("keeps Visual Match out of the context-safe image catalog", () => {
@@ -81,9 +79,7 @@ describe("canonical entity sort options", () => {
     ["studios", CONTRACT_STUDIO_KEYS, STUDIO_SORT_OPTIONS, ["random"]],
     ["tags", CONTRACT_TAG_KEYS, TAG_SORT_OPTIONS, ["random", "tag_group"]],
   ])("lists every compound-capable %s option in the shared contract", (_entity, keys, options, singleSortOnlyKeys) => {
-    const eligibleOptionKeys = options
-      .map((option) => option.value)
-      .filter((key) => !singleSortOnlyKeys.includes(key));
+    const eligibleOptionKeys = options.map((option) => option.value).filter((key) => !singleSortOnlyKeys.includes(key));
 
     expect(new Set(keys)).toEqual(new Set(eligibleOptionKeys));
   });

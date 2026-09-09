@@ -1,14 +1,17 @@
+using System.Data;
+using System.Globalization;
 using System.Text.Json;
-using System.Numerics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
@@ -20,12 +23,11 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null, BulkDeletionJobService? bulkDeletionJobService = null, DuplicateSearchJobService? duplicateSearchJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
     private static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
-    private sealed record PerformerSupplementalCounts(int AudioCount, int TextCount);
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
@@ -144,6 +146,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var videoRows = videoQuery.Select(video => new VideoListEntryKey
         {
+            CustomFieldEntityId = video.Id,
+            CustomFieldTieKind = "video",
+            CustomFieldTieId = video.Id,
             Kind = "video",
             Id = video.Id,
             Title = video.Title ?? video.FileSearchText ?? string.Empty,
@@ -160,6 +165,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         });
         var compilationRows = compilationQuery.Select(group => new VideoListEntryKey
         {
+            CustomFieldEntityId = null,
+            CustomFieldTieKind = "compilation",
+            CustomFieldTieId = group.Id,
             Kind = "compilation",
             Id = group.Id,
             Title = group.Name,
@@ -175,7 +183,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var combinedQuery = videoRows.Concat(compilationRows);
         var totalCount = await combinedQuery.CountAsync(ct);
-        var orderedQuery = ApplyVideoListEntrySorting(combinedQuery, sort, string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase), seed);
+        var desc = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        var orderedQuery = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+            ? combinedQuery.ApplyProjectedCustomFieldSort(db, CustomFieldEntityTypes.Video, sort, desc)
+            : ApplyVideoListEntrySorting(combinedQuery, sort, desc, seed);
         var rows = await orderedQuery.Skip((safePage - 1) * safePerPage).Take(safePerPage).ToListAsync(ct);
 
         var videoIds = rows.Where(row => row.Kind == "video").Select(row => row.Id).ToArray();
@@ -229,8 +240,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     /// <summary>POST-based filtered query supporting advanced criteria (JSON body).</summary>
     [HttpPost("find")]
-    public async Task<IActionResult> FindPost([FromBody] FilteredQueryRequest<VideoFilter> req, CancellationToken ct)
+    public async Task<IActionResult> FindPost([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var cacheKey = $"videos_find_{JsonSerializer.Serialize(req)}";
         if (memoryCache.TryGetValue(cacheKey, out PaginatedResponse<VideoDto>? cachedResult) && cachedResult != null)
         {
@@ -239,7 +252,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var findFilter = req.FindFilter ?? new FindFilter();
         var filter = req.ObjectFilter ?? new VideoFilter();
-        var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct);
+        var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct, req.FilterExpression);
         var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Video, items.Select(video => video.Id), ct);
         var engagement = await engagementService.GetVideoSnapshotsAsync(items.Select(video => video.Id), ct);
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, items.Select(video => video.Id), ct);
@@ -251,10 +264,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     [HttpPost("aggregate")]
-    public async Task<ActionResult<VideoAggregate>> Aggregate([FromBody] FilteredQueryRequest<VideoFilter> req, CancellationToken ct)
-        => Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct));
+    public async Task<ActionResult<VideoAggregate>> Aggregate([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
+    {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
+        return Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct, req.FilterExpression));
+    }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<VideoDto>> GetById(int id, CancellationToken ct)
     {
@@ -266,6 +284,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     [HttpPost]
     [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "Groups.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<VideoDto>> Create([FromBody] VideoCreateDto dto, CancellationToken ct)
     {
         Video? parentVideo = null;
@@ -279,11 +299,13 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             dto = dto with { ClipStartSec = parentResolution.ClipStartSec, ClipEndSec = parentResolution.ClipEndSec };
         }
 
-        var parsedDate = ParseDate(dto.Date);
+        var parsedDate = PartialDate.Parse(dto.Date);
         var video = new Video
         {
             Title = dto.Title, Code = dto.Code, Details = dto.Details, Director = dto.Director,
-            Date = parsedDate ?? parentVideo?.Date, Organized = dto.Organized, IsVr = dto.IsVr, StudioId = dto.StudioId ?? parentVideo?.StudioId,
+            Date = parsedDate.Value ?? parentVideo?.Date,
+            DatePrecision = parsedDate.Value.HasValue ? parsedDate.Precision : parentVideo?.DatePrecision ?? DatePrecision.Day,
+            Organized = dto.Organized, IsVr = dto.IsVr, StudioId = dto.StudioId ?? parentVideo?.StudioId,
             Captions = dto.Captions,
             ParentVideoId = parentVideo?.Id, ClipStartSec = dto.ClipStartSec, ClipEndSec = dto.ClipEndSec,
         };
@@ -345,6 +367,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "Groups.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<VideoDto>> Update(int id, [FromBody] VideoUpdateDto dto, CancellationToken ct)
     {
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
@@ -356,7 +380,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.Code != null) video.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
         if (dto.Details != null) video.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
         if (dto.Director != null) video.Director = string.IsNullOrWhiteSpace(dto.Director) ? null : dto.Director;
-        if (dto.Date != null) video.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
         if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
@@ -380,32 +404,34 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         if (dto.Urls != null)
         {
-            video.Urls.Clear();
-            video.Urls = dto.Urls.Select(u => new VideoUrl { Url = u, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.Urls, dto.Urls, item => item.Url, url => new VideoUrl { Url = url, VideoId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.TagIds != null)
         {
-            video.VideoTags.Clear();
-            video.VideoTags = dto.TagIds.Select(tid => new VideoTag { TagId = tid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoTags, dto.TagIds, item => item.TagId, tagId => new VideoTag { TagId = tagId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.PerformerIds != null)
         {
-            video.VideoPerformers.Clear();
-            video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoPerformers, dto.PerformerIds.Distinct(), item => item.PerformerId, performerId => new VideoPerformer { PerformerId = performerId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.GalleryIds != null)
         {
-            video.VideoGalleries.Clear();
-            video.VideoGalleries = dto.GalleryIds.Select(gid => new VideoGallery { GalleryId = gid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoGalleries, dto.GalleryIds, item => item.GalleryId, galleryId => new VideoGallery { GalleryId = galleryId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.Groups != null)
         {
-            ReplaceWholeVideoGroupItems(video, dto.Groups);
+            if (ReplaceWholeVideoGroupItems(video, dto.Groups))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.RemoteIds != null)
         {
-            video.RemoteIds.Clear();
-            video.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new VideoRemoteId { VideoId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new VideoRemoteId { VideoId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.TagIds != null && tagProvenanceService != null)
         {
@@ -418,8 +444,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         await videoRepo.UpdateAsync(video, ct);
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(video);
+            await videoRepo.UpdateAsync(video, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetVideoRatingAsync(id, dto.Rating, cancellationToken: ct);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
@@ -429,9 +458,31 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.VideosDelete)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.VideosDeleteFile, ActionArgumentName = "deleteFile")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, IncludeDescendants = true)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.VideosDeleteFile) != true)
+            return Forbid();
+
+        if (bulkEntityDeletionService is not null)
+        {
+            var executionContext = new BulkDeletionExecutionContext();
+            if (!await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Video,
+                    id,
+                    executionContext,
+                    deleteFile,
+                    deleteGenerated,
+                    ct,
+                    publishEvent: false,
+                    authorizationPrincipal: principalAccessor?.Current))
+                return NotFound();
+            if (deleteFile)
+                physicalFileDeletionRecoverySignal?.Notify();
+            return NoContent();
+        }
+
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
         await DeleteVideoArtifactsAsync(video, new HashSet<int> { id }, new HashSet<string>(StringComparer.OrdinalIgnoreCase), deleteFile, deleteGenerated, ct);
@@ -444,27 +495,24 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     [HttpPost("destroy")]
     [RequiresPermission(Permissions.VideosDelete)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> DestroyBatch([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    [RequiresPermissionWhenTrue(Permissions.VideosDeleteFile, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "Ids", IncludeDescendants = true)]
+    public IActionResult DestroyBatch([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var deletedIds = new List<int>();
-        var idsToDelete = dto.Ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in dto.Ids)
-        {
-            var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
-            if (video != null)
-            {
-                await DeleteVideoArtifactsAsync(video, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.VideosDeleteFile) != true)
+            return Forbid();
 
-                if (tagProvenanceService != null)
-                    await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, id, ct);
-                await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Video, id, ct);
-                await videoRepo.DeleteAsync(id, ct);
-                deletedIds.Add(id);
-            }
-        }
-        return Ok(new BulkDeleteResult(deletedIds));
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one video to delete.");
+
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Video,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     private async Task DeleteVideoArtifactsAsync(Video video, IReadOnlySet<int> idsToDelete, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)
@@ -656,40 +704,21 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Video, video.Id, cancellationToken)).ToList();
-        var performerCounts = await LoadPerformerSupplementalCountsAsync(
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(
+            db,
             video.VideoPerformers
                 .Where(videoPerformer => videoPerformer.Performer != null)
                 .Select(videoPerformer => videoPerformer.Performer!.Id)
                 .Distinct()
                 .ToArray(),
-            cancellationToken);
+            cancellationToken,
+            principalAccessor);
 
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, video.Id, cancellationToken);
         return MapToDto(video, customFieldValues, engagement, preferUserSnapshot, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private async Task<IReadOnlyDictionary<int, PerformerSupplementalCounts>> LoadPerformerSupplementalCountsAsync(IReadOnlyCollection<int> performerIds, CancellationToken cancellationToken)
-    {
-        if (performerIds.Count == 0) return new Dictionary<int, PerformerSupplementalCounts>();
-
-        var audioCounts = await db.Set<AudioPerformer>()
-            .Where(audioPerformer => performerIds.Contains(audioPerformer.PerformerId))
-            .GroupBy(audioPerformer => audioPerformer.PerformerId)
-            .Select(group => new { PerformerId = group.Key, Count = group.Select(audioPerformer => audioPerformer.AudioId).Distinct().Count() })
-            .ToDictionaryAsync(item => item.PerformerId, item => item.Count, cancellationToken);
-
-        var textCounts = await db.Set<TextPerformer>()
-            .Where(textPerformer => performerIds.Contains(textPerformer.PerformerId))
-            .GroupBy(textPerformer => textPerformer.PerformerId)
-            .Select(group => new { PerformerId = group.Key, Count = group.Select(textPerformer => textPerformer.TextDocumentId).Distinct().Count() })
-            .ToDictionaryAsync(item => item.PerformerId, item => item.Count, cancellationToken);
-
-        return performerIds.ToDictionary(
-            id => id,
-            id => new PerformerSupplementalCounts(audioCounts.GetValueOrDefault(id), textCounts.GetValueOrDefault(id)));
-    }
-
-    private sealed class VideoListEntryKey
+    private sealed class VideoListEntryKey : CustomFieldSortProjection
     {
         public string Kind { get; set; } = string.Empty;
         public int Id { get; set; }
@@ -705,40 +734,44 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
     {
         var randomSeed = seed ?? 0;
-        return sort switch
+        var ordered = sort switch
         {
             "title" or "name" => desc
-                ? query.OrderByDescending(item => item.Title).ThenByDescending(item => item.Kind).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Title).ThenBy(item => item.Kind).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Title)
+                : query.OrderBy(item => item.Title),
             "date" => desc
-                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Date ?? DateOnly.MinValue).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue)
+                : query.OrderBy(item => item.Date ?? DateOnly.MinValue),
             "rating" => desc
-                ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).ThenBy(item => item.Id),
+                ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
+                : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),
             "created_at" => desc
-                ? query.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.CreatedAt)
+                : query.OrderBy(item => item.CreatedAt),
             "duration" => desc
-                ? query.OrderByDescending(item => item.Duration).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Duration).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Duration)
+                : query.OrderBy(item => item.Duration),
             "bitrate" => desc
-                ? query.OrderByDescending(item => item.BitRate).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.BitRate).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.BitRate)
+                : query.OrderBy(item => item.BitRate),
             "random" => desc
-                ? query.OrderByDescending(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L)
+                : query.OrderBy(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L),
             _ => desc
-                ? query.OrderByDescending(item => item.UpdatedAt).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.UpdatedAt).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.UpdatedAt)
+                : query.OrderBy(item => item.UpdatedAt),
         };
+        // Numeric IDs can overlap between videos and compilation groups.
+        return desc
+            ? ordered.ThenByDescending(item => item.Kind).ThenByDescending(item => item.Id)
+            : ordered.ThenBy(item => item.Kind).ThenBy(item => item.Id);
     }
 
     private GroupDto MapCompilationGroupToDto(Group group) => new(
-        group.Id, group.Name, group.Aliases, group.Date?.ToString("yyyy-MM-dd"),
+        group.Id, group.Name, group.Aliases, PartialDate.Format(group.Date, group.DatePrecision),
         group.StudioId, group.Studio?.Name, group.Director, group.Synopsis,
         group.Urls.Select(url => url.Url).ToList(),
-        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).ToList(),
+        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).OrderForDisplay().ToList(),
         group.GroupItems.Where(item => item.VideoId.HasValue).Select(item => item.VideoId!.Value).Distinct().Count(),
         group.GroupItems.Count,
         true,
@@ -771,9 +804,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             : null;
     }
 
-    private VideoDto MapToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSupplementalCounts>? performerCounts = null) => new(
+    private VideoDto MapToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         s.Id, s.Title, s.Code, s.Details, s.Director,
-        s.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(s.Date, s.DatePrecision),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
@@ -795,7 +828,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             f.Fingerprints.Select(fp => new FingerprintDto(fp.Type, fp.Value)).ToList(),
             f.Captions.Select(c => new CaptionDto(c.Id, c.LanguageCode, c.CaptionType, c.Filename)).ToList())).ToList(),
         MapWholeVideoGroups(s),
-        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, sg.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList(),
+        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, PartialDate.Format(sg.Gallery.Date, sg.Gallery.DatePrecision))).ToList(),
         s.RemoteIds.Select(remoteId => new VideoRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         customFieldValues,
         s.CreatedAt.ToString("o"), s.UpdatedAt.ToString("o"),
@@ -811,7 +844,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     private VideoDto MapListToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null) => new(
         s.Id, s.Title, s.Code, s.Details, s.Director,
-        s.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(s.Date, s.DatePrecision),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
@@ -833,7 +866,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             [],
             [])).ToList(),
         MapWholeVideoGroups(s),
-        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, sg.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList(),
+        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, PartialDate.Format(sg.Gallery.Date, sg.Gallery.DatePrecision))).ToList(),
         s.RemoteIds.Select(remoteId => new VideoRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         customFieldValues,
         s.CreatedAt.ToString("o"), s.UpdatedAt.ToString("o"),
@@ -848,30 +881,33 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private static List<TagDto> GetEffectiveTags(Video video, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId)
         => effectiveTagsByVideoId != null && effectiveTagsByVideoId.TryGetValue(video.Id, out var tags)
             ? tags
-            : video.VideoTags.Where(videoTag => videoTag.Tag != null).Select(videoTag => MapTagDto(videoTag.Tag!)).ToList();
+            : video.VideoTags.Where(videoTag => videoTag.Tag != null).Select(videoTag => MapTagDto(videoTag.Tag!)).OrderForDisplay().ToList();
 
-    private PerformerSummaryDto MapPerformerSummary(Performer performer, IReadOnlyDictionary<int, PerformerSupplementalCounts>? supplementalCounts)
+    private PerformerSummaryDto MapPerformerSummary(Performer performer, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts)
     {
-        var supplemental = supplementalCounts != null && supplementalCounts.TryGetValue(performer.Id, out var counts)
-            ? counts
+        var counts = performerCounts != null && performerCounts.TryGetValue(performer.Id, out var summaryCounts)
+            ? summaryCounts
             : null;
         return new PerformerSummaryDto(
             performer.Id,
             performer.Name,
             performer.Disambiguation,
             performer.Gender?.ToString(),
-            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
             performer.Favorite,
             EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
-            performer.VideoCount,
-            performer.ImageCount,
-            performer.GalleryCount,
-            supplemental?.AudioCount ?? 0,
-            supplemental?.TextCount ?? 0);
+            counts?.VideoCount ?? performer.VideoCount,
+            counts?.ImageCount ?? performer.ImageCount,
+            counts?.GalleryCount ?? performer.GalleryCount,
+            counts?.AudioCount ?? 0,
+            counts?.TextCount ?? 0,
+            performer.Country,
+            PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision));
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)
-        => video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>();
+        => (video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>())
+            .OrderBy(file => file.Id);
 
     private static List<VideoRemoteIdDto> NormalizeRemoteIds(IEnumerable<VideoRemoteIdDto> remoteIds)
         => remoteIds
@@ -993,7 +1029,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 && application.ContextId != null)
             .OrderBy(application => application.ContextType)
             .ThenBy(application => application.ContextId)
-            .ThenBy(application => application.Tag!.Name)
+            .ThenBy(application => application.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(application => application.Tag!.TagGroup != null ? application.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(application => application.Tag!.TagGroup != null ? application.Tag.TagGroup.Name : null)
+            .ThenBy(application => application.Tag!.SortName ?? application.Tag.Name)
+            .ThenBy(application => application.TagId)
             .ToListAsync(ct);
 
         return applications.Select(TagApplicationsController.Map).ToList();
@@ -1016,7 +1056,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
-            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null)
+        {
+            TagGroupSortOrder = tag.TagGroup?.SortOrder,
+            SortName = tag.SortName,
+        };
 
     // ===== Activity Tracking =====
 
@@ -1159,7 +1203,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     {
         var query = db.Videos
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-            .Include(s => s.VideoTags).ThenInclude(st => st.Tag)
+            .Include(s => s.VideoTags).ThenInclude(st => st.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
             .Include(s => s.Studio)
             .AsNoTracking();
@@ -1178,188 +1222,381 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     [HttpGet("duplicates")]
-    public async Task<ActionResult<List<List<VideoDto>>>> FindDuplicates(
+    public IActionResult FindDuplicates(
         [FromQuery] string? matchType = "fingerprint",
         [FromQuery] int distance = 0,
-        [FromQuery] double? durationDiff = null,
+        [FromQuery] double? durationDiff = null)
+        => StatusCode(StatusCodes.Status410Gone, new
+        {
+            message = "Synchronous duplicate search has been replaced by a background job. Use POST /api/videos/duplicate-searches and follow the returned search and job identifiers.",
+        });
+
+    [HttpPost("duplicate-searches")]
+    [RequiresPermission(Permissions.VideosRead, Permissions.JobsRun)]
+    public Task<ActionResult<DuplicateSearchStartDto>> StartDuplicateSearch(
+        [FromBody] DuplicateSearchRequestDto request,
+        CancellationToken ct)
+        => QueueDuplicateSearchAsync(request, ct);
+
+    [HttpGet("duplicate-searches/{searchId:guid}")]
+    public async Task<ActionResult<DuplicateSearchInfoDto>> GetDuplicateSearch(Guid searchId, CancellationToken ct)
+    {
+        var search = await GetAccessibleDuplicateSearchAsync(searchId, ct);
+        if (search is null)
+            return NotFound();
+
+        var unkeptIds = DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, searchId);
+        var visibleUnkeptIds = db.Videos.Where(video => unkeptIds.Contains(video.Id)).Select(video => video.Id);
+        var unkeptVideoCount = await visibleUnkeptIds.CountAsync(ct);
+        var fileStats = await db.VideoFiles
+            .Where(file => file.VideoId.HasValue && visibleUnkeptIds.Contains(file.VideoId.Value))
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                Count = group.Count(),
+                Bytes = group.Sum(file => file.Size),
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return Ok(new DuplicateSearchInfoDto(
+            search.Id,
+            search.JobId,
+            search.MatchType,
+            search.Distance,
+            search.DurationDifference,
+            search.Status.ToString().ToLowerInvariant(),
+            search.Error,
+            search.CandidateCount,
+            search.GroupCount,
+            search.VideoCount,
+            unkeptVideoCount,
+            fileStats?.Count ?? 0,
+            fileStats?.Bytes ?? 0,
+            search.DeletionJobId,
+            search.CreatedAt,
+            search.StartedAt,
+            search.CompletedAt,
+            search.ExpiresAt));
+    }
+
+    [HttpGet("duplicate-searches/{searchId:guid}/groups")]
+    public async Task<ActionResult<DuplicateSearchGroupPageDto>> GetDuplicateSearchGroups(
+        Guid searchId,
+        [FromQuery] int page = 1,
+        [FromQuery] int perPage = 10,
         CancellationToken ct = default)
     {
-        var groups = (matchType ?? "fingerprint").Trim().ToLowerInvariant() switch
-        {
-            "phash" or "visual" => await FindPhashDuplicateVideoIdsAsync(Math.Max(0, distance), durationDiff, ct),
-            "title" => await FindTitleDuplicateVideoIdsAsync(ct),
-            "remoteid" or "remote-id" or "remote_id" => await FindRemoteIdDuplicateVideoIdsAsync(ct),
-            _ => await FindExactFingerprintDuplicateVideoIdsAsync(ct),
-        };
+        var search = await GetAccessibleDuplicateSearchAsync(searchId, ct);
+        if (search is null)
+            return NotFound();
 
-        var result = new List<List<VideoDto>>();
-        foreach (var videoIds in groups)
-        {
-            var videos = await db.Videos
-                .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                .Include(s => s.VideoTags).ThenInclude(st => st.Tag)
-                .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
-                .Include(s => s.Studio)
-                .Include(s => s.RemoteIds)
-                .Where(s => videoIds.Contains(s.Id))
-                .AsNoTracking()
-                .ToListAsync(ct);
+        page = Math.Max(1, page);
+        perPage = Math.Clamp(perPage, 1, 20);
+        var totalCount = await db.DuplicateSearchGroups.CountAsync(group => group.SearchId == searchId, ct);
+        var groups = await db.DuplicateSearchGroups
+            .Where(group => group.SearchId == searchId)
+            .OrderBy(group => group.Position)
+            .Skip((page - 1) * perPage)
+            .Take(perPage)
+            .Include(group => group.Items)
+            .AsNoTracking()
+            .ToListAsync(ct);
+        var videoIds = groups.SelectMany(group => group.Items).Select(item => item.VideoId).Distinct().ToArray();
+        var videos = await db.Videos
+            .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
+            .Include(video => video.VideoTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
+            .Include(video => video.VideoPerformers).ThenInclude(link => link.Performer)
+            .Include(video => video.Studio)
+            .Include(video => video.RemoteIds)
+            .Where(video => videoIds.Contains(video.Id))
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync(ct);
+        var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, videos.Select(video => video.Id), ct);
+        var videoLookup = videos.ToDictionary(
+            video => video.Id,
+            video => MapToDto(video, GetCustomFields(customFieldValues, video.Id)));
+        var resultGroups = groups.Select(group => new DuplicateSearchGroupDto(
+            group.Id,
+            group.Position,
+            group.Items
+                .Where(item => videoLookup.ContainsKey(item.VideoId))
+                .Select(item => videoLookup[item.VideoId])
+                .OrderBy(video => video.Title ?? video.Files.FirstOrDefault()?.Basename ?? string.Empty)
+                .ThenBy(video => video.Id)
+                .ToList(),
+            group.Items.Where(item => item.Keep && videoLookup.ContainsKey(item.VideoId)).Select(item => item.VideoId).ToList()))
+            .ToList();
 
-            if (videos.Count > 1)
+        return Ok(new DuplicateSearchGroupPageDto(
+            resultGroups,
+            totalCount,
+            page,
+            perPage,
+            page * perPage < totalCount));
+    }
+
+    [HttpPatch("duplicate-searches/{searchId:guid}/groups/{groupId:int}")]
+    public async Task<IActionResult> UpdateDuplicateSearchGroupDecision(
+        Guid searchId,
+        int groupId,
+        [FromBody] DuplicateSearchGroupDecisionDto request,
+        CancellationToken ct)
+    {
+        var search = await GetMutableDuplicateSearchAsync(searchId, ct);
+        if (search is null)
+            return NotFound();
+        if (search.Status != DuplicateSearchStatus.Completed)
+            return Conflict(new { message = "Duplicate choices can be changed after the search completes." });
+        if (!string.IsNullOrWhiteSpace(search.DeletionJobId))
+            return Conflict(new { message = "Keeper choices cannot be changed after deletion is queued." });
+
+        var decisionOperationId = Guid.NewGuid();
+        Guid? originalDecisionOperationId = null;
+        var observedOriginalDecision = false;
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            // Writing the search row takes a row lock until the keeper update commits. A deletion claim
+            // writes the same row, so it either sees this completed decision or prevents it entirely.
+            var decisionClaimed = await db.DuplicateSearches
+                .Where(item => item.Id == searchId
+                    && item.Status == DuplicateSearchStatus.Completed
+                    && item.DeletionJobId == null)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
+            if (decisionClaimed == 0)
             {
-                var orderedVideos = videos.OrderBy(video => video.Title ?? video.Files.Select(file => file.Basename).FirstOrDefault() ?? string.Empty).ThenBy(video => video.Id).ToList();
-                var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, orderedVideos.Select(video => video.Id), ct);
-                result.Add(orderedVideos.Select(video => MapToDto(video, GetCustomFields(customFieldValues, video.Id))).ToList());
+                var ownDecisionCommitted = await db.DuplicateSearchGroups
+                    .AsNoTracking()
+                    .AnyAsync(item => item.SearchId == searchId
+                        && item.Id == groupId
+                        && item.LastDecisionOperationId == decisionOperationId, ct);
+                if (ownDecisionCommitted)
+                {
+                    await transaction.CommitAsync(ct);
+                    return (IActionResult)NoContent();
+                }
+                return Conflict(new { message = "Keeper choices cannot be changed after deletion is queued." });
+            }
+
+            var group = await db.DuplicateSearchGroups
+                .Include(item => item.Items)
+                .FirstOrDefaultAsync(item => item.SearchId == searchId && item.Id == groupId, ct);
+            if (group is null)
+                return NotFound();
+            if (!observedOriginalDecision)
+            {
+                originalDecisionOperationId = group.LastDecisionOperationId;
+                observedOriginalDecision = true;
+            }
+            else if (group.LastDecisionOperationId == decisionOperationId)
+            {
+                // The previous commit succeeded and only its acknowledgement was lost.
+                await transaction.CommitAsync(ct);
+                return NoContent();
+            }
+            else if (group.LastDecisionOperationId != originalDecisionOperationId)
+            {
+                // A later request won while the execution strategy was deciding whether to replay.
+                // Never overwrite that newer choice with this request's stale body.
+                await transaction.CommitAsync(ct);
+                return Conflict(new { message = "Keeper choices changed while this update was being retried. Review the duplicate group and try again." });
+            }
+            var keepIds = request.KeepVideoIds.Where(id => id > 0).Distinct().ToHashSet();
+            if (keepIds.Count == 0)
+                return BadRequest("Keep at least one video in every duplicate group.");
+            var memberIds = group.Items.Select(item => item.VideoId).ToHashSet();
+            if (!keepIds.IsSubsetOf(memberIds))
+                return BadRequest("A keeper does not belong to this duplicate group.");
+            var visibleKeeperCount = await db.Videos.CountAsync(video => keepIds.Contains(video.Id), ct);
+            if (visibleKeeperCount != keepIds.Count)
+                return Forbid();
+
+            foreach (var item in group.Items)
+                item.Keep = keepIds.Contains(item.VideoId);
+            group.LastDecisionOperationId = decisionOperationId;
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return NoContent();
+        });
+    }
+
+    [HttpPost("duplicate-searches/{searchId:guid}/delete-unkept")]
+    [RequiresPermission(Permissions.VideosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.VideosDeleteFile, ActionArgumentName = "request", PropertyName = "DeleteFiles")]
+    public async Task<IActionResult> DeleteUnkeptDuplicateVideos(
+        Guid searchId,
+        [FromBody] DuplicateSearchDeleteRequestDto request,
+        [FromServices] Cove.Core.Auth.IAuthorizationService authorizationService,
+        CancellationToken ct)
+    {
+        if (request.DeleteFiles && principalAccessor?.Current?.Has(Permissions.VideosDeleteFile) != true)
+            return Forbid();
+
+        var search = await GetMutableDuplicateSearchAsync(searchId, ct);
+        if (search is null)
+            return NotFound();
+        if (search.Status != DuplicateSearchStatus.Completed)
+            return Conflict(new { message = "Wait for the duplicate search to complete before deleting videos." });
+        if (!string.IsNullOrWhiteSpace(search.DeletionJobId))
+            return Conflict(new { message = "Deletion has already been queued for this duplicate search." });
+
+        var reservation = DuplicateSearchDeletionClaim.Create();
+        var releaseClaim = true;
+        try
+        {
+            int[] ids;
+            try
+            {
+                var executionStrategy = db.Database.CreateExecutionStrategy();
+                var claim = await executionStrategy.ExecuteAsync(async () =>
+                {
+                    db.ChangeTracker.Clear();
+                    await using var claimTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+                    var claimed = await db.DuplicateSearches
+                        .Where(item => item.Id == searchId
+                            && item.Status == DuplicateSearchStatus.Completed
+                            && (item.DeletionJobId == null || item.DeletionJobId == reservation))
+                        .ExecuteUpdateAsync(update => update
+                            .SetProperty(item => item.DeletionJobId, reservation)
+                            .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
+                    if (claimed == 0)
+                        return (Failure: (IActionResult?)Conflict(new { message = "Deletion has already been queued for this duplicate search." }), VideoIds: Array.Empty<int>());
+
+                    var claimedIds = await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, searchId)
+                        .Join(db.Videos, id => id, video => video.Id, (id, _) => id)
+                        .ToArrayAsync(ct);
+                    if (claimedIds.Length == 0)
+                        return (Failure: (IActionResult?)BadRequest("There are no unwanted duplicate videos to delete."), VideoIds: Array.Empty<int>());
+
+                    var keeperIds = await db.DuplicateSearchItems
+                        .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
+                        .Select(item => item.VideoId)
+                        .Distinct()
+                        .ToArrayAsync(ct);
+                    // A retry after an ambiguous commit reuses this request's reservation token. Replace
+                    // its keeper rows so replaying the whole transaction stays idempotent.
+                    await db.DuplicateDeletionKeeperReservations
+                        .IgnoreQueryFilters()
+                        .Where(item => item.SearchId == searchId)
+                        .ExecuteDeleteAsync(ct);
+                    db.DuplicateDeletionKeeperReservations.AddRange(keeperIds.Select(videoId =>
+                        new DuplicateDeletionKeeperReservation { SearchId = searchId, VideoId = videoId }));
+                    await db.SaveChangesAsync(ct);
+                    await claimTransaction.CommitAsync(ct);
+                    return (Failure: (IActionResult?)null, VideoIds: claimedIds);
+                });
+                if (claim.Failure is not null)
+                    return claim.Failure;
+                ids = claim.VideoIds;
+            }
+            catch (DbUpdateException)
+            {
+                db.ChangeTracker.Clear();
+                return Conflict(new { message = "A selected keeper changed while deletion was being queued. Review the duplicate groups and try again." });
+            }
+
+            var deletionScopeIds = await VideoHierarchyQueries.ExpandDeletionScopeAsync(db, ids, ct);
+            foreach (var chunk in deletionScopeIds.Chunk(4_000))
+            {
+                var decisions = await authorizationService.AuthorizeManyAsync(
+                    principalAccessor?.Current,
+                    Permissions.VideosDelete,
+                    chunk.Select(id => new EntityRef(EntityKinds.Video, id.ToString(CultureInfo.InvariantCulture))).ToArray(),
+                    ct);
+                if (decisions.Any(decision => !decision.Allowed))
+                    return Forbid();
+            }
+
+            var queued = bulkDeletionJobService!.Start(
+                principalAccessor?.Current,
+                BulkDeletionEntityKind.Video,
+                ids,
+                request.DeleteFiles,
+                request.DeleteGenerated,
+                duplicateSearchId: searchId);
+            // Once the external enqueue side effect exists, retain the claim even if linking the real
+            // job id encounters an unexpected failure; this prevents a duplicate destructive job.
+            releaseClaim = false;
+            await db.DuplicateSearches
+                .Where(item => item.Id == searchId && item.DeletionJobId == reservation)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, queued.JobId), CancellationToken.None);
+            return Accepted(queued);
+        }
+        finally
+        {
+            if (releaseClaim)
+            {
+                if (duplicateSearchJobService is null)
+                    throw new InvalidOperationException("Duplicate search deletion recovery is unavailable.");
+                await duplicateSearchJobService.ReleaseDeletionClaimAsync(searchId, reservation, CancellationToken.None);
             }
         }
-
-        return Ok(result);
     }
 
-    private async Task<List<List<int>>> FindExactFingerprintDuplicateVideoIdsAsync(CancellationToken ct)
+    private async Task<ActionResult<DuplicateSearchStartDto>> QueueDuplicateSearchAsync(
+        DuplicateSearchRequestDto request,
+        CancellationToken ct)
     {
-        var fingerprintRows = await db.Set<FileFingerprint>()
-            .Where(fingerprint => (fingerprint.Type == "oshash" || fingerprint.Type == "md5") && fingerprint.Value != "")
-            .Select(fingerprint => new { fingerprint.Type, fingerprint.Value, fingerprint.FileId })
-            .AsNoTracking()
-            .ToListAsync(ct);
+        var queued = await duplicateSearchJobService!.StartAsync(
+            JobOwner.FromPrincipal(principalAccessor?.Current),
+            principalAccessor?.Current,
+            request,
+            null,
+            ct);
+        return Accepted(queued);
+    }
 
-        var keys = fingerprintRows
-            .GroupBy(fingerprint => new { fingerprint.Type, fingerprint.Value })
-            .Where(group => group.Select(fingerprint => fingerprint.FileId).Distinct().Count() > 1)
-            .Select(group => new { group.Key.Type, group.Key.Value })
-            .ToList();
+    private async Task<DuplicateSearch?> GetAccessibleDuplicateSearchAsync(Guid searchId, CancellationToken ct)
+    {
+        var search = await db.DuplicateSearches.FirstOrDefaultAsync(item => item.Id == searchId, ct);
+        if (search is null || search.ExpiresAt < DateTime.UtcNow)
+            return null;
+        var owner = JobOwner.FromPrincipal(principalAccessor?.Current);
+        if (search.OwnerKey is not null && owner?.Key == search.OwnerKey)
+            return await ReconcileDuplicateDeletionAsync(search, ct);
+        return await Cove.Api.Hubs.JobHub.CanReadGlobalStreamAsync(
+            principalAccessor?.Current,
+            Permissions.JobsRead,
+            db,
+            ct)
+            ? await ReconcileDuplicateDeletionAsync(search, ct)
+            : null;
+    }
 
-        var result = new List<List<int>>();
-        var seenGroups = new HashSet<string>();
-        foreach (var key in keys)
+    private async Task<DuplicateSearch?> GetMutableDuplicateSearchAsync(Guid searchId, CancellationToken ct)
+    {
+        var search = await db.DuplicateSearches.FirstOrDefaultAsync(item => item.Id == searchId, ct);
+        if (search is null || search.ExpiresAt < DateTime.UtcNow)
+            return null;
+
+        var principal = principalAccessor?.Current;
+        var owner = JobOwner.FromPrincipal(principal);
+        if (search.OwnerKey is not null)
+            return owner?.Key == search.OwnerKey ? await ReconcileDuplicateDeletionAsync(search, ct) : null;
+        return principal?.Kind == PrincipalKind.System ? await ReconcileDuplicateDeletionAsync(search, ct) : null;
+    }
+
+    private async Task<DuplicateSearch> ReconcileDuplicateDeletionAsync(DuplicateSearch search, CancellationToken ct)
+    {
+        if (duplicateSearchJobService is not null
+            && await duplicateSearchJobService.ReconcileTerminalDeletionAsync(search, ct))
         {
-            var videoIds = await db.VideoFiles
-                .Where(file => file.VideoId.HasValue && file.Fingerprints.Any(fingerprint => fingerprint.Type == key.Type && fingerprint.Value == key.Value))
-                .Select(file => file.VideoId!.Value)
-                .Distinct()
-                .OrderBy(id => id)
-                .ToListAsync(ct);
-
-            AddVideoGroup(result, seenGroups, videoIds);
+            await db.Entry(search).ReloadAsync(ct);
         }
-
-        return result;
+        return search;
     }
-
-    private async Task<List<List<int>>> FindPhashDuplicateVideoIdsAsync(int maxDistance, double? durationDiff, CancellationToken ct)
-    {
-        var files = await db.VideoFiles
-            .Include(file => file.Fingerprints)
-            .Where(file => file.VideoId.HasValue)
-            .AsNoTracking()
-            .ToListAsync(ct);
-
-        var candidates = files
-            .SelectMany(file => file.Fingerprints
-                .Where(fingerprint => fingerprint.Type == "phash" && fingerprint.Value != "")
-                .Select(fingerprint => TryParsePHash(fingerprint.Value, out var parsedHash)
-                    ? new DuplicatePHashCandidate(file.VideoId!.Value, file.Duration, parsedHash)
-                    : (DuplicatePHashCandidate?)null))
-            .Where(candidate => candidate.HasValue)
-            .Select(candidate => candidate!.Value)
-            .ToList();
-
-        var videoIds = candidates.Select(candidate => candidate.VideoId).Distinct().ToArray();
-        var parent = videoIds.ToDictionary(id => id, id => id);
-
-        for (var leftIndex = 0; leftIndex < candidates.Count; leftIndex++)
-        {
-            var left = candidates[leftIndex];
-            for (var rightIndex = leftIndex + 1; rightIndex < candidates.Count; rightIndex++)
-            {
-                var right = candidates[rightIndex];
-                if (left.VideoId == right.VideoId) continue;
-                if (durationDiff.HasValue && Math.Abs(left.Duration - right.Duration) > durationDiff.Value) continue;
-                if (BitOperations.PopCount(left.Hash ^ right.Hash) <= maxDistance)
-                    Union(parent, left.VideoId, right.VideoId);
-            }
-        }
-
-        return parent.Keys
-            .GroupBy(id => Find(parent, id))
-            .Select(group => group.OrderBy(id => id).ToList())
-            .Where(group => group.Count > 1)
-            .OrderBy(group => group[0])
-            .ToList();
-    }
-
-    private async Task<List<List<int>>> FindTitleDuplicateVideoIdsAsync(CancellationToken ct)
-    {
-        var rows = await db.Videos
-            .Where(video => video.Title != null && video.Title != "")
-            .Select(video => new { video.Id, video.Title })
-            .AsNoTracking()
-            .ToListAsync(ct);
-
-        return rows
-            .GroupBy(row => row.Title!.Trim().ToLowerInvariant())
-            .Select(group => group.Select(row => row.Id).OrderBy(id => id).ToList())
-            .Where(group => group.Count > 1)
-            .OrderBy(group => group[0])
-            .ToList();
-    }
-
-    private async Task<List<List<int>>> FindRemoteIdDuplicateVideoIdsAsync(CancellationToken ct)
-    {
-        var rows = await db.Set<VideoRemoteId>()
-            .Where(remoteId => remoteId.RemoteId != "")
-            .Select(remoteId => new { remoteId.VideoId, remoteId.Endpoint, remoteId.RemoteId })
-            .AsNoTracking()
-            .ToListAsync(ct);
-
-        return rows
-            .GroupBy(row => $"{row.Endpoint.Trim().ToLowerInvariant()}\n{row.RemoteId.Trim().ToLowerInvariant()}")
-            .Select(group => group.Select(row => row.VideoId).Distinct().OrderBy(id => id).ToList())
-            .Where(group => group.Count > 1)
-            .OrderBy(group => group[0])
-            .ToList();
-    }
-
-    private static void AddVideoGroup(List<List<int>> result, HashSet<string> seenGroups, List<int> videoIds)
-    {
-        if (videoIds.Count <= 1) return;
-        var key = string.Join(',', videoIds);
-        if (seenGroups.Add(key)) result.Add(videoIds);
-    }
-
-    private static bool TryParsePHash(string value, out ulong hash)
-    {
-        hash = 0;
-        var normalized = value.Trim();
-        if (normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            normalized = normalized[2..];
-        if (normalized.Length is 0 or > 16) return false;
-        if (normalized.Any(character => !Uri.IsHexDigit(character))) return false;
-        return ulong.TryParse(normalized, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out hash);
-    }
-
-    private static int Find(Dictionary<int, int> parent, int id)
-    {
-        if (parent[id] == id) return id;
-        parent[id] = Find(parent, parent[id]);
-        return parent[id];
-    }
-
-    private static void Union(Dictionary<int, int> parent, int left, int right)
-    {
-        var leftRoot = Find(parent, left);
-        var rightRoot = Find(parent, right);
-        if (leftRoot != rightRoot) parent[rightRoot] = leftRoot;
-    }
-
-    private readonly record struct DuplicatePHashCandidate(int VideoId, double Duration, ulong Hash);
 
     // ===== Bulk Operations =====
 
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkVideoUpdateDto dto, CancellationToken ct)
     {
         var videos = await db.Videos
@@ -1382,7 +1619,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
             if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
             if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
-            if (dto.Date != null) video.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
             if (dto.Code != null) video.Code = dto.Code;
             if (dto.Director != null) video.Director = dto.Director;
 
@@ -1486,10 +1723,14 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .Select(item => new GroupSummaryDto(item.Group!.Id, item.Group.Name, item.OrderIndex))
             .ToList();
 
-    private void ReplaceWholeVideoGroupItems(Video video, IEnumerable<VideoGroupInputDto> groups)
+    private bool ReplaceWholeVideoGroupItems(Video video, IEnumerable<VideoGroupInputDto> groups)
     {
+        var requested = groups.Where(group => group is { GroupId: > 0 }).Select(group => (group.GroupId, group.VideoIndex)).ToList();
+        var current = video.GroupItems.Where(item => item.Kind == GroupItemKind.Video).Select(item => (item.GroupId, item.OrderIndex));
+        if (current.OrderBy(item => item.GroupId).ThenBy(item => item.OrderIndex).SequenceEqual(requested.OrderBy(item => item.GroupId).ThenBy(item => item.VideoIndex)))
+            return false;
         RemoveWholeVideoGroupItems(video, video.GroupItems.Where(item => item.Kind == GroupItemKind.Video).ToList());
-        foreach (var group in groups.Where(group => group is { GroupId: > 0 }))
+        foreach (var group in requested)
         {
             video.GroupItems.Add(new GroupItem
             {
@@ -1499,6 +1740,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 VideoId = video.Id,
             });
         }
+        return true;
     }
 
     private void RemoveWholeVideoGroupItems(Video video, IReadOnlyCollection<GroupItem> items)
@@ -1517,54 +1759,175 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosWrite, Permissions.VideosDelete)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "SourceIds")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<VideoDto>> MergeVideos([FromBody] VideoMergeDto dto, CancellationToken ct)
     {
-        var target = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target video not found");
-
-        var sources = await db.Videos
-            .Include(s => s.Files)
-            .Include(s => s.VideoTags)
-            .Include(s => s.VideoPerformers)
-            .Include(s => s.VideoGalleries)
-            .Include(s => s.Urls)
-            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
-            .OrderBy(s => s.Id)
-            .ToListAsync(ct);
-
-        var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
-        var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-
-        foreach (var source in sources)
+        var requestedIds = dto.SourceIds
+            .Where(id => id > 0 && id != dto.TargetId)
+            .Append(dto.TargetId)
+            .Distinct()
+            .ToArray();
+        var targetFound = false;
+        var invalidHierarchy = false;
+        int[] mergedSourceIds = [];
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
         {
-            // Move files to target
-            foreach (var f in source.Files) f.VideoId = target.Id;
-            // Merge tags
-            foreach (var st in source.VideoTags.Where(st => !existingTagIds.Contains(st.TagId)))
-                target.VideoTags.Add(new VideoTag { TagId = st.TagId, VideoId = target.Id });
-            // Merge performers
-            foreach (var sp in source.VideoPerformers.Where(sp => !existingPerfIds.Contains(sp.PerformerId)))
-                target.VideoPerformers.Add(new VideoPerformer { PerformerId = sp.PerformerId, VideoId = target.Id });
-            // Delete source
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
-            db.Videos.Remove(source);
-        }
+            targetFound = false;
+            invalidHierarchy = false;
+            mergedSourceIds = [];
+            db.ChangeTracker.Clear();
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var visibleIds = await db.Videos
+                .AsNoTracking()
+                .Where(video => requestedIds.Contains(video.Id))
+                .Select(video => video.Id)
+                .ToArrayAsync(ct);
+            if (!visibleIds.Contains(dto.TargetId))
+                return;
 
-        await db.SaveChangesAsync(ct);
-        if (sources.Count > 0)
-        {
-            PublishVideoEvent(EventType.VideoUpdated, target.Id);
+            using var authorizationFilterSuppression = db.SuppressAuthorizationFilters();
+            var videos = await db.Videos
+                .Include(video => video.Files)
+                .Include(video => video.VideoTags)
+                .Include(video => video.VideoPerformers)
+                .Include(video => video.VideoGalleries)
+                .Include(video => video.Urls)
+                .Include(video => video.RemoteIds)
+                .Include(video => video.GroupItems)
+                .Include(video => video.ChildVideos)
+                .Where(video => visibleIds.Contains(video.Id))
+                .OrderBy(video => video.Id)
+                .ToListAsync(ct);
+            var target = videos.SingleOrDefault(video => video.Id == dto.TargetId);
+            if (target == null)
+                return;
+
+            targetFound = true;
+            var sources = videos.Where(video => video.Id != target.Id).ToArray();
+            var sourceIds = sources.Select(source => source.Id).ToArray();
+            var ancestorId = target.ParentVideoId;
+            var visitedAncestorIds = new HashSet<int> { target.Id };
+            while (ancestorId.HasValue)
+            {
+                if (!visitedAncestorIds.Add(ancestorId.Value)
+                    || sourceIds.Contains(ancestorId.Value))
+                {
+                    invalidHierarchy = true;
+                    return;
+                }
+
+                var ancestor = await db.Videos
+                    .AsNoTracking()
+                    .Where(video => video.Id == ancestorId.Value)
+                    .Select(video => new { video.ParentVideoId })
+                    .SingleOrDefaultAsync(ct);
+                ancestorId = ancestor?.ParentVideoId;
+            }
+            var sourceSegments = await db.Segments
+                .Where(segment => segment.HostType == SegmentHostType.Video && sourceIds.Contains(segment.HostId))
+                .ToListAsync(ct);
+            var sourceDetections = await db.Detections
+                .Where(detection => detection.HostType == DetectionHostType.Video && sourceIds.Contains(detection.HostId))
+                .ToListAsync(ct);
+            foreach (var segment in sourceSegments)
+                segment.HostId = target.Id;
+            foreach (var detection in sourceDetections)
+                detection.HostId = target.Id;
+            var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
+            var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
+            var existingGalleryIds = target.VideoGalleries.Select(videoGallery => videoGallery.GalleryId).ToHashSet();
+            var existingUrls = target.Urls.Select(videoUrl => videoUrl.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingRemoteIds = target.RemoteIds
+                .Select(remoteId => (remoteId.Endpoint, remoteId.RemoteId))
+                .ToHashSet(RemoteIdKeyComparer.Instance);
+
             foreach (var source in sources)
-                PublishVideoEvent(EventType.VideoDeleted, source.Id);
+            {
+                foreach (var file in source.Files)
+                    file.VideoId = target.Id;
+                foreach (var videoTag in source.VideoTags)
+                {
+                    if (existingTagIds.Add(videoTag.TagId))
+                        target.VideoTags.Add(new VideoTag { TagId = videoTag.TagId, VideoId = target.Id });
+                }
+                foreach (var videoPerformer in source.VideoPerformers)
+                {
+                    if (existingPerfIds.Add(videoPerformer.PerformerId))
+                        target.VideoPerformers.Add(new VideoPerformer { PerformerId = videoPerformer.PerformerId, VideoId = target.Id });
+                }
+                foreach (var videoGallery in source.VideoGalleries)
+                {
+                    if (existingGalleryIds.Add(videoGallery.GalleryId))
+                        target.VideoGalleries.Add(new VideoGallery { GalleryId = videoGallery.GalleryId, VideoId = target.Id });
+                }
+                foreach (var videoUrl in source.Urls)
+                {
+                    if (existingUrls.Add(videoUrl.Url))
+                        target.Urls.Add(new VideoUrl { Url = videoUrl.Url, VideoId = target.Id });
+                }
+                foreach (var remoteId in source.RemoteIds)
+                {
+                    if (existingRemoteIds.Add((remoteId.Endpoint, remoteId.RemoteId)))
+                        remoteId.VideoId = target.Id;
+                }
+                foreach (var groupItem in source.GroupItems)
+                {
+                    groupItem.VideoId = target.Id;
+                    if (string.Equals(groupItem.HostType, "video", StringComparison.OrdinalIgnoreCase))
+                        groupItem.HostId = target.Id;
+                }
+                foreach (var child in source.ChildVideos.ToArray())
+                {
+                    if (child.Id != target.Id)
+                        child.ParentVideoId = target.Id;
+                }
+                if (tagProvenanceService != null)
+                    await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
+                db.Videos.Remove(source);
+            }
+
+            await db.SaveChangesAsync(ct);
+            if (transaction != null)
+                await transaction.CommitAsync(ct);
+            mergedSourceIds = sources.Select(source => source.Id).ToArray();
+        });
+
+        if (!targetFound)
+            return NotFound("Target video not found");
+        if (invalidHierarchy)
+            return BadRequest("A merge target cannot descend from one of its sources");
+        db.ChangeTracker.Clear();
+        foreach (var requestedId in requestedIds.Where(id => id > 0))
+            segmentSpanCacheInvalidator?.InvalidateVideo(requestedId);
+        if (mergedSourceIds.Length > 0)
+        {
+            PublishVideoEvent(EventType.VideoUpdated, dto.TargetId);
+            foreach (var sourceId in mergedSourceIds)
+                PublishVideoEvent(EventType.VideoDeleted, sourceId);
         }
 
-        var result = await videoRepo.GetByIdWithRelationsAsync(target.Id, ct);
-        var engagement = (await engagementService.GetVideoSnapshotsAsync([target.Id], ct)).GetValueOrDefault(target.Id);
+        var result = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
+        var engagement = (await engagementService.GetVideoSnapshotsAsync([dto.TargetId], ct)).GetValueOrDefault(dto.TargetId);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
+    }
+
+    private sealed class RemoteIdKeyComparer : IEqualityComparer<(string Endpoint, string RemoteId)>
+    {
+        public static RemoteIdKeyComparer Instance { get; } = new();
+
+        public bool Equals((string Endpoint, string RemoteId) left, (string Endpoint, string RemoteId) right)
+            => string.Equals(left.Endpoint, right.Endpoint, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.RemoteId, right.RemoteId, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Endpoint, string RemoteId) value)
+            => HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Endpoint),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.RemoteId));
     }
 
     // ===== Generate Screenshot =====
@@ -1594,14 +1957,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.LibraryScan)]
     public async Task<IActionResult> Rescan(int id, CancellationToken ct)
     {
-        var video = await db.Videos.Include(s => s.Files).FirstOrDefaultAsync(s => s.Id == id, ct);
+        var video = await db.Videos
+            .Include(video => video.Files)
+            .ThenInclude(file => file.ParentFolder)
+            .FirstOrDefaultAsync(video => video.Id == id, ct);
         if (video == null) return NotFound();
 
-        var filePath = video.Files.FirstOrDefault()?.ParentFolder != null 
-            ? Path.Combine(video.Files.First().ParentFolder!.Path, video.Files.First().Basename)
-            : video.Files.FirstOrDefault()?.Basename;
-        
-        if (string.IsNullOrEmpty(filePath)) return BadRequest("Video has no files");
+        var file = video.Files.FirstOrDefault();
+        if (file == null) return BadRequest("Video has no files");
+        var filePath = FilesystemPaths.ToNativePath(file.Path);
 
         var jobId = scanService.StartScan(new ScanOperationOptions
         {
@@ -1637,7 +2001,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private void PublishVideoEvent(EventType type, int id)
         => eventBus.Publish(new EntityEvent(type, "Video", id));
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);

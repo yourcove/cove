@@ -10,6 +10,7 @@ export interface Route {
   slug?: string;
   seekTo?: number;
   videoTab?: string;
+  detailTab?: string;
   spanKey?: string;
   profileId?: number;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
@@ -18,6 +19,7 @@ export interface Route {
   listFilter?: FindFilter;
   listObjectFilter?: Record<string, unknown>;
   listView?: string;
+  segmentsView?: "spans" | "raw";
   compilationItemOrder?: string[];
 }
 
@@ -55,11 +57,14 @@ function parsePath(pathname: string, search?: string): Route {
   }
 
   if (parts[0] === "manual") {
-    return applyRouteSearch({
-      page: "manual",
-      manualTopicId: parts.length > 1 ? decodeURIComponent(parts[1]) : undefined,
-      manualSlideId: parts.length > 2 ? decodeURIComponent(parts[2]) : undefined,
-    }, search);
+    return applyRouteSearch(
+      {
+        page: "manual",
+        manualTopicId: parts.length > 1 ? decodeURIComponent(parts[1]) : undefined,
+        manualSlideId: parts.length > 2 ? decodeURIComponent(parts[2]) : undefined,
+      },
+      search,
+    );
   }
 
   const page = parts[0];
@@ -89,6 +94,35 @@ export function parseLegacyHashRoute(hash: string): Route | null {
 
 export function parseCurrentRoute(): Route {
   return parsePath(window.location.pathname, window.location.search);
+}
+
+const DETAIL_TAB_BY_SOURCE_PAGE: Record<string, string> = {
+  video: "videos",
+  videos: "videos",
+  gallery: "galleries",
+  galleries: "galleries",
+  image: "images",
+  images: "images",
+  audio: "audios",
+  audios: "audios",
+  text: "texts",
+  texts: "texts",
+};
+
+const DETAIL_TABS_BY_TARGET_PAGE: Record<string, ReadonlySet<string>> = {
+  performer: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  studio: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  tag: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  gallery: new Set(["videos", "images"]),
+};
+
+export function resolveContextualDetailRoute(route: Route, sourcePage: string = parseCurrentRoute().page): Route {
+  if (route.detailTab) return route;
+
+  const detailTab = DETAIL_TAB_BY_SOURCE_PAGE[sourcePage];
+  if (!detailTab || !DETAIL_TABS_BY_TARGET_PAGE[route.page]?.has(detailTab)) return route;
+
+  return { ...route, detailTab };
 }
 
 function readCurrentStateRoute(): Route | undefined {
@@ -150,6 +184,12 @@ export function buildRouteUrl(route: Route): string {
   if (route.listView) {
     params.set("view", route.listView);
   }
+  if (route.segmentsView === "raw") {
+    params.set("segmentsView", "raw");
+  }
+  if (route.detailTab) {
+    params.set("tab", route.detailTab);
+  }
   if (route.seekTo != null && Number.isFinite(route.seekTo) && route.seekTo >= 0) {
     params.set("t", String(route.seekTo));
   }
@@ -207,11 +247,25 @@ export function emitLocationChange(options?: { replace?: boolean }) {
   window.dispatchEvent(new CustomEvent(LOCATION_CHANGE_EVENT, { detail: options }));
 }
 
-export function navigateToUrl(url: string, options?: { replace?: boolean; state?: unknown }) {
+type NavigationBlocker = () => boolean;
+const navigationBlockers = new Set<NavigationBlocker>();
+
+/** Register a synchronous guard for in-app history mutations. Return false to keep the current URL. */
+export function registerNavigationBlocker(blocker: NavigationBlocker): () => void {
+  navigationBlockers.add(blocker);
+  return () => navigationBlockers.delete(blocker);
+}
+
+export function navigateToUrl(
+  url: string,
+  options?: { replace?: boolean; state?: unknown; bypassBlockers?: boolean },
+): boolean {
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   if (currentUrl === url) {
-    return;
+    return true;
   }
+
+  if (!options?.bypassBlockers && [...navigationBlockers].some((blocker) => !blocker())) return false;
 
   if (options?.replace) {
     window.history.replaceState(options?.state ?? null, "", url);
@@ -220,6 +274,7 @@ export function navigateToUrl(url: string, options?: { replace?: boolean; state?
   }
 
   emitLocationChange({ replace: options?.replace });
+  return true;
 }
 
 function readRouteHistory(): RouteHistoryEntry[] {
@@ -235,7 +290,9 @@ function readRouteHistory(): RouteHistoryEntry[] {
     }
 
     return parsed.filter((entry): entry is RouteHistoryEntry => {
-      return entry != null && typeof entry.url === "string" && entry.route != null && typeof entry.route.page === "string";
+      return (
+        entry != null && typeof entry.url === "string" && entry.route != null && typeof entry.route.page === "string"
+      );
     });
   } catch {
     return [];
@@ -250,7 +307,9 @@ function writeRouteHistory(entries: RouteHistoryEntry[]) {
   }
 }
 
-export function readStoredRoute(url: string = buildCurrentUrl(window.location.pathname, window.location.search)): Route | undefined {
+export function readStoredRoute(
+  url: string = buildCurrentUrl(window.location.pathname, window.location.search),
+): Route | undefined {
   const history = readRouteHistory();
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (history[index].url === url && isRouteState(history[index].route)) {
@@ -272,19 +331,15 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
   };
 
   const history = readRouteHistory();
-  if (mode === "replace" && history.length > 0)
-  {
+  if (mode === "replace" && history.length > 0) {
     history[history.length - 1] = currentEntry;
     writeRouteHistory(history);
     return;
   }
 
-  if (mode === "history")
-  {
-    for (let index = history.length - 1; index >= 0; index -= 1)
-    {
-      if (history[index].url === currentEntry.url)
-      {
+  if (mode === "history") {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].url === currentEntry.url) {
         writeRouteHistory(history.slice(0, index + 1));
         return;
       }
@@ -302,30 +357,54 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
 
 function getRouteLabel(route: Route): string {
   switch (route.page) {
-    case "home": return "Home";
-    case "video": return "Video";
-    case "audio": return "Audio";
-    case "audios": return "Audios";
-    case "text": return "Text";
-    case "texts": return "Texts";
-    case "video-span": return "Span";
-    case "videos": return "Videos";
-    case "segment": return "Segment";
-    case "segments": return "Segments";
-    case "faces": return "Faces";
-    case "image": return "Image";
-    case "images": return "Images";
-    case "gallery": return "Gallery";
-    case "galleries": return "Galleries";
-    case "group": return "Group";
-    case "groups": return "Groups";
-    case "compilation": return "Compilation";
-    case "performer": return "Performer";
-    case "performers": return "Performers";
-    case "studio": return "Studio";
-    case "studios": return "Studios";
-    case "tag": return "Tag";
-    case "tags": return "Tags";
+    case "home":
+      return "Home";
+    case "video":
+      return "Video";
+    case "audio":
+      return "Audio";
+    case "audios":
+      return "Audios";
+    case "text":
+      return "Text";
+    case "texts":
+      return "Texts";
+    case "video-span":
+      return "Span";
+    case "videos":
+      return "Videos";
+    case "segment":
+      return "Segment";
+    case "segments":
+      return "Segments";
+    case "faces":
+      return "Faces";
+    case "image":
+      return "Image";
+    case "images":
+      return "Images";
+    case "gallery":
+      return "Gallery";
+    case "galleries":
+      return "Galleries";
+    case "group":
+      return "Group";
+    case "groups":
+      return "Groups";
+    case "compilation":
+      return "Compilation";
+    case "performer":
+      return "Performer";
+    case "performers":
+      return "Performers";
+    case "studio":
+      return "Studio";
+    case "studios":
+      return "Studios";
+    case "tag":
+      return "Tag";
+    case "tags":
+      return "Tags";
     default:
       return route.page ? route.page.charAt(0).toUpperCase() + route.page.slice(1) : "Previous Page";
   }
@@ -339,7 +418,12 @@ function applyRouteSearch(route: Route, search?: string): Route {
   const params = new URLSearchParams(search);
   const profileParam = params.get("profile");
   const seekParam = params.get("t");
+  const detailTab = params.get("tab");
   let nextRoute = route;
+
+  if (detailTab) {
+    nextRoute = { ...nextRoute, detailTab };
+  }
 
   if (profileParam != null) {
     const profileId = Number(profileParam);
@@ -349,6 +433,9 @@ function applyRouteSearch(route: Route, search?: string): Route {
         profileId,
       };
     }
+  }
+  if (params.get("segmentsView") === "raw") {
+    nextRoute = { ...nextRoute, segmentsView: "raw" };
   }
 
   const dqParam = params.get("dq");

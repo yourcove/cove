@@ -56,6 +56,19 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
         return new PostgreSqlTestDatabase(databaseName, admin, databaseBuilder.ConnectionString);
     }
 
+    internal static async Task<bool> ExistsAsync(
+        string databaseName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databaseName);
+        await using var connection = new NpgsqlConnection(LoadAdminConnectionString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = @databaseName)";
+        command.Parameters.AddWithValue("databaseName", databaseName);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

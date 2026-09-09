@@ -15,7 +15,11 @@ function mergeUniqueIds(primary: number[], extra?: number[]) {
   return Array.from(new Set([...(primary ?? []), ...(extra ?? [])]));
 }
 
-export function buildSubVideoCreate(video: Video, range: SubVideoRange, overrides: SubVideoOverrides = {}): VideoCreate {
+export function buildSubVideoCreate(
+  video: Video,
+  range: SubVideoRange,
+  overrides: SubVideoOverrides = {},
+): VideoCreate {
   const mergedTagIds = mergeUniqueIds(getEditableTagIds(video.tags), overrides.tagIds);
   const performerIds = video.performers.map((performer) => performer.id);
   const galleryIds = video.galleries.map((gallery) => gallery.id);

@@ -151,7 +151,16 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             var fullPath = Path.GetFullPath(Path.Combine(basePath, path));
             if (IsPathInsideDirectory(basePath, fullPath) && System.IO.File.Exists(fullPath))
             {
-                contentVersion = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
+                try
+                {
+                    contentVersion = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                }
+                catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, fullPath))
+                {
+                }
             }
         }
 
@@ -443,10 +452,31 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             _ => "application/octet-stream"
         };
 
+        var stream = FileReadRace.TryOpenRead(
+            fullPath,
+            FileShare.ReadWrite,
+            bufferSize: 16 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan,
+            pathWasObserved: true);
+        if (stream == null) return NotFound();
+
+        DateTimeOffset lastModified;
+        try
+        {
+            lastModified = System.IO.File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+
         Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
         Response.Headers.Append("Pragma", "no-cache");
         Response.Headers.Append("Expires", "0");
-        return PhysicalFile(fullPath, contentType);
+        var result = File(stream, contentType);
+        result.LastModified = lastModified;
+        return result;
     }
 
     /// <summary>Install an extension package from a user-provided URL after explicit trust confirmation.</summary>

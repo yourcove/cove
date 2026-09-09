@@ -48,6 +48,7 @@ export function buildRawSegmentListOptions({
     videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
     videoTagDepth,
     tagIds: rawFilter.tagIds.length > 0 ? rawFilter.tagIds.join(",") : undefined,
+    tagDepth: rawFilter.tagDepth,
     kind: rawFilter.kind,
     sourceKey: rawFilter.sourceKey,
     sourceCategory: rawFilter.sourceCategory,
@@ -128,22 +129,24 @@ export function useRawSegmentsQuery({
       includeAggregate,
     ],
     queryFn: async (): Promise<{ items: RawSegmentItem[]; totalCount: number; duration: number }> => {
-      const response = await segmentLibrary.list(buildRawSegmentListOptions({
-        pageNumber,
-        perPage,
-        q,
-        videoTitle,
-        videoTagIds,
-        videoTagDepth,
-        sort,
-        direction,
-        seed,
-        includeVideoIds,
-        excludeVideoIds,
-        rawSegmentIds,
-        rawFilter,
-        includeAggregate,
-      }));
+      const response = await segmentLibrary.list(
+        buildRawSegmentListOptions({
+          pageNumber,
+          perPage,
+          q,
+          videoTitle,
+          videoTagIds,
+          videoTagDepth,
+          sort,
+          direction,
+          seed,
+          includeVideoIds,
+          excludeVideoIds,
+          rawSegmentIds,
+          rawFilter,
+          includeAggregate,
+        }),
+      );
 
       return {
         items: response.items.map((item) => ({

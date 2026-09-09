@@ -148,8 +148,16 @@ public sealed class PerformerMergeService(
                 : sourceValues.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
         target.Gender ??= sources.Select(source => source.Gender).FirstOrDefault(value => value != null);
-        target.Birthdate ??= sources.Select(source => source.Birthdate).FirstOrDefault(value => value != null);
-        target.DeathDate ??= sources.Select(source => source.DeathDate).FirstOrDefault(value => value != null);
+        if (target.Birthdate is null && sources.FirstOrDefault(source => source.Birthdate.HasValue) is { } birthdateSource)
+        {
+            target.Birthdate = birthdateSource.Birthdate;
+            target.BirthdatePrecision = birthdateSource.BirthdatePrecision;
+        }
+        if (target.DeathDate is null && sources.FirstOrDefault(source => source.DeathDate.HasValue) is { } deathDateSource)
+        {
+            target.DeathDate = deathDateSource.DeathDate;
+            target.DeathDatePrecision = deathDateSource.DeathDatePrecision;
+        }
         target.Ethnicity = FirstText(target.Ethnicity, sources.Select(source => source.Ethnicity));
         target.Country = FirstText(target.Country, sources.Select(source => source.Country));
         target.EyeColor = FirstText(target.EyeColor, sources.Select(source => source.EyeColor));
@@ -160,8 +168,16 @@ public sealed class PerformerMergeService(
         target.FakeTits = FirstText(target.FakeTits, sources.Select(source => source.FakeTits));
         target.PenisLength ??= sources.Select(source => source.PenisLength).FirstOrDefault(value => value != null);
         target.Circumcised ??= sources.Select(source => source.Circumcised).FirstOrDefault(value => value != null);
-        target.CareerStart ??= sources.Select(source => source.CareerStart).FirstOrDefault(value => value != null);
-        target.CareerEnd ??= sources.Select(source => source.CareerEnd).FirstOrDefault(value => value != null);
+        if (target.CareerStart is null && sources.FirstOrDefault(source => source.CareerStart.HasValue) is { } careerStartSource)
+        {
+            target.CareerStart = careerStartSource.CareerStart;
+            target.CareerStartPrecision = careerStartSource.CareerStartPrecision;
+        }
+        if (target.CareerEnd is null && sources.FirstOrDefault(source => source.CareerEnd.HasValue) is { } careerEndSource)
+        {
+            target.CareerEnd = careerEndSource.CareerEnd;
+            target.CareerEndPrecision = careerEndSource.CareerEndPrecision;
+        }
         target.Tattoos = FirstText(target.Tattoos, sources.Select(source => source.Tattoos));
         target.Piercings = FirstText(target.Piercings, sources.Select(source => source.Piercings));
         target.Details = FirstText(target.Details, sources.Select(source => source.Details));

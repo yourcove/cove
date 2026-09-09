@@ -70,7 +70,9 @@ export function FloatingActionMenu({
     >
       {position ? (
         <div
-          className={["absolute z-[60] overflow-hidden rounded-lg border border-border bg-surface shadow-xl", className].filter(Boolean).join(" ")}
+          className={["absolute z-[60] overflow-hidden rounded-lg border border-border bg-surface shadow-xl", className]
+            .filter(Boolean)
+            .join(" ")}
           style={position}
           role={role}
           // Stop pointerdown/mousedown from reaching document-level "click outside" handlers on the

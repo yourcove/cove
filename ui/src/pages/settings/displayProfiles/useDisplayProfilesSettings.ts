@@ -50,9 +50,11 @@ export function useDisplayProfilesSettings() {
       return;
     }
 
-    setSelectedProfileId((current) => current != null && profiles.some((profile) => profile.id === current)
-      ? current
-      : profiles.find((profile) => profile.isDefault)?.id ?? profiles[0].id);
+    setSelectedProfileId((current) =>
+      current != null && profiles.some((profile) => profile.id === current)
+        ? current
+        : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0].id),
+    );
   }, [profiles]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
@@ -78,7 +80,12 @@ export function useDisplayProfilesSettings() {
   const { data: previewVideoResults = [] } = useQuery({
     queryKey: ["display-profiles", "preview-videos", trimmedPreviewVideoSearch],
     queryFn: async () => {
-      const response = await videos.find({ q: trimmedPreviewVideoSearch || undefined, perPage: 8, sort: "updated_at", direction: "desc" });
+      const response = await videos.find({
+        q: trimmedPreviewVideoSearch || undefined,
+        perPage: 8,
+        sort: "updated_at",
+        direction: "desc",
+      });
       return response.items;
     },
     enabled: trimmedPreviewVideoSearch.length > 0,
@@ -122,7 +129,13 @@ export function useDisplayProfilesSettings() {
   });
 
   const orderedProfiles = useMemo(
-    () => [...profiles].sort((left, right) => Number(right.isDefault) - Number(left.isDefault) || Number(left.userId != null) - Number(right.userId != null) || left.name.localeCompare(right.name)),
+    () =>
+      [...profiles].sort(
+        (left, right) =>
+          Number(right.isDefault) - Number(left.isDefault) ||
+          Number(left.userId != null) - Number(right.userId != null) ||
+          left.name.localeCompare(right.name),
+      ),
     [profiles],
   );
 
@@ -130,15 +143,9 @@ export function useDisplayProfilesSettings() {
     () => buildDistinctOptions(sourceKeys, ruleForm.sourceKey),
     [ruleForm.sourceKey, sourceKeys],
   );
-  const kindOptions = useMemo(
-    () => buildDistinctOptions(kinds, ruleForm.kind),
-    [kinds, ruleForm.kind],
-  );
+  const kindOptions = useMemo(() => buildDistinctOptions(kinds, ruleForm.kind), [kinds, ruleForm.kind]);
 
-  const persistedPreviewRules = useMemo(
-    () => normalizeRulePayloads(rules.map((rule) => ruleToPayload(rule))),
-    [rules],
-  );
+  const persistedPreviewRules = useMemo(() => normalizeRulePayloads(rules.map((rule) => ruleToPayload(rule))), [rules]);
   const draftPreviewRules = useMemo(() => {
     if (!ruleModalOpen) {
       return persistedPreviewRules;
@@ -150,7 +157,7 @@ export function useDisplayProfilesSettings() {
     }
 
     const nextRules = editingRule
-      ? rules.map((rule) => rule.id === editingRule.id ? draftPayload : ruleToPayload(rule))
+      ? rules.map((rule) => (rule.id === editingRule.id ? draftPayload : ruleToPayload(rule)))
       : [draftPayload, ...rules.map((rule) => ruleToPayload(rule))];
 
     return normalizeRulePayloads(nextRules);
@@ -180,12 +187,20 @@ export function useDisplayProfilesSettings() {
   const deferredCurrentPreviewRequest = useDeferredValue(currentPreviewRequest);
   const deferredDraftPreviewRequest = useDeferredValue(draftPreviewRequest);
   const currentPreviewQuery = useQuery({
-    queryKey: ["segment-display-profile-preview", "current", deferredCurrentPreviewRequest ? JSON.stringify(deferredCurrentPreviewRequest) : "none"],
+    queryKey: [
+      "segment-display-profile-preview",
+      "current",
+      deferredCurrentPreviewRequest ? JSON.stringify(deferredCurrentPreviewRequest) : "none",
+    ],
     queryFn: () => segmentDisplayProfiles.preview(deferredCurrentPreviewRequest!),
     enabled: deferredCurrentPreviewRequest != null,
   });
   const draftPreviewQuery = useQuery({
-    queryKey: ["segment-display-profile-preview", "draft", deferredDraftPreviewRequest ? JSON.stringify(deferredDraftPreviewRequest) : "none"],
+    queryKey: [
+      "segment-display-profile-preview",
+      "draft",
+      deferredDraftPreviewRequest ? JSON.stringify(deferredDraftPreviewRequest) : "none",
+    ],
     queryFn: () => segmentDisplayProfiles.preview(deferredDraftPreviewRequest!),
     enabled: deferredDraftPreviewRequest != null,
   });
@@ -209,7 +224,8 @@ export function useDisplayProfilesSettings() {
     },
   });
   const updateProfileMutation = useMutation({
-    mutationFn: (data: SegmentDisplayProfileCreate) => segmentDisplayProfiles.update(editingProfile!.id, { name: data.name, description: data.description }),
+    mutationFn: (data: SegmentDisplayProfileCreate) =>
+      segmentDisplayProfiles.update(editingProfile!.id, { name: data.name, description: data.description }),
     onSuccess: () => {
       refreshProfiles();
       setProfileModalOpen(false);
@@ -235,7 +251,8 @@ export function useDisplayProfilesSettings() {
     },
   });
   const updateRuleMutation = useMutation({
-    mutationFn: (data: SegmentDisplayRuleCreate) => segmentDisplayProfiles.rules.update(selectedProfileId!, editingRule!.id, data),
+    mutationFn: (data: SegmentDisplayRuleCreate) =>
+      segmentDisplayProfiles.rules.update(selectedProfileId!, editingRule!.id, data),
     onSuccess: () => {
       refreshProfiles();
       setRuleModalOpen(false);
@@ -257,7 +274,12 @@ export function useDisplayProfilesSettings() {
       const updates = nextRules
         .map((rule, index) => ({ rule, nextPriority: total - index }))
         .filter(({ rule, nextPriority }) => (rule.priority ?? 0) !== nextPriority)
-        .map(({ rule, nextPriority }) => segmentDisplayProfiles.rules.update(selectedProfileId, rule.id, { ...ruleToPayload(rule), priority: nextPriority }));
+        .map(({ rule, nextPriority }) =>
+          segmentDisplayProfiles.rules.update(selectedProfileId, rule.id, {
+            ...ruleToPayload(rule),
+            priority: nextPriority,
+          }),
+        );
 
       await Promise.all(updates);
     },
@@ -270,20 +292,23 @@ export function useDisplayProfilesSettings() {
       }
 
       const currentMaxPriority = Math.max(0, ...rules.map((rule) => rule.priority ?? 0));
-      const payloads = bulkWizardForm.tagIds.map((tagId, index) => ({
-        sourceKey: undefined,
-        kind: undefined,
-        tagId,
-        hostType: undefined,
-        visible: bulkWizardForm.visible,
-        minConfidence: bulkWizardForm.minConfidence,
-        minDurationSec: bulkWizardForm.minDurationSec,
-        mergeGapSec: bulkWizardForm.mergeGapSec,
-        collapseToInstant: false,
-        colorOverride: bulkWizardForm.useCustomColor ? bulkWizardForm.colorOverride : undefined,
-        lane: bulkWizardForm.lane,
-        priority: currentMaxPriority + bulkWizardForm.tagIds.length - index,
-      } satisfies SegmentDisplayRuleCreate));
+      const payloads = bulkWizardForm.tagIds.map(
+        (tagId, index) =>
+          ({
+            sourceKey: undefined,
+            kind: undefined,
+            tagId,
+            hostType: undefined,
+            visible: bulkWizardForm.visible,
+            minConfidence: bulkWizardForm.minConfidence,
+            minDurationSec: bulkWizardForm.minDurationSec,
+            mergeGapSec: bulkWizardForm.mergeGapSec,
+            collapseToInstant: false,
+            colorOverride: bulkWizardForm.useCustomColor ? bulkWizardForm.colorOverride : undefined,
+            lane: bulkWizardForm.lane,
+            priority: currentMaxPriority + bulkWizardForm.tagIds.length - index,
+          }) satisfies SegmentDisplayRuleCreate,
+      );
 
       await bulkCreateDisplayProfileRules(selectedProfileId, payloads);
     },

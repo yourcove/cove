@@ -138,7 +138,7 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
         manager.PrepareRuntimeServices(app.Services);
 
         manager.SetupDynamicEndpoints();
-        await manager.InitializeAllAsync(app.Services);
+        await manager.InitializeAllAsync(app.Services, TestContext.Current.CancellationToken);
 
         var warning = Assert.Single(logger.Messages, entry => entry.Level == LogLevel.Warning);
         Assert.Contains("test.api", warning.Message);
@@ -184,7 +184,7 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
         manager.PrepareRuntimeServices(app.Services);
 
         manager.SetupDynamicEndpoints();
-        await manager.InitializeAllAsync(app.Services);
+        await manager.InitializeAllAsync(app.Services, TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(logger.Messages, entry => entry.Level == LogLevel.Warning);
     }
@@ -576,9 +576,9 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
         app.UseMiddleware<ExtensionEndpointAuthorizationMiddleware>();
         app.MapGet("/extension-test", () => Results.Ok())
             .WithMetadata(new ExtensionEndpointMetadata("test.extension"));
-        await app.StartAsync();
+        await app.StartAsync(TestContext.Current.CancellationToken);
 
-        var response = await app.GetTestClient().GetAsync("/extension-test");
+        var response = await app.GetTestClient().GetAsync("/extension-test", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(audit.Events);
@@ -604,13 +604,13 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
             .AllowCoveAnonymous()
             .RequireCovePermission(Permissions.TagsRead)
             .WithMetadata(new ExtensionEndpointMetadata("test.extension"));
-        await app.StartAsync();
+        await app.StartAsync(TestContext.Current.CancellationToken);
 
-        var response = await app.GetTestClient().GetAsync("/conflicting-extension-test");
+        var response = await app.GetTestClient().GetAsync("/conflicting-extension-test", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal("INVALID_AUTHORIZATION_POLICY",
-            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+            (await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: TestContext.Current.CancellationToken)).GetProperty("code").GetString());
         Assert.Single(audit.Events);
     }
 
@@ -669,10 +669,10 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
             .RequireCovePermission(Permissions.TagsRead)
             .RequireCoveEntityAccess(EntityKinds.Tag, "tagId", Permissions.TagsRead)
             .WithMetadata(new ExtensionEndpointMetadata(extensionId));
-        await app.StartAsync();
+        await app.StartAsync(TestContext.Current.CancellationToken);
 
         var client = app.GetTestClient();
-        var unauthenticatedResponse = await client.GetAsync("/extension-security/42");
+        var unauthenticatedResponse = await client.GetAsync("/extension-security/42", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, unauthenticatedResponse.StatusCode);
         Assert.Empty(hostAuthorization.Calls);
@@ -681,7 +681,7 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
         var authenticatedHostPrincipal = Principal([Permissions.TagsRead]);
         hostPrincipal.Set(authenticatedHostPrincipal);
 
-        var deniedResponse = await client.GetAsync("/extension-security/42");
+        var deniedResponse = await client.GetAsync("/extension-security/42", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, deniedResponse.StatusCode);
         var hostCall = Assert.Single(hostAuthorization.Calls);

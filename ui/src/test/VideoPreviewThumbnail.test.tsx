@@ -43,14 +43,17 @@ describe("VideoPreviewThumbnail", () => {
     mocks.screenshotUrl.mockReset().mockImplementation((_id, _updatedAt, seconds) => `/screenshot/42/${seconds}`);
     observe.mockReset();
     disconnect.mockReset();
-    vi.stubGlobal("IntersectionObserver", class {
-      constructor(callback: IntersectionObserverCallback) {
-        observerCallback = callback;
-      }
-      observe = observe;
-      disconnect = disconnect;
-      unobserve() {}
-    });
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          observerCallback = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+        unobserve() {}
+      },
+    );
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   });
@@ -61,9 +64,7 @@ describe("VideoPreviewThumbnail", () => {
   });
 
   it.each(["cover", "contain"] as const)("uses Cove's cover and generated-preview endpoints with %s fit", (fit) => {
-    const { container } = render(
-      <VideoPreviewThumbnail video={video} fit={fit} surface="list" coverWidth={640} />,
-    );
+    const { container } = render(<VideoPreviewThumbnail video={video} fit={fit} surface="list" coverWidth={640} />);
 
     expect(mocks.videoCoverUrl).toHaveBeenCalledWith(42, video.updatedAt, 640);
     expect(mocks.previewUrl).toHaveBeenCalledWith(42);
@@ -124,9 +125,7 @@ describe("VideoPreviewThumbnail", () => {
   });
 
   it("can disable the scrub surface for selection mode", () => {
-    const { container } = render(
-      <VideoPreviewThumbnail video={video} fit="cover" enableScrubbing={false} />,
-    );
+    const { container } = render(<VideoPreviewThumbnail video={video} fit="cover" enableScrubbing={false} />);
 
     expect(container.querySelector(".cursor-ew-resize")).not.toBeInTheDocument();
   });

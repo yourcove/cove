@@ -18,9 +18,9 @@ public sealed class ExtensionLoginSessionServiceTests
     public async Task Completed_external_login_is_browser_bound_and_one_time()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
@@ -32,37 +32,34 @@ public sealed class ExtensionLoginSessionServiceTests
         Assert.Contains("path=/", setCookie, StringComparison.OrdinalIgnoreCase);
         SetBindingCookie(browser, binding);
 
-        var completion = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
+        var completion = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
 
         Assert.Equal(ExtensionLoginCompletionFailure.None, completion.Failure);
         Assert.False(string.IsNullOrWhiteSpace(completion.Code));
-        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
-        Assert.Null((await db.Users.AsNoTracking().SingleAsync()).LastLoginAt);
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null((await db.Users.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).LastLoginAt);
 
         var otherBrowser = NewContext();
         var otherBinding = service.BeginBrowserSession(otherBrowser);
         SetBindingCookie(otherBrowser, otherBinding);
-        Assert.Null(await service.RedeemAsync(otherBrowser, completion.Code!));
+        Assert.Null(await service.RedeemAsync(otherBrowser, completion.Code!, TestContext.Current.CancellationToken));
 
-        var redeemed = await service.RedeemAsync(browser, completion.Code!);
+        var redeemed = await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken);
         Assert.NotNull(redeemed);
         Assert.Equal("com.example.oidc", redeemed.ExtensionId);
         Assert.Equal("alice", redeemed.TokenPair.User.Username);
-        Assert.Single(await db.RefreshTokens.AsNoTracking().ToListAsync());
-        Assert.NotNull((await db.Users.AsNoTracking().SingleAsync()).LastLoginAt);
-        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
+        Assert.Single(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.NotNull((await db.Users.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).LastLoginAt);
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Completion_rejects_missing_browser_binding_and_unusable_users()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         db.Users.AddRange(
             User(2, "inactive", isActive: false),
@@ -72,37 +69,22 @@ public sealed class ExtensionLoginSessionServiceTests
             Link(2, "inactive"),
             Link(3, "locked"),
             Link(4, "missing-password"));
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var service = CreateService(db);
         var browser = NewContext();
         var binding = service.BeginBrowserSession(browser);
 
-        var wrongBrowser = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
+        var wrongBrowser = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
         Assert.Equal(ExtensionLoginCompletionFailure.BrowserMismatch, wrongBrowser.Failure);
 
         SetBindingCookie(browser, binding);
-        var missingUser = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("missing"));
+        var missingUser = await service.CompleteAsync(browser, binding, Identity("missing"), TestContext.Current.CancellationToken);
         Assert.Equal(ExtensionLoginCompletionFailure.IdentityUnlinked, missingUser.Failure);
         Assert.Null(missingUser.Code);
 
-        var inactive = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("inactive"));
-        var locked = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("locked"));
-        var missingPassword = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("missing-password"));
+        var inactive = await service.CompleteAsync(browser, binding, Identity("inactive"), TestContext.Current.CancellationToken);
+        var locked = await service.CompleteAsync(browser, binding, Identity("locked"), TestContext.Current.CancellationToken);
+        var missingPassword = await service.CompleteAsync(browser, binding, Identity("missing-password"), TestContext.Current.CancellationToken);
         Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, inactive.Failure);
         Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, locked.Failure);
         Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, missingPassword.Failure);
@@ -112,115 +94,103 @@ public sealed class ExtensionLoginSessionServiceTests
     public async Task Completed_external_login_expires_before_redemption()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         var time = new MutableTimeProvider(DateTimeOffset.UnixEpoch);
         var service = CreateService(db, time);
         var browser = NewContext();
         var binding = service.BeginBrowserSession(browser);
         SetBindingCookie(browser, binding);
-        var completion = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
+        var completion = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
 
         time.Advance(TimeSpan.FromSeconds(61));
 
-        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
-        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Redemption_rechecks_account_state_before_issuing_tokens()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
         var binding = service.BeginBrowserSession(browser);
         SetBindingCookie(browser, binding);
-        var completion = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
-        var user = await db.Users.SingleAsync();
+        var completion = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
+        var user = await db.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         user.IsActive = false;
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
-        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Redemption_rechecks_password_before_issuing_tokens()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
         var binding = service.BeginBrowserSession(browser);
         SetBindingCookie(browser, binding);
-        var completion = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
-        var user = await db.Users.SingleAsync();
+        var completion = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
+        var user = await db.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         user.PasswordHash = string.Empty;
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
-        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Redemption_rechecks_identity_link_before_issuing_tokens()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
         var binding = service.BeginBrowserSession(browser);
         SetBindingCookie(browser, binding);
-        var completion = await service.CompleteAsync(
-            browser,
-            binding,
-            Identity("alice"));
-        db.ExternalIdentityLinks.Remove(await db.ExternalIdentityLinks.SingleAsync());
-        await db.SaveChangesAsync();
+        var completion = await service.CompleteAsync(browser, binding, Identity("alice"), TestContext.Current.CancellationToken);
+        db.ExternalIdentityLinks.Remove(await db.ExternalIdentityLinks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
-        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!, TestContext.Current.CancellationToken));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Token_issuance_and_external_resolution_reject_users_without_passwords()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         db.Users.Add(User(1, "missing-password", hasPassword: false));
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var tokens = new TokenService(
             db,
             TestConfiguration(),
             new PermissionRegistry(),
             NullLogger<TokenService>.Instance);
 
-        Assert.Null(await tokens.ResolveExistingUserAsync(1, null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync(1, null, null, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<UnauthorizedException>(
-            () => tokens.IssueForUserAsync(1, null, null));
+            () => tokens.IssueForUserAsync(1, null, null, TestContext.Current.CancellationToken));
     }
 
     private static ExtensionLoginSessionService CreateService(

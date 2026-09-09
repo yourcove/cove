@@ -20,7 +20,16 @@ interface Props {
   routePage: string;
 }
 
-export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, listQueryKey, detailQueryKey, routePage }: Props) {
+export function MediaDownloadDialog({
+  open,
+  onClose,
+  onNavigate,
+  entity,
+  item,
+  listQueryKey,
+  detailQueryKey,
+  routePage,
+}: Props) {
   const queryClient = useQueryClient();
   const { scrapeMetadata, setScrapeMetadata } = useFileBackedCreatePreferences(entity);
   const [url, setUrl] = useState("");
@@ -180,7 +189,11 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
                 disabled={matchMutation.isPending || startDownloadMutation.isPending}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:border-accent disabled:opacity-60"
               >
-                {matchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {matchMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
                 Find Downloaders
               </button>
             </div>
@@ -220,9 +233,16 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
           {selectedMatch?.qualityOptions.length ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-foreground">Quality</label>
-              <select value={qualityId} onChange={(event) => setQualityId(event.target.value)} className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none">
+              <select
+                value={qualityId}
+                onChange={(event) => setQualityId(event.target.value)}
+                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
+              >
                 {selectedMatch.qualityOptions.map((option) => (
-                  <option key={option.id} value={option.id}>{option.label}{option.description ? ` - ${option.description}` : ""}</option>
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                    {option.description ? ` - ${option.description}` : ""}
+                  </option>
                 ))}
               </select>
             </div>
@@ -231,43 +251,77 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
           {selectedMatch ? (
             <div className="space-y-2">
               <label className="flex items-start gap-3 rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground">
-                <input type="checkbox" checked={scrapeMetadata} onChange={(event) => setScrapeMetadata(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0" />
+                <input
+                  type="checkbox"
+                  checked={scrapeMetadata}
+                  onChange={(event) => setScrapeMetadata(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+                />
                 <span className="block font-medium">Scrape metadata after download</span>
               </label>
               {scrapeMetadata ? (
                 <div className="space-y-3 rounded-xl border border-border bg-card p-4">
                   <div>
                     <p className="text-sm font-medium text-foreground">Metadata creation</p>
-                    <p className="mt-1 text-xs text-secondary">Reuse the same scrape apply preferences used by metadata review.</p>
+                    <p className="mt-1 text-xs text-secondary">
+                      Reuse the same scrape apply preferences used by metadata review.
+                    </p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxOption label="Create missing tags" checked={createMissingTags} onChange={setCreateMissingTags} />
-                    <CheckboxOption label="Create missing performers" checked={createMissingPerformers} onChange={setCreateMissingPerformers} />
-                    <CheckboxOption label="Create missing studio" checked={createMissingStudio} onChange={setCreateMissingStudio} />
+                    <CheckboxOption
+                      label="Create missing tags"
+                      checked={createMissingTags}
+                      onChange={setCreateMissingTags}
+                    />
+                    <CheckboxOption
+                      label="Create missing performers"
+                      checked={createMissingPerformers}
+                      onChange={setCreateMissingPerformers}
+                    />
+                    <CheckboxOption
+                      label="Create missing studio"
+                      checked={createMissingStudio}
+                      onChange={setCreateMissingStudio}
+                    />
                     <CheckboxOption label="Mark organized" checked={markOrganized} onChange={setMarkOrganized} />
                   </div>
                 </div>
               ) : null}
               <label className="flex items-start gap-3 rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground">
-                <input type="checkbox" checked={allowDuplicateDownload} onChange={(event) => setAllowDuplicateDownload(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0" />
+                <input
+                  type="checkbox"
+                  checked={allowDuplicateDownload}
+                  onChange={(event) => setAllowDuplicateDownload(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+                />
                 <span className="block font-medium">Allow duplicate download</span>
               </label>
             </div>
           ) : null}
 
-          {error ? <div className="rounded-xl border border-red-800/60 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+          {error ? (
+            <div className="rounded-xl border border-red-800/60 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+              {error}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between border-t border-border px-5 py-4">
           <div className="text-xs text-muted">The item stays editable while the download job runs.</div>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
+            <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-secondary hover:text-foreground">
+              Cancel
+            </button>
             <button
               onClick={() => startDownloadMutation.mutate()}
               disabled={!selectedMatch || startDownloadMutation.isPending || matchMutation.isPending}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
             >
-              {startDownloadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {startDownloadMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
               Queue Download
             </button>
           </div>
@@ -277,7 +331,15 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
   );
 }
 
-function CheckboxOption({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function CheckboxOption({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   return (
     <label className="flex items-start gap-3 rounded-xl border border-border/60 bg-surface/60 px-3 py-2 text-sm text-foreground">
       <input

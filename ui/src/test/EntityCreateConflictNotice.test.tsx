@@ -62,16 +62,20 @@ describe("entity create conflict feedback", () => {
   afterEach(() => resetMutationFailureForTests());
 
   it.each([
-    ["performer", "Existing performer", apiMocks.createPerformer, "A performer with name \"Existing performer\" and no disambiguation already exists."],
-    ["studio", "Existing studio", apiMocks.createStudio, "A studio with name \"Existing studio\" already exists."],
+    [
+      "performer",
+      "Existing performer",
+      apiMocks.createPerformer,
+      'A performer with name "Existing performer" and no disambiguation already exists.',
+    ],
+    ["studio", "Existing studio", apiMocks.createStudio, 'A studio with name "Existing studio" already exists.'],
   ] as const)("shows the %s conflict inline without the generic global notice", async (kind, name, create, detail) => {
     create.mockRejectedValueOnce(new Error(`API Error 409: ${JSON.stringify({ message: detail })}`));
     renderModal(kind);
     const user = userEvent.setup();
 
-    const nameInput = kind === "performer"
-      ? screen.getByPlaceholderText("Performer name")
-      : screen.getAllByRole("textbox")[0];
+    const nameInput =
+      kind === "performer" ? screen.getByPlaceholderText("Performer name") : screen.getAllByRole("textbox")[0];
     await user.type(nameInput, name);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -80,7 +84,7 @@ describe("entity create conflict feedback", () => {
   });
 
   it("shows a studio rename conflict inline without the generic global notice", async () => {
-    const detail = "A studio with name \"Existing studio\" already exists.";
+    const detail = 'A studio with name "Existing studio" already exists.';
     apiMocks.updateStudio.mockRejectedValueOnce(new Error(`API Error 409: ${JSON.stringify({ message: detail })}`));
     const studio = {
       id: 1,

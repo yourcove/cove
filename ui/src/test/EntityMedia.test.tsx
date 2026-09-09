@@ -15,13 +15,17 @@ const { overrideRendererCalls, overrideRenderState } = vi.hoisted(() => ({
 
 vi.mock("../extensions/ExtensionLoader", () => ({
   useExtensions: () => ({
-    getComponentOverrides: () => overrideRenderState.active ? [{ targetComponent: "entity.media" }] : [],
+    getComponentOverrides: () => (overrideRenderState.active ? [{ targetComponent: "entity.media" }] : []),
   }),
   ExtensionComponentOverrideRenderer: (props: OverrideRendererCall) => {
     overrideRendererCalls.push(props);
-    return overrideRenderState.replace
-      ? <div data-testid="extension-media" data-entity-media-aspect-ratio={overrideRenderState.aspectRatio ?? undefined}>Extension media</div>
-      : props.renderDefault();
+    return overrideRenderState.replace ? (
+      <div data-testid="extension-media" data-entity-media-aspect-ratio={overrideRenderState.aspectRatio ?? undefined}>
+        Extension media
+      </div>
+    ) : (
+      props.renderDefault()
+    );
   },
 }));
 
@@ -106,7 +110,9 @@ describe("EntityMedia", () => {
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
 
-    expect(screen.getByRole("tooltip", { name: "Media for Static tag" })).toContainElement(screen.getByRole("img", { name: "Static tag" }));
+    expect(screen.getByRole("tooltip", { name: "Media for Static tag" })).toContainElement(
+      screen.getByRole("img", { name: "Static tag" }),
+    );
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveAttribute("src", "/tag.jpg");
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveAttribute("loading", "lazy");
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveClass("object-contain");
@@ -159,7 +165,9 @@ describe("EntityMedia", () => {
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
 
-    expect(screen.getByRole("tooltip", { name: "Media for Animated tag" })).toContainElement(screen.getByTestId("extension-media"));
+    expect(screen.getByRole("tooltip", { name: "Media for Animated tag" })).toContainElement(
+      screen.getByTestId("extension-media"),
+    );
     expect(overrideRendererCalls.length).toBeGreaterThan(0);
     expect(overrideRendererCalls.at(-1)?.componentProps).toMatchObject({
       entityType: "tag",

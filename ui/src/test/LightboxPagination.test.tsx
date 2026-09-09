@@ -33,13 +33,23 @@ describe("Lightbox pagination", () => {
   it("loads and advances to the next page at the queue boundary", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const loadNext = vi.fn().mockResolvedValue([
-      { id: 2, src: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", title: "Page two image" },
+      {
+        id: 2,
+        src: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+        title: "Page two image",
+      },
     ]);
 
     render(
       <QueryClientProvider client={queryClient}>
         <Lightbox
-          images={[{ id: 1, src: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", title: "Page one image" }]}
+          images={[
+            {
+              id: 1,
+              src: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+              title: "Page one image",
+            },
+          ]}
           initialIndex={0}
           open
           onClose={() => {}}

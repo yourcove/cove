@@ -16,9 +16,7 @@ public class FfmpegProcessRunnerTests
         var markerPath = Path.Combine(tempRoot, "processes.txt");
         var scriptPath = Path.Combine(tempRoot, "blocking-ffmpeg");
         var escapedMarkerPath = markerPath.Replace("\\", "\\\\").Replace("\"", "\\\"");
-        await File.WriteAllTextAsync(
-            scriptPath,
-            $"#!/bin/sh\nsleep 600 &\nchild_pid=$!\nprintf '%s %s\\n' \"$$\" \"$child_pid\" > \"{escapedMarkerPath}\"\nwait \"$child_pid\"\n");
+        await File.WriteAllTextAsync(scriptPath, $"#!/bin/sh\nsleep 600 &\nchild_pid=$!\nprintf '%s %s\\n' \"$$\" \"$child_pid\" > \"{escapedMarkerPath}\"\nwait \"$child_pid\"\n", TestContext.Current.CancellationToken);
         File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         int[] processIds = [];
@@ -32,7 +30,7 @@ public class FfmpegProcessRunnerTests
                 cancellation.Token);
 
             await WaitUntilAsync(() => File.Exists(markerPath), TimeSpan.FromSeconds(5));
-            processIds = (await File.ReadAllTextAsync(markerPath))
+            processIds = (await File.ReadAllTextAsync(markerPath, TestContext.Current.CancellationToken))
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .Select(int.Parse)
                 .ToArray();

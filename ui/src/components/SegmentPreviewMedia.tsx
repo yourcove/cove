@@ -21,9 +21,10 @@ export function SegmentPreviewMedia({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [previewActive, setPreviewActive] = useState(false);
-  const posterUrl = segmentId != null
-    ? entityImages.segmentCoverUrl(segmentId, updatedAt)
-    : videos.screenshotUrl(hostId, updatedAt, startSec);
+  const posterUrl =
+    segmentId != null
+      ? entityImages.segmentCoverUrl(segmentId, updatedAt)
+      : videos.screenshotUrl(hostId, updatedAt, startSec);
   const videoUrl = startSec != null ? videos.streamUrl(hostId) : undefined;
   const mediaClassName = className.includes("object-") ? className : `${className} object-cover`;
 
@@ -64,19 +65,23 @@ export function SegmentPreviewMedia({
         videoLoadRootMargin="0px"
         videoPlayThreshold={0.1}
         trackingEnabled={segmentId != null}
-        playbackTracking={segmentId != null ? {
-          hostType: "segment",
-          hostId: segmentId,
-          surface: "segmentPreview",
-          scopeKey: `segment-preview:${segmentId}`,
-          parentHostType: "video",
-          parentHostId: hostId,
-          itemHostType: "video",
-          itemHostId: hostId,
-          segmentId,
-          clipStartSec: startSec,
-          clipEndSec: endSec ?? null,
-        } : undefined}
+        playbackTracking={
+          segmentId != null
+            ? {
+                hostType: "segment",
+                hostId: segmentId,
+                surface: "segmentPreview",
+                scopeKey: `segment-preview:${segmentId}`,
+                parentHostType: "video",
+                parentHostId: hostId,
+                itemHostType: "video",
+                itemHostId: hostId,
+                segmentId,
+                clipStartSec: startSec,
+                clipEndSec: endSec ?? null,
+              }
+            : undefined
+        }
         fillMedia
         chromeless
         imageClassName={mediaClassName}

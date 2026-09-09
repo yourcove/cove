@@ -15,11 +15,13 @@ describe("detail relation filters", () => {
   });
 
   it("preserves modifier-only null criteria while adding the parent constraint", () => {
-    expect(withRequiredMultiId(
-      { tagsCriterion: { modifier: "IS_NULL" } } as { tagsCriterion?: unknown },
-      "tagsCriterion",
-      7,
-    )).toEqual({
+    expect(
+      withRequiredMultiId(
+        { tagsCriterion: { modifier: "IS_NULL" } } as { tagsCriterion?: unknown },
+        "tagsCriterion",
+        7,
+      ),
+    ).toEqual({
       tagsCriterion: { value: [], modifier: "IS_NULL", requiredIds: [7] },
     });
   });

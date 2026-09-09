@@ -17,19 +17,19 @@ public sealed class TagMergeServiceTests
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         db.Tags.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var inspector = new StubExternalReferenceInspector(
             new Dictionary<int, int> { [source.Id] = 2 });
 
         var exception = await Assert.ThrowsAsync<TagMergeBlockedException>(
             () => new TagMergeService(db, externalReferenceInspector: inspector)
-                .MergeAsync(target.Id, [source.Id]));
+                .MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken));
 
         Assert.Equal(2, exception.ReferenceCount);
         Assert.Equal(1, exception.AffectedTagCount);
-        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == target.Id));
-        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == target.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class TagMergeServiceTests
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         db.Tags.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var inspector = new StubExternalReferenceInspector(
             new Dictionary<int, int> { [source.Id] = 1 },
@@ -47,10 +47,10 @@ public sealed class TagMergeServiceTests
 
         var exception = await Assert.ThrowsAsync<TagMergeBlockedException>(
             () => new TagMergeService(db, externalReferenceInspector: inspector)
-                .MergeAsync(target.Id, [source.Id]));
+                .MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken));
 
         Assert.True(exception.HasUninspectableReferences);
-        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public sealed class TagMergeServiceTests
         var video = new Video { Title = "Merge fixture" };
         db.Videos.Add(video);
         using (db.SuppressTagNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var segmentDefaultFilter = JsonSerializer.Serialize(new
         {
@@ -108,7 +108,7 @@ public sealed class TagMergeServiceTests
             }),
         };
         db.Users.Add(user);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Set<VideoTag>().Add(new VideoTag { VideoId = video.Id, TagId = source.Id });
         db.Set<TagParent>().AddRange(
@@ -136,18 +136,18 @@ public sealed class TagMergeServiceTests
                 rawTagsCriterion = new { excludes = new[] { source.Id } },
             }),
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var result = await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        var result = await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
         Assert.Equal(target.Id, result.TargetId);
         Assert.Equal([source.Id], result.MergedSourceIds);
-        Assert.False(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.False(await db.Tags.AnyAsync(tag => tag.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
 
         var merged = await db.Tags
             .Include(tag => tag.Aliases)
             .Include(tag => tag.RemoteIds)
-            .SingleAsync(tag => tag.Id == target.Id);
+            .SingleAsync(tag => tag.Id == target.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Survivor description", merged.Description);
         Assert.Equal("Source sort", merged.SortName);
         Assert.Equal("Source supplemental search text", merged.SearchText);
@@ -156,19 +156,19 @@ public sealed class TagMergeServiceTests
         Assert.DoesNotContain(merged.Aliases, alias => TagNameRules.NamesEqual(alias.Alias, target.Name));
         Assert.Contains(merged.RemoteIds, remote => remote.RemoteId == "remote-source");
 
-        Assert.True(await db.Set<VideoTag>().AnyAsync(link => link.VideoId == video.Id && link.TagId == target.Id));
-        Assert.True(await db.Set<TagParent>().AnyAsync(link => link.ParentId == target.Id && link.ChildId == child.Id));
-        Assert.False(await db.Set<TagParent>().AnyAsync(link => link.ParentId == link.ChildId));
-        Assert.Equal(target.Id, (await db.Segments.SingleAsync()).TagId);
+        Assert.True(await db.Set<VideoTag>().AnyAsync(link => link.VideoId == video.Id && link.TagId == target.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await db.Set<TagParent>().AnyAsync(link => link.ParentId == target.Id && link.ChildId == child.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.Set<TagParent>().AnyAsync(link => link.ParentId == link.ChildId, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(target.Id, (await db.Segments.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).TagId);
 
-        var rating = await db.Ratings.SingleAsync(row => row.UserId == user.Id && row.HostType == RatingHostType.Tag);
+        var rating = await db.Ratings.SingleAsync(row => row.UserId == user.Id && row.HostType == RatingHostType.Tag, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, rating.HostId);
         Assert.Equal(70, rating.Value);
 
-        var payload = (await db.Segments.SingleAsync()).Payload!.RootElement;
+        var payload = (await db.Segments.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Payload!.RootElement;
         Assert.Equal([target.Id, child.Id], payload.GetProperty("secondaryTagIds").EnumerateArray().Select(value => value.GetInt32()).ToArray());
 
-        using var objectFilter = JsonDocument.Parse((await db.SavedFilters.SingleAsync()).ObjectFilter!);
+        using var objectFilter = JsonDocument.Parse((await db.SavedFilters.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ObjectFilter!);
         Assert.Equal([target.Id, child.Id], objectFilter.RootElement.GetProperty("tagIds").EnumerateArray().Select(value => value.GetInt32()).ToArray());
         Assert.Equal([target.Id], objectFilter.RootElement.GetProperty("tagsCriterion").GetProperty("value").EnumerateArray().Select(value => value.GetInt32()).ToArray());
         Assert.Equal([target.Id, child.Id], objectFilter.RootElement.GetProperty("tagsCriterion").GetProperty("excludes").EnumerateArray().Select(value => value.GetInt32()).ToArray());
@@ -176,7 +176,7 @@ public sealed class TagMergeServiceTests
         Assert.Equal([target.Id, child.Id], objectFilter.RootElement.GetProperty("videoTagsCriterion").GetProperty("requiredIds").EnumerateArray().Select(value => value.GetInt32()).ToArray());
         Assert.Equal([target.Id], objectFilter.RootElement.GetProperty("rawTagsCriterion").GetProperty("excludes").EnumerateArray().Select(value => value.GetInt32()).ToArray());
 
-        using var preferences = JsonDocument.Parse((await db.Users.SingleAsync()).UiPreferencesJson!);
+        using var preferences = JsonDocument.Parse((await db.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).UiPreferencesJson!);
         Assert.Equal("dark", preferences.RootElement.GetProperty("theme").GetProperty("activeThemeId").GetString());
         var defaultFilters = preferences.RootElement.GetProperty("defaultFilters");
         Assert.Equal("{", defaultFilters.GetProperty("malformed").GetString());
@@ -204,7 +204,7 @@ public sealed class TagMergeServiceTests
             Type = CustomFieldTypes.Tag,
         };
         db.AddRange(target, source, user, role, group, tagReference);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var earlier = DateTime.UtcNow.AddDays(-2);
         var later = DateTime.UtcNow.AddDays(-1);
@@ -315,27 +315,27 @@ public sealed class TagMergeServiceTests
             QuerySourceKey = "extension-fixture",
             QueryJson = opaqueQuery,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        var remoteIds = await db.Set<TagRemoteId>().Where(row => row.TagId == target.Id).OrderBy(row => row.RemoteId).ToListAsync();
+        var remoteIds = await db.Set<TagRemoteId>().Where(row => row.TagId == target.Id).OrderBy(row => row.RemoteId).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, remoteIds.Count);
-        Assert.Equal(earlier, (await db.UserBookmarks.SingleAsync()).CreatedAt);
-        var affinity = await db.UserEntityAffinities.SingleAsync();
+        Assert.Equal(earlier, (await db.UserBookmarks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).CreatedAt);
+        var affinity = await db.UserEntityAffinities.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(5, affinity.ViewCount);
         Assert.True(affinity.IsFavorite);
         Assert.Equal(20, affinity.LastPositionSec);
-        var roleOverride = await db.RoleEntityOverrides.SingleAsync();
+        var roleOverride = await db.RoleEntityOverrides.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id.ToString(), roleOverride.EntityId);
         Assert.Equal("deny", roleOverride.Effect);
-        Assert.Equal(target.Id, (await db.CustomFieldValues.SingleAsync()).IntegerValue);
-        Assert.Equal(target.Id, (await db.FieldProvenance.SingleAsync()).HostId);
-        var application = await db.TagApplications.SingleAsync();
+        Assert.Equal(target.Id, (await db.CustomFieldValues.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).IntegerValue);
+        Assert.Equal(target.Id, (await db.FieldProvenance.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
+        var application = await db.TagApplications.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, application.HostId);
         Assert.Equal(target.Id, application.TagId);
-        Assert.Equal(target.Id, (await db.Interactions.SingleAsync()).HostId);
-        var groupItem = await db.GroupItems.SingleAsync();
+        Assert.Equal(target.Id, (await db.Interactions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
+        var groupItem = await db.GroupItems.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, groupItem.HostId);
         using (var groupItemQuery = JsonDocument.Parse(groupItem.SourceQueryJson!))
         {
@@ -344,15 +344,15 @@ public sealed class TagMergeServiceTests
             Assert.Equal(target.Id, groupItemFilter.GetProperty("videoTagsCriterion").GetProperty("value")[0].GetInt32());
             Assert.Equal(target.Id, groupItemFilter.GetProperty("rawTagsCriterion").GetProperty("requiredIds")[0].GetInt32());
         }
-        Assert.Equal(target.Id, (await db.UserSessions.SingleAsync()).LastHostId);
-        var contentRules = await db.RoleContentRules.OrderBy(rule => rule.Id).ToListAsync();
+        Assert.Equal(target.Id, (await db.UserSessions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).LastHostId);
+        var contentRules = await db.RoleContentRules.OrderBy(rule => rule.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         using (var scope = JsonDocument.Parse(contentRules[0].ScopeValue))
             Assert.Equal(target.Id, scope.RootElement.GetProperty("tagId").GetInt32());
         using (var scope = JsonDocument.Parse(contentRules[1].ScopeValue))
             Assert.Equal([target.Id], scope.RootElement.GetProperty("in").EnumerateArray().Select(value => value.GetInt32()).ToArray());
-        using (var entityIds = JsonDocument.Parse((await db.ShareLinks.SingleAsync()).EntityIds))
+        using (var entityIds = JsonDocument.Parse((await db.ShareLinks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).EntityIds))
             Assert.Equal([target.Id], entityIds.RootElement.EnumerateArray().Select(value => value.GetInt32()).ToArray());
-        Assert.Equal(opaqueQuery, (await db.Groups.SingleAsync(group => group.Name == "Opaque query fixture")).QueryJson);
+        Assert.Equal(opaqueQuery, (await db.Groups.SingleAsync(group => group.Name == "Opaque query fixture", cancellationToken: TestContext.Current.CancellationToken)).QueryJson);
     }
 
     [Fact]
@@ -363,7 +363,7 @@ public sealed class TagMergeServiceTests
         var source = new Tag { Name = "Source" };
         var video = new Video { Title = "Tag application merge fixture" };
         db.AddRange(target, source, video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.TagApplications.AddRange(
             new TagApplication
@@ -385,11 +385,11 @@ public sealed class TagMergeServiceTests
                 TotalDurationSec = 20,
                 HostDurationSec = 100,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        var application = await db.TagApplications.SingleAsync();
+        var application = await db.TagApplications.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, application.TagId);
         Assert.Equal(0.8f, application.Confidence);
         Assert.Equal(20, application.TotalDurationSec);
@@ -404,7 +404,7 @@ public sealed class TagMergeServiceTests
         var emptySource = new Tag { Name = "Empty source" };
         var valueSource = new Tag { Name = "Value source", Description = "Transferred description" };
         db.AddRange(target, emptySource, valueSource);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.FieldProvenance.AddRange(
             new FieldProvenance
@@ -434,12 +434,12 @@ public sealed class TagMergeServiceTests
                 ValueJson = JsonSerializer.Serialize(valueSource.Description),
                 Confidence = 0.8f,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [emptySource.Id, valueSource.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [emptySource.Id, valueSource.Id], TestContext.Current.CancellationToken);
 
-        Assert.Equal("Transferred description", (await db.Tags.SingleAsync()).Description);
-        var provenance = await db.FieldProvenance.SingleAsync();
+        Assert.Equal("Transferred description", (await db.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Description);
+        var provenance = await db.FieldProvenance.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(JsonSerializer.Serialize("Transferred description"), provenance.ValueJson);
         Assert.Equal(0.8f, provenance.Confidence);
     }
@@ -461,7 +461,7 @@ public sealed class TagMergeServiceTests
             RemoteIds = [new TagRemoteId { Endpoint = "fixture", RemoteId = "source-remote" }],
         };
         db.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.FieldProvenance.AddRange(
             new FieldProvenance
@@ -500,11 +500,11 @@ public sealed class TagMergeServiceTests
                 ValueJson = JsonSerializer.Serialize(new[] { new { endpoint = "fixture", remoteId = "source-remote" } }),
                 Confidence = 0.8f,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        var provenance = await db.FieldProvenance.ToDictionaryAsync(row => row.FieldKey);
+        var provenance = await db.FieldProvenance.ToDictionaryAsync(row => row.FieldKey, cancellationToken: TestContext.Current.CancellationToken);
         using var aliases = JsonDocument.Parse(provenance["aliases"].ValueJson!);
         Assert.Equal(
             ["Target alias", "Shared alias", "Source alias"],
@@ -526,7 +526,7 @@ public sealed class TagMergeServiceTests
         var source = new Tag { Name = "Source" };
         var video = new Video { Title = "Segment provenance merge fixture" };
         db.AddRange(target, source, video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var segment = new Segment
         {
             HostType = SegmentHostType.Video,
@@ -534,7 +534,7 @@ public sealed class TagMergeServiceTests
             TagId = source.Id,
         };
         db.Segments.Add(segment);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.FieldProvenance.AddRange(
             new FieldProvenance
@@ -561,11 +561,11 @@ public sealed class TagMergeServiceTests
                 ValueJson = source.Id.ToString(),
                 SourceKey = "fixture",
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        var provenance = await db.FieldProvenance.OrderBy(row => row.FieldKey).ToDictionaryAsync(row => row.FieldKey);
+        var provenance = await db.FieldProvenance.OrderBy(row => row.FieldKey).ToDictionaryAsync(row => row.FieldKey, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id.ToString(), provenance["tag_id"].ValueJson);
         Assert.Equal(source.Id.ToString(), provenance["ref_id"].ValueJson);
         using var payload = JsonDocument.Parse(provenance["payload"].ValueJson!);
@@ -581,10 +581,10 @@ public sealed class TagMergeServiceTests
         var source = new Tag { Name = "Source" };
         var user = new User { Username = "playback-merge-fixture", PasswordHash = "fixture" };
         db.AddRange(target, source, user);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var userSession = new UserSession { UserId = user.Id, LastHostType = InteractionHostType.Tag, LastHostId = source.Id };
         db.UserSessions.Add(userSession);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var earlier = DateTime.UtcNow.AddMinutes(-10);
         var later = DateTime.UtcNow.AddMinutes(-5);
@@ -620,7 +620,7 @@ public sealed class TagMergeServiceTests
             Context = JsonDocument.Parse("""{"origin":"latest"}"""),
         };
         db.PlaybackSessions.AddRange(targetPlayback, sourcePlayback);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.PlaybackIntervals.AddRange(
             new PlaybackInterval
             {
@@ -640,11 +640,11 @@ public sealed class TagMergeServiceTests
                 StartSec = 3,
                 EndSec = 7,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        var mergedPlayback = await db.PlaybackSessions.SingleAsync();
+        var mergedPlayback = await db.PlaybackSessions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, mergedPlayback.HostId);
         Assert.Equal(earlier, mergedPlayback.StartedAt);
         Assert.Equal(later, mergedPlayback.LastSeenAt);
@@ -655,7 +655,7 @@ public sealed class TagMergeServiceTests
         Assert.Equal("latest-scope", mergedPlayback.ScopeKey);
         Assert.Equal(target.Id, mergedPlayback.ParentHostId);
         Assert.Equal("latest", mergedPlayback.Context?.RootElement.GetProperty("origin").GetString());
-        var intervals = await db.PlaybackIntervals.OrderBy(interval => interval.StartSec).ToListAsync();
+        var intervals = await db.PlaybackIntervals.OrderBy(interval => interval.StartSec).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, intervals.Count);
         Assert.All(intervals, interval => Assert.Equal(mergedPlayback.Id, interval.PlaybackSessionId));
         Assert.All(intervals, interval => Assert.Equal(target.Id, interval.HostId));
@@ -669,10 +669,10 @@ public sealed class TagMergeServiceTests
         var source = new Tag { Name = "Source" };
         var user = new User { Username = "partial-playback-merge-fixture", PasswordHash = "fixture" };
         db.AddRange(target, source, user);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var userSession = new UserSession { UserId = user.Id };
         db.UserSessions.Add(userSession);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var targetPlayback = new PlaybackSession
         {
@@ -693,7 +693,7 @@ public sealed class TagMergeServiceTests
             TotalWatchedSec = 9,
         };
         db.PlaybackSessions.AddRange(targetPlayback, sourcePlayback);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.PlaybackIntervals.Add(new PlaybackInterval
         {
             PlaybackSessionId = targetPlayback.Id,
@@ -703,11 +703,11 @@ public sealed class TagMergeServiceTests
             StartSec = 0,
             EndSec = 5,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        Assert.Equal(14, (await db.PlaybackSessions.SingleAsync()).TotalWatchedSec);
+        Assert.Equal(14, (await db.PlaybackSessions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).TotalWatchedSec);
     }
 
     [Fact]
@@ -719,7 +719,7 @@ public sealed class TagMergeServiceTests
         var image = new Image { Title = "Context host fixture" };
         var user = new User { Username = "contextual-engagement-fixture", PasswordHash = "fixture" };
         db.AddRange(target, source, image, user);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var contextJson = $$"""{"tagId":{{source.Id}},"unrelatedId":{{source.Id}}}""";
         db.Interactions.Add(new Interaction
@@ -739,7 +739,7 @@ public sealed class TagMergeServiceTests
             Context = JsonDocument.Parse(contextJson),
         };
         db.PlaybackSessions.Add(playback);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.PlaybackIntervals.Add(new PlaybackInterval
         {
             PlaybackSessionId = playback.Id,
@@ -750,13 +750,13 @@ public sealed class TagMergeServiceTests
             EndSec = 1,
             Context = JsonDocument.Parse(contextJson),
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new TagMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        AssertRewritten(await db.Interactions.Select(row => row.Meta).SingleAsync());
-        AssertRewritten(await db.PlaybackSessions.Select(row => row.Context).SingleAsync());
-        AssertRewritten(await db.PlaybackIntervals.Select(row => row.Context).SingleAsync());
+        AssertRewritten(await db.Interactions.Select(row => row.Meta).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
+        AssertRewritten(await db.PlaybackSessions.Select(row => row.Context).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
+        AssertRewritten(await db.PlaybackIntervals.Select(row => row.Context).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         void AssertRewritten(JsonDocument? document)
         {

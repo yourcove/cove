@@ -15,4 +15,17 @@ public static class FilesystemPaths
             : StringComparison.Ordinal;
 
     public static readonly StringComparer PathComparer = StringComparer.FromComparison(PathComparison);
+
+    /// <summary>
+    /// Converts Cove's forward-slash database representation to the separator expected by the
+    /// current operating system. Call this only when crossing into a filesystem or process API.
+    /// </summary>
+    public static string ToNativePath(string storedPath)
+        => storedPath.Replace('/', Path.DirectorySeparatorChar);
+
+    /// <summary>
+    /// Converts a local filesystem path to Cove's forward-slash database representation.
+    /// </summary>
+    public static string ToStoredPath(string nativePath)
+        => nativePath.Replace(Path.DirectorySeparatorChar, '/');
 }

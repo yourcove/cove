@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Http;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Helpers;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Controllers;
@@ -16,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.ImagesRead)]
-public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService customFields, IThumbnailService thumbnailService, IScanService scanService, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService customFields, IScanService scanService, ImageDeletionService imageDeletionService, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, BulkDeletionJobService? bulkDeletionJobService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
@@ -75,6 +77,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<ImageDto>> GetById(int id, CancellationToken ct)
     {
@@ -85,8 +88,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
 
     [HttpPost]
     [RequiresPermission(Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ImageDto>> Create([FromBody] ImageCreateDto dto, CancellationToken ct)
     {
+        var date = PartialDate.Parse(dto.Date);
         var image = new Image
         {
             Title = dto.Title,
@@ -95,7 +101,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             Photographer = dto.Photographer,
             Organized = dto.Organized,
             StudioId = dto.StudioId,
-            Date = ParseDate(dto.Date)
+            Date = date.Value,
+            DatePrecision = date.Precision
         };
 
         if (dto.Urls?.Count > 0)
@@ -126,9 +133,34 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return CreatedAtAction(nameof(GetById), new { id = image.Id }, await MapToDtoWithProvenanceAsync(result!, ct));
     }
 
+    [HttpPost("from-file")]
+    [RequiresPermission(Permissions.ImagesWrite)]
+    public async Task<ActionResult<ImageDto>> CreateFromFile([FromBody] FileBackedCreateDto? dto, CancellationToken ct)
+    {
+        var filePath = dto?.FilePath?.Trim();
+        if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+            return BadRequest(new { error = "A valid file path is required." });
+
+        int imageId;
+        try
+        {
+            imageId = await scanService.ImportDownloadedImageAsync(filePath, imageId: null, ct);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        var image = await imageRepo.GetByIdWithRelationsAsync(imageId, ct);
+        if (image == null) return NotFound();
+
+        return CreatedAtAction(nameof(GetById), new { id = imageId }, await MapToDtoWithProvenanceAsync(image, ct));
+    }
+
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ImageDto>> Update(int id, [FromBody] ImageUpdateDto dto, CancellationToken ct)
     {
         var image = await imageRepo.GetByIdWithRelationsAsync(id, ct);
@@ -142,33 +174,34 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         if (dto.Photographer != null) image.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
-        if (dto.Date != null) image.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); image.Date = date.Value; image.DatePrecision = date.Precision; }
         if (clearFields.Contains("date")) image.Date = null;
         if (clearFields.Contains("studioId")) image.StudioId = null;
 
         if (dto.Urls != null)
         {
-            image.Urls.Clear();
-            image.Urls = dto.Urls.Select(u => new ImageUrl { Url = u, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.Urls, dto.Urls, item => item.Url, url => new ImageUrl { Url = url, ImageId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.TagIds != null)
         {
-            image.ImageTags.Clear();
-            image.ImageTags = dto.TagIds.Select(tid => new ImageTag { TagId = tid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImageTags, dto.TagIds, item => item.TagId, tagId => new ImageTag { TagId = tagId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.PerformerIds != null)
         {
-            image.ImagePerformers.Clear();
-            image.ImagePerformers = dto.PerformerIds.Select(pid => new ImagePerformer { PerformerId = pid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImagePerformers, dto.PerformerIds, item => item.PerformerId, performerId => new ImagePerformer { PerformerId = performerId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.GalleryIds != null)
         {
-            image.ImageGalleries.Clear();
-            image.ImageGalleries = dto.GalleryIds.Select(gid => new ImageGallery { GalleryId = gid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImageGalleries, dto.GalleryIds, item => item.GalleryId, galleryId => new ImageGallery { GalleryId = galleryId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.GroupIds != null)
         {
-            await ReplaceWholeImageGroupItemsAsync(id, dto.GroupIds, image.Title, ct);
+            if (await ReplaceWholeImageGroupItemsAsync(id, dto.GroupIds, image.Title, ct))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.TagIds != null && tagProvenanceService != null)
         {
@@ -181,8 +214,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         }
 
         await imageRepo.UpdateAsync(image, ct);
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Image, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Image, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(image);
+            await imageRepo.UpdateAsync(image, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Image, id, dto.Rating, cancellationToken: ct);
         var updated = await imageRepo.GetByIdWithRelationsAsync(id, ct);
@@ -191,20 +227,13 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.ImagesDelete)]
+    [RequiresPermissionWhenTrue(Permissions.ImagesDeleteFile, ActionArgumentName = "deleteFile")]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesDelete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
-        var image = await imageRepo.GetByIdWithRelationsAsync(id, ct);
-        if (image == null) return NotFound();
-
-        await DeleteImageArtifactsAsync(image, new HashSet<int> { id }, new HashSet<string>(StringComparer.OrdinalIgnoreCase), deleteFile, deleteGenerated, ct);
-        if (tagProvenanceService != null)
-            await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Image, id, ct);
-        await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Image, id, ct);
-        await RemoveImageGroupItemsAsync([id], ct);
-        await db.SaveChangesAsync(ct);
-        await imageRepo.DeleteAsync(id, ct);
-        return NoContent();
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.ImagesDeleteFile) != true)
+            return Forbid();
+        return await imageDeletionService.DeleteAsync(id, deleteFile, deleteGenerated, ct) ? NoContent() : NotFound();
     }
 
     [HttpPost("{id:int}/rescan")]
@@ -245,23 +274,24 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Image, image.Id, cancellationToken);
         var groups = await GetGroupsAsync(image.Id, cancellationToken);
         var contextTagApplications = await GetContextTagApplicationsAsync(image.Id, cancellationToken);
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, image.ImagePerformers.Select(link => link.PerformerId), cancellationToken, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Image, image.Id, cancellationToken)).ToList();
-        return MapToDto(image, customFieldValues, null, groups, provenanceLookup, snapshot, principalAccessor?.Current?.UserId != null, contextTagApplications, fieldProvenance);
+        return MapToDto(image, customFieldValues, null, groups, provenanceLookup, snapshot, principalAccessor?.Current?.UserId != null, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private ImageDto MapToDto(Image i, Dictionary<string, object>? customFieldValues = null, int? galleryCount = null, List<GroupSummaryDto>? groups = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private ImageDto MapToDto(Image i, Dictionary<string, object>? customFieldValues = null, int? galleryCount = null, List<GroupSummaryDto>? groups = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         i.Id, i.Title, i.Code, i.Details, i.Photographer,
         i.Organized,
         i.StudioId, i.Studio?.Name,
-        i.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
-        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).OrderForDisplay().ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0, performer.Country, PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision))).ToList(),
         galleryCount ?? i.GalleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
-        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
+        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, PartialDate.Format(ig.Gallery.Date, ig.Gallery.DatePrecision))).ToList() ?? [],
         groups ?? [],
         i.Files?.Select(f => new ImageFileDto(
             f.Id,
@@ -293,13 +323,13 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.Id, i.Title, i.Code, i.Details, i.Photographer,
         i.Organized,
         i.StudioId, i.Studio?.Name,
-        i.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
-        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).OrderForDisplay().ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), Country: performer.Country, DeathDate: PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision))).ToList(),
         galleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
-        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
+        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, PartialDate.Format(ig.Gallery.Date, ig.Gallery.DatePrecision))).ToList() ?? [],
         groups ?? [],
         i.Files?.Select(f => new ImageFileDto(
             f.Id,
@@ -325,7 +355,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             .AsSplitQuery()
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return applications.Count == 0 ? null : applications.Select(TagApplicationsController.Map).ToList();
@@ -399,37 +433,30 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.ImagesDelete)]
+    [RequiresPermissionWhenTrue(Permissions.ImagesDeleteFile, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult QueueBulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.ImagesDeleteFile) != true)
+            return Forbid();
+
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
+        if (ids.Length == 0) return BadRequest("Select at least one image to delete.");
 
-        var idsToDelete = ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var images = await db.Images
-            .Include(image => image.Files)
-            .Where(image => ids.Contains(image.Id))
-            .ToListAsync(ct);
-
-        foreach (var image in images)
-        {
-            await DeleteImageArtifactsAsync(image, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Image, image.Id, ct);
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Image, image.Id, ct);
-        }
-
-        await RemoveImageGroupItemsAsync(idsToDelete, ct);
-        db.Images.RemoveRange(images);
-        await db.SaveChangesAsync(ct);
-        return new EntityMutationNoContentResult(images.Select(image => image.Id).ToList());
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Image,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkImageUpdateDto dto, CancellationToken ct)
     {
         var images = await db.Images
@@ -452,7 +479,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             if (clearFields.Contains("photographer")) image.Photographer = null;
             if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
-            if (dto.Date != null) image.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); image.Date = date.Value; image.DatePrecision = date.Precision; }
             if (dto.Code != null) image.Code = dto.Code;
             if (dto.Details != null) image.Details = dto.Details;
             if (dto.Photographer != null) image.Photographer = dto.Photographer;
@@ -525,31 +552,6 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(new BulkUpdateResult(images.Select(image => image.Id).ToList()));
     }
 
-    private async Task DeleteImageArtifactsAsync(Image image, IReadOnlySet<int> idsToDelete, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)
-    {
-        if (deleteFiles)
-        {
-            foreach (var file in image.Files)
-            {
-                var path = file.Path;
-                if (string.IsNullOrWhiteSpace(path) || !deletedPaths.Add(path))
-                    continue;
-
-                var referencedByKeptImage = await db.ImageFiles
-                    .AnyAsync(imageFile => imageFile.Path == path && imageFile.ImageId.HasValue && !idsToDelete.Contains(imageFile.ImageId.Value), ct);
-                if (!referencedByKeptImage && System.IO.File.Exists(path))
-                    System.IO.File.Delete(path);
-            }
-        }
-
-        if (image.Files.Count > 0)
-            db.ImageFiles.RemoveRange(image.Files);
-
-        if (deleteGenerated)
-            await thumbnailService.DeleteImageGeneratedFilesAsync(image.Id, ct);
-    }
-
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 
     private async Task<List<GroupSummaryDto>> GetGroupsAsync(int imageId, CancellationToken ct)
         => await db.GroupItems.AsNoTracking()
@@ -582,16 +584,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     private static List<GroupSummaryDto> GetGroups(IReadOnlyDictionary<int, List<GroupSummaryDto>> lookup, int imageId)
         => lookup.TryGetValue(imageId, out var groups) ? groups : [];
 
-    private async Task ReplaceWholeImageGroupItemsAsync(int imageId, IReadOnlyCollection<VideoGroupInputDto> groups, string? imageTitle, CancellationToken ct)
+    private async Task<bool> ReplaceWholeImageGroupItemsAsync(int imageId, IReadOnlyCollection<VideoGroupInputDto> groups, string? imageTitle, CancellationToken ct)
     {
         var existing = await db.GroupItems
             .Where(item => item.HostType == "image" && item.HostId == imageId && item.Kind == GroupItemKind.Image)
             .ToListAsync(ct);
-
-        if (existing.Count > 0)
-        {
-            db.GroupItems.RemoveRange(existing);
-        }
 
         var normalizedGroups = groups
             .Where(group => group is { GroupId: > 0 })
@@ -599,9 +596,16 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             .Select((group, index) => new { GroupId = group.Key, OrderIndex = index })
             .ToList();
 
+        if (existing.OrderBy(item => item.OrderIndex).Select(item => (item.GroupId, item.OrderIndex))
+            .SequenceEqual(normalizedGroups.Select(item => (item.GroupId, item.OrderIndex))))
+            return false;
+
+        if (existing.Count > 0)
+            db.GroupItems.RemoveRange(existing);
+
         if (normalizedGroups.Count == 0)
         {
-            return;
+            return true;
         }
 
         db.GroupItems.AddRange(normalizedGroups.Select(group => new GroupItem
@@ -614,23 +618,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             ImageId = imageId,
             Title = string.IsNullOrWhiteSpace(imageTitle) ? null : imageTitle.Trim(),
         }));
-    }
-
-    private async Task RemoveImageGroupItemsAsync(IReadOnlyCollection<int> imageIds, CancellationToken ct)
-    {
-        var ids = imageIds.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0)
-        {
-            return;
-        }
-
-        var items = await db.GroupItems
-            .Where(item => item.HostType == "image" && ids.Contains(item.HostId) && item.Kind == GroupItemKind.Image)
-            .ToListAsync(ct);
-        if (items.Count > 0)
-        {
-            db.GroupItems.RemoveRange(items);
-        }
+        return true;
     }
 
     private static List<TagProvenanceDto> GetTagProvenance(IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup, int tagId)

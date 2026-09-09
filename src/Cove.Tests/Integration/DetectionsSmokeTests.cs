@@ -43,10 +43,10 @@ public sealed class ImageDetectionsControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"/api/images/{imageId}/detections");
+        var response = await client.GetAsync($"/api/images/{imageId}/detections", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<List<DetectionDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<List<DetectionDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Single(payload);
     }
@@ -91,10 +91,10 @@ public sealed class VideoDetectionsControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"/api/videos/{videoId}/detections");
+        var response = await client.GetAsync($"/api/videos/{videoId}/detections", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<List<DetectionDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<List<DetectionDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Single(payload);
     }

@@ -75,6 +75,10 @@ describe("formatDate", () => {
     expect(formatDate("2024-01-15")).toBe("2024-01-15");
   });
 
+  it.each(["2024", "2024-01"])("preserves partial ISO date precision for %s", (value) => {
+    expect(formatDate(value)).toBe(value);
+  });
+
   it("formats timestamps as yyyy-MM-dd", () => {
     expect(formatDate("2024-01-15T23:30:00Z")).toBe("2024-01-15");
   });

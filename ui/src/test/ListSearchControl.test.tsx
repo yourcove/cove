@@ -58,4 +58,36 @@ describe("ListSearchControl", () => {
 
     expect(input).toHaveValue("summer ");
   });
+
+  it("does not replace newer typing when the parent acknowledges an older local commit", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    const { rerender } = render(<ListSearchControl onQueryChange={onQueryChange} />);
+    const input = screen.getByRole("textbox", { name: "Search list" });
+
+    await user.type(input, "double");
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith("double", "debounce"));
+    await user.type(input, " penetration");
+
+    rerender(<ListSearchControl query="double" onQueryChange={onQueryChange} />);
+
+    expect(input).toHaveValue("double penetration");
+  });
+
+  it("synchronizes browser navigation after the parent skips to the newest local commit", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    const { rerender } = render(<ListSearchControl onQueryChange={onQueryChange} />);
+    const input = screen.getByRole("textbox", { name: "Search list" });
+
+    await user.type(input, "double");
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith("double", "debounce"));
+    await user.type(input, " penetration");
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith("double penetration", "debounce"));
+
+    rerender(<ListSearchControl query="double penetration" onQueryChange={onQueryChange} />);
+    rerender(<ListSearchControl query="double" onQueryChange={onQueryChange} />);
+
+    expect(input).toHaveValue("double");
+  });
 });

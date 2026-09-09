@@ -29,11 +29,11 @@ export class ErrorBoundary extends Component<Props, State> {
       <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-8 text-center">
         <AlertTriangle className="w-12 h-12 text-amber-400" />
         <h2 className="text-xl font-semibold text-foreground">Something went wrong</h2>
-        <p className="text-sm text-muted max-w-md">
-          {this.state.error?.message || "An unexpected error occurred."}
-        </p>
+        <p className="text-sm text-muted max-w-md">{this.state.error?.message || "An unexpected error occurred."}</p>
         <button
-          onClick={() => { (this.props.onRetry ?? reloadPage)(); }}
+          onClick={() => {
+            (this.props.onRetry ?? reloadPage)();
+          }}
           className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
         >
           <RefreshCw className="w-4 h-4" /> Try Again

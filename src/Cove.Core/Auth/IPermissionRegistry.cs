@@ -19,6 +19,146 @@ public interface IPermissionRegistry
 
 public sealed record PermissionRegistrationRejection(string ExtensionId, string PermissionKey, string Reason);
 
+public static class PermissionSet
+{
+    /// <summary>
+    /// Determines whether a permission set admits an exact permission under Cove wildcard semantics.
+    /// </summary>
+    public static bool Grants(IEnumerable<string> permissions, string requiredPermission)
+    {
+        foreach (var permission in permissions)
+        {
+            if (TryIntersect(permission, requiredPermission, out var intersection)
+                && string.Equals(intersection, requiredPermission, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Intersects two expanded permission sets while preserving Cove wildcard semantics.
+    /// </summary>
+    public static HashSet<string> Intersect(
+        IEnumerable<string> grantedPermissions,
+        IEnumerable<string> scopedPermissions)
+    {
+        var granted = grantedPermissions.Distinct(StringComparer.Ordinal).ToArray();
+        var scoped = scopedPermissions.Distinct(StringComparer.Ordinal).ToArray();
+        var result = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var grant in granted)
+        {
+            foreach (var scope in scoped)
+            {
+                if (TryIntersect(grant, scope, out var permission))
+                    result.Add(permission);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryIntersect(string left, string right, out string permission)
+    {
+        if (left == "*")
+        {
+            permission = right;
+            return true;
+        }
+
+        if (right == "*" || string.Equals(left, right, StringComparison.Ordinal))
+        {
+            permission = left;
+            return true;
+        }
+
+        if (TryIntersectWildcard(left, right, out permission)
+            || TryIntersectWildcard(right, left, out permission))
+            return true;
+
+        permission = string.Empty;
+        return false;
+    }
+
+    private static bool TryIntersectWildcard(string wildcard, string candidate, out string permission)
+    {
+        if (TryGetResourceWildcard(wildcard, out var resource))
+        {
+            if (TryGetActionWildcard(candidate, out var action))
+            {
+                permission = $"{resource}.{action}";
+                return true;
+            }
+
+            if (TrySplitExact(candidate, out var candidateResource, out _)
+                && string.Equals(resource, candidateResource, StringComparison.Ordinal))
+            {
+                permission = candidate;
+                return true;
+            }
+        }
+
+        if (TryGetActionWildcard(wildcard, out var wildcardAction)
+            && TrySplitExact(candidate, out _, out var candidateAction)
+            && string.Equals(wildcardAction, candidateAction, StringComparison.Ordinal))
+        {
+            permission = candidate;
+            return true;
+        }
+
+        permission = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetResourceWildcard(string permission, out string resource)
+    {
+        if (permission.EndsWith(".*", StringComparison.Ordinal)
+            && permission.Length > 2
+            && permission[0] != '*'
+            && !permission[..^2].Contains('.'))
+        {
+            resource = permission[..^2];
+            return true;
+        }
+
+        resource = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetActionWildcard(string permission, out string action)
+    {
+        if (permission.StartsWith("*.", StringComparison.Ordinal)
+            && permission.Length > 2
+            && permission[2] != '*')
+        {
+            action = permission[2..];
+            return true;
+        }
+
+        action = string.Empty;
+        return false;
+    }
+
+    private static bool TrySplitExact(string permission, out string resource, out string action)
+    {
+        var separator = permission.IndexOf('.');
+        if (separator > 0
+            && separator < permission.Length - 1
+            && permission[0] != '*'
+            && permission[(separator + 1)..] != "*")
+        {
+            resource = permission[..separator];
+            action = permission[(separator + 1)..];
+            return true;
+        }
+
+        resource = string.Empty;
+        action = string.Empty;
+        return false;
+    }
+}
+
 public sealed class PermissionRegistry : IPermissionRegistry
 {
     private readonly Dictionary<string, PermissionDefinition> _byKey = new(StringComparer.Ordinal);

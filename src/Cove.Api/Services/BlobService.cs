@@ -98,7 +98,7 @@ public partial class BlobService(
         if (!IsCanonicalBlobId(blobId))
             return null;
 
-        var (path, contentType) = ResolveBlobFile(blobId);
+        var (path, contentType, pathWasObserved) = ResolveBlobFile(blobId);
         if (path == null || contentType == null)
             return null;
 
@@ -106,23 +106,16 @@ public partial class BlobService(
         // opening returns null; if opening wins, the returned stream keeps this content type.
         var storedContentType = await ReadStoredContentTypeAsync(blobId, ct);
 
-        try
-        {
-            var fs = new FileStream(
-                path,
-                new FileStreamOptions
-                {
-                    Mode = FileMode.Open,
-                    Access = FileAccess.Read,
-                    Share = FileShare.Read | FileShare.Delete,
-                    Options = FileOptions.Asynchronous | FileOptions.RandomAccess,
-                });
-            return (fs, storedContentType ?? contentType);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
+        var stream = FileReadRace.TryOpenRead(
+            path,
+            FileShare.Read | FileShare.Delete,
+            bufferSize: 4096,
+            options: FileOptions.Asynchronous | FileOptions.RandomAccess,
+            pathWasObserved: pathWasObserved);
+        if (stream == null)
             return null;
-        }
+
+        return (stream, storedContentType ?? contentType);
     }
 
     public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
@@ -151,7 +144,7 @@ public partial class BlobService(
             return;
         }
 
-        var (path, _) = ResolveBlobFile(blobId);
+        var (path, _, _) = ResolveBlobFile(blobId);
         if (path != null)
         {
             File.Delete(path);
@@ -178,7 +171,7 @@ public partial class BlobService(
     /// <summary>
     /// Finds the blob file on disk by checking all known extensions in the bucket directory.
     /// </summary>
-    private (string? Path, string? ContentType) ResolveBlobFile(string blobId)
+    private (string? Path, string? ContentType, bool PathWasObserved) ResolveBlobFile(string blobId)
     {
         var bucket = blobId[..2];
         var dir = System.IO.Path.Combine(BlobDir, bucket);
@@ -188,19 +181,23 @@ public partial class BlobService(
         {
             var candidate = System.IO.Path.Combine(dir, $"{blobId}{ext}");
             if (File.Exists(candidate))
-                return (candidate, ct);
+                return (candidate, ct, true);
         }
 
         // Older Cove versions may have stored blobs without a file extension.
         var extensionlessCandidate = System.IO.Path.Combine(dir, blobId);
         if (File.Exists(extensionlessCandidate))
-            return (extensionlessCandidate, "application/octet-stream");
+            return (extensionlessCandidate, "application/octet-stream", true);
 
         // Fallback: scan directory for any file starting with the blobId
         if (Directory.Exists(dir))
         {
             foreach (var file in Directory.EnumerateFiles(dir, $"{blobId}.*"))
             {
+                // Enumeration can reveal a name that File.Exists cannot access. Probe the exact
+                // path so only an accessible match supplies deletion-race provenance.
+                var pathWasObserved = File.Exists(file);
+
                 // Extract extension after the GUID (handles multi-part like ".svg+xml")
                 var fileName = System.IO.Path.GetFileName(file);
                 var dotIdx = fileName.IndexOf('.');
@@ -208,7 +205,7 @@ public partial class BlobService(
 
                 // Try direct lookup first, then try common normalizations
                 if (ExtensionToContentType.TryGetValue(rawExt, out var contentType))
-                    return (file, contentType);
+                    return (file, contentType, pathWasObserved);
 
                 // Handle malformed extensions like ".svg+xml" → try ".svg"
                 var plusIdx = rawExt.IndexOf('+');
@@ -216,7 +213,7 @@ public partial class BlobService(
                 {
                     var normalized = rawExt[..plusIdx];
                     if (ExtensionToContentType.TryGetValue(normalized, out contentType))
-                        return (file, contentType);
+                        return (file, contentType, pathWasObserved);
                 }
 
                 // Last resort: guess from extension
@@ -228,11 +225,11 @@ public partial class BlobService(
                     ".gif" => "image/gif",
                     ".svg" or ".svg+xml" => "image/svg+xml",
                     _ => "application/octet-stream",
-                });
+                }, pathWasObserved);
             }
         }
 
-        return (null, null);
+        return (null, null, false);
     }
 
     private async Task<string?> ReadStoredContentTypeAsync(string blobId, CancellationToken ct)

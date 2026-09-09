@@ -63,6 +63,64 @@ a version of it and declare `minCoveVersion` in `extension.json`; the host refus
 that needs a newer host than is running. Keep the trio's public surface the stable contract — treat a
 breaking change to it as a major version of the extension ABI.
 
+`minCoveVersion` only stops an extension built for a *newer* host. It does nothing for the common
+case: an extension built against an older host that the running host has since broken. That
+extension loads happily and then throws `MissingMethodException` the moment the changed method is
+first JIT'd — usually deep in a feature, long after startup, so nothing in the extension list looks
+wrong.
+
+### Adding a parameter is a breaking change, default value or not
+
+Optional parameters are compile-time sugar. The compiler bakes the argument list into the caller's
+IL at the call site, so an already-compiled extension holds a hard reference to the *old arity*.
+Appending `= null` to a new parameter keeps every in-repo caller compiling and silently breaks every
+shipped extension.
+
+This is not hypothetical: Cove 1.4 appended `FilterExpression<T>? expression = null` to
+`IVideoRepository.FindAsync`/`AggregateAsync` and `IPerformerRepository.FindAsync`, and
+`IReadOnlyList<string>? paths = null` to `ICleanService.StartClean`. Every extension built against
+1.3 lost those calls.
+
+When you must change a signature on the trio's public surface, keep the old one as a forwarding
+default interface method so implementers need no changes:
+
+```csharp
+Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(
+    VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default,
+    FilterExpression<VideoFilter>? expression = null);
+
+// Binary-compatibility shim for extensions compiled before `expression` was appended.
+[EditorBrowsable(EditorBrowsableState.Never)]
+Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(
+    VideoFilter? filter, FindFilter? findFilter, CancellationToken ct)
+    => FindAsync(filter, findFilter, ct, null);
+```
+
+Declare the shim **without** default values. A three-argument call then binds to it exactly, while a
+two-argument call still resolves to the modern overload — no ambiguity either way.
+`[EditorBrowsable(Never)]` hides it from extension authors' IntelliSense so no new code binds to it.
+
+### The other shapes that break already-built extensions
+
+- **Adding a positional parameter to a public `record`** — the primary constructor and `Deconstruct`
+  both change arity. Reading properties stays fine; constructing or deconstructing breaks. Add an
+  explicit constructor at the old arity.
+- **Changing a parameter type** — shimmable, by keeping an overload that takes the old type and
+  converting. **Changing a return type is not**: C# cannot overload on return type alone, so the old
+  shape has to survive under a different method name.
+- **Adding an abstract member to an interface extensions implement** (`IExtension`, `IUIExtension`,
+  and friends) — give it a default implementation, or every existing extension fails to load.
+- **Renaming a public type or member, or moving it between namespaces or assemblies.**
+
+Verify a shim actually landed in metadata rather than trusting that it compiled — a clean build
+proves nothing here, since the source-level call sites were never broken:
+
+```csharp
+typeof(IVideoRepository).GetMethods()
+    .Where(m => m.Name == "FindAsync")
+    .Select(m => string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name)))
+```
+
 ## Authentication assertions
 
 Authentication extensions hand Cove a stable provider-owned identity with

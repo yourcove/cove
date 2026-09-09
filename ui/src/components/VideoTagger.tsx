@@ -1,12 +1,35 @@
 import { useCallback, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system } from "../api/client";
-import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServer, MetadataServerEntityCandidate, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
+import type {
+  ApplyVideoScrapeAttemptRequest,
+  Video,
+  MetadataServer,
+  MetadataServerEntityCandidate,
+  MetadataServerVideoMatch,
+  MetadataServerVideoImportRequest,
+  ScrapeAttempt,
+  ScraperSummary,
+  ScrapeCollectionItemSelection,
+} from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
-import { buildFragmentDraft, findDefaultKind, getVideoNameSearchInput, supportsScrapeKind, type CollectionMode, type InputKind } from "./videoScrapeUtils";
-import { buildMatchInfo, buildRelationSelectionPayload, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import {
+  buildFragmentDraft,
+  findDefaultKind,
+  getVideoNameSearchInput,
+  supportsScrapeKind,
+  type CollectionMode,
+  type InputKind,
+} from "./videoScrapeUtils";
+import {
+  buildMatchInfo,
+  buildRelationSelectionPayload,
+  relationKey,
+  ScrapeRelationChoices,
+  type ScrapeRelationActionMap,
+} from "./ScrapeRelationChoices";
 import { invalidateVideoMetadataQueries } from "./videoMetadataQueryInvalidation";
 import {
   CompactCollectionDecision,
@@ -71,11 +94,20 @@ interface TaggerConfig {
   performerGenders: string[];
 }
 
-type VideoMetadataSearchStrategy = "remote-id-and-fingerprint-text" | "remote-id-fingerprint" | "remote-id" | "fingerprint";
+type VideoMetadataSearchStrategy =
+  "remote-id-and-fingerprint-text" | "remote-id-fingerprint" | "remote-id" | "fingerprint";
 
 const VIDEO_METADATA_SEARCH_STRATEGIES: TaggerRunAllOption[] = [
-  { value: "remote-id-and-fingerprint-text", label: "Linked ID + Fingerprint → Text", description: "Compare linked and fingerprint candidates, then use text only if neither matches." },
-  { value: "remote-id-fingerprint", label: "Linked ID → Fingerprint", description: "Avoid potentially inaccurate text matches." },
+  {
+    value: "remote-id-and-fingerprint-text",
+    label: "Linked ID + Fingerprint → Text",
+    description: "Compare linked and fingerprint candidates, then use text only if neither matches.",
+  },
+  {
+    value: "remote-id-fingerprint",
+    label: "Linked ID → Fingerprint",
+    description: "Avoid potentially inaccurate text matches.",
+  },
   { value: "remote-id", label: "Linked ID only", description: "Refresh videos already linked to this source." },
   { value: "fingerprint", label: "Fingerprint only", description: "Ignore saved links and identify by file content." },
 ];
@@ -121,9 +153,11 @@ function normalizeEndpoint(endpoint?: string | null): string {
 }
 
 function resolveSource(value: string, sources: TaggerSource[]): TaggerSource | undefined {
-  return sources.find((source) => source.value === value)
-    ?? sources.find((source) => source.kind === "metadata-server" && source.endpoint === value)
-    ?? sources[0];
+  return (
+    sources.find((source) => source.value === value) ??
+    sources.find((source) => source.kind === "metadata-server" && source.endpoint === value) ??
+    sources[0]
+  );
 }
 
 function asString(value: unknown): string | undefined {
@@ -138,7 +172,10 @@ function asStringList(value: unknown): string[] {
   }
   const text = asString(value);
   if (!text) return [];
-  return text.split(",").map((item) => item.trim()).filter(Boolean);
+  return text
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function pickString(result: Record<string, unknown>, ...keys: string[]) {
@@ -167,7 +204,10 @@ function parseAttemptResults(attempt: ScrapeAttempt): Record<string, unknown>[] 
   try {
     if (attempt.candidateResultsJson) {
       const candidates = JSON.parse(attempt.candidateResultsJson);
-      if (Array.isArray(candidates)) return candidates.filter((item): item is Record<string, unknown> => item && typeof item === "object" && !Array.isArray(item));
+      if (Array.isArray(candidates))
+        return candidates.filter(
+          (item): item is Record<string, unknown> => item && typeof item === "object" && !Array.isArray(item),
+        );
     }
     if (attempt.resultJson) {
       const result = JSON.parse(attempt.resultJson);
@@ -201,9 +241,10 @@ function performerChoiceKey(candidate: MetadataServerEntityCandidate) {
 }
 
 function getPerformerChoices(result: MetadataServerVideoMatch): PerformerChoice[] {
-  const candidates: MetadataServerEntityCandidate[] = result.performerCandidates.length > 0
-    ? result.performerCandidates
-    : result.performerNames.map((name) => ({ remoteId: name, name, existsLocally: false }));
+  const candidates: MetadataServerEntityCandidate[] =
+    result.performerCandidates.length > 0
+      ? result.performerCandidates
+      : result.performerNames.map((name) => ({ remoteId: name, name, existsLocally: false }));
   return candidates.map((candidate) => ({
     key: performerChoiceKey(candidate),
     label: formatPerformerIdentity(candidate.name, candidate.disambiguation),
@@ -219,16 +260,24 @@ function getCurrentPerformerChoiceKeys(video: Video, choices: PerformerChoice[])
   const linkedIds = new Set(video.performers.map((performer) => performer.id));
   return choices
     .filter((choice) => {
-      if (choice.candidate.localId != null)
-        return linkedIds.has(choice.candidate.localId);
-      const candidateIdentity = relationKey(formatPerformerIdentity(choice.candidate.name, choice.candidate.disambiguation));
-      return video.performers.some((performer) =>
-        relationKey(formatPerformerIdentity(performer.name, performer.disambiguation)) === candidateIdentity);
+      if (choice.candidate.localId != null) return linkedIds.has(choice.candidate.localId);
+      const candidateIdentity = relationKey(
+        formatPerformerIdentity(choice.candidate.name, choice.candidate.disambiguation),
+      );
+      return video.performers.some(
+        (performer) =>
+          relationKey(formatPerformerIdentity(performer.name, performer.disambiguation)) === candidateIdentity,
+      );
     })
     .map((choice) => choice.key);
 }
 
-function toScraperVideoMatch(attempt: ScrapeAttempt, result: Record<string, unknown>, index: number, scraper: ScraperSummary): UnifiedVideoMatch {
+function toScraperVideoMatch(
+  attempt: ScrapeAttempt,
+  result: Record<string, unknown>,
+  index: number,
+  scraper: ScraperSummary,
+): UnifiedVideoMatch {
   const title = pickString(result, "Title", "Name");
   const imageUrl = pickString(result, "Image", "ImageUrl", "ImageURL");
   const performerNames = pickStringList(result, "Performers", "Performer", "PerformerNames");
@@ -287,7 +336,8 @@ function buildDefaultVideoFieldStrategies(video: Video, result: UnifiedVideoMatc
   const strategies: Record<string, VideoFieldStrategy> = {};
   for (const field of fields) {
     if (!field.scraped) continue;
-    strategies[field.key] = normalizeDecisionValue(field.current) === normalizeDecisionValue(field.scraped) ? "ignore" : "overwrite";
+    strategies[field.key] =
+      normalizeDecisionValue(field.current) === normalizeDecisionValue(field.scraped) ? "ignore" : "overwrite";
   }
   return strategies;
 }
@@ -306,11 +356,23 @@ function defaultVideoImageStrategy(video: Video, taggerConfig: TaggerConfig): Vi
 
 // Whether the scraped cover should replace the video's current cover. The per-result "image" decision
 // (when the user toggled it) wins; otherwise the explicit-cover default applies.
-function getVideoImageReplace(video: Video, result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig) {
-  return (getVideoFieldStrategies(video, result, state).image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite";
+function getVideoImageReplace(
+  video: Video,
+  result: UnifiedVideoMatch,
+  state: VideoSearchState | undefined,
+  taggerConfig: TaggerConfig,
+) {
+  return (
+    (getVideoFieldStrategies(video, result, state).image ?? defaultVideoImageStrategy(video, taggerConfig)) ===
+    "overwrite"
+  );
 }
 
-function buildDefaultVideoCollectionModes(result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig): Record<string, CollectionMode> {
+function buildDefaultVideoCollectionModes(
+  result: UnifiedVideoMatch,
+  state: VideoSearchState | undefined,
+  taggerConfig: TaggerConfig,
+): Record<string, CollectionMode> {
   return {
     urls: result.urls.length > 0 ? "merge" : "skip",
     tags: taggerConfig.setTags && result.tagNames.length > 0 ? "merge" : "skip",
@@ -319,7 +381,11 @@ function buildDefaultVideoCollectionModes(result: UnifiedVideoMatch, state: Vide
   };
 }
 
-function getVideoCollectionModes(result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig) {
+function getVideoCollectionModes(
+  result: UnifiedVideoMatch,
+  state: VideoSearchState | undefined,
+  taggerConfig: TaggerConfig,
+) {
   return { ...buildDefaultVideoCollectionModes(result, state, taggerConfig), ...(state?.collectionModes ?? {}) };
 }
 
@@ -329,7 +395,12 @@ function collectionModeToFieldStrategy(mode: CollectionMode): VideoFieldStrategy
   return "ignore";
 }
 
-function buildVideoFieldStrategies(video: Video, result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig) {
+function buildVideoFieldStrategies(
+  video: Video,
+  result: UnifiedVideoMatch,
+  state: VideoSearchState | undefined,
+  taggerConfig: TaggerConfig,
+) {
   const scalarStrategies = getVideoFieldStrategies(video, result, state);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
   return {
@@ -381,15 +452,24 @@ function buildVideoRelationSelections(
   );
 }
 
-function buildScraperVideoApplyRequest(result: UnifiedVideoMatch, video: Video, state: VideoSearchState | undefined, taggerConfig: TaggerConfig): ApplyVideoScrapeAttemptRequest {
+function buildScraperVideoApplyRequest(
+  result: UnifiedVideoMatch,
+  video: Video,
+  state: VideoSearchState | undefined,
+  taggerConfig: TaggerConfig,
+): ApplyVideoScrapeAttemptRequest {
   const fieldStrategies = buildVideoFieldStrategies(video, result, state, taggerConfig);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
   const replaceFields = Object.entries(fieldStrategies)
-    .filter(([field, strategy]) => strategy === "overwrite" && !["urls", "tags", "performers", "studio", "image"].includes(field))
+    .filter(
+      ([field, strategy]) =>
+        strategy === "overwrite" && !["urls", "tags", "performers", "studio", "image"].includes(field),
+    )
     .map(([field]) => field);
   const raw = result.rawResult ?? {};
   // Cover is driven by the per-result image decision (defaulting to the global toggle).
-  if (getVideoImageReplace(video, result, state, taggerConfig) && pickString(raw, "Image", "ImageUrl", "ImageURL")) replaceFields.push("image");
+  if (getVideoImageReplace(video, result, state, taggerConfig) && pickString(raw, "Image", "ImageUrl", "ImageURL"))
+    replaceFields.push("image");
 
   const performerChoices = getPerformerChoices(result);
   const performerActions = buildVideoRelationActionMap(
@@ -409,13 +489,24 @@ function buildScraperVideoApplyRequest(result: UnifiedVideoMatch, video: Video, 
     markOrganized: taggerConfig.markOrganized,
     hydratePerformers: taggerConfig.createParentTags,
     selectedCandidateIndex: result.selectedCandidateIndex,
-    tagSelections: result.tagNames.length > 0 ? buildVideoRelationSelections(result.tagNames, getVideoTagNames(video), result.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name), state?.excludedTags, state?.forceIncludedTags, !taggerConfig.onlyExistingTags) : undefined,
-    performerSelections: performerChoices.length > 0
-      ? performerChoices.map((choice) => ({
-          name: choice.candidate.name,
-          action: performerActions[relationKey(choice.key)] ?? "exclude",
-        }))
-      : undefined,
+    tagSelections:
+      result.tagNames.length > 0
+        ? buildVideoRelationSelections(
+            result.tagNames,
+            getVideoTagNames(video),
+            result.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name),
+            state?.excludedTags,
+            state?.forceIncludedTags,
+            !taggerConfig.onlyExistingTags,
+          )
+        : undefined,
+    performerSelections:
+      performerChoices.length > 0
+        ? performerChoices.map((choice) => ({
+            name: choice.candidate.name,
+            action: performerActions[relationKey(choice.key)] ?? "exclude",
+          }))
+        : undefined,
   };
 }
 
@@ -425,7 +516,7 @@ async function runWithConcurrency<T>(
   items: T[],
   fn: (item: T) => Promise<void>,
   limit: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<void> {
   let index = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -438,7 +529,14 @@ async function runWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-export function VideoTagger({ videos: videoList, onNavigate, selectedIds, selecting = false, onSelect, mode = "bulk" }: VideoTaggerProps) {
+export function VideoTagger({
+  videos: videoList,
+  onNavigate,
+  selectedIds,
+  selecting = false,
+  onSelect,
+  mode = "bulk",
+}: VideoTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
   const videoPreviewObjectFit: EntityMediaFit = config?.ui?.videoObjectFit === "contain" ? "contain" : "cover";
@@ -491,38 +589,45 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           ...DEFAULT_TAGGER_CONFIG,
           ...parsed,
           selectedEndpoint: parsed.selectedEndpoint ?? DEFAULT_TAGGER_CONFIG.selectedEndpoint,
-          bulkMatchStrategy: isVideoMetadataSearchStrategy(parsed.bulkMatchStrategy) ? parsed.bulkMatchStrategy : DEFAULT_TAGGER_CONFIG.bulkMatchStrategy,
+          bulkMatchStrategy: isVideoMetadataSearchStrategy(parsed.bulkMatchStrategy)
+            ? parsed.bulkMatchStrategy
+            : DEFAULT_TAGGER_CONFIG.bulkMatchStrategy,
           blacklist: parsed.blacklist ?? DEFAULT_TAGGER_CONFIG.blacklist,
           performerGenders: parsed.performerGenders ?? DEFAULT_TAGGER_CONFIG.performerGenders,
         };
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return DEFAULT_TAGGER_CONFIG;
   });
 
   const setTaggerConfig = useCallback((updater: TaggerConfig | ((prev: TaggerConfig) => TaggerConfig)) => {
     _setTaggerConfig((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem(TAGGER_CONFIG_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      try {
+        localStorage.setItem(TAGGER_CONFIG_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }, []);
   const [showConfig, setShowConfig] = useState(false);
-  const [bulkStrategyDraft, setBulkStrategyDraft] = useState<VideoMetadataSearchStrategy>(taggerConfig.bulkMatchStrategy);
+  const [bulkStrategyDraft, setBulkStrategyDraft] = useState<VideoMetadataSearchStrategy>(
+    taggerConfig.bulkMatchStrategy,
+  );
   const [searchStates, setSearchStates] = useState<Record<number, VideoSearchState>>({});
   const [queryOverrides, setQueryOverrides] = useState<Record<number, string>>({});
   const [scraperInputKinds, setScraperInputKinds] = useState<Record<number, InputKind>>({});
   const selectedSource = resolveSource(taggerConfig.selectedEndpoint, taggerSources);
 
-  const updateSearchState = useCallback(
-    (videoId: number, update: Partial<VideoSearchState>) => {
-      setSearchStates((prev) => ({
-        ...prev,
-        [videoId]: { ...prev[videoId], ...update },
-      }));
-    },
-    []
-  );
+  const updateSearchState = useCallback((videoId: number, update: Partial<VideoSearchState>) => {
+    setSearchStates((prev) => ({
+      ...prev,
+      [videoId]: { ...prev[videoId], ...update },
+    }));
+  }, []);
 
   // Derive search query from video (standard prepareQueryString logic)
   const getSearchQuery = useCallback(
@@ -538,7 +643,9 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           video.studioName || "",
           (video.performers || []).map((p: any) => p.name).join(" "),
           video.title ? video.title.replace(/[^a-zA-Z0-9 ]+/g, "") : "",
-        ].filter((s) => s !== "").join(" ");
+        ]
+          .filter((s) => s !== "")
+          .join(" ");
         str = cleanTaggerQueryString(str, taggerConfig.blacklist);
         return str;
       }
@@ -562,24 +669,26 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
       }
       return "";
     },
-    [queryOverrides, taggerConfig.queryMode, taggerConfig.blacklist]
+    [queryOverrides, taggerConfig.queryMode, taggerConfig.blacklist],
   );
 
-  const getScraperInputKind = useCallback((video: Video, source: TaggerSource | undefined): InputKind => {
-    if (source?.kind !== "scraper") {
-      return "name";
-    }
+  const getScraperInputKind = useCallback(
+    (video: Video, source: TaggerSource | undefined): InputKind => {
+      if (source?.kind !== "scraper") {
+        return "name";
+      }
 
-    const override = scraperInputKinds[video.id];
-    if (override) {
-      return override;
-    }
-    const configured = taggerConfig.defaultScraperInputKind;
-    const preferred: InputKind = configured !== "auto"
-      ? configured
-      : video.urls?.some((url) => url.trim()) ? "url" : "name";
-    return findDefaultKind(source.scraper, preferred);
-  }, [scraperInputKinds, taggerConfig.defaultScraperInputKind]);
+      const override = scraperInputKinds[video.id];
+      if (override) {
+        return override;
+      }
+      const configured = taggerConfig.defaultScraperInputKind;
+      const preferred: InputKind =
+        configured !== "auto" ? configured : video.urls?.some((url) => url.trim()) ? "url" : "name";
+      return findDefaultKind(source.scraper, preferred);
+    },
+    [scraperInputKinds, taggerConfig.defaultScraperInputKind],
+  );
 
   const getSourceQuery = useCallback(
     (video: Video, source: TaggerSource | undefined): string => {
@@ -601,34 +710,45 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
       }
       return getSearchQuery(video);
     },
-    [getScraperInputKind, getSearchQuery, queryOverrides]
+    [getScraperInputKind, getSearchQuery, queryOverrides],
   );
 
-  const handleScraperInputKindChange = useCallback((video: Video, source: TaggerSource | undefined, inputKind: InputKind) => {
-    setScraperInputKinds((prev) => ({ ...prev, [video.id]: inputKind }));
-    setQueryOverrides((prev) => {
-      const nextQuery = inputKind === "url"
-        ? video.urls?.find((url) => url.trim()) ?? ""
-        : inputKind === "fragment"
-          ? buildFragmentDraft(video)
-          : getVideoNameSearchInput(video) || getSearchQuery(video);
-      return { ...prev, [video.id]: nextQuery };
-    });
-    if (source?.kind === "scraper" && !supportsScrapeKind(source.scraper, inputKind)) {
-      updateSearchState(video.id, { error: `The selected scraper does not support ${inputKind} input.` });
-    }
-  }, [getSearchQuery, updateSearchState]);
+  const handleScraperInputKindChange = useCallback(
+    (video: Video, source: TaggerSource | undefined, inputKind: InputKind) => {
+      setScraperInputKinds((prev) => ({ ...prev, [video.id]: inputKind }));
+      setQueryOverrides((prev) => {
+        const nextQuery =
+          inputKind === "url"
+            ? (video.urls?.find((url) => url.trim()) ?? "")
+            : inputKind === "fragment"
+              ? buildFragmentDraft(video)
+              : getVideoNameSearchInput(video) || getSearchQuery(video);
+        return { ...prev, [video.id]: nextQuery };
+      });
+      if (source?.kind === "scraper" && !supportsScrapeKind(source.scraper, inputKind)) {
+        updateSearchState(video.id, { error: `The selected scraper does not support ${inputKind} input.` });
+      }
+    },
+    [getSearchQuery, updateSearchState],
+  );
 
   const searchVideo = useCallback(
     async (video: Video, bulkStrategy?: VideoMetadataSearchStrategy) => {
       const source = selectedSource;
       const query = getSourceQuery(video, source);
-      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, {
+        loading: true,
+        error: undefined,
+        warning: undefined,
+        results: undefined,
+        saved: false,
+      });
       try {
         let results: UnifiedVideoMatch[] = [];
         if (source?.kind === "scraper") {
           const inputKind = getScraperInputKind(video, source);
-          if (!supportsScrapeKind(source.scraper, inputKind)) throw new Error(`This scraper does not support ${inputKind} input.`);
+          if (!supportsScrapeKind(source.scraper, inputKind))
+            throw new Error(`This scraper does not support ${inputKind} input.`);
           if (inputKind === "url" && !query.trim()) throw new Error("Enter a URL to scrape.");
           if (inputKind === "name" && !query.trim()) throw new Error("Enter a title or name to scrape.");
           let fragment: Record<string, unknown> | undefined;
@@ -648,12 +768,17 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
             name: inputKind === "name" ? query : undefined,
             fragment,
           });
-          if (attempt.status.toLowerCase() === "failure") throw new Error(attempt.error || "Scrape returned no results.");
-          results = parseAttemptResults(attempt).map((result, index) => toScraperVideoMatch(attempt, result, index, source.scraper));
+          if (attempt.status.toLowerCase() === "failure")
+            throw new Error(attempt.error || "Scrape returned no results.");
+          results = parseAttemptResults(attempt).map((result, index) =>
+            toScraperVideoMatch(attempt, result, index, source.scraper),
+          );
         } else {
           const endpoint = source?.endpoint || undefined;
           if (!bulkStrategy && !query.trim()) throw new Error("Enter a title or name to search.");
-          results = (await videos.searchMetadataServer(video.id, query || undefined, endpoint, bulkStrategy)).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
+          results = (await videos.searchMetadataServer(video.id, query || undefined, endpoint, bulkStrategy)).map(
+            (match) => ({ ...match, sourceKind: "metadata-server" as const }),
+          );
         }
 
         updateSearchState(video.id, {
@@ -668,16 +793,25 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         });
       }
     },
-    [getScraperInputKind, getSourceQuery, selectedSource, updateSearchState]
+    [getScraperInputKind, getSourceQuery, selectedSource, updateSearchState],
   );
 
   // Fingerprint-only search
   const searchVideoFingerprints = useCallback(
     async (video: Video) => {
-      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, {
+        loading: true,
+        error: undefined,
+        warning: undefined,
+        results: undefined,
+        saved: false,
+      });
       try {
-        if (selectedSource?.kind !== "metadata-server") throw new Error("Fingerprint search is only available for metadata-server sources.");
-        const results = (await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined, "fingerprint")).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
+        if (selectedSource?.kind !== "metadata-server")
+          throw new Error("Fingerprint search is only available for metadata-server sources.");
+        const results = (
+          await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined, "fingerprint")
+        ).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
         updateSearchState(video.id, {
           loading: false,
           results,
@@ -690,15 +824,24 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         });
       }
     },
-    [selectedSource, updateSearchState]
+    [selectedSource, updateSearchState],
   );
 
   // Refresh/rescrape directly from an existing remote id (no name search needed).
   const refreshVideoFromRemote = useCallback(
     async (video: Video, endpoint: string, remoteId: string) => {
-      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, {
+        loading: true,
+        error: undefined,
+        warning: undefined,
+        results: undefined,
+        saved: false,
+      });
       try {
-        const results = (await videos.findMetadataServerByIds({ endpoint, ids: [remoteId] })).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
+        const results = (await videos.findMetadataServerByIds({ endpoint, ids: [remoteId] })).map((match) => ({
+          ...match,
+          sourceKind: "metadata-server" as const,
+        }));
         updateSearchState(video.id, {
           loading: false,
           results,
@@ -709,24 +852,35 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         updateSearchState(video.id, { loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
       }
     },
-    [updateSearchState]
+    [updateSearchState],
   );
 
   // Batch scrape all (concurrent)
   const [batchSearching, setBatchSearching] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const searchAll = useCallback(async (strategyOverride?: string) => {
-    setBatchSearching(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const toSearch = videoList.filter((s) => !searchStates[s.id]?.saved);
-    const bulkStrategy = selectedSource?.kind === "metadata-server"
-      ? isVideoMetadataSearchStrategy(strategyOverride) ? strategyOverride : taggerConfig.bulkMatchStrategy
-      : undefined;
-    await runWithConcurrency(toSearch, (video) => searchVideo(video, bulkStrategy), CONCURRENCY_LIMIT, controller.signal);
-    setBatchSearching(false);
-    abortRef.current = null;
-  }, [selectedSource, taggerConfig.bulkMatchStrategy, videoList, searchStates, searchVideo]);
+  const searchAll = useCallback(
+    async (strategyOverride?: string) => {
+      setBatchSearching(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const toSearch = videoList.filter((s) => !searchStates[s.id]?.saved);
+      const bulkStrategy =
+        selectedSource?.kind === "metadata-server"
+          ? isVideoMetadataSearchStrategy(strategyOverride)
+            ? strategyOverride
+            : taggerConfig.bulkMatchStrategy
+          : undefined;
+      await runWithConcurrency(
+        toSearch,
+        (video) => searchVideo(video, bulkStrategy),
+        CONCURRENCY_LIMIT,
+        controller.signal,
+      );
+      setBatchSearching(false);
+      abortRef.current = null;
+    },
+    [selectedSource, taggerConfig.bulkMatchStrategy, videoList, searchStates, searchVideo],
+  );
 
   const cancelBatchSearch = useCallback(() => {
     abortRef.current?.abort();
@@ -738,21 +892,20 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
       <div className="px-4 py-12 text-center">
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-muted opacity-50" />
         <p className="text-secondary text-lg">No Metadata Sources Configured</p>
-        <p className="text-muted text-sm mt-1">
-          Add a metadata server or install a video scraper to use the tagger.
-        </p>
+        <p className="text-muted text-sm mt-1">Add a metadata server or install a video scraper to use the tagger.</p>
       </div>
     );
   }
 
   // Detail mode was opened for this specific video, so always show it (the bulk "hide matched"
   // convenience filter would otherwise leave the dialog empty).
-  const visibleVideos = mode === "detail" || taggerConfig.showUnmatched
-    ? videoList
-    : videoList.filter((s) => {
-        const state = searchStates[s.id];
-        return !state || !state.results || state.results.length > 0;
-      });
+  const visibleVideos =
+    mode === "detail" || taggerConfig.showUnmatched
+      ? videoList
+      : videoList.filter((s) => {
+          const state = searchStates[s.id];
+          return !state || !state.results || state.results.length > 0;
+        });
   const visibleVideoIds = visibleVideos.map((video) => video.id);
 
   return (
@@ -766,12 +919,16 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           setQueryOverrides({});
           setScraperInputKinds({});
         }}
-        showToggle={mode === "bulk" ? {
-          value: taggerConfig.showUnmatched,
-          onChange: (value) => setTaggerConfig((c) => ({ ...c, showUnmatched: value })),
-          enabledLabel: "Hide Unmatched",
-          disabledLabel: "Show Unmatched",
-        } : undefined}
+        showToggle={
+          mode === "bulk"
+            ? {
+                value: taggerConfig.showUnmatched,
+                onChange: (value) => setTaggerConfig((c) => ({ ...c, showUnmatched: value })),
+                enabledLabel: "Hide Unmatched",
+                disabledLabel: "Show Unmatched",
+              }
+            : undefined
+        }
         batchSearching={batchSearching}
         onCancelBatch={cancelBatchSearch}
         onRunAll={searchAll}
@@ -787,154 +944,231 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           blacklist={taggerConfig.blacklist}
           onBlacklistChange={(items) => setTaggerConfig((c) => ({ ...c, blacklist: items }))}
         >
-
-              {selectedSource?.kind === "metadata-server" && mode === "bulk" && (
-                <div>
-                  <label className="block text-xs text-muted mb-1" htmlFor="default-bulk-match-strategy">Default bulk match strategy</label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      id="default-bulk-match-strategy"
-                      value={bulkStrategyDraft}
-                      onChange={(event) => setBulkStrategyDraft(event.target.value as VideoMetadataSearchStrategy)}
-                      className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-                    >
-                      {VIDEO_METADATA_SEARCH_STRATEGIES.map((strategy) => (
-                        <option key={strategy.value} value={strategy.value}>{strategy.label}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setTaggerConfig((current) => ({ ...current, bulkMatchStrategy: bulkStrategyDraft }))}
-                      disabled={bulkStrategyDraft === taggerConfig.bulkMatchStrategy}
-                      className="rounded border border-border bg-input px-2 py-1 text-xs text-secondary hover:text-foreground disabled:opacity-50"
-                    >
-                      Save default
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-muted mt-1">
-                    {VIDEO_METADATA_SEARCH_STRATEGIES.find((strategy) => strategy.value === bulkStrategyDraft)?.description}
-                    {" "}Use the menu beside Scrape All for a one-time override.
-                  </p>
-                </div>
-              )}
-
-              {/* Performer genders */}
-              <div>
-                <p className="text-xs text-muted mb-1.5">Performer genders</p>
-                <div className="space-y-1">
-                  {["Female", "Male", "Transgender Female", "Transgender Male", "Intersex", "Non-Binary"].map((g) => (
-                    <label key={g} className="flex items-center gap-2 text-xs text-foreground">
-                      <input type="checkbox" checked={taggerConfig.performerGenders.includes(g)} onChange={(e) => setTaggerConfig((c) => ({ ...c, performerGenders: e.target.checked ? [...c.performerGenders, g] : c.performerGenders.filter((x) => x !== g) }))} className="rounded border-border" />
-                      {g}
-                    </label>
+          {selectedSource?.kind === "metadata-server" && mode === "bulk" && (
+            <div>
+              <label className="block text-xs text-muted mb-1" htmlFor="default-bulk-match-strategy">
+                Default bulk match strategy
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  id="default-bulk-match-strategy"
+                  value={bulkStrategyDraft}
+                  onChange={(event) => setBulkStrategyDraft(event.target.value as VideoMetadataSearchStrategy)}
+                  className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                >
+                  {VIDEO_METADATA_SEARCH_STRATEGIES.map((strategy) => (
+                    <option key={strategy.value} value={strategy.value}>
+                      {strategy.label}
+                    </option>
                   ))}
-                </div>
-                <p className="text-[10px] text-muted mt-1">Performers with these genders will be shown when tagging videos.</p>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setTaggerConfig((current) => ({ ...current, bulkMatchStrategy: bulkStrategyDraft }))}
+                  disabled={bulkStrategyDraft === taggerConfig.bulkMatchStrategy}
+                  className="rounded border border-border bg-input px-2 py-1 text-xs text-secondary hover:text-foreground disabled:opacity-50"
+                >
+                  Save default
+                </button>
               </div>
+              <p className="text-[10px] text-muted mt-1">
+                {VIDEO_METADATA_SEARCH_STRATEGIES.find((strategy) => strategy.value === bulkStrategyDraft)?.description}{" "}
+                Use the menu beside Scrape All for a one-time override.
+              </p>
+            </div>
+          )}
 
-              {/* Set video cover image */}
-              <div>
-                <label className="flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked={taggerConfig.setCoverImage} onChange={(e) => setTaggerConfig((c) => ({ ...c, setCoverImage: e.target.checked }))} className="rounded border-border" />
-                  Set video cover image
+          {/* Performer genders */}
+          <div>
+            <p className="text-xs text-muted mb-1.5">Performer genders</p>
+            <div className="space-y-1">
+              {["Female", "Male", "Transgender Female", "Transgender Male", "Intersex", "Non-Binary"].map((g) => (
+                <label key={g} className="flex items-center gap-2 text-xs text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={taggerConfig.performerGenders.includes(g)}
+                    onChange={(e) =>
+                      setTaggerConfig((c) => ({
+                        ...c,
+                        performerGenders: e.target.checked
+                          ? [...c.performerGenders, g]
+                          : c.performerGenders.filter((x) => x !== g),
+                      }))
+                    }
+                    className="rounded border-border"
+                  />
+                  {g}
                 </label>
-                <p className="text-[10px] text-muted mt-0.5 ml-5">Replace the video cover if one is found.</p>
-              </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted mt-1">
+              Performers with these genders will be shown when tagging videos.
+            </p>
+          </div>
 
-              {/* Set performers */}
-              <div>
-                <label className="flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked={taggerConfig.setPerformers} onChange={(e) => setTaggerConfig((c) => ({ ...c, setPerformers: e.target.checked }))} className="rounded border-border" />
-                  Set performers
-                </label>
-                {taggerConfig.setPerformers && (
-                  <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
-                    <input type="checkbox" checked={!taggerConfig.onlyExistingPerformers} onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingPerformers: !e.target.checked }))} className="rounded border-border" />
-                    Create missing performers
-                  </label>
-                )}
-                <p className="text-[10px] text-muted mt-0.5 ml-5">Attach performers to video. Uncheck "Create missing" to only use performers that already exist.</p>
-              </div>
+          {/* Set video cover image */}
+          <div>
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={taggerConfig.setCoverImage}
+                onChange={(e) => setTaggerConfig((c) => ({ ...c, setCoverImage: e.target.checked }))}
+                className="rounded border-border"
+              />
+              Set video cover image
+            </label>
+            <p className="text-[10px] text-muted mt-0.5 ml-5">Replace the video cover if one is found.</p>
+          </div>
 
-              {/* Set studio */}
-              <div>
-                <label className="flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked={taggerConfig.setStudio} onChange={(e) => setTaggerConfig((c) => ({ ...c, setStudio: e.target.checked }))} className="rounded border-border" />
-                  Set studio
-                </label>
-                {taggerConfig.setStudio && (
-                  <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
-                    <input type="checkbox" checked={!taggerConfig.onlyExistingStudio} onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingStudio: !e.target.checked }))} className="rounded border-border" />
-                    Create missing studios
-                  </label>
-                )}
-                <p className="text-[10px] text-muted mt-0.5 ml-5">Set the video studio. Uncheck "Create missing" to only use studios that already exist.</p>
-              </div>
+          {/* Set performers */}
+          <div>
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={taggerConfig.setPerformers}
+                onChange={(e) => setTaggerConfig((c) => ({ ...c, setPerformers: e.target.checked }))}
+                className="rounded border-border"
+              />
+              Set performers
+            </label>
+            {taggerConfig.setPerformers && (
+              <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
+                <input
+                  type="checkbox"
+                  checked={!taggerConfig.onlyExistingPerformers}
+                  onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingPerformers: !e.target.checked }))}
+                  className="rounded border-border"
+                />
+                Create missing performers
+              </label>
+            )}
+            <p className="text-[10px] text-muted mt-0.5 ml-5">
+              Attach performers to video. Uncheck "Create missing" to only use performers that already exist.
+            </p>
+          </div>
 
-              {/* Set tags + operation */}
-              <div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-xs text-foreground">
-                    <input type="checkbox" checked={taggerConfig.setTags} onChange={(e) => setTaggerConfig((c) => ({ ...c, setTags: e.target.checked }))} className="rounded border-border" />
-                    Set tags
-                  </label>
-                </div>
-                {taggerConfig.setTags && (
-                  <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
-                    <input type="checkbox" checked={!taggerConfig.onlyExistingTags} onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingTags: !e.target.checked }))} className="rounded border-border" />
-                    Create missing tags
-                  </label>
-                )}
-                <p className="text-[10px] text-muted mt-0.5 ml-5">Attach tags to video. Uncheck "Create missing" to only set tags that already exist.</p>
-              </div>
+          {/* Set studio */}
+          <div>
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={taggerConfig.setStudio}
+                onChange={(e) => setTaggerConfig((c) => ({ ...c, setStudio: e.target.checked }))}
+                className="rounded border-border"
+              />
+              Set studio
+            </label>
+            {taggerConfig.setStudio && (
+              <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
+                <input
+                  type="checkbox"
+                  checked={!taggerConfig.onlyExistingStudio}
+                  onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingStudio: !e.target.checked }))}
+                  className="rounded border-border"
+                />
+                Create missing studios
+              </label>
+            )}
+            <p className="text-[10px] text-muted mt-0.5 ml-5">
+              Set the video studio. Uncheck "Create missing" to only use studios that already exist.
+            </p>
+          </div>
 
-              {/* Query mode */}
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted">Query Mode:</span>
-                  <select value={taggerConfig.queryMode} onChange={(e) => setTaggerConfig((c) => ({ ...c, queryMode: e.target.value as TaggerConfig["queryMode"] }))} className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent">
-                    <option value="auto">Auto</option>
-                    <option value="filename">Filename</option>
-                    <option value="dir">Directory</option>
-                    <option value="path">Full Path</option>
-                    <option value="metadata">Metadata</option>
-                  </select>
-                </div>
-                <p className="text-[10px] text-muted mt-0.5">Uses metadata if present, or filename</p>
-              </div>
+          {/* Set tags + operation */}
+          <div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={taggerConfig.setTags}
+                  onChange={(e) => setTaggerConfig((c) => ({ ...c, setTags: e.target.checked }))}
+                  className="rounded border-border"
+                />
+                Set tags
+              </label>
+            </div>
+            {taggerConfig.setTags && (
+              <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
+                <input
+                  type="checkbox"
+                  checked={!taggerConfig.onlyExistingTags}
+                  onChange={(e) => setTaggerConfig((c) => ({ ...c, onlyExistingTags: !e.target.checked }))}
+                  className="rounded border-border"
+                />
+                Create missing tags
+              </label>
+            )}
+            <p className="text-[10px] text-muted mt-0.5 ml-5">
+              Attach tags to video. Uncheck "Create missing" to only set tags that already exist.
+            </p>
+          </div>
 
-              {/* Default scraper input (only relevant when the source is a scraper) */}
-              {selectedSource?.kind === "scraper" && (
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted">Scraper Input:</span>
-                    <select
-                      value={taggerConfig.defaultScraperInputKind}
-                      onChange={(e) => {
-                        setTaggerConfig((c) => ({ ...c, defaultScraperInputKind: e.target.value as TaggerConfig["defaultScraperInputKind"] }));
-                        setScraperInputKinds({});
-                        setQueryOverrides({});
-                      }}
-                      className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-                    >
-                      <option value="auto">Auto</option>
-                      <option value="url">URL</option>
-                      <option value="name">Title</option>
-                      <option value="fragment">Fragment</option>
-                    </select>
-                  </div>
-                  <p className="text-[10px] text-muted mt-0.5">Default scrape input for scraper sources. Auto uses the URL when present, otherwise the title. Falls back to a supported mode if the scraper lacks the chosen one, and can be overridden per video.</p>
-                </div>
-              )}
+          {/* Query mode */}
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted">Query Mode:</span>
+              <select
+                value={taggerConfig.queryMode}
+                onChange={(e) =>
+                  setTaggerConfig((c) => ({ ...c, queryMode: e.target.value as TaggerConfig["queryMode"] }))
+                }
+                className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+              >
+                <option value="auto">Auto</option>
+                <option value="filename">Filename</option>
+                <option value="dir">Directory</option>
+                <option value="path">Full Path</option>
+                <option value="metadata">Metadata</option>
+              </select>
+            </div>
+            <p className="text-[10px] text-muted mt-0.5">Uses metadata if present, or filename</p>
+          </div>
 
-              {/* Mark organized */}
-              <div>
-                <label className="flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked={taggerConfig.markOrganized} onChange={(e) => setTaggerConfig((c) => ({ ...c, markOrganized: e.target.checked }))} className="rounded border-border" />
-                  Mark as Organized on save
-                </label>
-                <p className="text-[10px] text-muted mt-0.5 ml-5">Immediately mark the video as Organized after the Save button is clicked.</p>
+          {/* Default scraper input (only relevant when the source is a scraper) */}
+          {selectedSource?.kind === "scraper" && (
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">Scraper Input:</span>
+                <select
+                  value={taggerConfig.defaultScraperInputKind}
+                  onChange={(e) => {
+                    setTaggerConfig((c) => ({
+                      ...c,
+                      defaultScraperInputKind: e.target.value as TaggerConfig["defaultScraperInputKind"],
+                    }));
+                    setScraperInputKinds({});
+                    setQueryOverrides({});
+                  }}
+                  className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="url">URL</option>
+                  <option value="name">Title</option>
+                  <option value="fragment">Fragment</option>
+                </select>
               </div>
+              <p className="text-[10px] text-muted mt-0.5">
+                Default scrape input for scraper sources. Auto uses the URL when present, otherwise the title. Falls
+                back to a supported mode if the scraper lacks the chosen one, and can be overridden per video.
+              </p>
+            </div>
+          )}
+
+          {/* Mark organized */}
+          <div>
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={taggerConfig.markOrganized}
+                onChange={(e) => setTaggerConfig((c) => ({ ...c, markOrganized: e.target.checked }))}
+                className="rounded border-border"
+              />
+              Mark as Organized on save
+            </label>
+            <p className="text-[10px] text-muted mt-0.5 ml-5">
+              Immediately mark the video as Organized after the Save button is clicked.
+            </p>
+          </div>
         </TaggerSettingsPanel>
       )}
 
@@ -1040,12 +1274,19 @@ function TaggerVideoRow({
   }, [state?.results]);
   const { data: resolvedRelations } = useQuery({
     queryKey: ["tagger-resolve-relations", scraperResultNames],
-    queryFn: () => scrapeAttempts.resolveRelations({ tags: scraperResultNames.tags, performers: scraperResultNames.performers }),
+    queryFn: () =>
+      scrapeAttempts.resolveRelations({ tags: scraperResultNames.tags, performers: scraperResultNames.performers }),
     enabled: scraperResultNames.tags.length > 0 || scraperResultNames.performers.length > 0,
     staleTime: 30_000,
   });
-  const existingTagKeys = useMemo(() => new Set((resolvedRelations?.tags ?? []).map((m) => relationKey(m.input))), [resolvedRelations]);
-  const existingPerformerKeys = useMemo(() => new Set((resolvedRelations?.performers ?? []).map((m) => relationKey(m.input))), [resolvedRelations]);
+  const existingTagKeys = useMemo(
+    () => new Set((resolvedRelations?.tags ?? []).map((m) => relationKey(m.input))),
+    [resolvedRelations],
+  );
+  const existingPerformerKeys = useMemo(
+    () => new Set((resolvedRelations?.performers ?? []).map((m) => relationKey(m.input))),
+    [resolvedRelations],
+  );
   const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
   const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
   const enrichedResults = useMemo(() => {
@@ -1056,13 +1297,21 @@ function TaggerVideoRow({
         ? r
         : {
             ...r,
-            tagCandidates: r.tagCandidates.map((c) => ({ ...c, existsLocally: existingTagKeys.has(relationKey(c.name)) })),
-            performerCandidates: r.performerCandidates.map((c) => ({ ...c, existsLocally: existingPerformerKeys.has(relationKey(c.name)) })),
+            tagCandidates: r.tagCandidates.map((c) => ({
+              ...c,
+              existsLocally: existingTagKeys.has(relationKey(c.name)),
+            })),
+            performerCandidates: r.performerCandidates.map((c) => ({
+              ...c,
+              existsLocally: existingPerformerKeys.has(relationKey(c.name)),
+            })),
           },
     );
   }, [state?.results, existingTagKeys, existingPerformerKeys]);
   const selectedResult = enrichedResults?.[state?.selectedIndex ?? 0];
-  const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () => onNavigate?.(video.id));
+  const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () =>
+    onNavigate?.(video.id),
+  );
   const isScraperSource = source?.kind === "scraper";
   const videoUrls = (video.urls ?? []).filter((url) => url.trim());
   const selectedUrlOption = videoUrls.includes(query) ? query : "__custom";
@@ -1078,7 +1327,14 @@ function TaggerVideoRow({
     mutationFn: () => {
       if (!selectedResult) throw new Error("No result selected");
       const collectionModes = getVideoCollectionModes(selectedResult, state, taggerConfig);
-      const tagActions = buildVideoRelationActionMap(selectedResult.tagNames, getVideoTagNames(video), selectedResult.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name), state?.excludedTags, state?.forceIncludedTags, !taggerConfig.onlyExistingTags);
+      const tagActions = buildVideoRelationActionMap(
+        selectedResult.tagNames,
+        getVideoTagNames(video),
+        selectedResult.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name),
+        state?.excludedTags,
+        state?.forceIncludedTags,
+        !taggerConfig.onlyExistingTags,
+      );
       const performerChoices = getPerformerChoices(selectedResult);
       const performerActions = buildVideoRelationActionMap(
         performerChoices.map((choice) => choice.key),
@@ -1088,10 +1344,16 @@ function TaggerVideoRow({
         state?.forceIncludedPerformers,
         !taggerConfig.onlyExistingPerformers,
       );
-      const excludedTags = collectionModes.tags === "skip" ? selectedResult.tagNames : selectedResult.tagNames.filter((name) => tagActions[relationKey(name)] === "exclude");
+      const excludedTags =
+        collectionModes.tags === "skip"
+          ? selectedResult.tagNames
+          : selectedResult.tagNames.filter((name) => tagActions[relationKey(name)] === "exclude");
       if (selectedResult?.sourceKind === "scraper") {
         if (!selectedResult.scrapeAttemptId) throw new Error("No scraper attempt selected");
-        return scrapeAttempts.apply(selectedResult.scrapeAttemptId, buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig));
+        return scrapeAttempts.apply(
+          selectedResult.scrapeAttemptId,
+          buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig),
+        );
       }
 
       // Remote IDs keep same-name performer identities independent. Send every non-default choice so
@@ -1103,17 +1365,29 @@ function TaggerVideoRow({
         if (action === "create")
           return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "create" }];
         if (choice.candidate.localId != null)
-          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "existing", localId: choice.candidate.localId }];
+          return [
+            {
+              remoteId: choice.candidate.remoteId,
+              name: choice.candidate.name,
+              action: "existing",
+              localId: choice.candidate.localId,
+            },
+          ];
         return [];
       });
       const tagOverrides = selectedResult.tagCandidates.some((tag) => tagActions[relationKey(tag.name)] === "create")
         ? selectedResult.tagCandidates
-            .filter(t => tagActions[relationKey(t.name)] === "create")
-            .map(t => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
+            .filter((t) => tagActions[relationKey(t.name)] === "create")
+            .map((t) => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
         : undefined;
-      const studioOverride = state?.forceIncludeStudio && selectedResult.studioCandidate
-        ? { remoteId: selectedResult.studioCandidate.remoteId, name: selectedResult.studioCandidate.name, action: "create" }
-        : undefined;
+      const studioOverride =
+        state?.forceIncludeStudio && selectedResult.studioCandidate
+          ? {
+              remoteId: selectedResult.studioCandidate.remoteId,
+              name: selectedResult.studioCandidate.name,
+              action: "create",
+            }
+          : undefined;
 
       const importReq: MetadataServerVideoImportRequest = {
         endpoint: selectedResult.endpoint,
@@ -1156,7 +1430,8 @@ function TaggerVideoRow({
     Boolean(state?.saved) &&
     selectedResult?.sourceKind === "metadata-server" &&
     normalizeEndpoint(selectedResult.endpoint) === normalizedSubmitEndpoint;
-  const canSubmitFingerprints = source?.kind === "metadata-server" && (hasRemoteIdForEndpoint || hasSavedMetadataServerMatchForEndpoint);
+  const canSubmitFingerprints =
+    source?.kind === "metadata-server" && (hasRemoteIdForEndpoint || hasSavedMetadataServerMatchForEndpoint);
   const shouldHighlightFingerprintSubmit = canSubmitFingerprints;
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
@@ -1195,7 +1470,13 @@ function TaggerVideoRow({
           className="video-card-preview-trigger block w-[10.5rem] flex-shrink-0 group/video"
           title={`Open video ${video.title || file?.basename || "Untitled"}`}
         >
-          <VideoPreviewThumbnail video={video} fit={videoPreviewObjectFit} surface="list" coverWidth={640} className="rounded bg-card">
+          <VideoPreviewThumbnail
+            video={video}
+            fit={videoPreviewObjectFit}
+            surface="list"
+            coverWidth={640}
+            className="rounded bg-card"
+          >
             {file && file.duration > 0 && (
               <span className="video-specs-overlay absolute bottom-0.5 right-0.5 z-[5] rounded bg-black/70 px-0.5 text-[8px] text-white transition-opacity">
                 {formatDuration(file.duration)}
@@ -1227,9 +1508,15 @@ function TaggerVideoRow({
                 onChange={(event) => onScraperInputKindChange(event.target.value as InputKind)}
                 className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
               >
-                <option value="url" disabled={!supportsScrapeKind(source.scraper, "url")}>URL</option>
-                <option value="name" disabled={!supportsScrapeKind(source.scraper, "name")}>Title</option>
-                <option value="fragment" disabled={!supportsScrapeKind(source.scraper, "fragment")}>Fragment</option>
+                <option value="url" disabled={!supportsScrapeKind(source.scraper, "url")}>
+                  URL
+                </option>
+                <option value="name" disabled={!supportsScrapeKind(source.scraper, "name")}>
+                  Title
+                </option>
+                <option value="fragment" disabled={!supportsScrapeKind(source.scraper, "fragment")}>
+                  Fragment
+                </option>
               </select>
               {scraperInputKind === "url" && videoUrls.length > 0 ? (
                 <select
@@ -1243,7 +1530,9 @@ function TaggerVideoRow({
                 >
                   <option value="__custom">Custom URL</option>
                   {videoUrls.map((url) => (
-                    <option key={url} value={url}>{url}</option>
+                    <option key={url} value={url}>
+                      {url}
+                    </option>
                   ))}
                 </select>
               ) : null}
@@ -1295,9 +1584,17 @@ function TaggerVideoRow({
                     ? "border-accent/30 bg-accent/10 text-accent hover:border-accent/50 hover:bg-accent/15 hover:text-accent"
                     : "bg-surface border-border text-muted hover:text-foreground"
                 }`}
-                title={canSubmitFingerprints ? "Submit your fingerprints for this video to the metadata server" : "Link this video to a metadata-server entry before submitting fingerprints"}
+                title={
+                  canSubmitFingerprints
+                    ? "Submit your fingerprints for this video to the metadata server"
+                    : "Link this video to a metadata-server entry before submitting fingerprints"
+                }
               >
-                {submitFingerprintsMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                {submitFingerprintsMut.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Upload className="w-3 h-3" />
+                )}
               </button>
             )}
             {source?.kind === "metadata-server" && (
@@ -1307,22 +1604,38 @@ function TaggerVideoRow({
                 className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
                 title="Submit this video as a draft entry to the metadata server"
               >
-                {submitDraftMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CloudUpload className="w-3 h-3" />}
+                {submitDraftMut.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <CloudUpload className="w-3 h-3" />
+                )}
               </button>
             )}
           </div>
 
           {submitFingerprintsMut.isError && (
-            <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitFingerprintsMut.error.message}</p>
+            <p className="text-xs text-red-400 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {submitFingerprintsMut.error.message}
+            </p>
           )}
           {submitFingerprintsMut.isSuccess && (
-            <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Fingerprints submitted to the metadata server.</p>
+            <p className="text-xs text-green-400 mb-2">
+              <Check className="w-3 h-3 inline mr-1" />
+              Fingerprints submitted to the metadata server.
+            </p>
           )}
           {submitDraftMut.isError && (
-            <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>
+            <p className="text-xs text-red-400 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {submitDraftMut.error.message}
+            </p>
           )}
           {submitDraftMut.isSuccess && (
-            <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Video draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>
+            <p className="text-xs text-green-400 mb-2">
+              <Check className="w-3 h-3 inline mr-1" />
+              Video draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.
+            </p>
           )}
 
           {/* Error */}
@@ -1334,9 +1647,7 @@ function TaggerVideoRow({
           )}
 
           {/* No results */}
-          {state?.results && state.results.length === 0 && (
-            <p className="text-xs text-muted">No matches found.</p>
-          )}
+          {state?.results && state.results.length === 0 && <p className="text-xs text-muted">No matches found.</p>}
 
           {/* Results */}
           {state?.results && state.results.length > 0 && (
@@ -1346,17 +1657,23 @@ function TaggerVideoRow({
               tagMatchInfo={tagMatchInfo}
               performerMatchInfo={performerMatchInfo}
               selectedIndex={state.selectedIndex ?? 0}
-              onSelect={(i) => onUpdateState(i === (state.selectedIndex ?? 0) ? { selectedIndex: i } : {
-                selectedIndex: i,
-                fieldStrategies: undefined,
-                collectionModes: undefined,
-                excludedPerformers: undefined,
-                excludedTags: undefined,
-                skipStudio: undefined,
-                forceIncludedPerformers: undefined,
-                forceIncludedTags: undefined,
-                forceIncludeStudio: undefined,
-              })}
+              onSelect={(i) =>
+                onUpdateState(
+                  i === (state.selectedIndex ?? 0)
+                    ? { selectedIndex: i }
+                    : {
+                        selectedIndex: i,
+                        fieldStrategies: undefined,
+                        collectionModes: undefined,
+                        excludedPerformers: undefined,
+                        excludedTags: undefined,
+                        skipStudio: undefined,
+                        forceIncludedPerformers: undefined,
+                        forceIncludedTags: undefined,
+                        forceIncludeStudio: undefined,
+                      },
+                )
+              }
               onSave={() => importMut.mutate()}
               saving={importMut.isPending}
               saved={state.saved}
@@ -1371,16 +1688,21 @@ function TaggerVideoRow({
               collectionModes={selectedResult ? getVideoCollectionModes(selectedResult, state, taggerConfig) : {}}
               onFieldStrategyChange={(field, strategy) => {
                 if (!selectedResult) return;
-                onUpdateState({ fieldStrategies: { ...getVideoFieldStrategies(video, selectedResult, state), [field]: strategy } });
+                onUpdateState({
+                  fieldStrategies: { ...getVideoFieldStrategies(video, selectedResult, state), [field]: strategy },
+                });
               }}
               onCollectionModeChange={(field, mode) => {
                 if (!selectedResult) return;
-                onUpdateState({ collectionModes: { ...getVideoCollectionModes(selectedResult, state, taggerConfig), [field]: mode } });
+                onUpdateState({
+                  collectionModes: { ...getVideoCollectionModes(selectedResult, state, taggerConfig), [field]: mode },
+                });
               }}
               onTogglePerformer={(name) => {
-                const perf = selectedResult == null
-                  ? undefined
-                  : getPerformerChoices(selectedResult).find((choice) => choice.key === name)?.candidate;
+                const perf =
+                  selectedResult == null
+                    ? undefined
+                    : getPerformerChoices(selectedResult).find((choice) => choice.key === name)?.candidate;
                 const willSkipByDefault = taggerConfig.onlyExistingPerformers && perf && !perf.existsLocally;
                 if (willSkipByDefault) {
                   const current = new Set(state.forceIncludedPerformers ?? []);
@@ -1395,7 +1717,7 @@ function TaggerVideoRow({
                 }
               }}
               onToggleTag={(name) => {
-                const tag = selectedResult?.tagCandidates.find(t => t.name === name);
+                const tag = selectedResult?.tagCandidates.find((t) => t.name === name);
                 const willSkipByDefault = taggerConfig.onlyExistingTags && tag && !tag.existsLocally;
                 if (willSkipByDefault) {
                   const current = new Set(state.forceIncludedTags ?? []);
@@ -1410,7 +1732,10 @@ function TaggerVideoRow({
                 }
               }}
               onToggleStudio={() => {
-                const willSkipByDefault = taggerConfig.onlyExistingStudio && selectedResult?.studioCandidate && !selectedResult.studioCandidate.existsLocally;
+                const willSkipByDefault =
+                  taggerConfig.onlyExistingStudio &&
+                  selectedResult?.studioCandidate &&
+                  !selectedResult.studioCandidate.existsLocally;
                 if (willSkipByDefault) {
                   onUpdateState({ forceIncludeStudio: !state.forceIncludeStudio });
                 } else {
@@ -1469,7 +1794,32 @@ interface TaggerResultsProps {
   taggerConfig: TaggerConfig;
 }
 
-function TaggerResults({ video, results, tagMatchInfo, performerMatchInfo, selectedIndex, onSelect, onSave, saving, saved, localDuration, excludedPerformers, excludedTags, skipStudio, forceIncludedPerformers, forceIncludedTags, forceIncludeStudio, fieldStrategies, collectionModes, onFieldStrategyChange, onCollectionModeChange, onTogglePerformer, onToggleTag, onToggleStudio, taggerConfig }: TaggerResultsProps) {
+function TaggerResults({
+  video,
+  results,
+  tagMatchInfo,
+  performerMatchInfo,
+  selectedIndex,
+  onSelect,
+  onSave,
+  saving,
+  saved,
+  localDuration,
+  excludedPerformers,
+  excludedTags,
+  skipStudio,
+  forceIncludedPerformers,
+  forceIncludedTags,
+  forceIncludeStudio,
+  fieldStrategies,
+  collectionModes,
+  onFieldStrategyChange,
+  onCollectionModeChange,
+  onTogglePerformer,
+  onToggleTag,
+  onToggleStudio,
+  taggerConfig,
+}: TaggerResultsProps) {
   return (
     <div className="space-y-1">
       {results.map((result, i) => (
@@ -1556,9 +1906,8 @@ function TaggerResultRow({
   onToggleStudio?: () => void;
   taggerConfig: TaggerConfig;
 }) {
-  const durationDiff = localDuration != null && result.duration != null
-    ? Math.abs(localDuration - result.duration)
-    : undefined;
+  const durationDiff =
+    localDuration != null && result.duration != null ? Math.abs(localDuration - result.duration) : undefined;
   const durationMatch = durationDiff != null && durationDiff < 5;
   const scalarRows = [
     { key: "title", label: "Title", current: video.title, scraped: result.title },
@@ -1574,24 +1923,40 @@ function TaggerResultRow({
   const currentPerformerChoiceKeys = getCurrentPerformerChoiceKeys(video, performerChoices);
   const performerChoiceDisplayNames = getPerformerChoiceDisplayNames(performerChoices);
   const existingTagNames = result.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name);
-  const existingPerformerChoiceKeys = performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key);
-  const tagActions = buildVideoRelationActionMap(result.tagNames, currentTagNames, existingTagNames, excludedTags, forceIncludedTags, !taggerConfig.onlyExistingTags);
-  const performerActions = buildVideoRelationActionMap(performerChoiceKeys, currentPerformerChoiceKeys, existingPerformerChoiceKeys, excludedPerformers, forceIncludedPerformers, !taggerConfig.onlyExistingPerformers);
+  const existingPerformerChoiceKeys = performerChoices
+    .filter((choice) => choice.candidate.existsLocally)
+    .map((choice) => choice.key);
+  const tagActions = buildVideoRelationActionMap(
+    result.tagNames,
+    currentTagNames,
+    existingTagNames,
+    excludedTags,
+    forceIncludedTags,
+    !taggerConfig.onlyExistingTags,
+  );
+  const performerActions = buildVideoRelationActionMap(
+    performerChoiceKeys,
+    currentPerformerChoiceKeys,
+    existingPerformerChoiceKeys,
+    excludedPerformers,
+    forceIncludedPerformers,
+    !taggerConfig.onlyExistingPerformers,
+  );
 
   return (
     <div
       onClick={onClick}
       className={`rounded border cursor-pointer transition-colors ${
-        isSelected
-          ? "border-accent bg-card"
-          : "border-border bg-surface hover:border-accent/50"
+        isSelected ? "border-accent bg-card" : "border-border bg-surface hover:border-accent/50"
       }`}
     >
       {/* Header row — always visible for all results */}
       <div className="flex items-center gap-3 p-2">
         {/* Radio selector for multiple results */}
         <div className="flex-shrink-0">
-          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-accent" : "border-border"}`}>
+          <div
+            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-accent" : "border-border"}`}
+          >
             {isSelected && <div className="w-2 h-2 rounded-full bg-accent" />}
           </div>
         </div>
@@ -1607,19 +1972,30 @@ function TaggerResultRow({
             {result.code && <span className="text-muted ml-1">({result.code})</span>}
           </p>
           {result.details && (
-            <p className="mt-1 text-[11px] leading-relaxed text-secondary line-clamp-2">
-              {result.details}
-            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-secondary line-clamp-2">{result.details}</p>
           )}
           <div className="flex items-center gap-3 text-[10px] text-muted mt-0.5">
-            {result.date && <span>Date: <span className="text-foreground">{result.date}</span></span>}
-            {result.director && <span>Director: <span className="text-foreground">{result.director}</span></span>}
+            {result.date && (
+              <span>
+                Date: <span className="text-foreground">{result.date}</span>
+              </span>
+            )}
+            {result.director && (
+              <span>
+                Director: <span className="text-foreground">{result.director}</span>
+              </span>
+            )}
             {result.duration != null && (
               <span>
                 Duration: <span className="text-foreground">{formatDuration(result.duration)}</span>
                 {durationDiff != null && (
-                  <span className={durationMatch ? " text-green-400" : durationDiff < 30 ? " text-yellow-400" : " text-red-400"}>
-                    {" "}({durationDiff < 1 ? "exact" : `${Math.round(durationDiff)}s diff`})
+                  <span
+                    className={
+                      durationMatch ? " text-green-400" : durationDiff < 30 ? " text-yellow-400" : " text-red-400"
+                    }
+                  >
+                    {" "}
+                    ({durationDiff < 1 ? "exact" : `${Math.round(durationDiff)}s diff`})
                   </span>
                 )}
               </span>
@@ -1631,26 +2007,40 @@ function TaggerResultRow({
         </div>
 
         {/* Fingerprint indicators — shows which algorithms the remote video has, with match status */}
-        {result.fingerprints.length > 0 && (() => {
-          const remoteAlgos = [...new Set(result.fingerprints.map(fp => fp.algorithm.toUpperCase()))];
-          const matchedSet = new Set(result.fingerprintAlgorithms.map(a => a.toUpperCase()));
-          return (
-            <span className="flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-surface flex-shrink-0" title={result.matchCount > 0 ? `${result.matchCount} fingerprint match${result.matchCount !== 1 ? "es" : ""}` : "No fingerprint matches"}>
-              <Fingerprint className={`w-3 h-3 ${result.matchCount > 0 ? "text-green-400" : "text-muted"}`} />
-              {remoteAlgos.map((alg, i) => (
-                <span key={alg} className={`font-semibold ${matchedSet.has(alg) ? "text-green-300" : "text-muted"}`}>{i > 0 && " · "}{alg}</span>
-              ))}
-              {result.matchCount > 0 && (
-                <span className="text-green-300 opacity-70 ml-0.5">({result.matchCount})</span>
-              )}
-            </span>
-          );
-        })()}
+        {result.fingerprints.length > 0 &&
+          (() => {
+            const remoteAlgos = [...new Set(result.fingerprints.map((fp) => fp.algorithm.toUpperCase()))];
+            const matchedSet = new Set(result.fingerprintAlgorithms.map((a) => a.toUpperCase()));
+            return (
+              <span
+                className="flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-surface flex-shrink-0"
+                title={
+                  result.matchCount > 0
+                    ? `${result.matchCount} fingerprint match${result.matchCount !== 1 ? "es" : ""}`
+                    : "No fingerprint matches"
+                }
+              >
+                <Fingerprint className={`w-3 h-3 ${result.matchCount > 0 ? "text-green-400" : "text-muted"}`} />
+                {remoteAlgos.map((alg, i) => (
+                  <span key={alg} className={`font-semibold ${matchedSet.has(alg) ? "text-green-300" : "text-muted"}`}>
+                    {i > 0 && " · "}
+                    {alg}
+                  </span>
+                ))}
+                {result.matchCount > 0 && (
+                  <span className="text-green-300 opacity-70 ml-0.5">({result.matchCount})</span>
+                )}
+              </span>
+            );
+          })()}
 
         {/* Save button (inline for selected) */}
         {isSelected && onSave && !saved && (
           <button
-            onClick={(e) => { e.stopPropagation(); onSave(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave();
+            }}
             disabled={saving}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60 flex-shrink-0"
           >
@@ -1710,7 +2100,7 @@ function TaggerResultRow({
               current={currentPerformerNames}
               mode={collectionModes.performers}
               onModeChange={(mode) => onCollectionModeChange?.("performers", mode)}
-              scraped={(
+              scraped={
                 <div onClick={(event) => event.stopPropagation()}>
                   <ScrapeRelationChoices
                     names={performerChoiceKeys}
@@ -1723,7 +2113,7 @@ function TaggerResultRow({
                     onActionChange={(name) => onTogglePerformer?.(name)}
                   />
                 </div>
-              )}
+              }
             />
           )}
 
@@ -1733,7 +2123,7 @@ function TaggerResultRow({
               current={currentTagNames}
               mode={collectionModes.tags}
               onModeChange={(mode) => onCollectionModeChange?.("tags", mode)}
-              scraped={(
+              scraped={
                 <div onClick={(event) => event.stopPropagation()}>
                   <ScrapeRelationChoices
                     names={result.tagNames}
@@ -1745,7 +2135,7 @@ function TaggerResultRow({
                     onActionChange={(name) => onToggleTag?.(name)}
                   />
                 </div>
-              )}
+              }
             />
           )}
         </div>

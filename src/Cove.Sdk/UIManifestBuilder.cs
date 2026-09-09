@@ -1,4 +1,5 @@
 using Cove.Plugins;
+using System.Text.Json;
 
 namespace Cove.Sdk;
 
@@ -183,6 +184,46 @@ public class UIManifestBuilder
         return this;
     }
 
+    /// <summary>Add a widget to the personal dashboard catalog.</summary>
+    public UIManifestBuilder AddDashboardWidget(
+        string id,
+        string label,
+        string componentName,
+        DashboardWidgetPresentation defaultPresentation = DashboardWidgetPresentation.Flow,
+        DashboardWidgetPresentation[]? supportedPresentations = null,
+        string? editorComponentName = null,
+        string? description = null,
+        string? icon = null,
+        JsonElement? defaultConfiguration = null,
+        bool allowMultiple = true,
+        int order = 100)
+    {
+        return AddDashboardWidget(new UIDashboardWidgetContribution(
+            id, label, _extensionId, componentName, editorComponentName, description, icon,
+            defaultConfiguration, allowMultiple, order)
+        {
+            SupportedPresentations = supportedPresentations ?? [DashboardWidgetPresentation.Flow],
+            DefaultPresentation = defaultPresentation,
+        });
+    }
+
+    /// <summary>Add a dashboard widget definition while binding ownership to this extension.</summary>
+    public UIManifestBuilder AddDashboardWidget(UIDashboardWidgetContribution widget)
+    {
+        ArgumentNullException.ThrowIfNull(widget);
+        ArgumentNullException.ThrowIfNull(widget.SupportedPresentations);
+        if (widget.SupportedPresentations.Length == 0
+            || widget.SupportedPresentations.Any(presentation => !Enum.IsDefined(presentation))
+            || widget.SupportedPresentations.Distinct().Count() != widget.SupportedPresentations.Length)
+        {
+            throw new ArgumentException("Dashboard widgets must declare one or more unique supported presentations.", nameof(widget));
+        }
+        if (!widget.SupportedPresentations.Contains(widget.DefaultPresentation))
+            throw new ArgumentException("The default dashboard widget presentation must be supported.", nameof(widget));
+        _manifest.DashboardWidgets.Add(widget with { ExtensionId = _extensionId });
+        return this;
+    }
+
     /// <summary>Expose a UI-consumable feature capability.</summary>
     public UIManifestBuilder AddFeature(string key, Dictionary<string, string>? options = null)
     {
@@ -213,6 +254,44 @@ public class UIManifestBuilder
         bool suppressSuccessAlert = false)
     {
         _manifest.Actions.Add(new ExtensionAction(id, label, _extensionId, actionType, entityTypes, icon, apiEndpoint, handlerName, order, SuppressSuccessAlert: suppressSuccessAlert));
+        return this;
+    }
+
+    /// <summary>Add a configurable keyboard action backed by a frontend handler or API endpoint.</summary>
+    public UIManifestBuilder AddKeyboardAction(
+        string id,
+        string label,
+        string[] defaultBindings,
+        UIKeyboardActionScope[] scopes,
+        string? description = null,
+        string? group = null,
+        string? handlerName = null,
+        string? apiEndpoint = null,
+        int order = 100,
+        bool repeatable = false,
+        bool allowInEditable = false,
+        string? requiredPermission = null)
+    {
+        _manifest.KeyboardActions.Add(new UIKeyboardAction(
+            id, label, _extensionId, defaultBindings, scopes, description, group, handlerName,
+            apiEndpoint, order, repeatable, allowInEditable, requiredPermission));
+        return this;
+    }
+
+    /// <summary>Add an immutable data-only keyboard shortcut preset.</summary>
+    public UIManifestBuilder AddKeyboardShortcutPreset(
+        string id,
+        string name,
+        Dictionary<string, string[]> bindings,
+        string unmappedActions = "unbound",
+        string? description = null,
+        string? author = null,
+        string? version = null,
+        string? basePresetId = null,
+        int order = 100)
+    {
+        _manifest.KeyboardShortcutPresets.Add(new UIKeyboardShortcutPreset(
+            1, id, name, _extensionId, unmappedActions, bindings, description, author, version, basePresetId, order));
         return this;
     }
 

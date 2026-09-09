@@ -55,7 +55,7 @@ vi.mock("../components/ConfirmDialog", () => ({
 }));
 
 vi.mock("../pages/GroupEditModal", () => ({
-  GroupEditModal: ({ open }: { open: boolean }) => open ? <div role="dialog" aria-label="Edit Group Modal" /> : null,
+  GroupEditModal: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Edit Group Modal" /> : null),
 }));
 
 vi.mock("../router/RouteRegistry", () => ({
@@ -63,14 +63,31 @@ vi.mock("../router/RouteRegistry", () => ({
 }));
 
 vi.mock("../components/EntityCards", () => ({
-  EntityTileFrame: ({ label, onClick, body, media }: { label: string; onClick: () => void; body: React.ReactNode; media: React.ReactNode }) => (
-    <button type="button" aria-label={label} onClick={onClick}>{media}{body}</button>
+  EntityTileFrame: ({
+    label,
+    onClick,
+    body,
+    media,
+  }: {
+    label: string;
+    onClick: () => void;
+    body: React.ReactNode;
+    media: React.ReactNode;
+  }) => (
+    <button type="button" aria-label={label} onClick={onClick}>
+      {media}
+      {body}
+    </button>
   ),
   GroupTile: ({ group, onClick }: { group: { name: string }; onClick: () => void }) => (
-    <button type="button" onClick={onClick}>{group.name}</button>
+    <button type="button" onClick={onClick}>
+      {group.name}
+    </button>
   ),
   VideoCard: ({ video, onClick }: { video: { title?: string; id: number }; onClick: () => void }) => (
-    <button type="button" onClick={onClick}>{video.title || `Video #${video.id}`}</button>
+    <button type="button" onClick={onClick}>
+      {video.title || `Video #${video.id}`}
+    </button>
   ),
 }));
 
@@ -79,19 +96,60 @@ vi.mock("../components/QuickViewDialog", () => ({
 }));
 
 vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: ({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) => (
-    <MockDetailListToolbar sortOptions={sortOptions} filterMode={filterMode} filterDefaultKey={filterDefaultKey} filter={filter} onFilterChange={onFilterChange} />
+  DetailListToolbar: ({
+    sortOptions,
+    filterMode,
+    filterDefaultKey,
+    filter,
+    onFilterChange,
+  }: {
+    sortOptions: Array<{ value: string; label: string }>;
+    filterMode?: string;
+    filterDefaultKey?: string;
+    filter: Record<string, unknown>;
+    onFilterChange: (filter: Record<string, unknown>) => void;
+  }) => (
+    <MockDetailListToolbar
+      sortOptions={sortOptions}
+      filterMode={filterMode}
+      filterDefaultKey={filterDefaultKey}
+      filter={filter}
+      onFilterChange={onFilterChange}
+    />
   ),
   DetailListPagination: () => null,
 }));
 
-function MockDetailListToolbar({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) {
+function MockDetailListToolbar({
+  sortOptions,
+  filterMode,
+  filterDefaultKey,
+  filter,
+  onFilterChange,
+}: {
+  sortOptions: Array<{ value: string; label: string }>;
+  filterMode?: string;
+  filterDefaultKey?: string;
+  filter: Record<string, unknown>;
+  onFilterChange: (filter: Record<string, unknown>) => void;
+}) {
   const [mountedDefaultKey] = useState(filterDefaultKey);
   return (
-    <div data-testid="group-item-sort-options" data-filter-mode={filterMode} data-filter-default-key={filterDefaultKey} data-mounted-default-key={mountedDefaultKey} data-sort={filter.sort} data-seed={filter.seed}>
-      {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+    <div
+      data-testid="group-item-sort-options"
+      data-filter-mode={filterMode}
+      data-filter-default-key={filterDefaultKey}
+      data-mounted-default-key={mountedDefaultKey}
+      data-sort={filter.sort}
+      data-seed={filter.seed}
+    >
+      {sortOptions.map((option) => (
+        <span key={option.value}>{option.label}</span>
+      ))}
       {sortOptions.some((option) => option.value === "order") ? (
-        <button type="button" onClick={() => onFilterChange({ ...filter, sort: "random", seed: 2468 })}>Use random group sort</button>
+        <button type="button" onClick={() => onFilterChange({ ...filter, sort: "random", seed: 2468 })}>
+          Use random group sort
+        </button>
       ) : null}
     </div>
   );
@@ -136,7 +194,14 @@ vi.mock("../components/SortableList", () => ({
   SortableList: ({ items, renderItem }: { items: any[]; renderItem: (item: any, state: any) => React.ReactNode }) => (
     <div>
       {items.map((item, index) => (
-        <div key={item.id}>{renderItem(item, { dragHandleProps: {}, index, isDragging: false, isOver: false })}</div>
+        <div key={item.id}>
+          {renderItem(item, {
+            dragHandleProps: { role: "button", "aria-label": "Pick up item to reorder" },
+            index,
+            isDragging: false,
+            isOver: false,
+          })}
+        </div>
       ))}
     </div>
   ),
@@ -191,11 +256,12 @@ function renderPage(id = 4) {
   return {
     onNavigate,
     unmountPage: rendered.unmount,
-    rerenderPage: (nextId: number) => rendered.rerender(
-      <QueryClientProvider client={queryClient}>
-        <GroupDetailPage id={nextId} onNavigate={onNavigate} />
-      </QueryClientProvider>,
-    ),
+    rerenderPage: (nextId: number) =>
+      rendered.rerender(
+        <QueryClientProvider client={queryClient}>
+          <GroupDetailPage id={nextId} onNavigate={onNavigate} />
+        </QueryClientProvider>,
+      ),
   };
 }
 
@@ -257,6 +323,8 @@ describe("GroupDetailPage", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "Summer Compilation" })).toBeInTheDocument();
+    const tablist = screen.getByRole("tablist", { name: "Detail tabs" });
+    expect(tablist.parentElement?.parentElement?.parentElement).not.toHaveClass("max-w-7xl");
     expect(screen.getByRole("tab", { name: /^items$/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /metadata/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /^edit$/i })).not.toBeInTheDocument();
@@ -287,8 +355,44 @@ describe("GroupDetailPage", () => {
 
     await waitFor(() => {
       const sortOptionLists = screen.getAllByTestId("group-item-sort-options");
-      expect(sortOptionLists.some((options) => options.textContent?.includes("Item #") && options.textContent.includes("Random"))).toBe(true);
+      expect(
+        sortOptionLists.some(
+          (options) => options.textContent?.includes("Item #") && options.textContent.includes("Random"),
+        ),
+      ).toBe(true);
     });
+  });
+
+  it("only offers group item drag handles in list view", async () => {
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 2, endSec: 6 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [
+        { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+        { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 2, endSec: 6 },
+      ],
+      totalCount: 2,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    window.history.replaceState(null, "", "/group/4?view=grid");
+    const grid = renderPage();
+    await screen.findByRole("heading", { name: "Summer Compilation" });
+    await screen.findByText("Clip One");
+    expect(screen.queryByRole("button", { name: "Pick up item to reorder" })).not.toBeInTheDocument();
+    grid.unmountPage();
+
+    window.history.replaceState(null, "", "/group/4?view=list");
+    renderPage();
+    expect(await screen.findAllByRole("button", { name: "Pick up item to reorder" })).toHaveLength(2);
   });
 
   it("offers saved filters for group items", async () => {
@@ -311,9 +415,14 @@ describe("GroupDetailPage", () => {
 
     await waitFor(() => {
       const toolbars = screen.getAllByTestId("group-item-sort-options");
-      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
-        && toolbar.dataset.filterMode === "groupitems"
-        && toolbar.dataset.filterDefaultKey === "groupitems-4")).toBe(true);
+      expect(
+        toolbars.some(
+          (toolbar) =>
+            toolbar.textContent?.includes("Item #") &&
+            toolbar.dataset.filterMode === "groupitems" &&
+            toolbar.dataset.filterDefaultKey === "groupitems-4",
+        ),
+      ).toBe(true);
     });
   });
 
@@ -334,11 +443,23 @@ describe("GroupDetailPage", () => {
     mockGroups.containingGroups.mockResolvedValue([]);
 
     const { rerenderPage } = renderPage(4);
-    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-4")).toBe(true));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId("group-item-sort-options")
+          .some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-4"),
+      ).toBe(true),
+    );
 
     rerenderPage(5);
 
-    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-5")).toBe(true));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId("group-item-sort-options")
+          .some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-5"),
+      ).toBe(true),
+    );
   });
 
   it("keeps random group-item sorting stable for a seed and reshuffles for a new seed", () => {
@@ -362,7 +483,14 @@ describe("GroupDetailPage", () => {
     mockGroups.items.list.mockResolvedValue(items);
     mockGroups.items.page.mockResolvedValue({ items, totalCount: items.length, page: 1, perPage: 40 });
     mockGroups.items.playbackManifest.mockResolvedValue({
-      items: items.map((item) => ({ groupItemId: item.id, videoId: item.videoId, title: item.title, startSec: 1, endSec: 5, durationSec: 4 })),
+      items: items.map((item) => ({
+        groupItemId: item.id,
+        videoId: item.videoId,
+        title: item.title,
+        startSec: 1,
+        endSec: 5,
+        durationSec: 4,
+      })),
     });
     mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
     mockGroups.subGroups.mockResolvedValue([]);
@@ -373,11 +501,13 @@ describe("GroupDetailPage", () => {
     fireEvent.click(screen.getByTitle("Standalone Compilation"));
 
     const expectedOrder = sortSeededRandom(items, (item) => `item-${item.id}`, 2468).map((item) => `item:${item.id}`);
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({
-      page: "compilation",
-      id: 4,
-      compilationItemOrder: expectedOrder,
-    }));
+    await waitFor(() =>
+      expect(onNavigate).toHaveBeenCalledWith({
+        page: "compilation",
+        id: 4,
+        compilationItemOrder: expectedOrder,
+      }),
+    );
   });
 
   it("persists the group item random sort and seed in the URL", async () => {
@@ -405,9 +535,14 @@ describe("GroupDetailPage", () => {
 
     await waitFor(() => {
       const toolbars = screen.getAllByTestId("group-item-sort-options");
-      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
-        && toolbar.dataset.sort === "random"
-        && toolbar.dataset.seed === "2468")).toBe(true);
+      expect(
+        toolbars.some(
+          (toolbar) =>
+            toolbar.textContent?.includes("Item #") &&
+            toolbar.dataset.sort === "random" &&
+            toolbar.dataset.seed === "2468",
+        ),
+      ).toBe(true);
     });
   });
 
@@ -444,7 +579,12 @@ describe("GroupDetailPage", () => {
     mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
     mockGroups.subGroups.mockResolvedValue([]);
     mockGroups.containingGroups.mockResolvedValue([]);
-    mockGroups.find.mockResolvedValue({ items: [buildGroup({ id: 8, name: "Nested Group" })], totalCount: 1, page: 1, perPage: 20 });
+    mockGroups.find.mockResolvedValue({
+      items: [buildGroup({ id: 8, name: "Nested Group" })],
+      totalCount: 1,
+      page: 1,
+      perPage: 20,
+    });
     mockGroups.addSubGroup.mockResolvedValue(undefined);
 
     renderPage();

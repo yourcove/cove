@@ -67,17 +67,16 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         if (ffprobePath == null)
             return MediaProbeResult.ToolUnavailable("FFprobe is unavailable");
 
-        using var process = new Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = ffprobePath,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            },
+            FileName = ffprobePath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffprobePath);
+        using var process = new Process { StartInfo = startInfo };
 
         process.StartInfo.ArgumentList.Add("-v");
         process.StartInfo.ArgumentList.Add("error");
@@ -86,6 +85,10 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         process.StartInfo.ArgumentList.Add("-show_error");
         process.StartInfo.ArgumentList.Add("-show_format");
         process.StartInfo.ArgumentList.Add("-show_streams");
+        // Cove does not import embedded chapters. Asking the MOV demuxer to inspect them can turn a
+        // dangling chapter-track reference into stderr that rejects otherwise valid audio metadata.
+        process.StartInfo.ArgumentList.Add("-ignore_chapters");
+        process.StartInfo.ArgumentList.Add("1");
         process.StartInfo.ArgumentList.Add(path);
 
         try

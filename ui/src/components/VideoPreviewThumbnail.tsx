@@ -75,30 +75,33 @@ export function VideoPreviewThumbnail({
   children?: ReactNode;
 }) {
   const file = video.files[0];
-  const clipDuration = typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
-    ? Math.max(0, video.clipEndSec - video.clipStartSec)
-    : undefined;
+  const clipDuration =
+    typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
+      ? Math.max(0, video.clipEndSec - video.clipStartSec)
+      : undefined;
   const duration = clipDuration ?? file?.duration ?? 0;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, coverWidth);
   const previewUrl = videos.previewUrl(video.id);
   const coverAlt = video.imagePath ? video.title || "" : "";
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
-  const scrubPercent = duration > 0 && scrubSeconds != null
-    ? Math.min(100, Math.max(0, ((scrubSeconds - (video.clipStartSec ?? 0)) / duration) * 100))
-    : 0;
+  const scrubPercent =
+    duration > 0 && scrubSeconds != null
+      ? Math.min(100, Math.max(0, ((scrubSeconds - (video.clipStartSec ?? 0)) / duration) * 100))
+      : 0;
   const scrubTimestamp = scrubSeconds != null ? formatDuration(scrubSeconds) : null;
   const scrubTimestampPercent = scrubSeconds != null ? Math.min(88, Math.max(12, scrubPercent)) : 0;
-  const scrubImageUrl = scrubSeconds != null
-    ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds)
-    : null;
+  const scrubImageUrl = scrubSeconds != null ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds) : null;
 
-  const updateScrubPreview = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    if (duration <= 0) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    const nextSeconds = Math.round((video.clipStartSec ?? 0) + percent * duration);
-    setScrubSeconds((current) => current === nextSeconds ? current : nextSeconds);
-  }, [duration, video.clipStartSec]);
+  const updateScrubPreview = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (duration <= 0) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
+      const nextSeconds = Math.round((video.clipStartSec ?? 0) + percent * duration);
+      setScrubSeconds((current) => (current === nextSeconds ? current : nextSeconds));
+    },
+    [duration, video.clipStartSec],
+  );
 
   return (
     <div className={`video-card-preview card-media relative aspect-video overflow-hidden bg-black ${className}`.trim()}>
@@ -111,7 +114,9 @@ export function VideoPreviewThumbnail({
         fit={fit}
         loading="lazy"
         className="video-card-preview-image h-full w-full"
-        renderDefault={() => <NativeVideoPreview coverUrl={coverUrl} coverAlt={coverAlt} previewUrl={previewUrl} fit={fit} />}
+        renderDefault={() => (
+          <NativeVideoPreview coverUrl={coverUrl} coverAlt={coverAlt} previewUrl={previewUrl} fit={fit} />
+        )}
       />
       {scrubImageUrl ? (
         <img
@@ -143,7 +148,9 @@ export function VideoPreviewThumbnail({
               {scrubTimestamp}
             </div>
           ) : null}
-          <div className={`absolute inset-x-1 bottom-1 h-1 rounded-full bg-black/55 transition-opacity ${scrubSeconds != null ? "opacity-100" : "opacity-0"}`}>
+          <div
+            className={`absolute inset-x-1 bottom-1 h-1 rounded-full bg-black/55 transition-opacity ${scrubSeconds != null ? "opacity-100" : "opacity-0"}`}
+          >
             <div className="h-full rounded-full bg-accent" style={{ width: `${scrubPercent}%` }} />
           </div>
         </div>

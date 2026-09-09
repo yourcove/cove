@@ -4,8 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SegmentsPage } from "../pages/SegmentsPage";
 
-const useRawSegmentsQueryMock = vi.hoisted(() => vi.fn(() => ({ data: { items: [], totalCount: 0, duration: 3600 }, isLoading: false })));
-const useDerivedSpansQueryMock = vi.hoisted(() => vi.fn(() => ({ data: { items: [], totalCount: 0 }, isLoading: false })));
+const useRawSegmentsQueryMock = vi.hoisted(() =>
+  vi.fn(() => ({ data: { items: [], totalCount: 0, duration: 3600 }, isLoading: false })),
+);
+const useDerivedSpansQueryMock = vi.hoisted(() =>
+  vi.fn(() => ({ data: { items: [], totalCount: 0 }, isLoading: false })),
+);
 
 vi.mock("../api/client", () => ({
   faces: { list: vi.fn().mockResolvedValue({ items: [] }) },
@@ -50,8 +54,12 @@ vi.mock("../hooks/useMultiSelect", () => ({
 }));
 vi.mock("../hooks/usePaginatedInfiniteQuery", () => ({
   usePaginatedInfiniteQuery: () => ({
-    items: [], totalCount: 0, hasNextPage: false, isFetchingNextPage: false,
-    fetchNextPage: vi.fn(), isLoading: false,
+    items: [],
+    totalCount: 0,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+    isLoading: false,
   }),
 }));
 vi.mock("../pages/segments/useDerivedSpansQuery", () => ({
@@ -83,11 +91,15 @@ describe("SegmentsPage saved-filter modes", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(useDerivedSpansQueryMock).toHaveBeenCalledWith(expect.objectContaining({
-      sort: "span_duration",
-      direction: "asc",
-      seed: 2468,
-    })));
+    await waitFor(() =>
+      expect(useDerivedSpansQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sort: "span_duration",
+          direction: "asc",
+          seed: 2468,
+        }),
+      ),
+    );
   });
 
   it("requests a dedicated aggregate for a direct raw infinite view", async () => {
@@ -100,25 +112,35 @@ describe("SegmentsPage saved-filter modes", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(useRawSegmentsQueryMock).toHaveBeenCalledWith(expect.objectContaining({
-      enabled: true,
-      includeAggregate: true,
-      pageNumber: 1,
-      perPage: 1,
-    })));
+    await waitFor(() =>
+      expect(useRawSegmentsQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          includeAggregate: true,
+          pageNumber: 1,
+          perPage: 1,
+        }),
+      ),
+    );
   });
 
   it("keeps segment and raw-segment defaults in separate modes", async () => {
-    localStorage.setItem("cove-default-filter-segments", JSON.stringify({
-      findFilter: { page: 2, perPage: 40, sort: "title", direction: "asc", q: "spans" },
-      objectFilter: { spanOnly: true },
-      uiOptions: { displayMode: "list", profileId: 11 },
-    }));
-    localStorage.setItem("cove-default-filter-rawsegments", JSON.stringify({
-      findFilter: { page: 4, perPage: 60, sort: "start_sec", direction: "desc", q: "raw" },
-      objectFilter: { rawOnly: true },
-      uiOptions: { displayMode: "grid", profileId: 22 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-segments",
+      JSON.stringify({
+        findFilter: { page: 2, perPage: 40, sort: "title", direction: "asc", q: "spans" },
+        objectFilter: { spanOnly: true },
+        uiOptions: { displayMode: "list", profileId: 11 },
+      }),
+    );
+    localStorage.setItem(
+      "cove-default-filter-rawsegments",
+      JSON.stringify({
+        findFilter: { page: 4, perPage: 60, sort: "start_sec", direction: "desc", q: "raw" },
+        objectFilter: { rawOnly: true },
+        uiOptions: { displayMode: "grid", profileId: 22 },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const user = userEvent.setup();
 
@@ -162,11 +184,14 @@ describe("SegmentsPage saved-filter modes", () => {
     { mode: "Segments", filterMode: "segments", segmentsView: undefined },
     { mode: "Raw segments", filterMode: "rawsegments", segmentsView: "raw" },
   ])("does not reset filters when clicking the active $mode mode", async ({ mode, filterMode, segmentsView }) => {
-    localStorage.setItem(`cove-default-filter-${filterMode}`, JSON.stringify({
-      findFilter: { page: 1, perPage: 24, sort: "updated_at", direction: "desc", q: "saved-default" },
-      objectFilter: { savedDefault: true },
-      uiOptions: { displayMode: "grid", profileId: 11 },
-    }));
+    localStorage.setItem(
+      `cove-default-filter-${filterMode}`,
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 24, sort: "updated_at", direction: "desc", q: "saved-default" },
+        objectFilter: { savedDefault: true },
+        uiOptions: { displayMode: "grid", profileId: 11 },
+      }),
+    );
     const params = new URLSearchParams({
       q: "active-filter",
       perPage: "40",
@@ -185,7 +210,9 @@ describe("SegmentsPage saved-filter modes", () => {
     );
 
     const listPage = screen.getByTestId("list-page");
-    await waitFor(() => expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"q":"active-filter"')));
+    await waitFor(() =>
+      expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"q":"active-filter"')),
+    );
     expect(listPage).toHaveAttribute("data-filter-mode", filterMode);
     expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"perPage":40'));
     expect(listPage).toHaveAttribute("data-object-filter", '{"currentCriterion":true}');

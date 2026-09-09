@@ -68,7 +68,8 @@ public partial class StashMigrationService
         await using (var cmd = conn.CreateCommand())
         {
             var legacyLikeCounterColumn = "o" + "_counter";
-            cmd.CommandText = $"SELECT id, title, code, details, photographer, rating, organized, {legacyLikeCounterColumn}, studio_id, date, created_at, updated_at FROM images";
+            var hasDatePrecision = await ColumnExistsAsync(conn, "images", "date_precision", ct);
+            cmd.CommandText = $"SELECT id, title, code, details, photographer, rating, organized, {legacyLikeCounterColumn}, studio_id, {PartialDateSql("date", hasDatePrecision)} AS date, created_at, updated_at FROM images";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 imageRows.Add((r.GetInt32(0), ReadStringNull(r, 1), ReadStringNull(r, 2), ReadStringNull(r, 3),
@@ -110,6 +111,7 @@ public partial class StashMigrationService
             foreach (var row in batch)
             {
                 var stashId = row.StashId;
+                var date = ParsePartialDate(row.Date);
                 var image = new Image
                 {
                     Title = row.Title,
@@ -118,7 +120,8 @@ public partial class StashMigrationService
                     Photographer = row.Photographer,
                     Organized = row.Organized,
                     StudioId = row.StudioId.HasValue && studioIdMap.TryGetValue(row.StudioId.Value, out var sid) ? sid : null,
-                    Date = ParseDate(row.Date),
+                    Date = date.Value,
+                    DatePrecision = date.Precision,
                     CreatedAt = ParseDateTime(row.CreatedAt),
                     UpdatedAt = ParseDateTime(row.UpdatedAt),
                     Urls = imageUrls.GetValueOrDefault(stashId, []).Select(u => new ImageUrl { Url = u }).ToList(),

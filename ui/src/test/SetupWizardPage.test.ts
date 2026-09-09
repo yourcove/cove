@@ -8,14 +8,7 @@ import {
 
 describe("Stash setup owner gate", () => {
   it("places owner creation before Stash configuration when an owner is missing", () => {
-    expect(buildSetupStepList("stash", true)).toEqual([
-      "welcome",
-      "source",
-      "owner",
-      "stash-config",
-      "theme",
-      "done",
-    ]);
+    expect(buildSetupStepList("stash", true)).toEqual(["welcome", "source", "owner", "stash-config", "theme", "done"]);
   });
 
   it("opens owner setup before Stash configuration only when needed", () => {

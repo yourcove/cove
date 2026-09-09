@@ -1,24 +1,13 @@
 import { CircleAlert, X } from "lucide-react";
 import { useEffect, useSyncExternalStore } from "react";
-import {
-  dismissMutationFailure,
-  getMutationFailure,
-  subscribeToMutationFailure,
-} from "../state/mutationFailure";
-import {
-  getServerAvailability,
-  subscribeToServerAvailability,
-} from "../state/serverAvailability";
+import { dismissMutationFailure, getMutationFailure, subscribeToMutationFailure } from "../state/mutationFailure";
+import { getServerAvailability, subscribeToServerAvailability } from "../state/serverAvailability";
 import { getRequestFailureDetail } from "../utils/requestFailure";
 
 const AUTO_DISMISS_MS = 10_000;
 
 export function MutationFailureNotice() {
-  const failure = useSyncExternalStore(
-    subscribeToMutationFailure,
-    getMutationFailure,
-    getMutationFailure,
-  );
+  const failure = useSyncExternalStore(subscribeToMutationFailure, getMutationFailure, getMutationFailure);
   const availability = useSyncExternalStore(
     subscribeToServerAvailability,
     getServerAvailability,

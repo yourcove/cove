@@ -28,8 +28,8 @@ public class SignalRLogSink : ILogEventSink
         {
             Timestamp = logEvent.Timestamp.UtcDateTime.ToString("o"),
             Level = logEvent.Level.ToString(),
-            Message = logEvent.RenderMessage(),
-            Exception = logEvent.Exception?.ToString(),
+            Message = ObservabilityRedactor.RedactText(logEvent.RenderMessage()) ?? string.Empty,
+            Exception = ObservabilityRedactor.RedactText(logEvent.Exception?.ToString()),
             Category = ReadScalarString(logEvent, "SourceContext"),
             JobId = ReadScalarString(logEvent, "JobId"),
             JobType = ReadScalarString(logEvent, "JobType"),
@@ -40,7 +40,7 @@ public class SignalRLogSink : ILogEventSink
         while (_recentLogs.Count > MaxLogs)
             _recentLogs.TryDequeue(out _);
 
-        if (_hubContext != null && LogHub.HasActiveConnections)
+        if (_hubContext != null)
         {
             // Fire-and-forget: don't await, avoid blocking the logging pipeline
             _ = _hubContext.Clients.All.SendAsync("LogReceived", entry);

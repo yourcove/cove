@@ -1,0 +1,53 @@
+---
+import FeatureGuideBlock from './FeatureGuideBlock.astro';
+
+type FeatureGuideContentBlock =
+  | { type: 'paragraph' | 'note'; text: string }
+  | { type: 'steps'; items: string[] }
+  | { type: 'heading'; level: 3 | 4; text: string }
+  | { type: 'list'; items: string[] }
+  | { type: 'links'; items: { label: string; href: string; topicId?: string; slideId?: string }[] }
+  | { type: 'image'; src: string; alt: string; caption?: string }
+  | { type: 'table'; caption?: string; columns: string[]; rows: string[][] }
+  | { type: 'code'; language?: string; lines: string[] };
+
+type FeatureGuideBlockType =
+  | FeatureGuideContentBlock
+  | {
+      type: 'recipes';
+      items: { id: string; title: string; description?: string; blocks: FeatureGuideContentBlock[] }[];
+    };
+
+interface FeatureGuideSection {
+  id: string;
+  title: string;
+  blocks: FeatureGuideBlockType[];
+}
+
+interface FeatureGuide {
+  title: string;
+  description: string;
+  sections: FeatureGuideSection[];
+}
+
+interface Props {
+  guide: FeatureGuide;
+}
+
+const { guide } = Astro.props;
+---
+
+<p class="guide-introduction">{guide.description}</p>
+
+{guide.sections.map((section) => (
+  <section aria-labelledby={section.id}>
+    <h2 id={section.id}>{section.title}</h2>
+    {section.blocks.map((block) => <FeatureGuideBlock block={block} />)}
+  </section>
+))}
+
+<style>
+  .guide-introduction {
+    font-size: 1.1rem;
+  }
+</style>

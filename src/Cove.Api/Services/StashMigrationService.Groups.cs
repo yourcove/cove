@@ -11,12 +11,13 @@ public partial class StashMigrationService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var hasFrontImageBlob = await ColumnExistsAsync(conn, "groups", "front_image_blob", ct);
         var hasBackImageBlob = await ColumnExistsAsync(conn, "groups", "back_image_blob", ct);
+        var hasDatePrecision = await ColumnExistsAsync(conn, "groups", "date_precision", ct);
         var rows = new List<(int Id, string Name, string? Aliases, int? Duration, string? Date,
             int? Rating, int? StudioId, string? Director, string? Description, string? FrontImageBlob, string? BackImageBlob)>();
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = $"""
-                SELECT id, name, aliases, duration, date, rating, studio_id, director, description,
+                SELECT id, name, aliases, duration, {PartialDateSql("date", hasDatePrecision)} AS date, rating, studio_id, director, description,
                        {(hasFrontImageBlob ? "front_image_blob" : "NULL")} AS front_image_blob,
                        {(hasBackImageBlob ? "back_image_blob" : "NULL")} AS back_image_blob
                 FROM groups
@@ -43,12 +44,14 @@ public partial class StashMigrationService
             stopwatch.Elapsed.TotalMilliseconds);
         foreach (var unit in importUnits)
         {
+            var date = ParsePartialDate(unit.Date);
             var entity = new Cove.Core.Entities.Group
             {
                 Name = unit.Name,
                 Aliases = unit.Aliases,
                 Duration = unit.Duration,
-                Date = ParseDate(unit.Date),
+                Date = date.Value,
+                DatePrecision = date.Precision,
                 StudioId = unit.StudioId.HasValue && studioIdMap.TryGetValue(unit.StudioId.Value, out var sId) ? sId : null,
                 Director = unit.Director,
                 Synopsis = unit.Description,

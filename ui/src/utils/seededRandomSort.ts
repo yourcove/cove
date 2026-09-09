@@ -51,7 +51,9 @@ export function sortSeededRandom<T>(items: T[], idSelector: (item: T) => string,
   return [...items].sort((left, right) => {
     const leftId = idSelector(left);
     const rightId = idSelector(right);
-    const comparison = seededRandomKey(leftId, seed) - seededRandomKey(rightId, seed) || leftId.localeCompare(rightId, undefined, { numeric: true });
+    const comparison =
+      seededRandomKey(leftId, seed) - seededRandomKey(rightId, seed) ||
+      leftId.localeCompare(rightId, undefined, { numeric: true });
     return descending ? -comparison : comparison;
   });
 }

@@ -1,0 +1,99 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "keyboard-shortcuts-customization",
+  "title": "Customize keyboard shortcuts",
+  "parentTopicId": "keyboard-shortcuts",
+  "description": "Choose a preset, change shortcut bindings, and move a personal preset between Cove accounts.",
+  "order": 71,
+  "pages": ["settings"],
+  "contexts": [
+    "settings-tab:my/keyboard-shortcuts",
+    "route:/settings/my/keyboard-shortcuts"
+  ],
+  "sections": [
+    {
+      "id": "find-shortcuts",
+      "title": "Find shortcuts and their current bindings",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings, choose My Settings, then Keyboard Shortcuts to search every action or change the active setup."
+        },
+        {
+          "type": "image",
+          "src": "assets/keyboard-shortcuts-overview.png",
+          "alt": "Keyboard Shortcuts settings with the preset selector, Cove source tab, and current bindings"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Use the search box to find an action by its label, group, or action ID.",
+            "Choose Cove to see Cove's actions, or choose an extension tab to see shortcuts contributed by that extension."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "choose-preset",
+      "title": "Choose a starting preset",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Select a preset at the top of Keyboard Shortcuts. Cove Native uses Cove's default mappings, the Stash-compatible preset uses familiar mappings for equivalent actions, and Disabled turns configurable shortcuts off."
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Select the preset whose behavior is closest to what you want.",
+            "Try a few global, list, and player shortcuts before deciding whether to customize it."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Built-in and extension presets are read-only so an update cannot overwrite your changes."
+        }
+      ]
+    },
+    {
+      "id": "customize-preset",
+      "title": "Create and edit your own preset",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Choose Edit a copy to create a personal preset from the active preset. Personal presets can be renamed, edited, and deleted."
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Find the action you want to change and remove any binding you no longer want.",
+            "Choose Add binding, press up to three keys or modifier chords, then press Enter to save.",
+            "Turn on Show chord hints if you want Cove to show valid next keys while a multi-key shortcut is in progress."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Cove rejects ambiguous bindings that would make one action impossible to distinguish from another in the same context."
+        }
+      ]
+    },
+    {
+      "id": "share-preset",
+      "title": "Import or share a preset",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Shortcut presets are portable JSON files. Export the effective preset to keep a copy or share it, and import a preset file to add it to your account."
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Choose Export to download the preset you currently use.",
+            "On another account, choose Import and select the exported JSON file.",
+            "Select the imported preset and confirm its bindings in the shortcut reference."
+          ]
+        }
+      ]
+    }
+  ]
+}

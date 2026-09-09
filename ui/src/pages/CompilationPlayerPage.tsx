@@ -22,10 +22,7 @@ export function CompilationPlayerPage({ id, itemOrder, onNavigate }: Props) {
     queryKey: ["group", id, "playback-manifest"],
     queryFn: () => groups.items.playbackManifest(id),
   });
-  const items = useMemo(
-    () => orderManifestItems(manifest?.items ?? [], itemOrder),
-    [itemOrder, manifest?.items],
-  );
+  const items = useMemo(() => orderManifestItems(manifest?.items ?? [], itemOrder), [itemOrder, manifest?.items]);
 
   useDocumentTitle(group?.name);
 
@@ -38,7 +35,9 @@ export function CompilationPlayerPage({ id, itemOrder, onNavigate }: Props) {
   }
 
   if (!group || !manifest || items.length === 0) {
-    return <div className="py-16 text-center text-secondary">Compilation playback is unavailable for this group yet.</div>;
+    return (
+      <div className="py-16 text-center text-secondary">Compilation playback is unavailable for this group yet.</div>
+    );
   }
 
   return (
@@ -53,7 +52,10 @@ export function CompilationPlayerPage({ id, itemOrder, onNavigate }: Props) {
   );
 }
 
-export function orderManifestItems<T extends { groupItemId: number; hostType: string; hostId: number }>(items: T[], itemOrder?: string[]) {
+export function orderManifestItems<T extends { groupItemId: number; hostType: string; hostId: number }>(
+  items: T[],
+  itemOrder?: string[],
+) {
   if (itemOrder == null) return items;
 
   const orderByKey = new Map(itemOrder.map((itemKey, index) => [itemKey, index]));
@@ -61,8 +63,8 @@ export function orderManifestItems<T extends { groupItemId: number; hostType: st
     .map((item, index) => ({
       item,
       index,
-      order: orderByKey.get(`item:${item.groupItemId}`)
-        ?? orderByKey.get(`${item.hostType.toLowerCase()}:${item.hostId}`),
+      order:
+        orderByKey.get(`item:${item.groupItemId}`) ?? orderByKey.get(`${item.hostType.toLowerCase()}:${item.hostId}`),
     }))
     .filter(({ order }) => order != null)
     .sort((left, right) => {

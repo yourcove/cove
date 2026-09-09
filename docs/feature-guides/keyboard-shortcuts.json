@@ -1,0 +1,68 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "keyboard-shortcuts",
+  "title": "Keyboard shortcuts",
+  "description": "Open the shortcut reference, understand key sequences and chords, and find the binding available in the current context.",
+  "order": 70,
+  "sections": [
+    {
+      "id": "open-reference",
+      "title": "Press ? to open the shortcut reference",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Press ? from any page when you are not typing in a field to open the shortcut reference. It shows the actions available in your current context and the bindings from your active preset."
+        },
+        {
+          "type": "image",
+          "src": "assets/keyboard-shortcuts-reference.webp",
+          "alt": "Keyboard Shortcuts reference showing global actions and multi-key navigation sequences",
+          "caption": "The reference groups available actions by context and displays each key in the order it should be pressed."
+        }
+      ]
+    },
+    {
+      "id": "read-bindings",
+      "title": "Read single keys, combinations, and chords",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A single key runs the action immediately, such as ? for the shortcut reference.",
+            "Keys joined as one combination are pressed together, such as a modifier plus another key.",
+            "A chord uses keys separated by then: press the first key, release it, and press the next key before the chord times out."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Chords make many actions available without consuming every single-key shortcut. For example, navigation bindings can share the same first key and use the second key to choose a destination."
+        },
+        {
+          "type": "note",
+          "text": "Shortcuts do not run while focus is in a text field. Press Escape to close an open menu or dialog before trying a page-level binding."
+        }
+      ]
+    },
+    {
+      "id": "find-a-shortcut",
+      "title": "Find the shortcut you need",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open the reference in the part of Cove where you want to work. The list reflects that context, so player, list, and global actions appear where they are useful. Use the reference search when the list is long."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Customize keyboard shortcuts",
+              "href": "/docs/user/interface/keyboard-shortcuts/customize/",
+              "topicId": "keyboard-shortcuts-customization"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

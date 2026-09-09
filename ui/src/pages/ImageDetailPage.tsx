@@ -1,11 +1,39 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { entityImages, faces, images, playback, fileOps, galleries } from "../api/client";
-import { formatDate, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
-import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Loader2, Maximize, MoreVertical, RefreshCw, Scissors, Search, Sparkles, ThumbsUp, Trash2, UserRound, UserX } from "lucide-react";
+import {
+  formatDate,
+  TagBadge,
+  CustomFieldsDisplay,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import { EntityRefBadge, PerformerTile, StudioHeaderImage } from "../components/EntityCards";
+import {
+  Check,
+  Clapperboard,
+  Download,
+  Eye,
+  FolderOpen,
+  Image as ImageIcon,
+  ImageOff,
+  Layers,
+  Link as LinkIcon,
+  Loader2,
+  Maximize,
+  MoreVertical,
+  RefreshCw,
+  Scissors,
+  Search,
+  Sparkles,
+  ThumbsUp,
+  Trash2,
+  UserRound,
+  UserX,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { ListLoadError } from "../components/ListLoadError";
@@ -33,8 +61,12 @@ import { ImageEditPanel } from "./ImageEditModal";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
-const ImageDownloadDialog = lazy(() => import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })));
-const MediaScrapeDialog = lazy(() => import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })));
+const ImageDownloadDialog = lazy(() =>
+  import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })),
+);
+const MediaScrapeDialog = lazy(() =>
+  import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })),
+);
 
 interface Props {
   id: number;
@@ -51,7 +83,12 @@ type ImageCoverTarget = {
 };
 
 export function ImageDetailPage({ id, onNavigate }: Props) {
-  const { data: image, isLoading, error: imageError, refetch: retryImage } = useQuery({
+  const {
+    data: image,
+    isLoading,
+    error: imageError,
+    refetch: retryImage,
+  } = useQuery({
     queryKey: ["image", id],
     queryFn: () => images.get(id),
   });
@@ -103,7 +140,11 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     enabled: !!image && canEngageImage,
     fallbackRating: undefined,
   });
-  const { data: imageFacesData, error: imageFacesError, refetch: retryImageFaces } = useQuery({
+  const {
+    data: imageFacesData,
+    error: imageFacesError,
+    refetch: retryImageFaces,
+  } = useQuery({
     queryKey: ["image", id, "faces"],
     queryFn: () => faces.imageFaces(id),
     enabled: canReadFaces,
@@ -123,7 +164,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const [splitFace, setSplitFace] = useState<FaceHostFace | null>(null);
   const deleteMut = useMutation({
     mutationFn: () => images.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["images"] }); goBack(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["images"] });
+      goBack();
+    },
   });
   const updateMut = useMutation({
     mutationFn: (data: { organized?: boolean }) => images.update(id, data),
@@ -153,7 +197,8 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       setShowCoverTargetDialog(false);
     },
   });
-  const canRevealFiles = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const canRevealFiles =
+    typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   const imageLikeCount = imageEngagement?.likeCount ?? 0;
   const imagePageVisitCount = imageEngagement?.pageVisitCount ?? 0;
   const displayTitle = image ? getImageDisplayTitle(image) : `Image ${id}`;
@@ -162,13 +207,15 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       return [];
     }
 
-    return [{
-      id: image.id,
-      src: images.imageUrl(image.id),
-      title: displayTitle,
-      interactionSource: "imageDetailPage",
-      interactionMeta: { pageKey: "imageDetail", route: `/image/${image.id}` },
-    }];
+    return [
+      {
+        id: image.id,
+        src: images.imageUrl(image.id),
+        title: displayTitle,
+        interactionSource: "imageDetailPage",
+        interactionMeta: { pageKey: "imageDetail", route: `/image/${image.id}` },
+      },
+    ];
   }, [displayTitle, image]);
   const hasVisualSimilarity = useImageVisualSimilarityAvailable(id);
   const tabs = useMemo(() => {
@@ -210,15 +257,17 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       if (flushed) return;
       flushed = true;
       const durationSec = Math.max(0.001, (performance.now() - startedAt) / 1000);
-      void playback.recordIntervals({
-        hostType: "image",
-        hostId: imageId,
-        sessionId,
-        mediaDurationSec: durationSec,
-        currentPositionSec: durationSec,
-        state,
-        intervals: [{ startSec: 0, endSec: durationSec }],
-      }).catch(() => {});
+      void playback
+        .recordIntervals({
+          hostType: "image",
+          hostId: imageId,
+          sessionId,
+          mediaDurationSec: durationSec,
+          currentPositionSec: durationSec,
+          state,
+          intervals: [{ startSec: 0, endSec: durationSec }],
+        })
+        .catch(() => {});
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", imageId] });
     };
     const handlePageHide = () => flushDwell("abandoned");
@@ -258,47 +307,54 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const closeLightbox = useCallback(() => {
     setLightboxOpen(false);
   }, []);
-  const imageKeyboardShortcuts = useMemo(() => ([
-    {
-      key: "e",
-      description: "Open edit tab",
-      handler: () => {
-        if (canWriteImage) {
-          setActiveTab("edit");
-        }
+  const imageKeyboardShortcuts = useMemo(
+    () => [
+      {
+        id: "detail.edit",
+        key: "e",
+        description: "Open edit tab",
+        handler: () => {
+          if (canWriteImage) {
+            setActiveTab("edit");
+          }
+        },
       },
-    },
-    {
-      key: "l",
-      description: "Likes",
-      handler: () => {
-        if (canWriteImage) {
-          incrementLikeMut.mutate();
-        }
+      {
+        id: "detail.image.likes",
+        key: "l",
+        description: "Likes",
+        handler: () => {
+          if (canWriteImage) {
+            incrementLikeMut.mutate();
+          }
+        },
       },
-    },
-    {
-      key: "f",
-      description: "Toggle fullscreen lightbox",
-      handler: () => {
-        if (lightboxOpen) {
-          closeLightbox();
-        } else {
-          openLightbox();
-        }
+      {
+        id: "detail.image.lightbox",
+        key: "f",
+        description: "Toggle fullscreen lightbox",
+        handler: () => {
+          if (lightboxOpen) {
+            closeLightbox();
+          } else {
+            openLightbox();
+          }
+        },
       },
-    },
-    {
-      key: "d",
-      description: "Open detections tab",
-      handler: () => setActiveTab("detections"),
-    },
-    {
-      key: "Escape",
-      description: "Close lightbox",
-      handler: () => closeLightbox(),
-    },
-  ]), [canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox]);
+      {
+        id: "detail.image.detections",
+        key: "d",
+        description: "Open detections tab",
+        handler: () => setActiveTab("detections"),
+      },
+      {
+        key: "Escape",
+        description: "Close lightbox",
+        handler: () => closeLightbox(),
+      },
+    ],
+    [canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox],
+  );
 
   if (isLoading) {
     return (
@@ -313,43 +369,64 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   }
 
   if (imageLoadError) {
-    return <ListLoadError error={imageLoadError} onRetry={() => { void retryImage(); }} title="Could not load image" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={imageLoadError}
+        onRetry={() => {
+          void retryImage();
+        }}
+        title="Could not load image"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!image) return <div className="text-center text-secondary py-16">Image not found</div>;
 
   const currentImage = image;
   const imageCoverTargets: ImageCoverTarget[] = [
-    ...(canWriteStudios && currentImage.studioId ? [{
-      key: `studio:${currentImage.studioId}`,
-      label: currentImage.studioName || `Studio ${currentImage.studioId}`,
-      subtitle: "Studio cover",
-      run: () => entityImages.setStudioImageFromSource(currentImage.studioId!, { imageId: currentImage.id }),
-    }] : []),
-    ...(canWritePerformers ? currentImage.performers.map((performer) => ({
-      key: `performer:${performer.id}`,
-      label: performer.name,
-      subtitle: "Performer cover",
-      run: () => entityImages.setPerformerImageFromSource(performer.id, { imageId: currentImage.id }),
-    })) : []),
-    ...(canWriteTags ? currentImage.tags.map((tag) => ({
-      key: `tag:${tag.id}`,
-      label: tag.name,
-      subtitle: "Tag cover",
-      run: () => entityImages.setTagImageFromSource(tag.id, { imageId: currentImage.id }),
-    })) : []),
-    ...(canWriteGalleries ? currentImage.galleries.map((gallery) => ({
-      key: `gallery:${gallery.id}`,
-      label: gallery.title || `Gallery ${gallery.id}`,
-      subtitle: "Gallery cover",
-      run: () => entityImages.setGalleryImageFromSource(gallery.id, { imageId: currentImage.id }),
-    })) : []),
-    ...(canWriteGroups ? (currentImage.groups ?? []).map((group) => ({
-      key: `group:${group.id}`,
-      label: group.name,
-      subtitle: "Group cover",
-      run: () => entityImages.setGroupFrontImageFromSource(group.id, { imageId: currentImage.id }),
-    })) : []),
+    ...(canWriteStudios && currentImage.studioId
+      ? [
+          {
+            key: `studio:${currentImage.studioId}`,
+            label: currentImage.studioName || `Studio ${currentImage.studioId}`,
+            subtitle: "Studio cover",
+            run: () => entityImages.setStudioImageFromSource(currentImage.studioId!, { imageId: currentImage.id }),
+          },
+        ]
+      : []),
+    ...(canWritePerformers
+      ? currentImage.performers.map((performer) => ({
+          key: `performer:${performer.id}`,
+          label: performer.name,
+          subtitle: "Performer cover",
+          run: () => entityImages.setPerformerImageFromSource(performer.id, { imageId: currentImage.id }),
+        }))
+      : []),
+    ...(canWriteTags
+      ? currentImage.tags.map((tag) => ({
+          key: `tag:${tag.id}`,
+          label: tag.name,
+          subtitle: "Tag cover",
+          run: () => entityImages.setTagImageFromSource(tag.id, { imageId: currentImage.id }),
+        }))
+      : []),
+    ...(canWriteGalleries
+      ? currentImage.galleries.map((gallery) => ({
+          key: `gallery:${gallery.id}`,
+          label: gallery.title || `Gallery ${gallery.id}`,
+          subtitle: "Gallery cover",
+          run: () => entityImages.setGalleryImageFromSource(gallery.id, { imageId: currentImage.id }),
+        }))
+      : []),
+    ...(canWriteGroups
+      ? (currentImage.groups ?? []).map((group) => ({
+          key: `group:${group.id}`,
+          label: group.name,
+          subtitle: "Group cover",
+          run: () => entityImages.setGroupFrontImageFromSource(group.id, { imageId: currentImage.id }),
+        }))
+      : []),
   ];
 
   function renderRelatedContent() {
@@ -358,16 +435,32 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         {canReadPerformers && currentImage.performers.length > 0 ? (
           <section>
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Performers</h2>
-            <FieldProvenanceHover fieldProvenance={currentImage.fieldProvenance} fieldKey="performers" block className="mt-3">
-              <div className={currentImage.performers.length > 1 ? "grid grid-cols-2 gap-3" : "grid max-w-[220px] gap-3"}>
+            <FieldProvenanceHover
+              fieldProvenance={currentImage.fieldProvenance}
+              fieldKey="performers"
+              block
+              className="mt-3"
+            >
+              <div
+                className={currentImage.performers.length > 1 ? "grid grid-cols-2 gap-3" : "grid max-w-[220px] gap-3"}
+              >
                 {currentImage.performers.map((performer) => (
-                  <ImagePerformerCard
+                  <PerformerTile
                     key={performer.id}
                     performer={performer}
-                    contextTags={getPerformerContextTags(currentImage.contextTagApplications, performer.id)}
                     onClick={() => onNavigate({ page: "performer", id: performer.id })}
                     onNavigate={onNavigate}
-                  />
+                    referenceDate={currentImage.date}
+                  >
+                    {getPerformerContextTags(currentImage.contextTagApplications, performer.id).length > 0 ? (
+                      <div className="space-y-2 text-xs text-secondary">
+                        <PerformerContextTagList
+                          contextTags={getPerformerContextTags(currentImage.contextTagApplications, performer.id)}
+                          onNavigate={onNavigate}
+                        />
+                      </div>
+                    ) : null}
+                  </PerformerTile>
                 ))}
               </div>
             </FieldProvenanceHover>
@@ -379,7 +472,13 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Tags</h2>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {currentImage.tags.map((tag) => (
-                <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, currentImage.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                <TagBadge
+                  key={tag.id}
+                  name={tag.name}
+                  tag={tag}
+                  provenance={resolveTagProvenance(tag, currentImage.fieldProvenance)}
+                  onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                />
               ))}
             </div>
           </section>
@@ -421,8 +520,14 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           </section>
         ) : null}
 
-        {(!canReadPerformers || currentImage.performers.length === 0) && (!canReadTags || currentImage.tags.length === 0) && (!canReadGalleries || currentImage.galleries.length === 0) && (!canReadGroups || (currentImage.groups?.length ?? 0) === 0) ? (
-          <EmptyPanel icon={<UserRound className="h-10 w-10" />} message="No related performers, studio, tags, galleries, or groups are linked to this image yet." />
+        {(!canReadPerformers || currentImage.performers.length === 0) &&
+        (!canReadTags || currentImage.tags.length === 0) &&
+        (!canReadGalleries || currentImage.galleries.length === 0) &&
+        (!canReadGroups || (currentImage.groups?.length ?? 0) === 0) ? (
+          <EmptyPanel
+            icon={<UserRound className="h-10 w-10" />}
+            message="No related performers, studio, tags, galleries, or groups are linked to this image yet."
+          />
         ) : null}
       </div>
     );
@@ -434,7 +539,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Description</h2>
           <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="details" block>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-secondary">{image.details}</p>
+            <NarrativeText className="mt-2 text-sm leading-relaxed text-secondary">{image.details}</NarrativeText>
           </FieldProvenanceHover>
         </section>
       ) : null}
@@ -459,7 +564,13 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="urls" block>
             <div className="space-y-1">
               {image.urls.map((url, index) => (
-                <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm text-accent hover:underline">
+                <a
+                  key={index}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block truncate text-sm text-accent hover:underline"
+                >
                   {url}
                 </a>
               ))}
@@ -495,7 +606,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 </div>
               ) : null}
               <dl className="grid gap-2 md:grid-cols-2">
-                <DetailField label="Path" value={<span className="break-all font-mono text-[11px]">{file.path}</span>} />
+                <DetailField
+                  label="Path"
+                  value={<span className="break-all font-mono text-[11px]">{file.path}</span>}
+                />
                 <DetailField label="Dimensions" value={`${file.width} x ${file.height}`} />
                 <DetailField label="Format" value={file.format} />
                 <DetailField label="Size" value={`${(file.size / 1024 / 1024).toFixed(2)} MB`} />
@@ -508,7 +622,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       <EmptyPanel icon={<ImageOff className="h-10 w-10" />} message="No image file metadata is available yet." />
     )
   ) : (
-    <EmptyPanel icon={<ImageOff className="h-10 w-10" />} message="File metadata is unavailable with your current permissions." />
+    <EmptyPanel
+      icon={<ImageOff className="h-10 w-10" />}
+      message="File metadata is unavailable with your current permissions."
+    />
   );
 
   const detectionsContent = (
@@ -518,17 +635,27 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Faces</h2>
           <p className="mt-1 text-sm text-secondary">Face clusters attached to this image.</p>
         </div>
-        <div className="text-xs text-muted">{imageFacesLoadError ? "Unavailable" : `${imageFaces.length} face${imageFaces.length === 1 ? "" : "s"}`}</div>
+        <div className="text-xs text-muted">
+          {imageFacesLoadError ? "Unavailable" : `${imageFaces.length} face${imageFaces.length === 1 ? "" : "s"}`}
+        </div>
       </div>
 
       {imageFacesLoadError ? (
-        <ListLoadError error={imageFacesLoadError} onRetry={() => { void retryImageFaces(); }} className="mt-4" />
+        <ListLoadError
+          error={imageFacesLoadError}
+          onRetry={() => {
+            void retryImageFaces();
+          }}
+          className="mt-4"
+        />
       ) : canReadFaces ? (
         imageFaces.length > 0 ? (
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {imageFaces.map((face) => {
               const title = face.performerName?.trim() || face.label?.trim() || `Face #${face.id}`;
-              const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "face", id: face.id }, () => onNavigate({ page: "face", id: face.id }));
+              const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "face", id: face.id }, () =>
+                onNavigate({ page: "face", id: face.id }),
+              );
               const isMarking = markFaceNotPresentMut.isPending && markFaceNotPresentMut.variables === face.id;
 
               return (
@@ -539,7 +666,12 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-[10px] text-muted">
                       {face.coverImageUrl ? (
-                        <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
+                        <img
+                          src={face.coverImageUrl}
+                          alt={title}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
                       ) : (
                         title.slice(0, 2).toUpperCase()
                       )}
@@ -550,7 +682,9 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                     </div>
                   </a>
                   {canWriteFaces && canEditOccurrences ? (
-                    <div className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}>
+                    <div
+                      className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}
+                    >
                       {face.hostTrackCount > 1 ? (
                         <button
                           type="button"
@@ -568,13 +702,21 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                         aria-label="Mark face not present in this image"
                         disabled={isMarking}
                         onClick={() => {
-                          if (window.confirm(`Mark "${title}" as NOT present in this image?\n\nIts occurrence here (and other media that matches it) will be split off into the correct face.`)) {
+                          if (
+                            window.confirm(
+                              `Mark "${title}" as NOT present in this image?\n\nIts occurrence here (and other media that matches it) will be split off into the correct face.`,
+                            )
+                          ) {
                             markFaceNotPresentMut.mutate(face.id);
                           }
                         }}
                         className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-red-300 disabled:cursor-not-allowed"
                       >
-                        {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                        {isMarking ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UserX className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     </div>
                   ) : null}
@@ -583,49 +725,58 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             })}
           </div>
         ) : (
-          <EmptyPanel icon={<Maximize className="h-10 w-10" />} message="No face detections are attached to this image yet." />
+          <EmptyPanel
+            icon={<Maximize className="h-10 w-10" />}
+            message="No face detections are attached to this image yet."
+          />
         )
       ) : (
-        <EmptyPanel icon={<Maximize className="h-10 w-10" />} message="Face detections are unavailable with your current permissions." />
+        <EmptyPanel
+          icon={<Maximize className="h-10 w-10" />}
+          message="Face detections are unavailable with your current permissions."
+        />
       )}
     </section>
   );
 
-  const activeContent = activeTab === "file-info"
-    ? fileInfoContent
-    : activeTab === "similar"
-      ? <ImageVisualSimilarityPanel imageId={image.id} onNavigate={onNavigate} />
-    : activeTab === "detections"
-      ? detectionsContent
-      : activeTab === "history"
-        ? <LikeHistorySection
-            likeHistory={imageHistoryQuery.data?.likeHistory}
-            loading={imageHistoryQuery.isLoading}
-            canAddHistoricalLike={canWriteImage}
-            onAddHistoricalLike={async (at) => {
-              await images.addHistoricalLike(id, at);
-              await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["image", id] }),
-                queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
-                queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
-                queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
-                queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
-              ]);
-            }}
-            onDeleteLike={async (at) => {
-              await images.deleteLikeFromHistory(id, at);
-              await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["image", id] }),
-                queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
-                queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
-                queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
-                queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
-              ]);
-            }}
-          />
-      : activeTab === "edit"
-          ? <ImageEditPanel image={image} onSaved={() => setActiveTab("details")} />
-          : detailsContent;
+  const activeContent =
+    activeTab === "file-info" ? (
+      fileInfoContent
+    ) : activeTab === "similar" ? (
+      <ImageVisualSimilarityPanel imageId={image.id} onNavigate={onNavigate} />
+    ) : activeTab === "detections" ? (
+      detectionsContent
+    ) : activeTab === "history" ? (
+      <LikeHistorySection
+        likeHistory={imageHistoryQuery.data?.likeHistory}
+        loading={imageHistoryQuery.isLoading}
+        canAddHistoricalLike={canWriteImage}
+        onAddHistoricalLike={async (at) => {
+          await images.addHistoricalLike(id, at);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["image", id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
+            queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+            queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
+          ]);
+        }}
+        onDeleteLike={async (at) => {
+          await images.deleteLikeFromHistory(id, at);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["image", id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
+            queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+            queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
+          ]);
+        }}
+      />
+    ) : activeTab === "edit" ? (
+      <ImageEditPanel image={image} onSaved={() => setActiveTab("details")} />
+    ) : (
+      detailsContent
+    );
 
   return (
     <>
@@ -666,25 +817,36 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           currentImageUrl={images.imageUrl(id)}
           objectFit="contain"
           aspectRatio="4/3"
-          onClose={() => { setImageAsCoverMut.reset(); setShowCoverTargetDialog(false); }}
-          extraActions={(
+          onClose={() => {
+            setImageAsCoverMut.reset();
+            setShowCoverTargetDialog(false);
+          }}
+          extraActions={
             <ImageCoverTargetActions
               targets={imageCoverTargets}
               pending={setImageAsCoverMut.isPending}
               error={setImageAsCoverMut.error}
               onSelect={(target) => setImageAsCoverMut.mutate(target)}
             />
-          )}
+          }
         />
       </Suspense>
-      <ConfirmDialog open={confirmDelete} title="Delete Image" message={`Delete "${displayTitle}"? This cannot be undone.`} onConfirm={() => deleteMut.mutate()} onCancel={() => setConfirmDelete(false)} />
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete Image"
+        message={`Delete "${displayTitle}"? This cannot be undone.`}
+        onConfirm={() => deleteMut.mutate()}
+        onCancel={() => setConfirmDelete(false)}
+      />
 
       <GenerateDialog open={showGenerate} onClose={() => setShowGenerate(false)} imageIds={[id]} />
 
       <FaceSplitDialog
         open={splitFace != null}
         faceId={splitFace?.id ?? null}
-        faceTitle={splitFace ? (splitFace.performerName?.trim() || splitFace.label?.trim() || `Face #${splitFace.id}`) : ""}
+        faceTitle={
+          splitFace ? splitFace.performerName?.trim() || splitFace.label?.trim() || `Face #${splitFace.id}` : ""
+        }
         hostType="image"
         hostId={Number(id)}
         onClose={() => setSplitFace(null)}
@@ -692,7 +854,11 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           queryClient.invalidateQueries({ queryKey: ["image", id, "faces"] });
           queryClient.invalidateQueries({ queryKey: ["face"] });
         }}
-        onMarkNotPresent={canWriteFaces && canEditOccurrences && splitFace ? () => markFaceNotPresentMut.mutate(splitFace.id) : undefined}
+        onMarkNotPresent={
+          canWriteFaces && canEditOccurrences && splitFace
+            ? () => markFaceNotPresentMut.mutate(splitFace.id)
+            : undefined
+        }
       />
 
       <Lightbox
@@ -704,23 +870,44 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         canLike={canWriteImage}
       />
       <MediaDetailLayout
-        title={<FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="title">{displayTitle}</FieldProvenanceHover>}
-        headerImage={canReadStudios ? <StudioHeaderImage studioId={image.studioId} studioName={image.studioName} onNavigate={onNavigate} /> : undefined}
+        title={
+          <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="title">
+            {displayTitle}
+          </FieldProvenanceHover>
+        }
+        headerImage={
+          canReadStudios ? (
+            <StudioHeaderImage studioId={image.studioId} studioName={image.studioName} onNavigate={onNavigate} />
+          ) : undefined
+        }
         subtitle={
           <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-            {image.date ? <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="date"><span>{formatDate(image.date)}</span></FieldProvenanceHover> : null}
+            {image.date ? (
+              <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="date">
+                <span>{formatDate(image.date)}</span>
+              </FieldProvenanceHover>
+            ) : null}
             {image.studioName && image.studioId ? (
               canReadStudios ? (
                 <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="studio">
-                  <button onClick={() => onNavigate({ page: "studio", id: image.studioId })} className="text-accent hover:underline">
+                  <button
+                    onClick={() => onNavigate({ page: "studio", id: image.studioId })}
+                    className="text-accent hover:underline"
+                  >
                     {image.studioName}
                   </button>
                 </FieldProvenanceHover>
               ) : (
-                <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="studio"><span>{image.studioName}</span></FieldProvenanceHover>
+                <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="studio">
+                  <span>{image.studioName}</span>
+                </FieldProvenanceHover>
               )
             ) : null}
-            {image.photographer ? <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="photographer"><span>Photo: {image.photographer}</span></FieldProvenanceHover> : null}
+            {image.photographer ? (
+              <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="photographer">
+                <span>Photo: {image.photographer}</span>
+              </FieldProvenanceHover>
+            ) : null}
           </div>
         }
         backLabel={backLabel}
@@ -732,14 +919,19 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 <ImageOff className="h-10 w-10 text-muted" />
                 <div>
                   <div className="text-sm font-medium text-foreground">Image file unavailable</div>
-                  {image.files[0]?.path ? <div className="mt-2 max-w-xl break-all text-xs text-muted">{image.files[0].path}</div> : null}
+                  {image.files[0]?.path ? (
+                    <div className="mt-2 max-w-xl break-all text-xs text-muted">{image.files[0].path}</div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
             <img
               src={images.imageUrl(id)}
               alt={displayTitle}
-              className={["h-full max-h-full w-full select-none object-contain", imageLoadFailed ? "hidden" : "cursor-zoom-in"].join(" ")}
+              className={[
+                "h-full max-h-full w-full select-none object-contain",
+                imageLoadFailed ? "hidden" : "cursor-zoom-in",
+              ].join(" ")}
               onError={() => setImageLoadFailed(true)}
               onLoad={(event) => setImageLoadFailed(event.currentTarget.naturalWidth === 0)}
               onClick={openLightbox}
@@ -747,7 +939,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             {!imageLoadFailed ? (
               <button
                 type="button"
-                onClick={(event) => { event.stopPropagation(); openLightbox(); }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openLightbox();
+                }}
                 className="absolute top-3 right-3 rounded bg-black/60 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/80"
                 title="View fullscreen (F)"
               >
@@ -763,7 +958,11 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         engagement={{
           primaryContent: (
             <div className="flex flex-wrap items-center gap-3">
-              <InteractiveRating value={imageRating} onChange={(value) => setImageRating(value)} readOnly={!canEngageImage} />
+              <InteractiveRating
+                value={imageRating}
+                onChange={(value) => setImageRating(value)}
+                readOnly={!canEngageImage}
+              />
             </div>
           ),
           favorite: imageFavorite,
@@ -808,64 +1007,93 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
-              <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[220px] py-1">
-                  <ExtensionEntityActions entityType="image" entityId={image.id} renderMode="menu" onInvoked={() => setShowOpsMenu(false)} />
-                  {canWriteImage ? (
-                    <button
-                      type="button"
-                      onClick={() => { setShowScrapeDialog(true); setShowOpsMenu(false); }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
-                    >
-                      <Search className="h-3.5 w-3.5" /> Scrape...
-                    </button>
-                  ) : null}
-                  {imageCoverTargets.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => { setShowCoverTargetDialog(true); setShowOpsMenu(false); }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" /> Set Cover...
-                    </button>
-                  ) : null}
-                  {image.files.length > 0 && canLibraryScan ? (
-                    <button
-                      type="button"
-                      onClick={() => { rescanMut.mutate(); setShowOpsMenu(false); }}
-                      disabled={rescanMut.isPending}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:opacity-60"
-                    >
-                      <RefreshCw className={["h-3.5 w-3.5", rescanMut.isPending ? "animate-spin" : ""].join(" ")} /> Rescan
-                    </button>
-                  ) : null}
-                  {canGenerateImage ? (
-                    <button
-                      type="button"
-                      onClick={() => { setShowGenerate(true); setShowOpsMenu(false); }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
-                    >
-                      <Clapperboard className="h-3.5 w-3.5" /> Generate…
-                    </button>
-                  ) : null}
-                  {image.files.length === 0 && canDownloadImage ? (
-                    <button
-                      type="button"
-                      onClick={() => { setShowDownloadDialog(true); setShowOpsMenu(false); }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
-                    >
-                      <Download className="h-3.5 w-3.5" /> Download Media...
-                    </button>
-                  ) : null}
-                  {canDeleteImage ? <div className="my-1 border-t border-border" /> : null}
-                  {canDeleteImage ? (
-                    <button
-                      type="button"
-                      onClick={() => { setConfirmDelete(true); setShowOpsMenu(false); }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 transition-colors hover:bg-surface"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Delete
-                    </button>
-                  ) : null}
+              <FloatingActionMenu
+                open={showOpsMenu}
+                anchorRef={opsMenuRef}
+                onClose={() => setShowOpsMenu(false)}
+                className="min-w-[220px] py-1"
+              >
+                <ExtensionEntityActions
+                  entityType="image"
+                  entityId={image.id}
+                  renderMode="menu"
+                  onInvoked={() => setShowOpsMenu(false)}
+                />
+                {canWriteImage ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowScrapeDialog(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
+                  >
+                    <Search className="h-3.5 w-3.5" /> Scrape...
+                  </button>
+                ) : null}
+                {imageCoverTargets.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCoverTargetDialog(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" /> Set Cover...
+                  </button>
+                ) : null}
+                {image.files.length > 0 && canLibraryScan ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      rescanMut.mutate();
+                      setShowOpsMenu(false);
+                    }}
+                    disabled={rescanMut.isPending}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:opacity-60"
+                  >
+                    <RefreshCw className={["h-3.5 w-3.5", rescanMut.isPending ? "animate-spin" : ""].join(" ")} />{" "}
+                    Rescan
+                  </button>
+                ) : null}
+                {canGenerateImage ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGenerate(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
+                  >
+                    <Clapperboard className="h-3.5 w-3.5" /> Generate…
+                  </button>
+                ) : null}
+                {image.files.length === 0 && canDownloadImage ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDownloadDialog(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download Media...
+                  </button>
+                ) : null}
+                {canDeleteImage ? <div className="my-1 border-t border-border" /> : null}
+                {canDeleteImage ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDelete(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 transition-colors hover:bg-surface"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                ) : null}
               </FloatingActionMenu>
             </div>
           </>
@@ -881,7 +1109,17 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   );
 }
 
-function ImageCoverTargetActions({ targets, pending, error, onSelect }: { targets: ImageCoverTarget[]; pending: boolean; error: Error | null; onSelect: (target: ImageCoverTarget) => void }) {
+function ImageCoverTargetActions({
+  targets,
+  pending,
+  error,
+  onSelect,
+}: {
+  targets: ImageCoverTarget[];
+  pending: boolean;
+  error: Error | null;
+  onSelect: (target: ImageCoverTarget) => void;
+}) {
   return (
     <div className="space-y-2">
       <div className="max-h-[32vh] space-y-2 overflow-y-auto pr-1">
@@ -907,31 +1145,11 @@ function ImageCoverTargetActions({ targets, pending, error, onSelect }: { target
 }
 
 function formatImageFaceSummary(face: FaceHostFace) {
-  const confidence = face.topConfidence != null ? `${Math.round(face.topConfidence <= 1 ? face.topConfidence * 100 : face.topConfidence)}%` : null;
+  const confidence =
+    face.topConfidence != null
+      ? `${Math.round(face.topConfidence <= 1 ? face.topConfidence * 100 : face.topConfidence)}%`
+      : null;
   return confidence || "AI face";
-}
-
-function ImagePerformerCard({ performer, contextTags = [], onClick, onNavigate }: { performer: { name: string; imagePath?: string | null; disambiguation?: string | null }; contextTags?: TagApplication[]; onClick: () => void; onNavigate: (route: any) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60"
-    >
-      <div className="flex aspect-[2/3] items-center justify-center bg-gradient-to-b from-card to-surface">
-        {performer.imagePath ? (
-          <img src={performer.imagePath} alt={performer.name} className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <UserRound className="h-12 w-12 text-muted" />
-        )}
-      </div>
-      <div className="p-3">
-        <p className="line-clamp-2 text-sm font-medium text-foreground group-hover:text-accent">{performer.name}</p>
-        {performer.disambiguation ? <p className="mt-1 truncate text-xs text-secondary">{performer.disambiguation}</p> : null}
-        {contextTags.length > 0 ? <div className="mt-2"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
-      </div>
-    </button>
-  );
 }
 
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {

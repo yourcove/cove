@@ -56,6 +56,24 @@ public sealed class PermissionAuthorizationFilter : IAsyncAuthorizationFilter
 
         var principal = _principalAccessor.Current;
 
+        if (principal?.Kind == PrincipalKind.ShareLink)
+        {
+            var allowsShareLink = cad.MethodInfo.GetCustomAttributes(true).OfType<AllowShareLinkAccessAttribute>().Any()
+                || cad.ControllerTypeInfo.GetCustomAttributes(true).OfType<AllowShareLinkAccessAttribute>().Any();
+            if (!allowsShareLink)
+            {
+                context.Result = new ObjectResult(new
+                {
+                    code = "FORBIDDEN",
+                    message = "This endpoint is outside the share link viewing bundle.",
+                })
+                { StatusCode = StatusCodes.Status403Forbidden };
+                await _audit.LogAsync(AuditActions.PermissionDeny, AuditOutcomes.Deny, principal,
+                    "endpoint", cad.DisplayName, new { reason = "share_link_route", path = context.HttpContext.Request.Path.ToString() });
+                return;
+            }
+        }
+
         if (hasAllowNoPerm)
         {
             if (principal is null || principal.Kind == PrincipalKind.Anonymous)
@@ -129,4 +147,3 @@ public sealed class PermissionAuthorizationFilter : IAsyncAuthorizationFilter
     })
     { StatusCode = StatusCodes.Status401Unauthorized };
 }
-

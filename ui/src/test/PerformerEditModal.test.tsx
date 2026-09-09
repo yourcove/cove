@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformerEditModal } from "../pages/PerformerEditModal";
@@ -10,6 +10,7 @@ import { resetMutationFailureForTests } from "../state/mutationFailure";
 
 const mocks = vi.hoisted(() => ({
   performersUpdate: vi.fn(),
+  performersCountries: vi.fn(),
   tagsCreate: vi.fn(),
   tagsFind: vi.fn(),
   performerImageUrl: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api/client", () => ({
-  performers: { update: mocks.performersUpdate },
+  performers: { update: mocks.performersUpdate, countries: mocks.performersCountries },
   tags: { create: mocks.tagsCreate, find: mocks.tagsFind },
   entityImages: {
     performerImageUrl: mocks.performerImageUrl,
@@ -73,6 +74,7 @@ function renderModal(performer: Performer) {
 describe("PerformerEditModal", () => {
   beforeEach(() => {
     mocks.performersUpdate.mockResolvedValue({});
+    mocks.performersCountries.mockResolvedValue([]);
     mocks.tagsFind.mockResolvedValue({ items: [] });
     mocks.performerImageUrl.mockReturnValue("/performers/1/image");
     mocks.uploadPerformerImage.mockResolvedValue(undefined);
@@ -81,8 +83,28 @@ describe("PerformerEditModal", () => {
 
   afterEach(() => resetMutationFailureForTests());
 
+  it.each(["TransgenderMale", "TransgenderFemale"])("preserves and submits the API gender %s", async (gender) => {
+    const performer = {
+      id: 1,
+      name: "Sample Performer",
+      gender,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+    } as unknown as Performer;
+    const { container } = renderModal(performer);
+    const select = [...container.querySelectorAll("select")].find((element) =>
+      [...element.options].some((option) => option.value === "NonBinary"),
+    )!;
+    expect(select.value).toBe(gender);
+    fireEvent.change(select, { target: { value: gender } });
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ gender })));
+  });
+
   it("shows a rename conflict inline without exposing the API wrapper or global notice", async () => {
-    const detail = "A performer with name \"Existing performer\" and no disambiguation already exists.";
+    const detail = 'A performer with name "Existing performer" and no disambiguation already exists.';
     mocks.performersUpdate.mockRejectedValueOnce(new Error(`API Error 409: ${JSON.stringify({ message: detail })}`));
     const performer: Performer = {
       id: 1,
@@ -175,29 +197,34 @@ describe("PerformerEditModal", () => {
     await user.clear(heightInput!);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({
-      clearFields: [
-        "disambiguation",
-        "gender",
-        "birthdate",
-        "deathDate",
-        "ethnicity",
-        "country",
-        "eyeColor",
-        "hairColor",
-        "heightCm",
-        "weight",
-        "measurements",
-        "fakeTits",
-        "penisLength",
-        "circumcised",
-        "careerStart",
-        "careerEnd",
-        "tattoos",
-        "piercings",
-        "details",
-      ],
-    })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          clearFields: [
+            "disambiguation",
+            "gender",
+            "birthdate",
+            "deathDate",
+            "ethnicity",
+            "country",
+            "eyeColor",
+            "hairColor",
+            "heightCm",
+            "weight",
+            "measurements",
+            "fakeTits",
+            "penisLength",
+            "circumcised",
+            "careerStart",
+            "careerEnd",
+            "tattoos",
+            "piercings",
+            "details",
+          ],
+        }),
+      ),
+    );
   });
 
   it("searches tags remotely and adds selected tags to the payload", async () => {
@@ -221,17 +248,19 @@ describe("PerformerEditModal", () => {
     };
 
     mocks.tagsFind.mockImplementation(async ({ q }: { q?: string }) => ({
-      items: q === "sha"
-        ? [
-          { id: 7, name: "Shaved Pussy" },
-          { id: 8, name: "Shared Video" },
-        ]
-        : [],
+      items:
+        q === "sha"
+          ? [
+              { id: 7, name: "Shaved Pussy" },
+              { id: 8, name: "Shared Video" },
+            ]
+          : [],
     }));
 
     renderModal(performer);
 
-    await user.type(screen.getByPlaceholderText("Search tags..."), "sha");
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "sha");
 
     await waitFor(() => {
       expect(mocks.tagsFind).toHaveBeenLastCalledWith({
@@ -242,10 +271,16 @@ describe("PerformerEditModal", () => {
       });
     });
 
-    await user.click(await screen.findByRole("option", { name: "Shaved Pussy" }));
+    const firstOption = await screen.findByRole("option", { name: "Shaved Pussy" });
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", firstOption.id);
+    expect(firstOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })),
+    );
     expect(screen.getByText("Shaved Pussy")).toBeInTheDocument();
   });
 
@@ -283,12 +318,63 @@ describe("PerformerEditModal", () => {
     await user.type(input, "Novel tag");
     const createOption = await screen.findByRole("option", { name: "Create “Novel tag”" });
     expect(input).toHaveAttribute("aria-controls", createOption.parentElement?.id);
-    await user.keyboard("{ArrowDown}{Enter}");
+    await user.keyboard("{ArrowDown}");
+    expect(createOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledWith({ name: "Novel tag" }));
     expect(await screen.findByText("Qualities")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })),
+    );
+  });
+
+  it("keeps the highlighted create option mounted while tag results refresh", async () => {
+    const user = userEvent.setup();
+    const performer: Performer = {
+      id: 1,
+      name: "Sample Performer",
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+    let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
+    mocks.tagsFind.mockReset();
+    mocks.tagsFind.mockResolvedValueOnce({ items: [] }).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveNextSearch = resolve;
+      }),
+    );
+
+    renderModal(performer);
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    fireEvent.change(input, { target: { value: "Novel" } });
+    const createOption = await screen.findByRole("option", { name: "Create “Novel”" });
+    input.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
+
+    fireEvent.change(input, { target: { value: "Novel tag" } });
+    await waitFor(() => expect(mocks.tagsFind).toHaveBeenCalledTimes(2));
+    const updatedCreateOption = screen.getByRole("option", { name: "Create “Novel tag”" });
+    expect(updatedCreateOption).toBe(createOption);
+    expect(input).toHaveAttribute("aria-activedescendant", updatedCreateOption.id);
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+
+    resolveNextSearch({ items: [] });
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("aria-busy"));
   });
 
   it("saves aliases from separate list inputs", async () => {
@@ -324,6 +410,11 @@ describe("PerformerEditModal", () => {
     await user.type(screen.getAllByPlaceholderText("Alias")[2], "Third Alias");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ aliases: ["New Alias", "Second Alias", "Third Alias"] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ aliases: ["New Alias", "Second Alias", "Third Alias"] }),
+      ),
+    );
   });
 });

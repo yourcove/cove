@@ -26,7 +26,9 @@ internal sealed class ScanImageProcessor(
         int? parentFolderId = null,
         bool contentChanged = false,
         ScanOperationOptions? scanOptions = null,
-        MoveDetectionIndex? moveIndex = null)
+        MoveDetectionIndex? moveIndex = null,
+        int? validatedWidth = null,
+        int? validatedHeight = null)
     {
         var stat = fileStat ?? ScanPath.GetFileStat(path);
         var dirPath = ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -48,13 +50,14 @@ internal sealed class ScanImageProcessor(
         {
             existing.Size = stat.Size;
             existing.ModTime = stat.ModTime;
+            ApplyValidatedDimensions(existing, validatedWidth, validatedHeight);
 
             if (contentChanged)
             {
                 await fileIdentity.RefreshChangedFingerprintsAsync(
                     existing, path,
-                    phashEnabled: scanOptions?.GenerateImagePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    moveIndex,
                     ct);
                 // Drop the stale thumbnail so the generation phase rebuilds it from the new content.
                 if (scanOptions?.GenerateImageThumbnails == true && existing.ImageId is int changedImageId)
@@ -88,8 +91,9 @@ internal sealed class ScanImageProcessor(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                         ImageId = matchedImageId,
                     };
+                    ApplyValidatedDimensions(duplicateFile, validatedWidth, validatedHeight);
                     db.ImageFiles.Add(duplicateFile);
-                    await EnrichImageFileAsync(duplicateFile, path, ct);
+                    await EnrichImageFileAsync(duplicateFile, path, ct, moveIndex);
                     logger.LogTrace("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
                     return (parentImage, true, false);
                 }
@@ -104,6 +108,7 @@ internal sealed class ScanImageProcessor(
             ModTime = stat.ModTime,
             Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant()
         };
+        ApplyValidatedDimensions(imageFile, validatedWidth, validatedHeight);
 
         Image image;
         if (imageId.HasValue)
@@ -131,7 +136,7 @@ internal sealed class ScanImageProcessor(
             db.Images.Add(image);
         }
 
-        await EnrichImageFileAsync(imageFile, path, ct);
+        await EnrichImageFileAsync(imageFile, path, ct, moveIndex);
 
         logger.LogTrace("Added image for {Path}", path);
         return (image, false, false);
@@ -139,9 +144,13 @@ internal sealed class ScanImageProcessor(
 
     // Compute the always-on identity fingerprint (oshash) plus the optional md5 for a new image file.
     // oshash is what lets a later scan recognise this image if it moves or is renamed.
-    private async Task EnrichImageFileAsync(ImageFile imageFile, string path, CancellationToken ct)
+    private async Task EnrichImageFileAsync(
+        ImageFile imageFile,
+        string path,
+        CancellationToken ct,
+        MoveDetectionIndex? moveIndex = null)
     {
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             ScanFileIdentityService.UpsertFingerprint(imageFile, "oshash", oshash);
 
@@ -151,5 +160,13 @@ internal sealed class ScanImageProcessor(
             if (!string.IsNullOrWhiteSpace(md5))
                 ScanFileIdentityService.UpsertFingerprint(imageFile, "md5", md5);
         }
+    }
+
+    private static void ApplyValidatedDimensions(ImageFile imageFile, int? width, int? height)
+    {
+        if (width is > 0)
+            imageFile.Width = width.Value;
+        if (height is > 0)
+            imageFile.Height = height.Value;
     }
 }

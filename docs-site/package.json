@@ -5,6 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
+    "capture:frontpage": "playwright test --config playwright.documentation.config.ts tests/documentation/frontpage-*.spec.ts",
+    "capture:frontpage-video-detail": "playwright test --config playwright.documentation.config.ts tests/documentation/frontpage-video-detail.spec.ts",
+    "capture:manual-getting-started": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-getting-started.spec.ts",
+    "capture:manual-list-pages": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-list-pages.spec.ts",
+    "capture:manual-search-browsing": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-search-browsing.spec.ts",
+    "capture:manual-content-types": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-content-types.spec.ts",
+    "capture:manual-organization-playback": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-organization-playback.spec.ts",
+    "capture:manual-video-metadata": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-video-metadata.spec.ts",
+    "capture:manual-settings-access": "playwright test --config playwright.documentation.config.ts tests/documentation/manual-settings-access.spec.ts",
+    "capture:screenshots-gallery": "playwright test --config playwright.documentation.config.ts tests/documentation/screenshots-gallery.spec.ts tests/documentation/instance-manager-gallery.spec.ts",
+    "capture:theme-reel": "playwright test --config playwright.documentation.config.ts tests/documentation/theme-reel.spec.ts",
     "build": "astro check && npm run test:technical && npm run test:links && astro build && npm run check:documentation-images-output && npm run check:navigation-output && npm run test:navigation-output && npm run test:deployment-output && npm run check:links && npm run check:page-metadata",
     "preview": "astro preview",
     "check": "astro check",
@@ -12,7 +23,7 @@
     "check:links": "node scripts/check-internal-links.mjs",
     "check:page-metadata": "node scripts/check-page-metadata.mjs",
     "check:navigation-output": "node scripts/check-generated-navigation.mjs",
-    "test:technical": "node --test scripts/check-code-samples.test.mjs",
+    "test:technical": "node --test scripts/check-code-samples.test.mjs scripts/check-feature-guides.test.mjs",
     "test:links": "node --test scripts/check-internal-links.test.mjs",
     "test:deployment-output": "node --test scripts/check-deployment-output.test.mjs",
     "test:navigation-output": "node --test scripts/check-generated-navigation.test.mjs"
@@ -27,7 +38,10 @@
     "astro": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "ajv": "^8.20.0",
     "parse5": "^8.0.1",
+    "sharp": "0.34.5",
     "typescript": "^6.0.3"
   }
 }

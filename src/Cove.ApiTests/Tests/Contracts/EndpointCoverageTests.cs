@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ActionConstraints;
 using Microsoft.AspNetCore.Mvc.Routing;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Contracts;
 

@@ -270,7 +270,7 @@ public sealed class ExtensionServiceOverlay : IDisposable
         // extension's AddHttpClient<T>() call (which introspects the collection) succeeds.
         services.AddLogging();
         services.AddOptions();
-        services.Replace(ServiceDescriptor.Singleton<ILoggerFactory>(_ => _root.GetRequiredService<ILoggerFactory>()));
+        services.Replace(ServiceDescriptor.Singleton(_root.GetRequiredService<ILoggerFactory>()));
         services.AddHttpClient();
 
         foreach (var descriptor in _hostDescriptors)

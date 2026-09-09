@@ -27,12 +27,7 @@ public sealed class ExtensionEntityFilterServiceTests
             request => new ExtensionEntityFilterResult(request.CandidateIds.Where(id => id % 2 == 0).ToArray(), "revision-1"));
         var service = new ExtensionEntityFilterService(runtime, batchSize: 2);
 
-        var result = await service.ApplyAsync(
-            "tags",
-            [Criterion("owner.actual", "has-preview", true)],
-            [5, 4, 3, 2, 1],
-            CovePrincipal.System(),
-            default);
+        var result = await service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [5, 4, 3, 2, 1], CovePrincipal.System(), TestContext.Current.CancellationToken);
 
         Assert.Equal([4, 2], result);
         Assert.Equal(1, runtime.OpenCount);
@@ -65,7 +60,7 @@ public sealed class ExtensionEntityFilterServiceTests
         };
 
         await Assert.ThrowsAsync<ExtensionEntityFilterValidationException>(() =>
-            service.ApplyAsync("tags", [criterion], [1, 2], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [criterion], [1, 2], CovePrincipal.System(), TestContext.Current.CancellationToken));
         Assert.Empty(runtime.Requests);
     }
 
@@ -83,11 +78,11 @@ public sealed class ExtensionEntityFilterServiceTests
         oversizedModifier.Modifier = new string('x', ExtensionEntityFilterService.DefaultModifierLengthLimit + 1);
 
         await Assert.ThrowsAsync<ExtensionEntityFilterValidationException>(() =>
-            service.ApplyAsync("tags", [oversizedOwner], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [oversizedOwner], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ExtensionEntityFilterValidationException>(() =>
-            service.ApplyAsync("tags", [oversizedFilter], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [oversizedFilter], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ExtensionEntityFilterValidationException>(() =>
-            service.ApplyAsync("tags", [oversizedModifier], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [oversizedModifier], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
         Assert.Empty(runtime.Requests);
     }
 
@@ -100,12 +95,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime);
         var candidates = Enumerable.Range(1, 5_001).ToArray();
 
-        var result = await service.ApplyAsync(
-            "tags",
-            [Criterion("owner.actual", "has-preview", true)],
-            candidates,
-            CovePrincipal.System(),
-            default);
+        var result = await service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], candidates, CovePrincipal.System(), TestContext.Current.CancellationToken);
 
         Assert.Equal(candidates, result);
     }
@@ -119,9 +109,9 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime, batchSize: 2);
 
         await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1, 2], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1, 2], CovePrincipal.System(), TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ExtensionEntityFilterLimitException>(() =>
-            service.ApplyAsync("tags", Enumerable.Repeat(Criterion("owner.actual", "has-preview", true), ExtensionEntityFilterService.DefaultCriteriaLimit + 1).ToArray(), [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", Enumerable.Repeat(Criterion("owner.actual", "has-preview", true), ExtensionEntityFilterService.DefaultCriteriaLimit + 1).ToArray(), [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -130,12 +120,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var runtime = new MultiFilterRuntime();
         var service = new ExtensionEntityFilterService(runtime, batchSize: 2);
 
-        var result = await service.ApplyAsync(
-            "tags",
-            [Criterion("owner.actual", "even", true), Criterion("owner.actual", "over-two", true)],
-            [5, 4, 3, 2, 1],
-            CovePrincipal.System(),
-            default);
+        var result = await service.ApplyAsync("tags", [Criterion("owner.actual", "even", true), Criterion("owner.actual", "over-two", true)], [5, 4, 3, 2, 1], CovePrincipal.System(), TestContext.Current.CancellationToken);
 
         Assert.Equal([4], result);
         Assert.Equal(["even", "even", "even", "over-two"], runtime.Requests.Select(request => request.FilterId));
@@ -150,7 +135,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime);
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Equal("The extension filter provider failed.", error.Message);
     }
@@ -164,7 +149,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime);
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Contains("revision", error.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -173,16 +158,16 @@ public sealed class ExtensionEntityFilterServiceTests
     public async Task Tags_find_composes_core_sort_count_and_pagination_after_extension_membership()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         db.Tags.AddRange(
             new Tag { Name = "Alpha" },
             new Tag { Name = "Beta" },
             new Tag { Name = "Gamma" },
             new Tag { Name = "Delta" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var runtime = new FakeRuntime(
             new UIListFilterContribution("preview", "tags", "Animated preview", "boolean", "owner.actual", Modifiers: ["equals"]) { FilterId = "has-preview" },
             request => new ExtensionEntityFilterResult(request.CandidateIds.Where(id => id % 2 == 0).ToArray(), "revision-1"));
@@ -207,7 +192,7 @@ public sealed class ExtensionEntityFilterServiceTests
                 NameCriterion = new StringCriterion { Value = "a", Modifier = CriterionModifier.Includes },
                 ExtensionCriteria = [Criterion("owner.actual", "has-preview", true)],
             },
-        }, default);
+        }, TestContext.Current.CancellationToken);
 
         var page = Assert.IsType<PaginatedResponse<TagListDto>>(Assert.IsType<OkObjectResult>(response.Result).Value);
         Assert.Equal(2, page.TotalCount);
@@ -219,10 +204,10 @@ public sealed class ExtensionEntityFilterServiceTests
     public async Task Tags_find_keeps_the_candidate_limit_at_its_query_planning_boundary()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var tags = Enumerable.Range(1, 5_001)
             .Select(id => new Tag { Id = id, Name = $"Tag {id}" })
             .ToArray();
@@ -249,7 +234,7 @@ public sealed class ExtensionEntityFilterServiceTests
             {
                 ExtensionCriteria = [Criterion("owner.actual", "has-preview", true)],
             },
-        }, default);
+        }, TestContext.Current.CancellationToken);
 
         var invalid = Assert.IsType<UnprocessableEntityObjectResult>(response.Result);
         var problem = Assert.IsType<ProblemDetails>(invalid.Value);
@@ -261,11 +246,11 @@ public sealed class ExtensionEntityFilterServiceTests
     public async Task Tags_graph_filters_the_full_candidate_set_and_authorizes_before_provider_and_node_limit()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var accessor = new CurrentPrincipalAccessor();
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var db = new CoveContext(options, accessor);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var tags = new[]
         {
             new Tag { Name = "Alpha denied" },
@@ -276,7 +261,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var role = new Role { Name = "Scoped tag reader" };
         db.Tags.AddRange(tags);
         db.Roles.Add(role);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.RoleEntityOverrides.Add(new RoleEntityOverride
         {
             RoleId = role.Id,
@@ -285,7 +270,7 @@ public sealed class ExtensionEntityFilterServiceTests
             Effect = "deny",
             AppliesTo = "read",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principal = new CovePrincipal
         {
@@ -320,7 +305,7 @@ public sealed class ExtensionEntityFilterServiceTests
                 {
                     ExtensionCriteria = [Criterion("owner.actual", "has-preview", true)],
                 },
-            }, default);
+            }, TestContext.Current.CancellationToken);
 
             var graph = Assert.IsType<TagGraphResponseDto>(Assert.IsType<OkObjectResult>(response.Result).Value);
             Assert.Equal(2, graph.TotalCount);
@@ -342,7 +327,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime, providerTimeout: TimeSpan.FromMilliseconds(10));
 
         await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
@@ -358,7 +343,7 @@ public sealed class ExtensionEntityFilterServiceTests
             providerTimeout: TimeSpan.FromMilliseconds(10));
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Contains("timed out", error.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -372,12 +357,7 @@ public sealed class ExtensionEntityFilterServiceTests
             batchSize: 1,
             providerTimeout: TimeSpan.FromMilliseconds(100));
 
-        await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() => service.ApplyAsync(
-            "tags",
-            [Criterion("owner.actual", "has-preview", true), Criterion("owner.actual", "has-preview", true)],
-            [1, 2],
-            CovePrincipal.System(),
-            default));
+        await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() => service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true), Criterion("owner.actual", "has-preview", true)], [1, 2], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         // Loaded CI may consume most of the deadline in any one awaited call. The bounded failure
         // with four otherwise-successful calls is the behavioral assertion; only require that the
@@ -395,7 +375,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime, batchSize: 1);
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1, 2], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1, 2], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Contains("revision changed", error.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -409,7 +389,7 @@ public sealed class ExtensionEntityFilterServiceTests
         var service = new ExtensionEntityFilterService(runtime);
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), default));
+            service.ApplyAsync("tags", [Criterion("owner.actual", "has-preview", true)], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Contains("revision", error.Message, StringComparison.OrdinalIgnoreCase);
     }

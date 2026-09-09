@@ -70,10 +70,12 @@ function formatQueuedMessage(action: ExtensionAction, result: unknown, entityTyp
 }
 
 function shouldSuppressResultToast(result: unknown): boolean {
-  return !!result
-    && typeof result === "object"
-    && (("cancelled" in result && Boolean((result as QueuedActionResponse).cancelled))
-      || ("suppressToast" in result && Boolean((result as QueuedActionResponse).suppressToast)));
+  return (
+    !!result &&
+    typeof result === "object" &&
+    (("cancelled" in result && Boolean((result as QueuedActionResponse).cancelled)) ||
+      ("suppressToast" in result && Boolean((result as QueuedActionResponse).suppressToast)))
+  );
 }
 
 function shouldSuppressQueuedAlert(action: ExtensionAction, result: unknown): boolean {
@@ -101,10 +103,13 @@ export function ExtensionEntityActions({ entityType, entityId, pageType, renderM
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const unregisterManualContextRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => {
-    unregisterManualContextRef.current?.();
-    unregisterManualContextRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      unregisterManualContextRef.current?.();
+      unregisterManualContextRef.current = null;
+    },
+    [],
+  );
 
   const actions = useMemo(() => {
     if (normalizedEntityType !== "video" && normalizedEntityType !== "image") {

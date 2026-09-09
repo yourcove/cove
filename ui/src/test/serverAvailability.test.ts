@@ -99,7 +99,9 @@ describe("server availability", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(Promise.all([serverAwareFetch("/api/one"), serverAwareFetch("/api/two")])).rejects.toThrow("Failed to fetch");
+    await expect(Promise.all([serverAwareFetch("/api/one"), serverAwareFetch("/api/two")])).rejects.toThrow(
+      "Failed to fetch",
+    );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
     resolveStatus(new Response("", { status: 200 }));
@@ -131,9 +133,12 @@ describe("server availability", () => {
       resolve: (response: Response) => void;
       reject: (error: Error) => void;
     }> = [];
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve, reject) => {
-      probes.push({ resolve, reject });
-    }));
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve, reject) => {
+          probes.push({ resolve, reject });
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     reportServerConnectionFailure();
@@ -153,12 +158,21 @@ describe("server availability", () => {
 
   it("times out an API request and marks the server unavailable when status confirmation times out", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
 
     const request = serverAwareFetch("/api/test", { timeoutMs: 100 });
-    const rejection = expect(request).rejects.toMatchObject({ name: "TimeoutError", message: "API request timed out after 100 ms." });
+    const rejection = expect(request).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: "API request timed out after 100 ms.",
+    });
     await vi.advanceTimersByTimeAsync(100);
 
     await rejection;
@@ -168,9 +182,15 @@ describe("server availability", () => {
 
   it("does not report caller cancellation as a server outage", async () => {
     const controller = new AbortController();
-    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
 
     const request = serverAwareFetch("/api/test", { signal: controller.signal });
     controller.abort();
@@ -182,9 +202,15 @@ describe("server availability", () => {
   it("recognizes caller cancellation with a custom abort reason", async () => {
     const controller = new AbortController();
     const reason = new Error("navigation changed");
-    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
 
     const request = serverAwareFetch(new Request("http://localhost/api/test", { signal: controller.signal }));
     controller.abort(reason);
@@ -196,14 +222,20 @@ describe("server availability", () => {
   it("keeps caller cancellation attached after response headers arrive", async () => {
     const controller = new AbortController();
     let fetchSignal: AbortSignal | null | undefined;
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      fetchSignal = init?.signal;
-      return new Response(new ReadableStream({
-        start(bodyController) {
-          init?.signal?.addEventListener("abort", () => bodyController.error(init.signal?.reason), { once: true });
-        },
-      }), { status: 200 });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        fetchSignal = init?.signal;
+        return new Response(
+          new ReadableStream({
+            start(bodyController) {
+              init?.signal?.addEventListener("abort", () => bodyController.error(init.signal?.reason), { once: true });
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
 
     const response = await serverAwareFetch("/api/test", { signal: controller.signal, timeoutMs: null });
     const reason = new Error("navigation changed");
@@ -218,14 +250,20 @@ describe("server availability", () => {
   it("keeps the request timeout active while the response body is pending", async () => {
     vi.useFakeTimers();
     let fetchSignal: AbortSignal | null | undefined;
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      fetchSignal = init?.signal;
-      return new Response(new ReadableStream({
-        start(bodyController) {
-          init?.signal?.addEventListener("abort", () => bodyController.error(init.signal?.reason), { once: true });
-        },
-      }), { status: 200 });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        fetchSignal = init?.signal;
+        return new Response(
+          new ReadableStream({
+            start(bodyController) {
+              init?.signal?.addEventListener("abort", () => bodyController.error(init.signal?.reason), { once: true });
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
 
     const response = await serverAwareFetch("/api/test", { timeoutMs: 100 });
     const bodyRejection = expect(response.text()).rejects.toMatchObject({
@@ -245,9 +283,15 @@ describe("server availability", () => {
   it("allows long-running requests to opt out of the timeout", async () => {
     vi.useFakeTimers();
     let resolveFetch!: (response: Response) => void;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
-      resolveFetch = resolve;
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
 
     const request = serverAwareFetch("/api/database/migrate", { timeoutMs: null });
     await vi.advanceTimersByTimeAsync(60 * 60_000);
@@ -259,9 +303,15 @@ describe("server availability", () => {
 
   it("shows reconnecting while an explicit probe is pending", async () => {
     let resolveFetch!: (response: Response) => void;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
-      resolveFetch = resolve;
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
 
     const probe = runServerProbe();
     expect(getServerAvailability()).toBe("reconnecting");
@@ -273,9 +323,15 @@ describe("server availability", () => {
 
   it("keeps the unavailable state stable during a background probe", async () => {
     let resolveFetch!: (response: Response) => void;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
-      resolveFetch = resolve;
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
     reportServerResponse(new Response("", { status: 502 }));
 
     const probe = runServerProbe({ showReconnecting: false });

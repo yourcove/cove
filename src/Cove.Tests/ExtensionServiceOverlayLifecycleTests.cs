@@ -72,7 +72,7 @@ public sealed class ExtensionServiceOverlayLifecycleTests
             Assert.Same(first, scope.ServiceProvider.GetRequiredService<DisposalProbe>());
         extension.ThrowOnConfigure = true;
 
-        Assert.False(await manager.InitializeExtensionAsync(extension.Id, root));
+        Assert.False(await manager.InitializeExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
         Assert.False(manager.IsEnabled(extension.Id));
         Assert.Equal(1, first.DisposeCount);
         Assert.Throws<InvalidOperationException>(() => manager.CreateExtensionScope(extension.Id));
@@ -409,12 +409,12 @@ public sealed class ExtensionServiceOverlayLifecycleTests
         {
             start.Wait();
             overlay.BuildProvider(extension.Id, extension, CreateContext(), (_, error) => throw error);
-        });
+        }, TestContext.Current.CancellationToken);
         var release = Task.Run(() =>
         {
             start.Wait();
             activeScope.Dispose();
-        });
+        }, TestContext.Current.CancellationToken);
 
         start.Set();
         await Task.WhenAll(replace, release);
@@ -437,15 +437,15 @@ public sealed class ExtensionServiceOverlayLifecycleTests
         using var root = hostServices.BuildServiceProvider();
         manager.PrepareRuntimeServices(root);
         manager.StartBackgroundWorker(extension.Id);
-        await extension.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await extension.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        var stop = Task.Run(() => manager.StopBackgroundWorker(extension.Id));
-        await extension.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var stop = Task.Run(() => manager.StopBackgroundWorker(extension.Id), TestContext.Current.CancellationToken);
+        await extension.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.False(stop.IsCompleted);
 
         extension.Release.TrySetResult();
-        await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        await stop.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(extension.Exited.Task.IsCompletedSuccessfully);
     }
 
@@ -462,13 +462,13 @@ public sealed class ExtensionServiceOverlayLifecycleTests
         manager.CaptureHostServices(hostServices);
         using var root = hostServices.BuildServiceProvider();
         manager.PrepareRuntimeServices(root);
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, root));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
 
         var first = extension.Service;
-        var dispatch = manager.DispatchEventAsync(new ExtensionEvent("test", "tag", 1));
-        await extension.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var dispatch = manager.DispatchEventAsync(new ExtensionEvent("test", "tag", 1), TestContext.Current.CancellationToken);
+        await extension.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        await manager.DisableExtensionAsync(extension.Id);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, first.DisposeCount);
         Assert.Same(first, extension.CapturedServices!.GetRequiredService<DisposalProbe>());
@@ -478,7 +478,7 @@ public sealed class ExtensionServiceOverlayLifecycleTests
             manager.ExecuteExtensionMetadata(extension, () => extension.Name));
 
         extension.Release.TrySetResult();
-        await dispatch.WaitAsync(TimeSpan.FromSeconds(5));
+        await dispatch.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, first.DisposeCount);
     }

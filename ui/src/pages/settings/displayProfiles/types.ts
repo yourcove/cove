@@ -91,7 +91,12 @@ export function buildDistinctOptions(items: SegmentDistinctValue[], currentValue
 }
 
 export function formatRuleTitle(rule: SegmentDisplayRule) {
-  const parts = [rule.tagName ?? (rule.tagId != null ? `Tag #${rule.tagId}` : undefined), rule.sourceKey, rule.kind, rule.hostType].filter(Boolean);
+  const parts = [
+    rule.tagName ?? (rule.tagId != null ? `Tag #${rule.tagId}` : undefined),
+    rule.sourceKey,
+    rule.kind,
+    rule.hostType,
+  ].filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : `Rule #${rule.id}`;
 }
 

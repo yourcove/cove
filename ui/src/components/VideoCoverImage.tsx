@@ -16,7 +16,9 @@ export function VideoCoverImage({ src, alt, className, fallbackClassName = "", .
 
   if (failed) {
     return (
-      <div className={`${fallbackClassName} flex h-full w-full items-center justify-center bg-gradient-to-br from-surface to-card`.trim()}>
+      <div
+        className={`${fallbackClassName} flex h-full w-full items-center justify-center bg-gradient-to-br from-surface to-card`.trim()}
+      >
         <Film className="h-12 w-12 text-muted" aria-hidden="true" />
       </div>
     );

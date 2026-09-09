@@ -12,14 +12,7 @@ interface Props {
   saving: boolean;
 }
 
-export function BulkFromTagsWizard({
-  open,
-  form,
-  setForm,
-  onClose,
-  onSave,
-  saving,
-}: Props) {
+export function BulkFromTagsWizard({ open, form, setForm, onClose, onSave, saving }: Props) {
   return (
     <EditModal title="Generate Rules From Tags" open={open} onClose={onClose}>
       <div className="space-y-4 py-4">
@@ -44,16 +37,33 @@ export function BulkFromTagsWizard({
             />
           </Field>
           <Field label="Merge Gap (sec)">
-            <NumberInput value={form.mergeGapSec} onChange={(value) => setForm((current) => ({ ...current, mergeGapSec: value }))} min={0} />
+            <NumberInput
+              value={form.mergeGapSec}
+              onChange={(value) => setForm((current) => ({ ...current, mergeGapSec: value }))}
+              min={0}
+            />
           </Field>
           <Field label="Min Confidence">
-            <NumberInput value={form.minConfidence} onChange={(value) => setForm((current) => ({ ...current, minConfidence: value }))} min={0} max={1} />
+            <NumberInput
+              value={form.minConfidence}
+              onChange={(value) => setForm((current) => ({ ...current, minConfidence: value }))}
+              min={0}
+              max={1}
+            />
           </Field>
           <Field label="Min Duration (sec)">
-            <NumberInput value={form.minDurationSec} onChange={(value) => setForm((current) => ({ ...current, minDurationSec: value }))} min={0} />
+            <NumberInput
+              value={form.minDurationSec}
+              onChange={(value) => setForm((current) => ({ ...current, minDurationSec: value }))}
+              min={0}
+            />
           </Field>
           <Field label="Lane">
-            <NumberInput value={form.lane} onChange={(value) => setForm((current) => ({ ...current, lane: value }))} min={0} />
+            <NumberInput
+              value={form.lane}
+              onChange={(value) => setForm((current) => ({ ...current, lane: value }))}
+              min={0}
+            />
           </Field>
         </div>
 
@@ -75,7 +85,11 @@ export function BulkFromTagsWizard({
                 onChange={(event) => setForm((current) => ({ ...current, colorOverride: event.target.value }))}
                 className="h-10 w-14 rounded border border-border bg-card"
               />
-              <TextInput value={form.colorOverride} onChange={(value) => setForm((current) => ({ ...current, colorOverride: value || "#3b82f6" }))} placeholder="#3b82f6" />
+              <TextInput
+                value={form.colorOverride}
+                onChange={(value) => setForm((current) => ({ ...current, colorOverride: value || "#3b82f6" }))}
+                placeholder="#3b82f6"
+              />
             </div>
           ) : null}
         </div>

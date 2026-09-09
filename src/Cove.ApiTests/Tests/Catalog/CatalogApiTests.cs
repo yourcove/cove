@@ -1,11 +1,9 @@
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Catalog;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class CatalogApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -15,21 +13,20 @@ public sealed class CatalogApiTests(
     {
         // Arrange
         var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
         var performers = await Task.WhenAll(movie.Cast.Select(CreatePerformerAsync));
         var tags = await Task.WhenAll(movie.Tags.Select(CreateTagAsync));
 
         // Act
-        var created = await AsUser().CreateVideoAsync(
-            new VideoBuilder()
+        var created = await AsUser().CreateVideoAsync(new VideoBuilder()
                 .WithTitle(movie.Title)
                 .WithStudio(studio)
                 .WithPerformers(performers)
                 .WithTags(tags)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Assert
-        var video = await AsUser().GetVideoByIdAsync(created.Id);
+        var video = await AsUser().GetVideoByIdAsync(created.Id, TestContext.Current.CancellationToken);
         video.Title.Should().Be(movie.Title);
         video.StudioId.Should().Be(studio.Id);
         video.StudioName.Should().Be(TestCatalog.Studio.Name);

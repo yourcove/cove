@@ -1,12 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ExtensionSlot,
-  RouteRegistryProvider,
-  useRouteRegistry,
-  type SlotEntry,
-} from "../router/RouteRegistry";
+import { ExtensionSlot, RouteRegistryProvider, useRouteRegistry, type SlotEntry } from "../router/RouteRegistry";
 
 type Release = () => void;
 type AcquireInteractionMode = () => Release;
@@ -143,31 +138,15 @@ describe("ExtensionSlot registration lifecycles", () => {
     };
 
     const view = render(
-      <SlotHarness
-        entry={entry}
-        context={{ currentTime: 4, crash: true }}
-        contextResetKey="item-a"
-      />,
+      <SlotHarness entry={entry} context={{ currentTime: 4, crash: true }} contextResetKey="item-a" />,
     );
     expect(await screen.findByText("Extension error (animated-previews)")).toBeInTheDocument();
 
-    view.rerender(
-      <SlotHarness
-        entry={entry}
-        context={{ currentTime: 18, crash: false }}
-        contextResetKey="item-a"
-      />,
-    );
+    view.rerender(<SlotHarness entry={entry} context={{ currentTime: 18, crash: false }} contextResetKey="item-a" />);
     expect(screen.getByText("Extension error (animated-previews)")).toBeInTheDocument();
     expect(screen.queryByText("overlay for time 18")).not.toBeInTheDocument();
 
-    view.rerender(
-      <SlotHarness
-        entry={entry}
-        context={{ currentTime: 18, crash: false }}
-        contextResetKey="item-b"
-      />,
-    );
+    view.rerender(<SlotHarness entry={entry} context={{ currentTime: 18, crash: false }} contextResetKey="item-b" />);
     expect(await screen.findByText("overlay for time 18")).toBeInTheDocument();
   });
 
@@ -260,27 +239,26 @@ describe("ExtensionSlot registration lifecycles", () => {
       slot: "media-player-overlay",
       render: (context) => {
         staleAcquire = requireAcquire(context);
-        return <button onClick={() => { release = staleAcquire?.(); }}>Acquire crop mode</button>;
+        return (
+          <button
+            onClick={() => {
+              release = staleAcquire?.();
+            }}
+          >
+            Acquire crop mode
+          </button>
+        );
       },
     };
 
     const view = render(
-      <SlotHarness
-        entry={entry}
-        context={{ currentTime: 0 }}
-        createEntryContext={manager.createEntryContext}
-      />,
+      <SlotHarness entry={entry} context={{ currentTime: 0 }} createEntryContext={manager.createEntryContext} />,
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Acquire crop mode" }));
     expect(manager.activeLeaseCount).toBe(1);
 
-    view.rerender(
-      <SlotHarness
-        context={{ currentTime: 0 }}
-        createEntryContext={manager.createEntryContext}
-      />,
-    );
+    view.rerender(<SlotHarness context={{ currentTime: 0 }} createEntryContext={manager.createEntryContext} />);
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Acquire crop mode" })).not.toBeInTheDocument());
     expect(manager.activeLeaseCount).toBe(0);
@@ -314,15 +292,23 @@ describe("ExtensionSlot registration lifecycles", () => {
       return <div>{label}</div>;
     }
 
-    const captureOld = (acquire: AcquireInteractionMode) => { oldAcquire = acquire; };
-    const captureNew = (acquire: AcquireInteractionMode) => { newAcquire = acquire; };
+    const captureOld = (acquire: AcquireInteractionMode) => {
+      oldAcquire = acquire;
+    };
+    const captureNew = (acquire: AcquireInteractionMode) => {
+      newAcquire = acquire;
+    };
     const oldEntry: SlotEntry<TestSlotContext> = {
       id: "crop-overlay",
       extensionId: "animated-previews",
       slot: "media-player-overlay",
       resetKey: 1,
       render: (context) => (
-        <LeakyContribution label="old crop tool" acquireInteractionMode={requireAcquire(context)} capture={captureOld} />
+        <LeakyContribution
+          label="old crop tool"
+          acquireInteractionMode={requireAcquire(context)}
+          capture={captureOld}
+        />
       ),
     };
     const newEntry: SlotEntry<TestSlotContext> = {
@@ -331,26 +317,22 @@ describe("ExtensionSlot registration lifecycles", () => {
       slot: "media-player-overlay",
       resetKey: 2,
       render: (context) => (
-        <LeakyContribution label="new crop tool" acquireInteractionMode={requireAcquire(context)} capture={captureNew} />
+        <LeakyContribution
+          label="new crop tool"
+          acquireInteractionMode={requireAcquire(context)}
+          capture={captureNew}
+        />
       ),
     };
 
     const view = render(
-      <SlotHarness
-        entry={oldEntry}
-        context={{ currentTime: 0 }}
-        createEntryContext={manager.createEntryContext}
-      />,
+      <SlotHarness entry={oldEntry} context={{ currentTime: 0 }} createEntryContext={manager.createEntryContext} />,
     );
     await waitFor(() => expect(manager.activeLeaseCount).toBe(1));
     expect(await screen.findByText("old crop tool")).toBeInTheDocument();
 
     view.rerender(
-      <SlotHarness
-        entry={newEntry}
-        context={{ currentTime: 0 }}
-        createEntryContext={manager.createEntryContext}
-      />,
+      <SlotHarness entry={newEntry} context={{ currentTime: 0 }} createEntryContext={manager.createEntryContext} />,
     );
 
     expect(await screen.findByText("new crop tool")).toBeInTheDocument();
@@ -422,18 +404,12 @@ describe("ExtensionSlot registration lifecycles", () => {
       id: "strict-overlay",
       extensionId: "animated-previews",
       slot: "media-player-overlay",
-      render: (context) => (
-        <button onClick={() => requireAcquire(context)()}>Acquire strict crop mode</button>
-      ),
+      render: (context) => <button onClick={() => requireAcquire(context)()}>Acquire strict crop mode</button>,
     };
 
     const view = render(
       <StrictMode>
-        <SlotHarness
-          entry={entry}
-          context={{ currentTime: 0 }}
-          createEntryContext={manager.createEntryContext}
-        />
+        <SlotHarness entry={entry} context={{ currentTime: 0 }} createEntryContext={manager.createEntryContext} />
       </StrictMode>,
     );
 

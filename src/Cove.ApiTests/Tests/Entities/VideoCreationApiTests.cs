@@ -4,11 +4,9 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -17,10 +15,10 @@ public sealed class VideoCreationApiTests(
     public async Task GivenVideo_WhenMemberReadsVideos_ThenVideoIsReturned()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
 
         // Act
-        var videos = await AsUser(ApiTestUsers.Eva).GetVideosAsync();
+        var videos = await AsUser(ApiTestUsers.Eva).GetVideosAsync(TestContext.Current.CancellationToken);
 
         // Assert
         videos.Should().ContainSingle(candidate => candidate.Id == video.Id);
@@ -34,18 +32,18 @@ public sealed class VideoCreationApiTests(
         // Arrange
         const string customFieldKey = "prop_budget";
         var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(movie.Cast[0].Name).Build());
-        var tag = await AsUser().CreateTagAsync(movie.Tags[0].Name);
-        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle("Wardrobe Vault Stills").Build());
-        var group = await AsUser().CreateGroupAsync("Adventure Double Feature");
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(movie.Cast[0].Name).Build(), TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync(movie.Tags[0].Name, TestContext.Current.CancellationToken);
+        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle("Wardrobe Vault Stills").Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync("Adventure Double Feature", TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Prop budget",
             Type = "text",
             EntityTypes = ["video"]
-        });
+        }, TestContext.Current.CancellationToken);
         var request = new VideoBuilder()
             .WithTitle(movie.Title)
             .WithCode("BDP-RAIDERS-001")
@@ -67,11 +65,11 @@ public sealed class VideoCreationApiTests(
             .Build();
 
         // Act
-        var video = await AsUser().CreateVideoAsync(request);
+        var video = await AsUser().CreateVideoAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
-        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
-        var engagement = await AsUser().GetVideoEngagementAsync(videoAfter);
+        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetVideoEngagementAsync(videoAfter, TestContext.Current.CancellationToken);
         videoAfter.Title.Should().Be(request.Title);
         videoAfter.Code.Should().Be(request.Code);
         videoAfter.Details.Should().Be(request.Details);

@@ -44,6 +44,25 @@ export interface NavigateTarget {
     id?: number;
     [key: string]: unknown;
 }
+export type JsonValue = null | boolean | number | string | JsonValue[] | {
+    [key: string]: JsonValue;
+};
+export type DashboardWidgetPresentation = "flow" | "canvas";
+/** Props passed to a dashboard widget render component. */
+export interface DashboardWidgetProps<TConfiguration extends JsonValue = JsonValue> {
+    dashboardId: number;
+    instanceId: string;
+    configuration: TConfiguration;
+    presentation: DashboardWidgetPresentation;
+    onNavigate: (route: NavigateTarget) => void;
+}
+/** Props passed to an optional extension-owned dashboard widget editor. */
+export interface DashboardWidgetEditorProps<TConfiguration extends JsonValue = JsonValue> {
+    configuration: TConfiguration;
+    presentation: DashboardWidgetPresentation;
+    onChange: (configuration: TConfiguration) => void;
+    onValidityChange: (valid: boolean, message?: string) => void;
+}
 /** Stable host component target for primary entity media overrides. */
 export declare const ENTITY_MEDIA_TARGET: "entity.media";
 /** Host surface on which primary entity media is being rendered. */
@@ -140,6 +159,23 @@ export interface ListSortContribution {
 export interface UIManifestListContributions {
     listFilters?: ListFilterContribution[];
     listSorts?: ListSortContribution[];
+}
+export interface DashboardWidgetContribution {
+    id: string;
+    label: string;
+    extensionId: string;
+    componentName: string;
+    editorComponentName?: string;
+    description?: string;
+    icon?: string;
+    defaultConfiguration?: JsonValue;
+    allowMultiple?: boolean;
+    order?: number;
+    requiredPermission?: string;
+    requiredPermissions?: string[];
+    requiredPermissionMode?: "all" | "any";
+    supportedPresentations?: DashboardWidgetPresentation[];
+    defaultPresentation?: DashboardWidgetPresentation;
 }
 /** Manifest action passed to a bundle-provided action handler. */
 export interface ExtensionAction {

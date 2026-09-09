@@ -7,19 +7,39 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 function MultiSelectProbe() {
   const [items, setItems] = useState([{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]);
   const [resetKey, setResetKey] = useState("initial");
-  const { selectedIds, toggle } = useMultiSelect(items, { preserveOnItemsChange: true, resetKey, isSelectable: (item) => item.id !== 3 });
+  const { selectedIds, toggle } = useMultiSelect(items, {
+    preserveOnItemsChange: true,
+    resetKey,
+    isSelectable: (item) => item.id !== 3,
+  });
 
   return (
     <div>
       <div data-testid="selected">{[...selectedIds].join(",")}</div>
-      <button type="button" onClick={() => toggle(1)}>Toggle first</button>
-      <button type="button" onClick={() => toggle(4, { range: true })}>Range to fourth</button>
-      <button type="button" onClick={() => toggle(2, { range: true })}>Range to second</button>
-      <button type="button" onClick={() => toggle(1, { range: true })}>Range to first</button>
-      <button type="button" onClick={() => toggle(4, { range: true, orderedIds: [1, 4] })}>Visible range to fourth</button>
-      <button type="button" onClick={() => setItems((current) => [...current, { id: 5 }])}>Append</button>
-      <button type="button" onClick={() => setItems([{ id: 9 }])}>Replace</button>
-      <button type="button" onClick={() => setResetKey("changed")}>Reset query</button>
+      <button type="button" onClick={() => toggle(1)}>
+        Toggle first
+      </button>
+      <button type="button" onClick={() => toggle(4, { range: true })}>
+        Range to fourth
+      </button>
+      <button type="button" onClick={() => toggle(2, { range: true })}>
+        Range to second
+      </button>
+      <button type="button" onClick={() => toggle(1, { range: true })}>
+        Range to first
+      </button>
+      <button type="button" onClick={() => toggle(4, { range: true, orderedIds: [1, 4] })}>
+        Visible range to fourth
+      </button>
+      <button type="button" onClick={() => setItems((current) => [...current, { id: 5 }])}>
+        Append
+      </button>
+      <button type="button" onClick={() => setItems([{ id: 9 }])}>
+        Replace
+      </button>
+      <button type="button" onClick={() => setResetKey("changed")}>
+        Reset query
+      </button>
     </div>
   );
 }
@@ -34,14 +54,30 @@ function IdSelectableProbe() {
   return (
     <div>
       <div data-testid="selected">{[...selectedIds].join(",")}</div>
-      <button type="button" onClick={() => selectIds([1, 2, 3, 4, 5])}>Select ids</button>
-      <button type="button" onClick={() => selectAll()}>Select all</button>
-      <button type="button" onClick={() => invertSelection()}>Invert</button>
-      <button type="button" onClick={() => toggle(2)}>Toggle item-blocked</button>
-      <button type="button" onClick={() => toggle(4)}>Toggle id-blocked</button>
-      <button type="button" onClick={() => toggle(5)}>Toggle unloaded</button>
-      <button type="button" onClick={() => toggle(1)}>Toggle first</button>
-      <button type="button" onClick={() => toggle(5, { range: true, orderedIds: [1, 2, 3, 4, 5] })}>Range to unloaded</button>
+      <button type="button" onClick={() => selectIds([1, 2, 3, 4, 5])}>
+        Select ids
+      </button>
+      <button type="button" onClick={() => selectAll()}>
+        Select all
+      </button>
+      <button type="button" onClick={() => invertSelection()}>
+        Invert
+      </button>
+      <button type="button" onClick={() => toggle(2)}>
+        Toggle item-blocked
+      </button>
+      <button type="button" onClick={() => toggle(4)}>
+        Toggle id-blocked
+      </button>
+      <button type="button" onClick={() => toggle(5)}>
+        Toggle unloaded
+      </button>
+      <button type="button" onClick={() => toggle(1)}>
+        Toggle first
+      </button>
+      <button type="button" onClick={() => toggle(5, { range: true, orderedIds: [1, 2, 3, 4, 5] })}>
+        Range to unloaded
+      </button>
     </div>
   );
 }

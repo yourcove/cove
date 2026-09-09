@@ -1,16 +1,10 @@
 ---
 title: When to use dynamic groups
-description: Decide when changing query results should become a library collection.
+description: Decide when changing query results should become a library collection, and choose between a saved filter, static group, dynamic group, or built-in group.
+tableOfContents: false
 ---
 
-[Dynamic groups](../../../reference/dynamic-groups/) give changing query results a library identity. Use them when other records or workflows must refer to a collection whose membership should be resolved again as the library changes.
+import FeatureGuide from "../../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../../docs/feature-guides/dynamic-groups.json";
 
-## Decide whether you need a group
-
-Use a [saved filter](../../../reference/saved-filters/) when only you need to revisit a search or filter view. Use a [static group](../../../reference/groups/) when you want to choose and order members directly. Use a dynamic group when the collection needs its own metadata or relationships but membership should continue to follow a query.
-
-## Treat membership as current state
-
-A dynamic result is not a historical snapshot. New matches can enter, old matches can leave, and resolver or query changes can alter the result. If an exact set must remain stable, curate a static group or materialize the result through a workflow designed for snapshots.
-
-See [Dynamic groups](../../../reference/dynamic-groups/) for the stored query and resolution boundary, then use [Search and filters](../search-and-filters/) to shape the query you need.
+<FeatureGuide guide={guide} />

@@ -26,8 +26,8 @@ function ExternalLoginProbe() {
       <button
         type="button"
         onClick={() => {
-          void externalLoginRedeem("browser-bound-code").then(value => {
-            setResult(value.ok ? "ok" : value.error ?? "failed");
+          void externalLoginRedeem("browser-bound-code").then((value) => {
+            setResult(value.ok ? "ok" : (value.error ?? "failed"));
           });
         }}
       >
@@ -69,17 +69,20 @@ describe("AuthProvider external authentication", () => {
   });
 
   it("stores standard Cove tokens and refreshes the authenticated user", async () => {
-    mocks.me
-      .mockRejectedValueOnce(new Error("not authenticated"))
-      .mockResolvedValueOnce(meResponse);
-    mocks.serverAwareFetch.mockResolvedValue(new Response(JSON.stringify({
-      token: "access-token",
-      refreshToken: "refresh-token",
-      username: "existing-user",
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
+    mocks.me.mockRejectedValueOnce(new Error("not authenticated")).mockResolvedValueOnce(meResponse);
+    mocks.serverAwareFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          token: "access-token",
+          refreshToken: "refresh-token",
+          username: "existing-user",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
 
     render(
       <AuthProvider authEnabled>
@@ -114,9 +117,7 @@ describe("AuthProvider external authentication", () => {
     fireEvent.click(screen.getByRole("button", { name: "Redeem" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("result")).toHaveTextContent(
-        "External sign-in expired or was already used.",
-      );
+      expect(screen.getByTestId("result")).toHaveTextContent("External sign-in expired or was already used.");
     });
     expect(authStore.getAccessToken()).toBeNull();
     expect(authStore.getRefreshToken()).toBeNull();

@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Helpers;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
@@ -17,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.PerformersRead)]
-public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
+public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, ICurrentPrincipalAccessor? principalAccessor = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount, int LikeCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -53,11 +55,13 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     }
 
     [HttpPost("find")]
-    public async Task<ActionResult<PaginatedResponse<PerformerDto>>> FindPost([FromBody] FilteredQueryRequest<PerformerFilter> req, CancellationToken ct)
+    public async Task<ActionResult<PaginatedResponse<PerformerDto>>> FindPost([FromBody] PerformerFilteredQueryRequest req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var findFilter = req.FindFilter ?? new FindFilter();
         var filter = req.ObjectFilter ?? new PerformerFilter();
-        var (items, totalCount) = await performerRepo.FindAsync(filter, findFilter, ct);
+        var (items, totalCount) = await performerRepo.FindAsync(filter, findFilter, ct, req.FilterExpression);
         var usageCountsByPerformerId = await LoadPerformerUsageCountsAsync(items.Select(item => item.Id), ct);
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Performer, items.Select(item => item.Id), ct);
         var dtos = items.Select(p => MapToDto(p, usageCountsByPerformerId.GetValueOrDefault(p.Id), GetCustomFields(customFieldValues, p.Id))).ToList();
@@ -65,12 +69,42 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<PerformerDto>> GetById(int id, CancellationToken ct)
     {
         var performer = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         if (performer == null) return NotFound();
         return Ok(await MapToDetailDtoAsync(performer, ct));
+    }
+
+    [HttpGet("countries")]
+    [AllowShareLinkAccess]
+    [OutputCache(PolicyName = "ShortCache")]
+    public async Task<ActionResult<IReadOnlyList<PerformerCountryOptionDto>>> GetCountries(CancellationToken ct)
+    {
+        var counts = await db.Performers
+            .AsNoTracking()
+            .Where(performer => performer.Country != null && performer.Country != "")
+            .GroupBy(performer => performer.Country!)
+            .Select(group => new { Value = group.Key, Count = group.Count() })
+            .ToListAsync(ct);
+        var countsByValue = counts.ToDictionary(row => row.Value, row => row.Count, StringComparer.Ordinal);
+        var options = CountryCatalog.Countries
+            .Select(country => new PerformerCountryOptionDto(
+                country.Code,
+                country.Code,
+                country.Name,
+                countsByValue.GetValueOrDefault(country.Code),
+                false))
+            .ToList();
+
+        var custom = counts
+            .Where(row => CountryCatalog.FindByCode(row.Value) is null)
+            .Select(row => new PerformerCountryOptionDto(row.Value, null, row.Value, row.Count, true))
+            .OrderBy(option => option.Name, StringComparer.OrdinalIgnoreCase);
+        options.AddRange(custom);
+        return Ok(options);
     }
 
     [HttpGet("{id:int}/groups")]
@@ -208,15 +242,20 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     [RequiresPermission(Permissions.PerformersWrite)]
     public async Task<ActionResult<PerformerDto>> Create([FromBody] PerformerCreateDto dto, CancellationToken ct)
     {
+        var birthdate = PartialDate.Parse(dto.Birthdate);
+        var deathDate = PartialDate.Parse(dto.DeathDate);
+        var careerStart = PartialDate.Parse(dto.CareerStart);
+        var careerEnd = PartialDate.Parse(dto.CareerEnd);
         var performer = new Performer
         {
             Name = dto.Name, Disambiguation = dto.Disambiguation,
-            Gender = ParseEnum<GenderEnum>(dto.Gender), Birthdate = ParseDate(dto.Birthdate),
-            DeathDate = ParseDate(dto.DeathDate), Ethnicity = dto.Ethnicity, Country = dto.Country,
+            Gender = ParseEnum<GenderEnum>(dto.Gender), Birthdate = birthdate.Value, BirthdatePrecision = birthdate.Precision,
+            DeathDate = deathDate.Value, DeathDatePrecision = deathDate.Precision, Ethnicity = dto.Ethnicity, Country = dto.Country,
             EyeColor = dto.EyeColor, HairColor = dto.HairColor, HeightCm = dto.HeightCm,
             Weight = dto.Weight, Measurements = dto.Measurements, FakeTits = dto.FakeTits,
             PenisLength = dto.PenisLength, Circumcised = ParseEnum<CircumcisedEnum>(dto.Circumcised),
-            CareerStart = ParseDate(dto.CareerStart), CareerEnd = ParseDate(dto.CareerEnd),
+            CareerStart = careerStart.Value, CareerStartPrecision = careerStart.Precision,
+            CareerEnd = careerEnd.Value, CareerEndPrecision = careerEnd.Precision,
             Tattoos = dto.Tattoos, Piercings = dto.Piercings,
             Favorite = dto.Favorite, Details = dto.Details
         };
@@ -252,8 +291,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.Name != null) p.Name = dto.Name;
         if (dto.Disambiguation != null) p.Disambiguation = dto.Disambiguation;
         if (dto.Gender != null) p.Gender = ParseEnum<GenderEnum>(dto.Gender);
-        if (dto.Birthdate != null) p.Birthdate = ParseDate(dto.Birthdate);
-        if (dto.DeathDate != null) p.DeathDate = ParseDate(dto.DeathDate);
+        if (dto.Birthdate != null) { var date = PartialDate.Parse(dto.Birthdate); p.Birthdate = date.Value; p.BirthdatePrecision = date.Precision; }
+        if (dto.DeathDate != null) { var date = PartialDate.Parse(dto.DeathDate); p.DeathDate = date.Value; p.DeathDatePrecision = date.Precision; }
         if (dto.Ethnicity != null) p.Ethnicity = dto.Ethnicity;
         if (dto.Country != null) p.Country = dto.Country;
         if (dto.EyeColor != null) p.EyeColor = dto.EyeColor;
@@ -264,31 +303,32 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.FakeTits != null) p.FakeTits = dto.FakeTits;
         if (dto.PenisLength.HasValue) p.PenisLength = dto.PenisLength;
         if (dto.Circumcised != null) p.Circumcised = ParseEnum<CircumcisedEnum>(dto.Circumcised);
-        if (dto.CareerStart != null) p.CareerStart = ParseDate(dto.CareerStart);
-        if (dto.CareerEnd != null) p.CareerEnd = ParseDate(dto.CareerEnd);
+        if (dto.CareerStart != null) { var date = PartialDate.Parse(dto.CareerStart); p.CareerStart = date.Value; p.CareerStartPrecision = date.Precision; }
+        if (dto.CareerEnd != null) { var date = PartialDate.Parse(dto.CareerEnd); p.CareerEnd = date.Value; p.CareerEndPrecision = date.Precision; }
         if (dto.Tattoos != null) p.Tattoos = dto.Tattoos;
         if (dto.Piercings != null) p.Piercings = dto.Piercings;
         if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
         if (dto.Details != null) p.Details = dto.Details;
         if (dto.Urls != null)
         {
-            p.Urls.Clear();
-            p.Urls = dto.Urls.Select(u => new PerformerUrl { Url = u, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.Urls, dto.Urls, item => item.Url, url => new PerformerUrl { Url = url, PerformerId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.Aliases != null)
         {
-            p.Aliases.Clear();
-            p.Aliases = dto.Aliases.Select(a => new PerformerAlias { Alias = a, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.Aliases, dto.Aliases, item => item.Alias, alias => new PerformerAlias { Alias = alias, PerformerId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.TagIds != null)
         {
-            p.PerformerTags.Clear();
-            p.PerformerTags = dto.TagIds.Select(tid => new PerformerTag { TagId = tid, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.PerformerTags, dto.TagIds, item => item.TagId, tagId => new PerformerTag { TagId = tagId, PerformerId = id }))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.RemoteIds != null)
         {
-            p.RemoteIds.Clear();
-            p.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new PerformerRemoteId { PerformerId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new PerformerRemoteId { PerformerId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(p);
         }
         foreach (var field in dto.ClearFields?.Distinct(StringComparer.OrdinalIgnoreCase) ?? [])
         {
@@ -323,8 +363,11 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         {
             return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(p);
+            await performerRepo.UpdateAsync(p, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Performer, id, dto.Rating, cancellationToken: ct);
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
@@ -543,7 +586,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                 return Forbid();
         }
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principal),
             "metadata-server:performers",
             $"Tagging {ids.Count} performers from {dto.Endpoint}",
             async (progress, jobCt) =>
@@ -561,6 +605,19 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Performer,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var p = await performerRepo.GetByIdAsync(id, ct);
         if (p == null) return NotFound();
         await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Performer, id, ct);
@@ -594,13 +651,13 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         group.Id,
         group.Name,
         group.Aliases,
-        group.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(group.Date, group.DatePrecision),
         group.StudioId,
         group.Studio?.Name,
         group.Director,
         group.Synopsis,
         group.Urls.Select(url => url.Url).ToList(),
-        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).ToList(),
+        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).OrderForDisplay().ToList(),
         group.GroupItems.Select(item => item.VideoId).Where(videoId => videoId.HasValue).Distinct().Count(),
         group.GroupItems.Count,
         group.GroupItems.Any(item => item.Kind == GroupItemKind.VideoRange),
@@ -626,17 +683,17 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
     private PerformerDto MapToDto(Performer p, PerformerUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null, int faceCount = 0) => new(
         p.Id, p.Name, p.Disambiguation, p.Gender?.ToString(),
-        p.Birthdate?.ToString("yyyy-MM-dd"), p.DeathDate?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(p.Birthdate, p.BirthdatePrecision), PartialDate.Format(p.DeathDate, p.DeathDatePrecision),
         p.Ethnicity, p.Country, p.EyeColor, p.HairColor, p.HeightCm, p.Weight,
         p.Measurements, p.FakeTits, p.PenisLength, p.Circumcised?.ToString(),
-        p.CareerStart?.ToString("yyyy-MM-dd"), p.CareerEnd?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(p.CareerStart, p.CareerStartPrecision), PartialDate.Format(p.CareerEnd, p.CareerEndPrecision),
         p.Tattoos, p.Piercings, p.Favorite, p.Details,
         p.Urls.Select(u => u.Url).ToList(),
         p.Aliases.Select(a => a.Alias).ToList(),
         p.PerformerTags
             .Where(pt => pt.Tag != null)
-            .OrderBy(pt => TagDtoMapping.EffectiveSortName(pt.Tag!))
             .Select(pt => TagDtoMapping.MapTagDto(pt.Tag!))
+            .OrderForDisplay()
             .ToList(),
         p.RemoteIds.Select(remoteId => new PerformerRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         usageCounts?.VideoCount ?? p.VideoCount,
@@ -747,7 +804,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                 likeCounts.GetValueOrDefault(id)));
     }
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
     private static T? ParseEnum<T>(string? value) where T : struct, Enum => Enum.TryParse<T>(value, true, out var e) ? e : null;
 
     private async Task<List<int>> ResolveSelectedPerformerIdsAsync(MetadataServerPerformerBatchTagRequestDto dto, CancellationToken ct)
@@ -789,6 +845,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.PerformersWrite)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkPerformerUpdateDto dto, CancellationToken ct)
     {
         var performers = await db.Performers
@@ -800,7 +857,14 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         {
             if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
             if (dto.Gender != null) p.Gender = ParseEnum<GenderEnum>(dto.Gender);
+            if (dto.Country != null) p.Country = dto.Country;
             if (dto.Details != null) p.Details = dto.Details;
+
+            foreach (var field in dto.ClearFields?.Distinct(StringComparer.OrdinalIgnoreCase) ?? [])
+            {
+                if (field.Equals("country", StringComparison.OrdinalIgnoreCase))
+                    p.Country = null;
+            }
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {
@@ -831,17 +895,16 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.PerformersDelete)]
     [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one performer to delete.");
 
-        var performers = await db.Performers.Where(performer => ids.Contains(performer.Id)).ToListAsync(ct);
-        foreach (var performer in performers)
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Performer, performer.Id, ct);
-        db.Performers.RemoveRange(performers);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(performers.Select(performer => performer.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Performer,
+            ids));
     }
 
     // ===== Merge =====

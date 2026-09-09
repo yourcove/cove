@@ -5,6 +5,7 @@ public class Gallery : BaseEntity
     public string? Title { get; set; }
     public string? Code { get; set; }
     public DateOnly? Date { get; set; }
+    public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
     public string? Details { get; set; }
     public string? Photographer { get; set; }
     public bool Organized { get; set; }
@@ -68,4 +69,3 @@ public class GalleryChapter : BaseEntity
     public int GalleryId { get; set; }
     public Gallery? Gallery { get; set; }
 }
-

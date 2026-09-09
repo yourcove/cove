@@ -29,7 +29,11 @@ function useCollapsedFlag(key: string): [boolean, () => void] {
   const toggle = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev;
-      try { window.localStorage.setItem(key, next ? "true" : "false"); } catch { /* ignore */ }
+      try {
+        window.localStorage.setItem(key, next ? "true" : "false");
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }, [key]);
@@ -64,7 +68,15 @@ const DEFAULT_ASPECTS: Partial<Record<AffinityHostType, AspectDefinition[]>> = {
   ],
 };
 
-export function AspectRatingsPanel({ hostType, hostId, canRate, className, showHeading = true, variant = "grid", collapsible = true }: Props) {
+export function AspectRatingsPanel({
+  hostType,
+  hostId,
+  canRate,
+  className,
+  showHeading = true,
+  variant = "grid",
+  collapsible = true,
+}: Props) {
   const { ratings, isLoading } = useEntityRatings(hostType, hostId, { enabled: hostId > 0 });
   const { setRating } = useEntityEngagement(hostType, hostId, { enabled: false });
   const [collapsed, toggleCollapsed] = useCollapsedFlag(`cove.ratingBreakdownCollapsed.${hostType}`);

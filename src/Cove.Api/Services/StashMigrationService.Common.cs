@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 
 namespace Cove.Api.Services;
 
@@ -128,8 +129,13 @@ public partial class StashMigrationService
     private static int? ReadIntNull(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt32(i);
     private static bool ReadBool(SqliteDataReader r, int i) => !r.IsDBNull(i) && r.GetBoolean(i);
 
-    private static DateOnly? ParseDate(string? s) =>
-        s != null && DateOnly.TryParse(s, out var d) ? d : null;
+    private static PartialDate ParsePartialDate(string? value)
+        => PartialDate.TryParse(value, out var date) ? date : new PartialDate(null, DatePrecision.Day);
+
+    private static string PartialDateSql(string dateColumn, bool hasPrecision)
+        => hasPrecision
+            ? $"CASE {dateColumn}_precision WHEN 2 THEN substr({dateColumn}, 1, 4) WHEN 1 THEN substr({dateColumn}, 1, 7) ELSE {dateColumn} END"
+            : dateColumn;
 
     private static DateTime ParseDateTime(string s) =>
         DateTime.TryParse(s, null, DateTimeStyles.RoundtripKind, out var d)

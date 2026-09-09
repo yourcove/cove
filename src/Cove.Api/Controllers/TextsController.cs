@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Http;
+using Cove.Api.Helpers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -17,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TextsRead)]
-public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
+public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -120,7 +121,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         query = ApplySort(query, sort, descending, seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
-            query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, q, text => text.Title);
 
         var totalCount = await query.CountAsync(ct);
         var pagedIds = await query
@@ -131,7 +132,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         var items = await LoadListItemsAsync(pagedIds, ct);
 
-        var dtos = items.Select(text => MapToDto(text, null, null)).ToList();
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, items.Select(text => text.Id), ct);
+        var dtos = items.Select(text => MapToDto(text, null, null, effectiveTags)).ToList();
         return Ok(new PaginatedResponse<TextDocumentDto>(dtos, totalCount, page, perPage));
     }
 
@@ -141,7 +143,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var findFilter = req.FindFilter ?? new FindFilter();
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
-        var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
+        var sortClauses = CreateMultiSortRegistry().Normalize(findFilter.Sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        var sort = primarySort?.Key ?? findFilter.Sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter.Direction == Cove.Core.Enums.SortDirection.Desc);
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))
         {
@@ -170,9 +176,10 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
-        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
-            query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
+        query = ApplySort(query, sort, descending, findFilter.Seed, sortClauses);
+        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, text => text.Title);
 
         var totalCount = await query.CountAsync(ct);
         var pagedIds = await query
@@ -183,7 +190,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         var items = await LoadListItemsAsync(pagedIds, ct);
 
-        var dtos = items.Select(text => MapToDto(text, null, null)).ToList();
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, items.Select(text => text.Id), ct);
+        var dtos = items.Select(text => MapToDto(text, null, null, effectiveTags)).ToList();
         return Ok(new PaginatedResponse<TextDocumentDto>(dtos, totalCount, page, perPage));
     }
 
@@ -213,6 +221,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         if (req.Ids is { Count: > 0 }) query = query.Where(text => req.Ids.Contains(text.Id));
 
         return Ok(await query.GroupBy(_ => 1)
@@ -222,13 +231,14 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextDocumentDto>> GetById(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (text == null)
@@ -240,6 +250,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}/content")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextContentDto>> GetContent(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
@@ -249,16 +260,30 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .OrderByDescending(item => item.WordCount)
             .ThenBy(item => item.Id)
             .FirstOrDefault();
-        if (file == null || string.IsNullOrWhiteSpace(file.Path) || !System.IO.File.Exists(file.Path))
+        if (file == null || string.IsNullOrWhiteSpace(file.Path))
         {
             return NotFound();
         }
 
-        var extracted = await textExtractionService.ExtractContentAsync(file.Path, ct);
-        return Ok(new TextContentDto(extracted.Format, extracted.RenderMode, extracted.Content));
+        if (!System.IO.File.Exists(file.Path)) return NotFound();
+
+        try
+        {
+            var extracted = await textExtractionService.ExtractContentAsync(file.Path, ct);
+            return Ok(new TextContentDto(extracted.Format, extracted.RenderMode, extracted.Content));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, file.Path))
+        {
+            return NotFound();
+        }
     }
 
     [HttpGet("{id:int}/file")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<IActionResult> GetFile(int id, CancellationToken ct)
     {
@@ -279,16 +304,21 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             contentType = "application/octet-stream";
         }
 
-        var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(file.Path, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         return File(stream, contentType, enableRangeProcessing: true);
     }
 
     [HttpPost]
     [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Create([FromBody] TextDocumentCreateDto dto, CancellationToken ct)
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
         var performerIds = dto.PerformerIds?.Where(performerId => performerId > 0).Distinct().ToArray() ?? [];
+        var date = PartialDate.Parse(dto.Date);
         var text = new TextDocument
         {
             Title = NormalizeOptionalText(dto.Title),
@@ -296,7 +326,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             Details = NormalizeOptionalText(dto.Details),
             Organized = dto.Organized,
             StudioId = dto.StudioId,
-            Date = ParseDate(dto.Date),
+            Date = date.Value,
+            DatePrecision = date.Precision,
             TagIds = tagIds,
             PerformerIds = performerIds,
             Urls = dto.Urls?.Select(NormalizeOptionalText).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => new TextUrl { Url = url! }).ToList() ?? [],
@@ -336,7 +367,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == textDocumentId, ct);
         if (text == null) return NotFound();
@@ -370,6 +401,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.TextsWrite)]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Update(int id, [FromBody] TextDocumentUpdateDto dto, CancellationToken ct)
     {
         var text = await db.TextDocuments
@@ -388,52 +421,55 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         if (dto.Details != null) text.Details = NormalizeOptionalText(dto.Details);
         if (dto.Organized.HasValue) text.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) text.StudioId = dto.StudioId;
-        if (dto.Date != null) text.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); text.Date = date.Value; text.DatePrecision = date.Precision; }
         if (clearFields.Contains("studioId")) text.StudioId = null;
 
         if (dto.Urls != null)
         {
-            text.Urls.Clear();
-            text.Urls = dto.Urls
+            var urls = dto.Urls
                 .Select(url => NormalizeOptionalText(url))
                 .Where(url => !string.IsNullOrWhiteSpace(url))
-                .Select(url => new TextUrl { TextDocumentId = id, Url = url! })
+                .Select(url => url!)
                 .ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.Urls, urls, item => item.Url, url => new TextUrl { TextDocumentId = id, Url = url }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(text);
         }
 
         if (dto.TagIds != null)
         {
             var tagIds = dto.TagIds.Where(tagId => tagId > 0).Distinct().ToArray();
-            text.TextTags.Clear();
-            text.TextTags = tagIds.Select(tagId => new TextTag { TextDocumentId = id, TagId = tagId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.TextTags, tagIds, item => item.TagId, tagId => new TextTag { TextDocumentId = id, TagId = tagId }))
+                MetadataCollectionUpdater.Touch(text);
             text.TagIds = tagIds;
         }
 
         if (dto.PerformerIds != null)
         {
             var performerIds = dto.PerformerIds.Where(performerId => performerId > 0).Distinct().ToArray();
-            text.TextPerformers.Clear();
-            text.TextPerformers = performerIds.Select(performerId => new TextPerformer { TextDocumentId = id, PerformerId = performerId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.TextPerformers, performerIds, item => item.PerformerId, performerId => new TextPerformer { TextDocumentId = id, PerformerId = performerId }))
+                MetadataCollectionUpdater.Touch(text);
             text.PerformerIds = performerIds;
         }
 
         if (dto.GroupIds != null)
         {
-            await ReplaceWholeTextGroupItemsAsync(id, dto.GroupIds, text.Title, ct);
+            if (await ReplaceWholeTextGroupItemsAsync(id, dto.GroupIds, text.Title, ct))
+                MetadataCollectionUpdater.Touch(text);
         }
 
         await db.SaveChangesAsync(ct);
 
-        if (dto.CustomFields != null)
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Text, id, dto.CustomFields, ct))
         {
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Text, id, dto.CustomFields, ct);
+            MetadataCollectionUpdater.Touch(text);
+            await db.SaveChangesAsync(ct);
         }
 
         var updated = await db.TextDocuments.AsNoTracking()
             .Include(item => item.Studio)
             .Include(item => item.Files)
             .Include(item => item.Urls)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (updated == null)
@@ -464,7 +500,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             if (clearFields.Contains("details")) text.Details = null;
             if (dto.Organized.HasValue) text.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) text.StudioId = dto.StudioId;
-            if (dto.Date != null) text.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); text.Date = date.Value; text.DatePrecision = date.Precision; }
             if (dto.Code != null) text.Code = NormalizeOptionalText(dto.Code);
             if (dto.Details != null) text.Details = NormalizeOptionalText(dto.Details);
 
@@ -510,33 +546,52 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.TextsDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
 
-        var idsToDelete = ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var items = await db.TextDocuments.Include(item => item.Files).Where(item => ids.Contains(item.Id)).ToListAsync(ct);
-        var groupItems = await db.GroupItems.Where(item => item.HostType == "text" && ids.Contains(item.HostId)).ToListAsync(ct);
-        db.GroupItems.RemoveRange(groupItems);
-        foreach (var item in items)
-            await DeleteTextArtifactsAsync(item, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-        foreach (var id in ids)
-        {
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Text, id, ct);
-        }
-        db.TextDocuments.RemoveRange(items);
-        await db.SaveChangesAsync(ct);
-        return new EntityMutationNoContentResult(items.Select(item => item.Id).ToList());
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one text document to delete.");
+
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Text,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.TextsDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "deleteFile")]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsDelete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
+
+        if (bulkEntityDeletionService is not null)
+        {
+            var executionContext = new BulkDeletionExecutionContext();
+            if (!await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Text,
+                    id,
+                    executionContext,
+                    deleteFile,
+                    deleteGenerated,
+                    ct,
+                    publishEvent: false))
+                return NotFound();
+            if (deleteFile)
+                physicalFileDeletionRecoverySignal?.Notify();
+            return NoContent();
+        }
+
         var text = await db.TextDocuments.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == id, ct);
         if (text == null) return NotFound();
 
@@ -586,7 +641,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(text => text.Studio)
             .Include(text => text.Urls)
             .Include(text => text.Files)
-            .Include(text => text.TextTags).ThenInclude(link => link.Tag)
+            .Include(text => text.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(text => text.TextPerformers).ThenInclude(link => link.Performer)
             .Where(text => pagedIds.Contains(text.Id))
             .AsSplitQuery()
@@ -681,7 +736,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(text => text.Id);
+        return compound.Finish(text => text.Id, clauses[0].Direction == Cove.Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
@@ -690,6 +745,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             return query;
 
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Text, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);
@@ -700,7 +756,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FilterHelpers.ApplyString(query, filter.ContentCriterion, text => text.SearchText);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, text => text.Files);
         query = ApplyTextFileStringCriterion(query, filter.FormatCriterion);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, text => text.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, text => text.ImageBlobId != null && text.ImageBlobId != string.Empty);
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, text => text.Date);
@@ -726,23 +782,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     private static IQueryable<TextDocument> ApplyTextFileStringCriterion(IQueryable<TextDocument> query, StringCriterion? criterion)
-    {
-        if (criterion == null)
-            return query;
-
-        var value = criterion.Value.Trim();
-        var lowered = value.ToLowerInvariant();
-        return criterion.Modifier switch
-        {
-            CriterionModifier.Equals => query.Where(text => text.Files.Any(file => file.Format == value)),
-            CriterionModifier.NotEquals => query.Where(text => !text.Files.Any(file => file.Format == value)),
-            CriterionModifier.Includes => query.Where(text => text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.Excludes => query.Where(text => !text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.IsNull => query.Where(text => !text.Files.Any(file => file.Format != string.Empty)),
-            CriterionModifier.NotNull => query.Where(text => text.Files.Any(file => file.Format != string.Empty)),
-            _ => query,
-        };
-    }
+        => FilterHelpers.ApplyStringCollection(query, criterion, text => text.Files.Select(file => file.Format));
 
     private static int[] GetIncludedPerformerIds(TextDocumentFilter filter)
     {
@@ -822,14 +862,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     {
         var groups = await GetGroupsAsync(text.Id, ct);
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Text, text.Id, ct);
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, [text.Id], ct);
         var contextTagApplications = await GetContextTagApplicationsAsync(text.Id, ct);
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, text.TextPerformers.Select(link => link.PerformerId), ct, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Text, text.Id, ct)).ToList();
-        return MapToDto(text, groups, customFieldValues, contextTagApplications, fieldProvenance);
+        return MapToDto(text, groups, customFieldValues, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByTextId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         text.Id,
         text.Title,
         text.Code,
@@ -837,17 +879,24 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         text.Organized,
         text.StudioId,
         text.Studio?.Name,
-        text.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(text.Date, text.DatePrecision),
         text.Urls.Select(url => url.Url).ToList(),
-        text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList(),
+        GetEffectiveTags(text, effectiveTagsByTextId),
         text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(
             performer.Id,
             performer.Name,
             performer.Disambiguation,
             performer.Gender?.ToString(),
-            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
             performer.Favorite,
-            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
+            performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0,
+            performer.Country,
+            PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision))).ToList(),
         text.Files.OrderBy(file => file.Id).Select(file => new TextFileDto(
             file.Id,
             CanReadFiles ? file.Path : string.Empty,
@@ -868,6 +917,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         contextTagApplications,
         fieldProvenance);
 
+    private static List<TagDto> GetEffectiveTags(TextDocument text, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByTextId)
+        => effectiveTagsByTextId != null && effectiveTagsByTextId.TryGetValue(text.Id, out var tags)
+            ? tags
+            : text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).OrderForDisplay().ToList();
+
     private async Task<List<TagApplicationDto>?> GetContextTagApplicationsAsync(int textId, CancellationToken ct)
     {
         var applications = await db.TagApplications.AsNoTracking()
@@ -877,7 +931,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .AsSplitQuery()
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return applications.Count == 0 ? null : applications.Select(TagApplicationsController.Map).ToList();
@@ -888,7 +946,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
 
@@ -900,16 +958,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Select(item => new GroupSummaryDto(item.GroupId, item.Group!.Name, 0))
             .ToListAsync(ct);
 
-    private async Task ReplaceWholeTextGroupItemsAsync(int textDocumentId, IReadOnlyCollection<VideoGroupInputDto> groups, string? textTitle, CancellationToken ct)
+    private async Task<bool> ReplaceWholeTextGroupItemsAsync(int textDocumentId, IReadOnlyCollection<VideoGroupInputDto> groups, string? textTitle, CancellationToken ct)
     {
         var existing = await db.GroupItems
             .Where(item => item.HostType == "text" && item.HostId == textDocumentId && item.Kind == GroupItemKind.Text)
             .ToListAsync(ct);
-
-        if (existing.Count > 0)
-        {
-            db.GroupItems.RemoveRange(existing);
-        }
 
         var normalizedGroups = groups
             .Where(group => group is { GroupId: > 0 })
@@ -917,9 +970,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Select((group, index) => new { GroupId = group.Key, OrderIndex = index })
             .ToList();
 
+        if (existing.OrderBy(item => item.OrderIndex).Select(item => (item.GroupId, item.OrderIndex))
+            .SequenceEqual(normalizedGroups.Select(item => (item.GroupId, item.OrderIndex))))
+            return false;
+
+        if (existing.Count > 0)
+            db.GroupItems.RemoveRange(existing);
+
         if (normalizedGroups.Count == 0)
         {
-            return;
+            return true;
         }
 
         db.GroupItems.AddRange(normalizedGroups.Select(group => new GroupItem
@@ -931,10 +991,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             HostId = textDocumentId,
             Title = NormalizeOptionalText(textTitle),
         }));
+        return true;
     }
-
-    private static DateOnly? ParseDate(string? value)
-        => DateOnly.TryParse(value, out var parsed) ? parsed : null;
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

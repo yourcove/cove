@@ -12,7 +12,11 @@ interface MetadataServer {
   name?: string;
 }
 
-export function metadataServerEntityUrl(endpoint: string, entityType: MetadataEntityType, remoteId: string): string | null {
+export function metadataServerEntityUrl(
+  endpoint: string,
+  entityType: MetadataEntityType,
+  remoteId: string,
+): string | null {
   try {
     const url = new URL(endpoint);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
@@ -29,7 +33,9 @@ export function metadataServerEntityUrl(endpoint: string, entityType: MetadataEn
 
 function metadataServerLabel(endpoint: string, servers: MetadataServer[]): string {
   const normalizedEndpoint = endpoint.trim().replace(/\/$/, "").toLowerCase();
-  const configuredName = servers.find((server) => server.endpoint.trim().replace(/\/$/, "").toLowerCase() === normalizedEndpoint)?.name?.trim();
+  const configuredName = servers
+    .find((server) => server.endpoint.trim().replace(/\/$/, "").toLowerCase() === normalizedEndpoint)
+    ?.name?.trim();
   if (configuredName) return configuredName;
   try {
     return new URL(endpoint).hostname.replace(/^www\./i, "");
@@ -38,7 +44,17 @@ function metadataServerLabel(endpoint: string, servers: MetadataServer[]): strin
   }
 }
 
-export function MetadataServerLinks({ remoteIds, entityType, metadataServers = [], className = "contents" }: { remoteIds?: RemoteId[]; entityType: MetadataEntityType; metadataServers?: MetadataServer[]; className?: string }) {
+export function MetadataServerLinks({
+  remoteIds,
+  entityType,
+  metadataServers = [],
+  className = "contents",
+}: {
+  remoteIds?: RemoteId[];
+  entityType: MetadataEntityType;
+  metadataServers?: MetadataServer[];
+  className?: string;
+}) {
   const links = (remoteIds ?? []).flatMap((remoteId) => {
     const href = metadataServerEntityUrl(remoteId.endpoint, entityType, remoteId.remoteId);
     return href ? [{ ...remoteId, href, label: metadataServerLabel(remoteId.endpoint, metadataServers) }] : [];

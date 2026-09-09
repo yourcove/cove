@@ -1,8 +1,8 @@
 # Fluent API tests
 
-These tests launch the real Cove application as a Kestrel process and exercise it over HTTP with real access tokens. Two parallel test lanes each own an isolated process, data root, PostgreSQL database, metadata-service simulator, download-source simulator, and temporary library folder. Tests within a lane are serialized; before each test, the fixture drains background work, resets public database state and caches, restores required built-in state, and creates the standard owner and member personas.
+These tests launch the real Cove application as a Kestrel process and exercise it over HTTP with real access tokens. An assembly fixture starts a bounded pool of isolated servers. The pool defaults to half of the available logical processors, capped at six to leave PostgreSQL capacity for host replacement and harness self-tests, while xUnit's conservative parallel-test limit retains an eight-worker ceiling for explicit tuning. Set `COVE_API_TEST_WORKERS` to an integer from one through eight to tune the server pool for a particular machine or CI runner. Every server has a distinct process, data root, PostgreSQL database, metadata-service simulator, download-source simulator, extension-registry simulator, and temporary library folder. Every `ApiTest` class holds one exclusive server lease for its lifetime, while methods within each class remain serial. Before each test, the leased server drains background work, resets public database state and caches, restores required built-in state, and creates the standard owner and member personas. Database restore and wipe tests explicitly mark their server for retirement before the destructive request, so the next class receives a fresh process, database, and data root.
 
-Put every behavior test class in `ApiTestLane1Collection` or `ApiTestLane2Collection`, derive it from `ApiTest`, and distribute classes roughly evenly between lanes. Use:
+Derive ordinary behavior test classes from `ApiTest` and accept their `CoveApiTestFixture` through the constructor. Do not add explicit collections for database restore, wipe, configuration, extension, or filesystem scenarios; their class-scoped lease already isolates those resources. Tests that self-host `CoveApiServer` directly belong to `SelfHostedApiTestCollection`, which remains explicitly non-parallel. Use:
 
 - `AsUser()` for the owner-authenticated `CoveClient`.
 - `AsUser(ApiTestUsers.Eva)` or `AsUser(ApiTestUsers.Anthony)` for standard members.
@@ -60,6 +60,10 @@ public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
 ```
 
+The default local command and eligible GitHub CI jobs run the suite without collecting code coverage. To collect coverage when using it to guide test work, run one of the explicit opt-in commands below. In GitHub, start the **CI** workflow manually and enable **Collect API coverage and enforce the controller coverage baseline**.
+
+The automatic worker count is suitable for typical local and hosted environments. Override it when benchmarking a known machine, for example `COVE_API_TEST_WORKERS=6 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj`. Higher values increase PostgreSQL connections and memory-intensive password work; do not raise the eight-worker ceiling without measuring those limits.
+
 The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING`, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.
 
 For authenticated debugging, use the random base URI printed in test output together with `ApiUri`, `AsUser().AccessToken`, or `AsUser().CreateHttpClient()` while the test process is running.
@@ -72,12 +76,23 @@ dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage
 node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 ```
 
-The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
-
-Run the coverage tool's synthetic Cobertura tests with:
+To collect coverage from every .NET test assembly in one instrumentation session and generate a Coverage Gutters-compatible report:
 
 ```sh
-node --test scripts/check-api-controller-coverage.test.mjs
+source gitignored/dev/agent.env
+scripts/collect-backend-coverage
+```
+
+The command runs the exact Release solution build followed by `Cove.ApiTests`, `Cove.Tests`, and `Cove.PerformanceTests` sequentially from those compiled outputs. Performance tests use explicit `COVE_PERF_PG_*` settings when present. Host, port, and password otherwise fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password. The command writes the authoritative report to `artifacts/coverage/all-dotnet-tests-single-session.cobertura.xml`, derives `artifacts/coverage/all-dotnet-tests-single-session.coverage-gutters.xml` without modifying the raw report, and prints the controller coverage analysis. The single collection session preserves subprocess and branch coverage that can be lost when separately generated Cobertura reports are merged.
+
+The VS Code workspace recommends Coverage Gutters and watches the compatible report automatically after the extension is installed. After collecting fresh coverage, use **Coverage Gutters: Display Coverage** if the gutters are not already visible.
+
+The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
+
+Run the coverage tools' synthetic Cobertura tests with:
+
+```sh
+node --test scripts/check-api-controller-coverage.test.mjs scripts/prepare-coverage-gutters.test.mjs
 ```
 
 Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.

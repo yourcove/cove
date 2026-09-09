@@ -43,12 +43,14 @@ vi.mock("../api/client", () => ({
       slots: [],
       tabs: [],
       features: [],
-      themes: [{
-        id: "cinema-dark",
-        name: "Cinema Dark",
-        componentStyle: "floating",
-        layoutStyle: "detail-theater detail-tabs",
-      }],
+      themes: [
+        {
+          id: "cinema-dark",
+          name: "Cinema Dark",
+          componentStyle: "floating",
+          layoutStyle: "detail-theater detail-tabs",
+        },
+      ],
       componentStyles: [],
       layoutStyles: [],
       settingsTabs: [],
@@ -75,7 +77,11 @@ describe("ExtensionLoaderProvider preference synchronization", () => {
     localStorage.setItem("cove-component-style", "floating");
     localStorage.setItem("cove-layout-style", "detail-theater detail-tabs");
 
-    const view = render(<ExtensionLoaderProvider><div>content</div></ExtensionLoaderProvider>);
+    const view = render(
+      <ExtensionLoaderProvider>
+        <div>content</div>
+      </ExtensionLoaderProvider>,
+    );
     await waitFor(() => {
       expect(document.documentElement).toHaveAttribute("data-component-style", "floating");
       expect(document.documentElement).toHaveAttribute("data-layout", "detail-theater detail-tabs");
@@ -91,7 +97,11 @@ describe("ExtensionLoaderProvider preference synchronization", () => {
         defaultFilters: { videos: "{}" },
       },
     };
-    view.rerender(<ExtensionLoaderProvider><div>content</div></ExtensionLoaderProvider>);
+    view.rerender(
+      <ExtensionLoaderProvider>
+        <div>content</div>
+      </ExtensionLoaderProvider>,
+    );
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
     expect(setAttribute).not.toHaveBeenCalledWith("data-component-style", "default");

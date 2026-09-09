@@ -91,12 +91,38 @@ public class GenerateJobServiceTests
     [InlineData("/library", "/library", true)]
     [InlineData("/library-other/video.mp4", "/library", false)]
     [InlineData("/LIBRARY/video.mp4", "/library", true)]
+    [InlineData("\\library\\video.mp4", "/library", true)]
+    [InlineData("C:\\library\\video.mp4", "C:/library", true)]
+    [InlineData("C:/library/video.mp4", "C:\\library", true)]
+    [InlineData("C:/library-other/video.mp4", "C:/library", false)]
+    [InlineData("/library/nested/video.mp4", "/library/nested", true)]
+    [InlineData("/library/nested-other/video.mp4", "/library/nested", false)]
+    [InlineData("/library/video.mp4", "/", true)]
+    [InlineData("relative/library/video.mp4", "relative/library", true)]
+    [InlineData("relative/library-other/video.mp4", "relative/library", false)]
     public void IsUnderAnyPath_UsesDirectorySegmentBoundaries(
         string candidate,
         string filter,
         bool expected)
     {
         Assert.Equal(expected, GeneratePathFilter.Contains(candidate, [filter]));
+    }
+
+    [Theory]
+    [InlineData("/canonical/video.mp4", "/stale", "wrong.mp4")]
+    [InlineData("C:/canonical/video.mp4", "C:/stale", "wrong.mp4")]
+    [InlineData("//server/share/video.mp4", "//other/share", "wrong.mp4")]
+    public void Resolve_UsesTheCanonicalFilePathInsteadOfNavigationData(string storedPath, string folderPath, string basename)
+    {
+        var file = new VideoFile
+        {
+            Path = storedPath,
+            Basename = basename,
+            ParentFolder = new Folder { Path = folderPath },
+        };
+
+        var expected = OperatingSystem.IsWindows() ? storedPath.Replace('/', '\\') : storedPath;
+        Assert.Equal(expected, GeneratePathFilter.Resolve(file));
     }
 
     [Fact]
@@ -110,8 +136,8 @@ public class GenerateJobServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(originalRoot, "first.mp4"), [1]);
-            await File.WriteAllBytesAsync(Path.Combine(selectedRoot, "selected.mp4"), [2]);
+            await File.WriteAllBytesAsync(Path.Combine(originalRoot, "first.mp4"), [1], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(selectedRoot, "selected.mp4"), [2], TestContext.Current.CancellationToken);
 
             var dbOptions = new DbContextOptionsBuilder<CoveContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -128,7 +154,7 @@ public class GenerateJobServiceTests
                     (1, originalRoot, "first.mp4"),
                     (2, selectedRoot, "selected.mp4"));
                 db.Videos.Add(video);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 selectedFileId = video.Files.Single(file => file.Basename == "selected.mp4").Id;
             }
 
@@ -160,7 +186,7 @@ public class GenerateJobServiceTests
                 Overwrite = true,
                 Paths = [selectedRoot],
             });
-            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Equal(selectedFileId, thumbnails.PreviewSourceFileId);
             var unit = Assert.Single(jobs.Progress.Units);
@@ -181,6 +207,7 @@ public class GenerateJobServiceTests
             {
                 Id = file.Id,
                 Basename = file.Basename,
+                Path = BaseFileEntity.ComputePath(file.Folder, file.Basename),
                 ParentFolder = new Folder { Path = file.Folder },
             });
         }

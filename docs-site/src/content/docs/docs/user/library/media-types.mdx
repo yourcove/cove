@@ -1,43 +1,10 @@
 ---
 title: Media types
 description: Understand the video, image, gallery, audio, and text content Cove can keep in one local library.
+tableOfContents: false
 ---
 
-Cove can keep several kinds of [media records](../../../reference/media/) in one library. They share organization and access patterns, but each type represents a different unit of content.
+import FeatureGuide from "../../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../../docs/feature-guides/media-types.json";
 
-## Primary media records
-
-### Videos
-
-Choose [videos](../../../reference/videos/) for moving-image content that needs playback, timeline-aware organization, or sub-videos.
-
-### Images
-
-Choose [images](../../../reference/images/) when each still should remain independently searchable and reusable.
-
-### Galleries
-
-Choose [galleries](../../../reference/galleries/) when related images also need a collection identity, shared metadata, or chapters.
-
-### Audio
-
-Choose [audio](../../../reference/audio/) for sound-first content that needs playback, tracks, or timeline annotations without a video component.
-
-### Text
-
-Choose [text](../../../reference/text/) for written source material that should participate in library search, organization, and access control.
-
-These choices describe the primary record, not every relationship it can have. See [Media](../../../reference/media/) for the shared record boundary and [Organizing your library](../organizing/) for choosing connected records.
-
-## Why this matters
-
-Once a library crosses formats, a narrow organizer starts forcing workarounds. Cove’s model lets you:
-
-- search across more than one kind of content
-- keep shared metadata patterns across media types
-- group related items together even when they are not all the same format
-- use one permissions and sharing model for the whole library
-
-## When to keep things simple
-
-You do not need to turn on every content type on day one. Many libraries begin with videos and images, then expand into galleries, audio, text, or more detailed connected records as the library matures.
+<FeatureGuide guide={guide} />

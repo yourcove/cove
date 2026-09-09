@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -19,6 +21,60 @@ public sealed partial class CoveClient
             WithCacheNonce($"/api/faces/{faceId}"),
             payload: null,
             cancellationToken);
+
+    public Task<PaginatedResponse<FaceDto>> FindFacesAsync(
+        IReadOnlyList<CustomFieldCriterion>? customFieldCriteria = null,
+        string? sort = null,
+        string direction = "asc",
+        string? label = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { "page=1", "perPage=50", $"direction={Uri.EscapeDataString(direction)}" };
+        if (!string.IsNullOrWhiteSpace(label))
+            query.Add($"label={Uri.EscapeDataString(label)}");
+        if (customFieldCriteria is { Count: > 0 })
+        {
+            var wireCriteria = customFieldCriteria.Select(criterion => new
+            {
+                criterion.Key,
+                criterion.Type,
+                criterion.JsonPath,
+                criterion.Value,
+                criterion.Value2,
+                Modifier = JsonNamingPolicy.SnakeCaseUpper.ConvertName(criterion.Modifier.ToString()),
+            });
+            query.Add($"customFieldCriteria={Uri.EscapeDataString(JsonSerializer.Serialize(wireCriteria, ApiJson.Options))}");
+        }
+        if (!string.IsNullOrWhiteSpace(sort))
+            query.Add($"sort={Uri.EscapeDataString(sort)}");
+
+        return SendAsync<PaginatedResponse<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<PaginatedResponse<FaceDto>> FindFacesBySuggestionAsync(
+        float? minSuggestionConfidence = null,
+        IReadOnlyList<int>? topSuggestionPerformerIds = null,
+        string? label = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { "page=1", "perPage=50" };
+        if (!string.IsNullOrWhiteSpace(label))
+            query.Add($"label={Uri.EscapeDataString(label)}");
+        if (minSuggestionConfidence.HasValue)
+            query.Add($"minSuggestionConfidence={minSuggestionConfidence.Value.ToString(CultureInfo.InvariantCulture)}");
+        if (topSuggestionPerformerIds is { Count: > 0 })
+            query.Add($"topSuggestionPerformerIds={Uri.EscapeDataString(string.Join(",", topSuggestionPerformerIds))}");
+
+        return SendAsync<PaginatedResponse<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
 
     public Task<FaceDto> UpdateFaceAsync(
         int faceId,
@@ -151,6 +207,44 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<IReadOnlyList<FaceDto>> GetAiRunFaceReviewAsync(
+        DateTime? startedAt,
+        DateTime? completedAt,
+        int take = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { $"take={take}" };
+        if (startedAt.HasValue)
+            query.Add($"startedAt={Uri.EscapeDataString(startedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))}");
+        if (completedAt.HasValue)
+            query.Add($"completedAt={Uri.EscapeDataString(completedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))}");
+
+        return SendAsync<IReadOnlyList<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/review/ai-run?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<FaceSuggestionDto>> GetFaceSuggestionsAsync(
+        int faceId,
+        int maxResults = 5,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceSuggestionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/{faceId}/suggestions?maxResults={maxResults}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<FaceBatchOperationResultDto> BatchLinkTopSuggestionAsync(
+        FaceBatchLinkTopSuggestionDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceBatchOperationResultDto>(
+            HttpMethod.Post,
+            "/api/faces/batch/link-top-suggestion",
+            request,
+            cancellationToken);
+
     public Task<PaginatedResponse<FaceSimilarDto>> GetSimilarFacesAsync(
         int faceId,
         string kindFamily,
@@ -171,13 +265,14 @@ public sealed partial class CoveClient
             cancellationToken);
     }
 
-    public Task<FaceBatchOperationResultDto> BatchDeleteFacesAsync(
+    public Task<BulkDeletionJobStartResponse> BatchDeleteFacesAsync(
         IReadOnlyList<int> faceIds,
         CancellationToken cancellationToken = default)
-        => SendAsync<FaceBatchOperationResultDto>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Post,
             "/api/faces/batch/delete",
             new FaceBatchDeleteDto(faceIds),
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
 
     public Task<FaceDto> RecordFaceSuggestionDecisionAsync(

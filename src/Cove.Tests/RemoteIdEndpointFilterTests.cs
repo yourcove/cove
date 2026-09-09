@@ -73,28 +73,20 @@ public class RemoteIdEndpointFilterTests
         string[] expected)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         Seed(context);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var criterion = new StringCriterion { Value = "service-a", Modifier = modifier };
         var actual = entityType switch
         {
-            "videos" => (await new VideoRepository(context).FindAsync(
-                new VideoFilter { RemoteIdCriterion = criterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "title" })).Items.Select(item => item.Title!).ToArray(),
-            "performers" => (await new PerformerRepository(context).FindAsync(
-                new PerformerFilter { RemoteIdCriterion = criterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name!).ToArray(),
-            "studios" => (await new StudioRepository(context).FindAsync(
-                new StudioFilter { RemoteIdCriterion = criterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name).ToArray(),
-            "tags" => (await new TagRepository(context).FindAsync(
-                new TagFilter { RemoteIdCriterion = criterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name).ToArray(),
+            "videos" => (await new VideoRepository(context).FindAsync(new VideoFilter { RemoteIdCriterion = criterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "title" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Title!).ToArray(),
+            "performers" => (await new PerformerRepository(context).FindAsync(new PerformerFilter { RemoteIdCriterion = criterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name!).ToArray(),
+            "studios" => (await new StudioRepository(context).FindAsync(new StudioFilter { RemoteIdCriterion = criterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name).ToArray(),
+            "tags" => (await new TagRepository(context).FindAsync(new TagFilter { RemoteIdCriterion = criterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name).ToArray(),
             _ => throw new ArgumentOutOfRangeException(nameof(entityType)),
         };
 
@@ -109,29 +101,21 @@ public class RemoteIdEndpointFilterTests
         string[] expected)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         Seed(context);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var endpointCriterion = new StringCriterion { Value = "service-a", Modifier = CriterionModifier.Equals };
         var valueCriterion = new StringCriterion { Value = "3", Modifier = modifier };
         var actual = entityType switch
         {
-            "videos" => (await new VideoRepository(context).FindAsync(
-                new VideoFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "title" })).Items.Select(item => item.Title!).ToArray(),
-            "performers" => (await new PerformerRepository(context).FindAsync(
-                new PerformerFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name!).ToArray(),
-            "studios" => (await new StudioRepository(context).FindAsync(
-                new StudioFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name).ToArray(),
-            "tags" => (await new TagRepository(context).FindAsync(
-                new TagFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion },
-                new FindFilter { Page = 1, PerPage = 20, Sort = "name" })).Items.Select(item => item.Name).ToArray(),
+            "videos" => (await new VideoRepository(context).FindAsync(new VideoFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "title" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Title!).ToArray(),
+            "performers" => (await new PerformerRepository(context).FindAsync(new PerformerFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name!).ToArray(),
+            "studios" => (await new StudioRepository(context).FindAsync(new StudioFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name).ToArray(),
+            "tags" => (await new TagRepository(context).FindAsync(new TagFilter { RemoteIdCriterion = endpointCriterion, RemoteIdValueCriterion = valueCriterion }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken)).Items.Select(item => item.Name).ToArray(),
             _ => throw new ArgumentOutOfRangeException(nameof(entityType)),
         };
 

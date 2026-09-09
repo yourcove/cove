@@ -7,6 +7,46 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<IReadOnlyList<GalleryChapterDto>> GetGalleryChaptersAsync(
+        GalleryDto gallery,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GalleryChapterDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/galleries/{gallery.Id}/chapters"),
+            payload: null,
+            cancellationToken);
+
+    public Task<GalleryChapterDto> CreateGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterCreateDto chapter,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryChapterDto>(
+            HttpMethod.Post,
+            $"/api/galleries/{gallery.Id}/chapters",
+            chapter,
+            cancellationToken);
+
+    public Task<GalleryChapterDto> UpdateGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterDto chapter,
+        GalleryChapterUpdateDto update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryChapterDto>(
+            HttpMethod.Put,
+            $"/api/galleries/{gallery.Id}/chapters/{chapter.Id}",
+            update,
+            cancellationToken);
+
+    public Task DeleteGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterDto chapter,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/galleries/{gallery.Id}/chapters/{chapter.Id}",
+            new { },
+            cancellationToken);
+
     public Task<EntityEngagementDto> SetGalleryRatingAsync(
         GalleryDto gallery,
         int rating,
@@ -26,6 +66,20 @@ public sealed partial class CoveClient
             $"/api/galleries/{galleryId}",
             update,
             cancellationToken);
+
+    public async Task<string> RescanGalleryAsync(
+        int galleryId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendForExpectedStatusAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/galleries/{galleryId}/rescan",
+            payload: null,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/galleries/{galleryId}/rescan did not return a job id.");
+    }
 
     public Task<PaginatedResponse<GalleryDto>> FindGalleriesAsync(
         FilteredQueryRequest<GalleryFilter> request,
@@ -66,17 +120,15 @@ public sealed partial class CoveClient
             new { },
             cancellationToken);
 
-    public async Task<int> BulkDeleteGalleriesAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteGalleriesAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/galleries/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
 
     public async Task<int> RemoveGalleryImagesAsync(
         GalleryDto gallery,

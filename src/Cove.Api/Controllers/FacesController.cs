@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Data;
 using System.Linq.Expressions;
 using System.Text.Json;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -33,7 +34,11 @@ public class FacesController(
     IEnumerable<IFaceSuggestionDecisionHandler>? faceSuggestionDecisionHandlers = null,
     IExtensionServiceExchange? serviceExchange = null,
     IFaceTopSuggestionMaintenance? suggestionMaintenance = null,
-    IReferencePerformerImporter? referencePerformerImporter = null) : ControllerBase
+    IReferencePerformerImporter? referencePerformerImporter = null,
+    BulkDeletionJobService? bulkDeletionJobService = null,
+    BulkEntityDeletionService? bulkEntityDeletionService = null,
+    IThumbnailService? thumbnailService = null,
+    IStreamService? streamService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
 
@@ -289,6 +294,16 @@ public class FacesController(
             // Only unlinked faces carry a materialized suggestion.
             var suggestionQuery = query.Where(face => face.PerformerId == null && face.TopSuggestionPerformerId != null);
 
+            // The materialized columns hold the *global* top suggestion, so a face whose cached top this
+            // user has already decided on (rejected/accepted) no longer shows that performer — see
+            // ResolveDecidedTopSuggestionsAsync. Filtering and sorting those faces on the stored value
+            // would contradict the suggestion the row actually renders, so keep them out of this branch.
+            if (principalAccessor?.Current?.UserId is int decisionUserId)
+                suggestionQuery = suggestionQuery.Where(face => !db.FaceSuggestionDecisions.Any(decision =>
+                    decision.FaceId == face.Id
+                    && decision.UserId == decisionUserId
+                    && decision.PerformerId == face.TopSuggestionPerformerId));
+
             if (parsedTopSuggestionPerformerIds.Count > 0)
                 suggestionQuery = suggestionQuery.Where(face => face.TopSuggestionLocalPerformerId != null && parsedTopSuggestionPerformerIds.Contains(face.TopSuggestionLocalPerformerId.Value));
 
@@ -313,12 +328,13 @@ public class FacesController(
             var filteredComputedCounts = await LoadComputedCountsAsync(filteredPage.Select(face => face.Id).ToArray(), cancellationToken);
             var filteredOrdinals = await LoadPerformerFaceOrdinalsAsync(filteredPage, cancellationToken);
             var filteredCoverFallbacks = await LoadFaceCoverFallbackUrlsAsync(filteredPage, cancellationToken);
+            var filteredDecided = await ResolveDecidedTopSuggestionsAsync(filteredPage, cancellationToken);
 
             return Ok(new PaginatedResponse<FaceDto>(
                 filteredPage.Select(face => MapToDto(
                     face,
                     filteredComputedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                    MapStoredTopSuggestion(face),
+                    ResolveTopSuggestion(face, filteredDecided),
                     performerFaceOrdinal: filteredOrdinals.TryGetValue(face.Id, out var ord) ? ord : null,
                     coverFallbackUrl: filteredCoverFallbacks.GetValueOrDefault(face.Id))).ToList(),
                 totalFilteredCount,
@@ -341,13 +357,14 @@ public class FacesController(
         var computedCounts = await LoadComputedCountsAsync(items.Select(face => face.Id).ToArray(), cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync(items, cancellationToken);
         var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(items, cancellationToken);
+        var decided = await ResolveDecidedTopSuggestionsAsync(items, cancellationToken);
         logger.LogDebug("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
 
         return Ok(new PaginatedResponse<FaceDto>(
             items.Select(face => MapToDto(
                 face,
                 computedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                MapStoredTopSuggestion(face),
+                ResolveTopSuggestion(face, decided),
                 performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null,
                 coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id))).ToList(),
             totalCount,
@@ -438,6 +455,7 @@ public class FacesController(
                 criteria.Add(new CustomFieldCriterion
                 {
                     Key = key.Trim(),
+                    JsonPath = GetString(element, "jsonPath"),
                     Type = GetString(element, "type") ?? CustomFieldTypes.Text,
                     Value = GetString(element, "value") ?? string.Empty,
                     Value2 = GetString(element, "value2"),
@@ -479,7 +497,8 @@ public class FacesController(
             return NotFound();
 
         var computedCounts = await LoadComputedCountsAsync(new[] { id }, cancellationToken);
-        var topSuggestion = MapStoredTopSuggestion(face);
+        var decided = await ResolveDecidedTopSuggestionsAsync([face], cancellationToken);
+        var topSuggestion = ResolveTopSuggestion(face, decided);
         var fieldProvenance = await LoadFaceFieldProvenanceAsync(face.Id, cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync([face], cancellationToken);
         return Ok(MapToDto(
@@ -614,7 +633,10 @@ public class FacesController(
         take = Math.Clamp(take, 1, 100);
         var windowStart = startedAt.Value.ToUniversalTime().AddMinutes(-1);
         var windowEnd = completedAt.Value.ToUniversalTime().AddMinutes(1);
+        // Run provenance is internal correlation data for this face-reading endpoint. The
+        // FaceAppearance query below still applies face and media-host visibility filters.
         var runKeys = await db.AiRuns
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(run => run.Status == AiRunStatus.Completed
                 && run.StartedAt >= windowStart
@@ -861,47 +883,17 @@ public class FacesController(
 
     [HttpPost("batch/delete")]
     [RequiresPermission(Permissions.FacesDelete)]
-    public async Task<ActionResult<FaceBatchOperationResultDto>> BatchDelete([FromBody] FaceBatchDeleteDto dto, CancellationToken cancellationToken)
+    [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete, ActionArgumentName = "dto", PropertyName = "FaceIds")]
+    public IActionResult BatchDelete([FromBody] FaceBatchDeleteDto dto, CancellationToken cancellationToken)
     {
-        var succeeded = new List<int>();
-        var skipped = new List<FaceBatchSkippedDto>();
-        var failed = new List<FaceBatchFailedDto>();
-        var clearedEvidence = new List<ClearedFaceRunEvidence>();
-        var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            succeeded.Clear();
-            skipped.Clear();
-            failed.Clear();
-            clearedEvidence.Clear();
-            var propagationHosts = new HashSet<(FaceAppearanceHostType HostType, int HostId)>();
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var ids = dto.FaceIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one face to delete.");
 
-            foreach (var faceId in dto.FaceIds.Distinct())
-            {
-                try
-                {
-                    var deleted = await DeleteFaceAsync(faceId, cancellationToken, clearedEvidence, propagationHosts);
-                    if (deleted)
-                        succeeded.Add(faceId);
-                    else
-                        skipped.Add(new FaceBatchSkippedDto(faceId, "Face was not found."));
-                }
-                catch (Exception ex)
-                {
-                    failed.Add(new FaceBatchFailedDto(faceId, ex.Message));
-                }
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
-            foreach (var (hostType, hostId) in propagationHosts)
-                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        });
-        await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
-        return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Face,
+            ids));
     }
 
     [HttpPost("{id:int}/create-performer")]
@@ -1001,6 +993,19 @@ public class FacesController(
     [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deletedBySharedService = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Face,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                cancellationToken,
+                publishEvent: false);
+            return deletedBySharedService ? NoContent() : NotFound();
+        }
+
         var clearedEvidence = new List<ClearedFaceRunEvidence>();
         var deleted = false;
         var strategy = db.Database.CreateExecutionStrategy();
@@ -1102,7 +1107,18 @@ public class FacesController(
             if (providerOutcome is not null)
             {
                 if (providerOutcome.Succeeded)
+                {
+                    // Provider decisions (reference-pack matches) are recorded in the provider's own store
+                    // and are global, so the suggester already honours them — but the cached projection
+                    // still holds the decided match until it is recomputed. Drop it so the faces list
+                    // stops offering a reference match the user just rejected.
+                    if (normalizedDecision == FaceSuggestionDecisionValues.Accept)
+                        await InvalidateSuggestionForLinkChangeAsync(id, cancellationToken);
+                    else
+                        await InvalidateSuggestionAsync(new[] { id }, cancellationToken);
+
                     return Ok(await LoadFaceDtoAsync(id, cancellationToken));
+                }
 
                 return StatusCode(providerOutcome.StatusCode ?? StatusCodes.Status400BadRequest, new { error = providerOutcome.Error ?? "Suggestion decision was not accepted by the provider." });
             }
@@ -1487,9 +1503,11 @@ public class FacesController(
 
     private static IQueryable<Face> ApplyFaceSort(CoveContext db, IQueryable<Face> query, string? sort, bool descending, int? seed = null)
     {
-        var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
-        if (FilterHelpers.TryParseCustomFieldSort(normalized, out _, out _))
-            return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Face, normalized, descending);
+        var rawSort = (sort ?? string.Empty).Trim();
+        if (FilterHelpers.TryParseCustomFieldSort(rawSort, out _, out _))
+            return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Face, rawSort, descending);
+
+        var normalized = rawSort.ToLowerInvariant();
 
         // Back-compat: older clients baked the direction into the sort key (e.g. "video_count_desc",
         // "label_asc"). Strip the trailing direction suffix and let it drive the descending flag so the
@@ -1890,6 +1908,63 @@ public class FacesController(
             face.TopSuggestionLocalPerformerIsLocalOnly);
     }
 
+    /// <summary>
+    /// Applies the current user's suggestion decisions to the materialized <c>Face.TopSuggestion*</c>
+    /// projection. The stored value is the <em>global</em> top suggestion — a single shared projection
+    /// cannot encode per-user reject decisions — so a face whose cached top this user already rejected
+    /// would keep showing that performer on the faces list even though the detail/suggestions endpoints
+    /// have long moved on to the next-best match. For those faces (rare: a decision is a deliberate
+    /// per-face action) the suggestion is recomputed through the very same path the detail endpoints
+    /// use, so both views agree and a rejection sticks no matter how often the projection is refreshed.
+    /// Returns overrides keyed by face id; a present-but-null value means the face has no suggestion
+    /// left once the user's decisions are applied.
+    /// </summary>
+    private async Task<Dictionary<int, FaceTopSuggestionDto?>> ResolveDecidedTopSuggestionsAsync(
+        IReadOnlyCollection<Face> faces,
+        CancellationToken cancellationToken)
+    {
+        var materialized = faces
+            .Where(face => !face.PerformerId.HasValue && face.TopSuggestionPerformerId.HasValue)
+            .ToArray();
+        if (materialized.Length == 0)
+            return [];
+
+        var blockedByFaceId = await LoadBlockedSuggestionIdsAsync(materialized.Select(face => face.Id).ToArray(), cancellationToken);
+        if (blockedByFaceId.Count == 0)
+            return [];
+
+        var decidedFaceIds = materialized
+            .Where(face => blockedByFaceId.TryGetValue(face.Id, out var blockedPerformerIds)
+                && blockedPerformerIds.Contains(face.TopSuggestionPerformerId!.Value))
+            .Select(face => face.Id)
+            .ToArray();
+        if (decidedFaceIds.Length == 0)
+            return [];
+
+        var rankedSuggestionsByFaceId = await BuildRankedSuggestionsByFaceAsync(
+            decidedFaceIds,
+            blockedByFaceId,
+            TopSuggestionCandidateCount,
+            cancellationToken,
+            includeReferenceMatches: true);
+
+        var overrides = new Dictionary<int, FaceTopSuggestionDto?>(decidedFaceIds.Length);
+        foreach (var faceId in decidedFaceIds)
+        {
+            var top = rankedSuggestionsByFaceId.TryGetValue(faceId, out var suggestions)
+                ? suggestions.FirstOrDefault()
+                : null;
+            overrides[faceId] = top is null ? null : MapTopSuggestion(top);
+        }
+
+        return overrides;
+    }
+
+    private static FaceTopSuggestionDto? ResolveTopSuggestion(Face face, IReadOnlyDictionary<int, FaceTopSuggestionDto?> decidedOverrides)
+        => decidedOverrides.TryGetValue(face.Id, out var replacement)
+            ? replacement
+            : MapStoredTopSuggestion(face);
+
     // Translates the suggestion-confidence criterion onto the stored Face.TopSuggestionConfidence column
     // so filtering happens in SQL. Mirrors MatchesConfidenceCriterion's modifier semantics. Values are
     // already normalized to the 0..100 scale by the caller.
@@ -2117,21 +2192,71 @@ public class FacesController(
         CancellationToken cancellationToken)
     {
         if (!setPerformerImage
-            || string.IsNullOrWhiteSpace(face.CoverBlobId)
             || !string.IsNullOrWhiteSpace(performer.ImageBlobId)
+            || !string.IsNullOrWhiteSpace(performer.ImageOverrideBlobId)
             || performer.RemoteIds.Count > 0)
         {
             return;
         }
 
-        var blob = await blobService.GetBlobAsync(face.CoverBlobId, cancellationToken);
-        if (blob is null)
+        if (!string.IsNullOrWhiteSpace(face.CoverBlobId))
         {
+            var blob = await blobService.GetBlobAsync(face.CoverBlobId, cancellationToken);
+            if (blob is null)
+                return;
+
+            await using var stream = blob.Value.Stream;
+            performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
             return;
         }
 
-        await using var stream = blob.Value.Stream;
-        performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
+        if (thumbnailService is null || streamService is null)
+            return;
+
+        var faceId = (long)face.Id;
+        var detections = await db.Detections
+            .AsNoTracking()
+            .Where(detection => detection.RefId == faceId
+                && detection.RefKind != null
+                && detection.RefKind.ToLower() == "face"
+                && detection.W > 0
+                && detection.H > 0)
+            .ToListAsync(cancellationToken);
+        var plausible = detections.Where(detection =>
+        {
+            var aspect = detection.H == 0 ? 0f : detection.W / detection.H;
+            if (aspect < 0.45f || aspect > 1.8f)
+                return false;
+            if (detection.FrameWidth <= 0 || detection.FrameHeight <= 0)
+                return true;
+            return (detection.W * detection.H) / (float)(detection.FrameWidth * detection.FrameHeight) >= 0.005f;
+        }).ToList();
+        var candidates = plausible.Count > 0 ? plausible : detections;
+        var orderedCandidates = candidates
+            .OrderByDescending(detection => ReadDetectionRoleIsBest(detection.Extra) ? 1 : 0)
+            .ThenByDescending(detection => ReadDetectionCoverQualityScore(detection.Extra))
+            .ThenByDescending(detection => detection.Score)
+            .ThenBy(detection => detection.Id)
+            .ToList();
+        foreach (var candidate in orderedCandidates)
+        {
+            Stream? sourceStream = null;
+            if (candidate.HostType == DetectionHostType.Image)
+                sourceStream = (await thumbnailService.GetImageStreamAsync(candidate.HostId, cancellationToken))?.stream;
+            else if (candidate.HostType == DetectionHostType.Video)
+                sourceStream = (await streamService.GetVideoScreenshot(candidate.HostId, candidate.ObservedAtSec, cancellationToken))?.stream;
+            if (sourceStream is null)
+                continue;
+
+            await using (sourceStream)
+            await using (var crop = await DetectionCropRenderer.RenderAsync(candidate, sourceStream, cancellationToken: cancellationToken))
+            {
+                if (crop is null)
+                    continue;
+                performer.ImageBlobId = await blobService.StoreBlobAsync(crop, "image/jpeg", cancellationToken);
+                return;
+            }
+        }
     }
 
     private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null, (int Index, int Count)? performerFaceOrdinal = null, string? coverFallbackUrl = null) => new(

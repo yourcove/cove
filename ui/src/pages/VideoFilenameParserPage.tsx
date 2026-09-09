@@ -61,7 +61,13 @@ function buildSeparatorPattern(whitespaceReplacement: string) {
 }
 
 function isSeparatorChar(value: string, whitespaceReplacement: string) {
-  return value === "." || value === "-" || value === "_" || value === " " || (!!whitespaceReplacement.trim() && value === whitespaceReplacement.trim()[0]);
+  return (
+    value === "." ||
+    value === "-" ||
+    value === "_" ||
+    value === " " ||
+    (!!whitespaceReplacement.trim() && value === whitespaceReplacement.trim()[0])
+  );
 }
 
 function literalToRegex(value: string, whitespaceReplacement: string) {
@@ -86,7 +92,10 @@ function cleanParsedValue(value: string, whitespaceReplacement: string) {
   return value.replace(new RegExp(buildSeparatorPattern(whitespaceReplacement), "g"), " ").trim();
 }
 
-function compilePattern(pattern: string, whitespaceReplacement: string): { regex: RegExp; tokens: PatternToken[] } | null {
+function compilePattern(
+  pattern: string,
+  whitespaceReplacement: string,
+): { regex: RegExp; tokens: PatternToken[] } | null {
   if (!pattern.trim()) return null;
 
   const tokens: PatternToken[] = [];
@@ -112,9 +121,10 @@ function compilePattern(pattern: string, whitespaceReplacement: string): { regex
       } else {
         kind = "ignore";
       }
-      const spec = kind === "delimiter"
-        ? { regex: buildSeparatorPattern(whitespaceReplacement), capturing: false }
-        : TOKEN_REGEX_MAP[kind];
+      const spec =
+        kind === "delimiter"
+          ? { regex: buildSeparatorPattern(whitespaceReplacement), capturing: false }
+          : TOKEN_REGEX_MAP[kind];
       regexStr += spec.regex;
       if (spec.capturing) {
         groupIdx++;
@@ -142,7 +152,7 @@ function applyPattern(
   compiled: { regex: RegExp; tokens: PatternToken[] },
   ignoredWords: string[],
   capitalizeTitle: boolean,
-  whitespaceReplacement: string
+  whitespaceReplacement: string,
 ): ParseResult | null {
   const match = basename.match(compiled.regex);
   if (!match) return null;
@@ -229,7 +239,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
 
   const filter: FindFilter = useMemo(
     () => ({ page: 1, perPage: appliedConfig?.perPage ?? perPage }),
-    [appliedConfig?.perPage, perPage]
+    [appliedConfig?.perPage, perPage],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -248,14 +258,20 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
       return;
     }
 
-    const items = appliedConfig.ignoreOrganized
-      ? data.items.filter((s) => !s.organized)
-      : data.items;
+    const items = appliedConfig.ignoreOrganized ? data.items.filter((s) => !s.organized) : data.items;
 
     const newRows: RowState[] = items.map((video) => {
       const file = video.files[0];
       const basename = file?.basename ?? "";
-      const parsed = compiled ? applyPattern(basename, compiled, appliedConfig.ignoredWords, appliedConfig.capitalizeTitle, appliedConfig.whitespaceReplacement) : null;
+      const parsed = compiled
+        ? applyPattern(
+            basename,
+            compiled,
+            appliedConfig.ignoredWords,
+            appliedConfig.capitalizeTitle,
+            appliedConfig.whitespaceReplacement,
+          )
+        : null;
       return {
         videoId: video.id,
         basename,
@@ -285,27 +301,20 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
     setQueryEnabled(true);
   }, [pattern, ignoredWordsStr, whitespaceReplacement, capitalizeTitle, ignoreOrganized, perPage]);
 
-  const handleSelectAll = useCallback(
-    (checked: boolean) => {
-      setRows((prev) => prev.map((r) => ({ ...r, selected: checked })));
-    },
-    []
-  );
+  const handleSelectAll = useCallback((checked: boolean) => {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: checked })));
+  }, []);
 
   const handleToggle = useCallback((idx: number) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, selected: !r.selected } : r)));
   }, []);
 
   const handleEditTitle = useCallback((idx: number, value: string) => {
-    setRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, editedTitle: value } : r))
-    );
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, editedTitle: value } : r)));
   }, []);
 
   const handleEditDate = useCallback((idx: number, value: string) => {
-    setRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, editedDate: value } : r))
-    );
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, editedDate: value } : r)));
   }, []);
 
   const selectedRows = useMemo(() => rows.filter((r) => r.selected && r.parsed), [rows]);
@@ -347,9 +356,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
         {/* Pattern row */}
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-[300px]">
-            <label className="block text-sm font-medium text-secondary mb-1">
-              Filename Pattern
-            </label>
+            <label className="block text-sm font-medium text-secondary mb-1">Filename Pattern</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -389,13 +396,10 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
             </div>
             <p className="text-xs text-secondary mt-1">
               Tokens: <code className="text-secondary">{"{title}"}</code>{" "}
-              <code className="text-secondary">{"{date}"}</code>{" "}
-              <code className="text-secondary">{"{performer}"}</code>{" "}
-              <code className="text-secondary">{"{tag}"}</code>{" "}
-              <code className="text-secondary">{"{studio}"}</code>{" "}
-              <code className="text-secondary">{"{ext}"}</code>{" "}
-              <code className="text-secondary">{"{d}"}</code> (delimiter){" "}
-              <code className="text-secondary">{"{i}"}</code> (ignored){" "}
+              <code className="text-secondary">{"{date}"}</code> <code className="text-secondary">{"{performer}"}</code>{" "}
+              <code className="text-secondary">{"{tag}"}</code> <code className="text-secondary">{"{studio}"}</code>{" "}
+              <code className="text-secondary">{"{ext}"}</code> <code className="text-secondary">{"{d}"}</code>{" "}
+              (delimiter) <code className="text-secondary">{"{i}"}</code> (ignored){" "}
               <code className="text-secondary">{"{}"}</code> (ignored)
             </p>
           </div>
@@ -404,9 +408,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
         {/* Options row */}
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[200px]">
-            <label className="block text-sm font-medium text-secondary mb-1">
-              Ignored Words
-            </label>
+            <label className="block text-sm font-medium text-secondary mb-1">Ignored Words</label>
             <input
               type="text"
               value={ignoredWordsStr}
@@ -417,9 +419,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
           </div>
 
           <div className="w-32">
-            <label className="block text-sm font-medium text-secondary mb-1">
-              Space Char
-            </label>
+            <label className="block text-sm font-medium text-secondary mb-1">Space Char</label>
             <input
               type="text"
               value={whitespaceReplacement}
@@ -450,9 +450,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
           </label>
 
           <div>
-            <label className="block text-sm font-medium text-secondary mb-1">
-              Page Size
-            </label>
+            <label className="block text-sm font-medium text-secondary mb-1">Page Size</label>
             <select
               value={perPage}
               onChange={(e) => setPerPage(Number(e.target.value))}
@@ -512,9 +510,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
                   {rows.map((row, idx) => (
                     <tr
                       key={row.videoId}
-                      className={`border-b border-border/50 hover:bg-card-hover ${
-                        !row.parsed ? "opacity-50" : ""
-                      }`}
+                      className={`border-b border-border/50 hover:bg-card-hover ${!row.parsed ? "opacity-50" : ""}`}
                     >
                       <td className="px-3 py-2">
                         <input
@@ -525,7 +521,10 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
                           className="rounded bg-card border-border text-accent focus:ring-accent disabled:opacity-30"
                         />
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs text-secondary max-w-[300px] truncate" title={row.basename}>
+                      <td
+                        className="px-3 py-2 font-mono text-xs text-secondary max-w-[300px] truncate"
+                        title={row.basename}
+                      >
                         {row.basename}
                       </td>
                       <td className="px-3 py-2">
@@ -577,9 +576,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
           <div className="flex items-center justify-between mt-4">
             <span className="text-sm text-secondary">
               {selectedRows.length} of {rows.length} selected
-              {rows.filter((r) => !r.parsed).length > 0 && (
-                <> · {rows.filter((r) => !r.parsed).length} unmatched</>
-              )}
+              {rows.filter((r) => !r.parsed).length > 0 && <> · {rows.filter((r) => !r.parsed).length} unmatched</>}
             </span>
             <button
               type="button"
@@ -587,24 +584,16 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
               disabled={selectedRows.length === 0 || applyMut.isPending}
               className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded px-5 py-2 text-sm font-medium"
             >
-              {applyMut.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Check className="w-4 h-4" />
-              )}
+              {applyMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               Apply
             </button>
           </div>
 
           {applyMut.isSuccess && (
-            <div className="mt-3 text-sm text-green-400">
-              Successfully updated {selectedRows.length} video(s).
-            </div>
+            <div className="mt-3 text-sm text-green-400">Successfully updated {selectedRows.length} video(s).</div>
           )}
           {applyMut.isError && (
-            <div className="mt-3 text-sm text-red-400">
-              Error applying changes: {(applyMut.error as Error).message}
-            </div>
+            <div className="mt-3 text-sm text-red-400">Error applying changes: {(applyMut.error as Error).message}</div>
           )}
         </>
       )}

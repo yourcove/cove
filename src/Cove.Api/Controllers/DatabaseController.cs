@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
@@ -17,10 +18,12 @@ public class DatabaseController(
     IBackupService backupService,
     CoveConfiguration config,
     ILogger<DatabaseController> logger,
-    NameRuleEnforcementService? nameRuleEnforcement = null) : ControllerBase
+    NameRuleEnforcementService? nameRuleEnforcement = null,
+    CustomFieldJsonIndexJobService? jsonIndexJobs = null) : ControllerBase
 {
     [HttpPost("backup")]
     [RequiresPermission(Permissions.SystemBackup)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<BackupResultDto>> BackupDatabase(CancellationToken ct)
     {
         var backup = await backupService.CreateBackupAsync("manual", ct);
@@ -29,6 +32,9 @@ public class DatabaseController(
 
     [HttpPost("restore")]
     [RequiresPermission(Permissions.SystemRestore)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<RestoreBackupResultDto>> RestoreDatabase([FromBody] RestoreBackupRequestDto request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.BackupPath))
@@ -43,11 +49,17 @@ public class DatabaseController(
 
     [HttpPost("migrate")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<DatabaseMigrationResultDto>> MigrateDatabase(CancellationToken ct)
     {
         var pendingMigrations = (await db.Database.GetPendingMigrationsAsync(ct)).ToArray();
         if (pendingMigrations.Length == 0)
         {
+            // A retry after a committed migration may arrive after the original request was
+            // cancelled, before it could enqueue post-migration index reconciliation.
+            jsonIndexJobs?.RequestReconcile();
             return Ok(new DatabaseMigrationResultDto(
                 "Database is already up to date",
                 [],
@@ -104,6 +116,9 @@ public class DatabaseController(
         try
         {
             await db.Database.MigrateAsync(ct);
+            // MigrateAsync returns after its migration transactions commit. Schedule immediately so
+            // later request cancellation cannot strand the newly available JSON index functions.
+            jsonIndexJobs?.RequestReconcile();
         }
         catch (PostgresException exception) when (NameRuleEnforcementService.IsGuardFailure(exception))
         {
@@ -121,7 +136,6 @@ public class DatabaseController(
             "Manual database migration completed. Applied {Count} migration(s); {RemainingCount} remain pending",
             pendingMigrations.Length,
             remainingMigrations.Length);
-
         return Ok(new DatabaseMigrationResultDto(
             "Database migrations applied successfully",
             pendingMigrations,
@@ -212,6 +226,8 @@ public class DatabaseController(
 
     [HttpPost("wipe")]
     [RequiresPermission(Permissions.SystemWipe)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<WipeResultDto>> WipeDatabase(CancellationToken ct)
     {
         logger.LogWarning("Database + config wipe initiated");
@@ -275,7 +291,7 @@ public class DatabaseController(
     }
 
     [HttpGet("config/latest-backup")]
-    [RequiresPermission(Permissions.SystemRead)]
+    [RequiresPermission(Permissions.SystemBackup)]
     public async Task<ActionResult<object>> GetLatestConfigBackup(CancellationToken ct)
     {
         var path = await backupService.GetLatestConfigBackupPathAsync(ct);

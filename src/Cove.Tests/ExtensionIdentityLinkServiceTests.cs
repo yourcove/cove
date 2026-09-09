@@ -24,29 +24,25 @@ public sealed class ExtensionIdentityLinkServiceTests
         Assert.NotNull(intent);
         SetBindingCookie(start, intent.BrowserBinding);
 
-        var preparation = await fixture.Links.PrepareLinkAsync(
-            start,
-            intent.Token,
-            intent.BrowserBinding,
-            Identity());
+        var preparation = await fixture.Links.PrepareLinkAsync(start, intent.Token, intent.BrowserBinding, Identity(), TestContext.Current.CancellationToken);
 
         Assert.Equal(ExtensionIdentityLinkPreparationFailure.None, preparation.Failure);
         Assert.NotNull(preparation.Code);
-        Assert.Empty(await fixture.Identities.ListForUserAsync(1));
+        Assert.Empty(await fixture.Identities.ListForUserAsync(1, TestContext.Current.CancellationToken));
 
         fixture.SetPrincipal(2, "bob");
-        Assert.Null(await fixture.Links.PreviewAsync(start, preparation.Code!));
-        Assert.Null(await fixture.Links.ConfirmAsync(start, preparation.Code!));
+        Assert.Null(await fixture.Links.PreviewAsync(start, preparation.Code!, TestContext.Current.CancellationToken));
+        Assert.Null(await fixture.Links.ConfirmAsync(start, preparation.Code!, TestContext.Current.CancellationToken));
 
         fixture.SetPrincipal(1, "alice");
-        var preview = await fixture.Links.PreviewAsync(start, preparation.Code!);
+        var preview = await fixture.Links.PreviewAsync(start, preparation.Code!, TestContext.Current.CancellationToken);
         Assert.Equal("Example provider", preview?.ProviderLabel);
         Assert.Equal("alice@example.test", preview?.AccountLabel);
 
-        var link = await fixture.Links.ConfirmAsync(start, preparation.Code!);
+        var link = await fixture.Links.ConfirmAsync(start, preparation.Code!, TestContext.Current.CancellationToken);
         Assert.NotNull(link);
         Assert.Equal(1, link.UserId);
-        Assert.Null(await fixture.Links.ConfirmAsync(start, preparation.Code!));
+        Assert.Null(await fixture.Links.ConfirmAsync(start, preparation.Code!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -60,20 +56,12 @@ public sealed class ExtensionIdentityLinkServiceTests
         var otherBinding = fixture.LoginSessions.BeginBrowserSession(other);
         SetBindingCookie(other, otherBinding);
 
-        var rejected = await fixture.Links.PrepareLinkAsync(
-            other,
-            intent.Token,
-            intent.BrowserBinding,
-            Identity());
+        var rejected = await fixture.Links.PrepareLinkAsync(other, intent.Token, intent.BrowserBinding, Identity(), TestContext.Current.CancellationToken);
 
         Assert.Equal(ExtensionIdentityLinkPreparationFailure.BrowserMismatch, rejected.Failure);
 
         SetBindingCookie(browser, intent.BrowserBinding);
-        var accepted = await fixture.Links.PrepareLinkAsync(
-            browser,
-            intent.Token,
-            intent.BrowserBinding,
-            Identity());
+        var accepted = await fixture.Links.PrepareLinkAsync(browser, intent.Token, intent.BrowserBinding, Identity(), TestContext.Current.CancellationToken);
         Assert.Equal(ExtensionIdentityLinkPreparationFailure.None, accepted.Failure);
     }
 
@@ -81,17 +69,13 @@ public sealed class ExtensionIdentityLinkServiceTests
     public async Task Identity_linked_to_another_user_is_rejected_before_confirmation()
     {
         await using var fixture = await Fixture.CreateAsync();
-        await fixture.Identities.CreateLinkAsync(2, Identity(), Principal(2, "bob"));
+        await fixture.Identities.CreateLinkAsync(2, Identity(), Principal(2, "bob"), TestContext.Current.CancellationToken);
         fixture.SetPrincipal(1, "alice");
         var browser = NewContext();
         var intent = fixture.Links.BeginLink(browser, "com.example.auth", "provider-a")!;
         SetBindingCookie(browser, intent.BrowserBinding);
 
-        var result = await fixture.Links.PrepareLinkAsync(
-            browser,
-            intent.Token,
-            intent.BrowserBinding,
-            Identity());
+        var result = await fixture.Links.PrepareLinkAsync(browser, intent.Token, intent.BrowserBinding, Identity(), TestContext.Current.CancellationToken);
 
         Assert.Equal(ExtensionIdentityLinkPreparationFailure.IdentityConflict, result.Failure);
         Assert.Null(result.Code);
@@ -104,17 +88,17 @@ public sealed class ExtensionIdentityLinkServiceTests
         fixture.SetPrincipal(1, "alice");
         var context = NewContext();
 
-        var preparation = await fixture.Links.PrepareDirectLinkAsync(context, Identity());
+        var preparation = await fixture.Links.PrepareDirectLinkAsync(context, Identity(), TestContext.Current.CancellationToken);
 
         Assert.Equal(ExtensionIdentityLinkPreparationFailure.None, preparation.Failure);
         Assert.NotNull(preparation.Code);
-        Assert.Empty(await fixture.Identities.ListForUserAsync(1));
+        Assert.Empty(await fixture.Identities.ListForUserAsync(1, TestContext.Current.CancellationToken));
 
         var setCookie = context.Response.Headers.SetCookie.ToString();
         var cookiePair = setCookie.Split(';', 2)[0];
         context.Request.Headers.Cookie = cookiePair;
-        Assert.NotNull(await fixture.Links.PreviewAsync(context, preparation.Code!));
-        Assert.NotNull(await fixture.Links.ConfirmAsync(context, preparation.Code!));
+        Assert.NotNull(await fixture.Links.PreviewAsync(context, preparation.Code!, TestContext.Current.CancellationToken));
+        Assert.NotNull(await fixture.Links.ConfirmAsync(context, preparation.Code!, TestContext.Current.CancellationToken));
     }
 
     private static ExtensionIdentityAssertion Identity() => new(

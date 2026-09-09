@@ -5,13 +5,136 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
 public class ScrapeAttemptServiceTests
 {
+    [Fact]
+    public async Task ApplyAttemptAsync_DoesNotHydrateExistingVideoPerformer()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var existingPerformer = new Performer { Name = "Existing Performer", Gender = Cove.Core.Enums.GenderEnum.Female };
+        var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
+        db.AddRange(existingPerformer, video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/scene" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Performers"] = new[]
+                {
+                    new { Name = "Existing Performer", URL = "https://example.com/performer/existing" },
+                },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        // A null performer scraper makes any attempted hydration fail, proving that existing
+        // performers are linked without being rescraped.
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                HydratePerformers: true),
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(Cove.Core.Enums.GenderEnum.Female, existingPerformer.Gender);
+        Assert.Empty(existingPerformer.Urls);
+        Assert.Equal(existingPerformer.Id, Assert.Single(video.VideoPerformers).PerformerId);
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_HydratesNewNamedVideoPerformer()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/scene" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Performers"] = new[]
+                {
+                    new { Name = "New Performer", URL = "https://example.com/performer/new" },
+                },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var extensionManager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "test",
+        });
+        var scraperService = new ScraperService(
+            new CoveConfiguration(),
+            NullLogger<ScraperService>.Instance,
+            new EmptyHttpClientFactory(),
+            extensionManager);
+        var performerScrapeService = new PerformerScrapeService(db, scraperService);
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            performerScrapeService,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                HydratePerformers: true),
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var performer = await db.Performers.Include(item => item.Urls).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("https://example.com/performer/new", Assert.Single(performer.Urls).Url);
+        Assert.Equal(performer.Id, Assert.Single(video.VideoPerformers).PerformerId);
+    }
+
     [Fact]
     public async Task ApplyAttemptAsync_AudioAttemptAppliesSelectedFieldsAndNormalizesTags()
     {
@@ -34,7 +157,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.Audios.Add(audio);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         audio.TagIds = [existingTag.Id];
         audio.PerformerIds = [existingPerformer.Id];
@@ -58,7 +181,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var eventBus = new EventBus();
         var publishedEvents = new List<EntityEvent>();
@@ -99,7 +222,7 @@ public class ScrapeAttemptServiceTests
             .Include(item => item.AudioTags).ThenInclude(item => item.Tag)
             .Include(item => item.AudioPerformers).ThenInclude(item => item.Performer)
             .Include(item => item.Studio)
-            .SingleAsync(item => item.Id == audio.Id);
+            .SingleAsync(item => item.Id == audio.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Scraped Title", updatedAudio.Title);
         var publishedEvent = Assert.Single(publishedEvents);
@@ -134,7 +257,7 @@ public class ScrapeAttemptServiceTests
 
         var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var attempt = new ScrapeAttempt
         {
@@ -149,7 +272,7 @@ public class ScrapeAttemptServiceTests
             }),
         };
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -172,12 +295,12 @@ public class ScrapeAttemptServiceTests
 
         Assert.NotNull(result);
 
-        Assert.Equal(2, await db.Performers.CountAsync());
-        Assert.True(await db.Performers.AnyAsync(performer => performer.Name == "Myra Moans" && performer.Disambiguation == null));
+        Assert.Equal(2, await db.Performers.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await db.Performers.AnyAsync(performer => performer.Name == "Myra Moans" && performer.Disambiguation == null, cancellationToken: TestContext.Current.CancellationToken));
 
         var updatedVideo = await db.Videos
             .Include(item => item.VideoPerformers).ThenInclude(item => item.Performer)
-            .SingleAsync(item => item.Id == video.Id);
+            .SingleAsync(item => item.Id == video.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["Myra Moans"], updatedVideo.VideoPerformers.Select(item => item.Performer!.Name).ToArray());
     }
 
@@ -193,7 +316,7 @@ public class ScrapeAttemptServiceTests
             Aliases = [new PerformerAlias { Alias = "Myra Moans" }],
         });
         db.Tags.Add(new Tag { Name = "Redhead" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -228,7 +351,7 @@ public class ScrapeAttemptServiceTests
         var disambiguated = new Performer { Name = "Shared name", Disambiguation = "Specific person" };
         var video = new Video { Title = "Current title", TagIds = [], PerformerIds = [] };
         db.AddRange(disambiguated, video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var attempt = new ScrapeAttempt
         {
             ScraperId = "tests.fake-scraper/video",
@@ -242,7 +365,7 @@ public class ScrapeAttemptServiceTests
             }),
         };
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var service = new ScrapeAttemptService(
             db,
             null!,
@@ -262,10 +385,10 @@ public class ScrapeAttemptServiceTests
                 PerformerSelections: [new ScrapeCollectionItemSelectionDto("Shared name", "create")]),
             CancellationToken.None);
 
-        var performers = await db.Performers.OrderBy(item => item.Id).ToListAsync();
+        var performers = await db.Performers.OrderBy(item => item.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, performers.Count);
         var nameOnly = Assert.Single(performers, performer => performer.Disambiguation == null);
-        var updatedVideo = await db.Videos.Include(item => item.VideoPerformers).SingleAsync(item => item.Id == video.Id);
+        var updatedVideo = await db.Videos.Include(item => item.VideoPerformers).SingleAsync(item => item.Id == video.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(updatedVideo.VideoPerformers, link => link.PerformerId == nameOnly.Id);
         Assert.DoesNotContain(updatedVideo.VideoPerformers, link => link.PerformerId == disambiguated.Id);
     }
@@ -280,7 +403,7 @@ public class ScrapeAttemptServiceTests
         // returning the trimmed "Feet" must still resolve to the existing entity, not predict "create".
         db.Tags.Add(new Tag { Name = " Feet " });
         db.Performers.Add(new Performer { Name = " Jane Doe " });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -320,7 +443,7 @@ public class ScrapeAttemptServiceTests
         // Tag "Feet" has the alias "Foot". A scrape returning lowercase "foot" must resolve to the
         // existing tag via its alias (case-insensitive) instead of predicting "will create".
         db.Tags.Add(new Tag { Name = "Feet", Aliases = [new TagAlias { Alias = "Foot" }] });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -362,7 +485,7 @@ public class ScrapeAttemptServiceTests
             PerformerIds = [],
         };
         db.TextDocuments.Add(text);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         text.TagIds = [skippedExistingTag.Id];
 
@@ -381,7 +504,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -424,12 +547,12 @@ public class ScrapeAttemptServiceTests
         var updatedText = await db.TextDocuments
             .Include(item => item.TextTags).ThenInclude(item => item.Tag)
             .Include(item => item.TextPerformers).ThenInclude(item => item.Performer)
-            .SingleAsync(item => item.Id == text.Id);
+            .SingleAsync(item => item.Id == text.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(["Created Tag", "Existing Tag"], updatedText.TextTags.Select(item => item.Tag!.Name).OrderBy(item => item).ToArray());
         Assert.Equal(["Created Performer", "Existing Performer"], updatedText.TextPerformers.Select(item => item.Performer!.Name).OrderBy(item => item).ToArray());
-        Assert.False(await db.Tags.AnyAsync(item => item.Name == "Skipped Tag"));
-        Assert.False(await db.Performers.AnyAsync(item => item.Name == "Skipped Performer"));
+        Assert.False(await db.Tags.AnyAsync(item => item.Name == "Skipped Tag", cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.Performers.AnyAsync(item => item.Name == "Skipped Performer", cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -450,7 +573,7 @@ public class ScrapeAttemptServiceTests
             PerformerIds = [],
         };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         video.TagIds = [keptTag.Id, currentOnlyTag.Id];
 
         var attempt = new ScrapeAttempt
@@ -466,7 +589,7 @@ public class ScrapeAttemptServiceTests
             }),
         };
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -493,7 +616,7 @@ public class ScrapeAttemptServiceTests
 
         var updated = await db.Videos
             .Include(item => item.VideoTags).ThenInclude(item => item.Tag)
-            .SingleAsync(item => item.Id == video.Id);
+            .SingleAsync(item => item.Id == video.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         // Replace must leave ONLY the scraped tags; the current-only "adult interview" is gone.
         Assert.Equal(["Big Dick", "Toys"], updated.VideoTags.Select(item => item.Tag!.Name).OrderBy(item => item).ToArray());
@@ -516,7 +639,7 @@ public class ScrapeAttemptServiceTests
         db.Tags.AddRange(staleTag, scrapedTag);
         var video = new Video { Title = "Current Video", VideoTags = [], TagIds = [], PerformerIds = [] };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.TagApplications.Add(new TagApplication
         {
@@ -527,7 +650,7 @@ public class ScrapeAttemptServiceTests
             SourceRunId = string.Empty,
             ModelKey = string.Empty,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var attempt = new ScrapeAttempt
         {
@@ -539,7 +662,7 @@ public class ScrapeAttemptServiceTests
             ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Big Dick" } }),
         };
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Uses the real provenance service (not the no-op) so the prune actually runs.
         var service = new ScrapeAttemptService(
@@ -562,7 +685,7 @@ public class ScrapeAttemptServiceTests
             CancellationToken.None);
 
         // The stale scraper provenance must be pruned so "adult interview" no longer lingers as a derived tag.
-        Assert.False(await db.TagApplications.AnyAsync(item => item.TagId == staleTag.Id && item.HostId == video.Id));
+        Assert.False(await db.TagApplications.AnyAsync(item => item.TagId == staleTag.Id && item.HostId == video.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -581,7 +704,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.Groups.Add(group);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var attempt = new ScrapeAttempt
         {
@@ -605,7 +728,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var tagProvenanceService = new NoOpTagProvenanceService();
         var groupApplyService = new GroupMetadataApplyService(
@@ -651,7 +774,7 @@ public class ScrapeAttemptServiceTests
             .Include(item => item.Urls)
             .Include(item => item.GroupTags).ThenInclude(item => item.Tag)
             .Include(item => item.Studio)
-            .SingleAsync(item => item.Id == group.Id);
+            .SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Scraped Group", updatedGroup.Name);
         Assert.Equal("Old Alias, Alias A", updatedGroup.Aliases);
@@ -685,7 +808,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.Galleries.Add(gallery);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         gallery.TagIds = [existingTag.Id];
         gallery.PerformerIds = [existingPerformer.Id];
@@ -712,7 +835,7 @@ public class ScrapeAttemptServiceTests
         };
 
         db.ScrapeAttempts.Add(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new ScrapeAttemptService(
             db,
@@ -751,7 +874,7 @@ public class ScrapeAttemptServiceTests
             .Include(item => item.GalleryTags).ThenInclude(item => item.Tag)
             .Include(item => item.GalleryPerformers).ThenInclude(item => item.Performer)
             .Include(item => item.Studio)
-            .SingleAsync(item => item.Id == gallery.Id);
+            .SingleAsync(item => item.Id == gallery.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Scraped Gallery", updatedGallery.Title);
         Assert.Equal("G-001", updatedGallery.Code);
@@ -772,10 +895,64 @@ public class ScrapeAttemptServiceTests
 
         var provenance = await db.FieldProvenance
             .Where(item => item.HostType == AffinityHostType.Gallery && item.HostId == gallery.Id)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(provenance, item => item.FieldKey == "title" && item.SourceKey == "scraper:tests.fake-scraper/gallery");
         Assert.Contains(provenance, item => item.FieldKey == "tags" && item.SourceKey == "scraper:tests.fake-scraper/gallery");
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_VideoStudioAliasResolvesMergedTargetWithoutCreatingStudio()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var mergedTarget = new Studio
+        {
+            Name = "Parent Studio",
+            Aliases = [new StudioAlias { Alias = "Merged Studio" }],
+        };
+        var video = new Video { Title = "Video C" };
+        db.Studios.Add(mergedTarget);
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(ct);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new { StudioName = "merged studio" }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(ct);
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["studio"] = "replace" },
+                CreateMissingStudio: true),
+            ct);
+
+        Assert.NotNull(result);
+        var updatedVideo = await db.Videos.Include(item => item.Studio).SingleAsync(item => item.Id == video.Id, ct);
+        Assert.Equal(mergedTarget.Id, updatedVideo.StudioId);
+        Assert.Equal("Parent Studio", updatedVideo.Studio?.Name);
+        Assert.Single(await db.Studios.ToListAsync(ct));
     }
 
     private static CoveContext CreateDbContext(string dbName)
@@ -785,6 +962,11 @@ public class ScrapeAttemptServiceTests
             .Options;
 
         return new CoveContext(options);
+    }
+
+    private sealed class EmptyHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
     }
 
     private sealed class NoOpTagProvenanceService : ITagProvenanceService

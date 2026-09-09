@@ -18,26 +18,30 @@ describe("useDerivedSpansQuery", () => {
   it("preserves the sub-tag depth in derived span requests", () => {
     const tagDepth = readMultiIdCriterionDepth({ value: [94], modifier: "INCLUDES", depth: -1 });
 
-    expect(buildSpanSearchRequest({
-      activeProfileId: 1,
-      pageNumber: 1,
-      perPage: 24,
-      q: "",
-      videoTitle: "",
-      videoTagIds: [95],
-      videoTagDepth: -1,
-      sort: "updated_at",
-      direction: "desc",
-      includeVideoIds: [],
-      excludeVideoIds: [],
-      appliedQuery: null,
-      rawFilter: { tagIds: [94], tagDepth, performerIds: [], faceIds: [] },
-    })).toEqual(expect.objectContaining({ tagIds: [94], tagDepth: -1, videoTagIds: [95], videoTagDepth: -1 }));
+    expect(
+      buildSpanSearchRequest({
+        activeProfileId: 1,
+        pageNumber: 1,
+        perPage: 24,
+        q: "",
+        videoTitle: "",
+        videoTagIds: [95],
+        videoTagDepth: -1,
+        sort: "updated_at",
+        direction: "desc",
+        includeVideoIds: [],
+        excludeVideoIds: [],
+        appliedQuery: null,
+        rawFilter: { tagIds: [94], tagDepth, performerIds: [], faceIds: [] },
+      }),
+    ).toEqual(expect.objectContaining({ tagIds: [94], tagDepth: -1, videoTagIds: [95], videoTagDepth: -1 }));
   });
 
   it("refetches derived spans when the random seed changes", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
     const options = {
       activeProfileId: 1,
       pageNumber: 1,

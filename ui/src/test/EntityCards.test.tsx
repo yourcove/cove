@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,8 +7,20 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-import { AudioTile, GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, TextTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import {
+  AudioTile,
+  GalleryPreviewList,
+  GalleryTile,
+  GroupTile,
+  ImageTile,
+  PerformerTile,
+  TextTile,
+  VideoCard,
+  VideoCardPopovers,
+} from "../components/EntityCards";
+import { images } from "../api/client";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
+import { performers } from "../api/client";
 
 const videoFile = {
   id: 10,
@@ -81,7 +93,7 @@ beforeEach(() => {
       observe() {}
       disconnect() {}
       unobserve() {}
-    }
+    },
   );
 });
 
@@ -132,13 +144,15 @@ describe("VideoCard navigation", () => {
 
     render(
       <VideoCard
-        video={{
-          ...baseVideo,
-          performers: [{ id: 7, name: "Alice Example", imagePath: null }],
-        } as any}
+        video={
+          {
+            ...baseVideo,
+            performers: [{ id: 7, name: "Alice Example", imagePath: null }],
+          } as any
+        }
         onClick={onClick}
         onNavigate={onNavigate}
-      />
+      />,
     );
 
     const performerLink = screen.getByRole("link", { name: /Alice Example/i });
@@ -154,11 +168,13 @@ describe("VideoCard navigation", () => {
 
     render(
       <VideoCardPopovers
-        video={{
-          ...baseVideo,
-          performers: [{ id: 9, name: "Popover Performer", imagePath: null }],
-        } as any}
-      />
+        video={
+          {
+            ...baseVideo,
+            performers: [{ id: 9, name: "Popover Performer", imagePath: null }],
+          } as any
+        }
+      />,
     );
 
     fireEvent.mouseEnter(screen.getByTitle("Performers"));
@@ -181,19 +197,23 @@ describe("VideoCard navigation", () => {
 
   it("does not create hover media for tag references without an image", () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(
       <VideoCardPopovers
-        video={{
-          ...baseVideo,
-          tags: [
-            { id: 9, name: "Featured", description: "List preview", videoCount: 12, hasImage: false },
-            { id: 10, name: "Second tag", hasImage: true },
-          ],
-        } as any}
-      />
+        video={
+          {
+            ...baseVideo,
+            tags: [
+              { id: 9, name: "Featured", description: "List preview", videoCount: 12, hasImage: false },
+              { id: 10, name: "Second tag", hasImage: true },
+            ],
+          } as any
+        }
+      />,
     );
 
     fireEvent.mouseEnter(screen.getByTitle("Tags"));
@@ -212,21 +232,69 @@ describe("VideoCard navigation", () => {
   });
 
   it("renders a likes counter instead of the legacy O badge", () => {
-    render(<VideoCard video={baseVideo as any} engagement={{ hostId: 42, isFavorite: false, resumeTime: 0, playDuration: 0, playCount: 0, likeCount: 1, derivedLikeCount: 0, pageVisitCount: 0, completeCount: 0 }} onClick={vi.fn()} />);
+    render(
+      <VideoCard
+        video={baseVideo as any}
+        engagement={{
+          hostId: 42,
+          isFavorite: false,
+          resumeTime: 0,
+          playDuration: 0,
+          playCount: 0,
+          likeCount: 1,
+          derivedLikeCount: 0,
+          pageVisitCount: 0,
+          completeCount: 0,
+        }}
+        onClick={vi.fn()}
+      />,
+    );
 
     expect(screen.getByTitle("Likes: 1")).toBeInTheDocument();
     expect(screen.queryByText(/^O$/)).not.toBeInTheDocument();
   });
 
   it("does not render a favorite card control when the card is not favorited", () => {
-    render(<VideoCard video={baseVideo as any} engagement={{ hostId: 42, isFavorite: false, resumeTime: 0, playDuration: 0, playCount: 0, likeCount: 0, derivedLikeCount: 0, pageVisitCount: 0, completeCount: 0 }} onClick={vi.fn()} />);
+    render(
+      <VideoCard
+        video={baseVideo as any}
+        engagement={{
+          hostId: 42,
+          isFavorite: false,
+          resumeTime: 0,
+          playDuration: 0,
+          playCount: 0,
+          likeCount: 0,
+          derivedLikeCount: 0,
+          pageVisitCount: 0,
+          completeCount: 0,
+        }}
+        onClick={vi.fn()}
+      />,
+    );
 
     expect(screen.queryByTitle("Favorite")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Favorite" })).not.toBeInTheDocument();
   });
 
   it("renders a non-interactive favorite indicator when the card is favorited", () => {
-    render(<VideoCard video={baseVideo as any} engagement={{ hostId: 42, isFavorite: true, resumeTime: 0, playDuration: 0, playCount: 0, likeCount: 0, derivedLikeCount: 0, pageVisitCount: 0, completeCount: 0 }} onClick={vi.fn()} />);
+    render(
+      <VideoCard
+        video={baseVideo as any}
+        engagement={{
+          hostId: 42,
+          isFavorite: true,
+          resumeTime: 0,
+          playDuration: 0,
+          playCount: 0,
+          likeCount: 0,
+          derivedLikeCount: 0,
+          pageVisitCount: 0,
+          completeCount: 0,
+        }}
+        onClick={vi.fn()}
+      />,
+    );
 
     expect(screen.getByTitle("Favorite")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Favorite" })).not.toBeInTheDocument();
@@ -235,13 +303,15 @@ describe("VideoCard navigation", () => {
   it("shows the hovered absolute timestamp above the video scrub preview bar", () => {
     const { container } = render(
       <VideoCard
-        video={{
-          ...baseVideo,
-          clipStartSec: 35,
-          clipEndSec: 95,
-        } as any}
+        video={
+          {
+            ...baseVideo,
+            clipStartSec: 35,
+            clipEndSec: 95,
+          } as any
+        }
         onClick={vi.fn()}
-      />
+      />,
     );
 
     const scrubZone = container.querySelector(".cursor-ew-resize") as HTMLDivElement | null;
@@ -269,39 +339,183 @@ describe("VideoCard navigation", () => {
   });
 });
 
+describe("PerformerTile country flag", () => {
+  it("keeps the name-row flag navigable while exposing only the country tooltip", async () => {
+    vi.spyOn(performers, "countries").mockResolvedValue([
+      { value: "CA", code: "CA", name: "Canada", performerCount: 1, isCustom: false },
+    ]);
+    const onClick = vi.fn();
+    renderWithQueryClient(
+      <PerformerTile performer={{ id: 7, name: "Card performer", country: "CA" }} onClick={onClick} />,
+    );
+
+    const flag = await screen.findByLabelText("Canada");
+    expect(flag).toHaveTextContent("🇨🇦");
+    expect(flag).not.toHaveTextContent("Canada");
+    expect(flag.closest("a")).toHaveAttribute("href", "/performer/7");
+    expect(flag.closest("a")?.parentElement).toContainElement(screen.getByText("Card performer"));
+
+    fireEvent.click(flag);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("PerformerTile", () => {
   it("shows the performer fallback instead of an image when no image is present", () => {
     const { container } = render(
-      <PerformerTile
-        performer={{ id: 7, name: "No Photo Performer", tags: [] }}
-        onClick={vi.fn()}
-      />,
+      <PerformerTile performer={{ id: 7, name: "No Photo Performer", tags: [] }} onClick={vi.fn()} />,
     );
 
-    expect(screen.getByRole("link", { name: /Open performer No Photo Performer/i })).toHaveAttribute("href", "/performer/7");
+    expect(screen.getByRole("link", { name: /Open performer No Photo Performer/i })).toHaveAttribute(
+      "href",
+      "/performer/7",
+    );
     expect(container.querySelector("img")).not.toBeInTheDocument();
   });
 
   it("shows the performer likes count", () => {
-    render(
+    render(<PerformerTile performer={{ id: 7, name: "Liked Performer", tags: [], likeCount: 4 }} onClick={vi.fn()} />);
+
+    expect(screen.getByTitle("Likes: 4")).toBeInTheDocument();
+  });
+
+  it("shows exact ages for complete dates and possible ranges for partial dates", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
+    const { rerender } = render(
       <PerformerTile
-        performer={{ id: 7, name: "Liked Performer", tags: [], likeCount: 4 }}
+        performer={{
+          id: 7,
+          name: "Summary Performer",
+          gender: "Female",
+          birthdate: "2000-09-10",
+          tags: [],
+          videoCount: 3,
+          imageCount: 2,
+        }}
+        referenceDate="2026-09-09"
         onClick={vi.fn()}
       />,
     );
 
-    expect(screen.getByTitle("Likes: 4")).toBeInTheDocument();
+    expect(screen.getByText("25 years old")).toHaveAttribute("title", "2000-09-10, now 36 years old");
+    expect(screen.getByRole("link", { name: "25 years old; 2000-09-10, now 36 years old" })).toHaveAttribute(
+      "href",
+      "/performer/7",
+    );
+    expect(screen.getByRole("link", { name: "25 years old; 2000-09-10, now 36 years old" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+    expect(screen.getByLabelText("Female")).toBeInTheDocument();
+    expect(
+      screen.getByText("25 years old").compareDocumentPosition(screen.getByLabelText("Female")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Female").parentElement).toHaveClass("ml-auto");
+    expect(screen.queryByText("2000-09-10")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Videos")).toHaveTextContent("3");
+    expect(screen.getByTitle("Images")).toHaveTextContent("2");
+
+    rerender(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000", tags: [] }}
+        referenceDate="2026-09-09"
+        onClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("25–26 years old")).toBeInTheDocument();
+
+    rerender(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000-09", tags: [] }}
+        referenceDate="2026-09"
+        onClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("25–26 years old")).toBeInTheDocument();
+  });
+
+  it("shows current age when a card has no historical reference date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
+
+    render(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000-03-01", tags: [] }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("37 years old")).toHaveAttribute("title", "2000-03-01, now 37 years old");
+    expect(screen.queryByText("2000-03-01")).not.toBeInTheDocument();
+  });
+
+  it("uses age at death instead of a hypothetical current age", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
+
+    render(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "1980-03-01", deathDate: "2020-02-29", tags: [] }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("39 years old")).toHaveAttribute("title", "1980-03-01, 39 years old at death");
+  });
+
+  it.each([
+    ["Male", "Male", "text-blue-400"],
+    ["TransgenderFemale", "Transgender female", "text-pink-400"],
+    ["TransgenderMale", "Transgender male", "text-blue-400"],
+    ["Intersex", "Intersex", null],
+    ["NonBinary", "Non-binary", "text-orange-400"],
+  ])("shows an accessible icon for %s", (gender, label, colorClass) => {
+    render(<PerformerTile performer={{ id: 7, name: "Summary Performer", gender, tags: [] }} onClick={vi.fn()} />);
+
+    const icon = screen.getByLabelText(label);
+    expect(icon).toHaveAttribute("title", label);
+    expect(icon.closest("a")).toHaveAttribute("href", "/performer/7");
+    expect(icon.closest("a")).toHaveAttribute("tabindex", "-1");
+    expect(icon.closest("a")).toHaveClass("relative", "z-10", "ml-auto");
+    if (colorClass) expect(icon).toHaveClass(colorClass);
+  });
+
+  it("does not render an empty foreground link for an unknown gender", () => {
+    render(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", gender: "UnknownValue", tags: [] }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Open performer Summary Performer" })).toHaveAttribute(
+      "href",
+      "/performer/7",
+    );
   });
 });
 
 describe("GalleryTile", () => {
+  it("shows a formatted gallery date below the title", () => {
+    renderWithQueryClient(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
+
+    expect(screen.getByText("Sample Gallery")).toBeInTheDocument();
+    expect(screen.getByText("2024-01-15")).toBeInTheDocument();
+  });
+
+  it("does not reserve date content when a gallery is undated", () => {
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+
+    expect(container.querySelector(".card-body")).toHaveTextContent("Sample Gallery");
+    expect(container.querySelector(".card-body p + p")).not.toBeInTheDocument();
+  });
+
   it("shows the aggregate like count from gallery engagement", () => {
-    const { container } = render(
-      <GalleryTile
-        gallery={baseGallery as any}
-        engagement={{ likeCount: 6 } as any}
-        onClick={vi.fn()}
-      />,
+    const { container } = renderWithQueryClient(
+      <GalleryTile gallery={baseGallery as any} engagement={{ likeCount: 6 } as any} onClick={vi.fn()} />,
     );
 
     expect(screen.getByTitle("Likes: 6")).toBeInTheDocument();
@@ -310,9 +524,11 @@ describe("GalleryTile", () => {
 
   it("uses media-enabled tag links in the shared reference popover", () => {
     vi.useFakeTimers();
-    render(
+    renderWithQueryClient(
       <GalleryTile
-        gallery={{ ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any}
+        gallery={
+          { ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any
+        }
         onClick={vi.fn()}
       />,
     );
@@ -327,7 +543,7 @@ describe("GalleryTile", () => {
   });
 
   it("shows image and video counts once in the footer popovers", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     const imagesButton = screen.getByTitle("Images");
     const videosButton = screen.getByTitle("Videos");
@@ -342,27 +558,59 @@ describe("GalleryTile", () => {
   });
 
   it("uses a square media frame so gallery cards match image-card dimensions", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect(container.querySelector(".aspect-square")).toBeInTheDocument();
     expect(container.querySelector(".aspect-video")).not.toBeInTheDocument();
   });
 
   it("uses the effective gallery cover endpoint when no explicit cover path is present", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
-    expect((container.querySelector("img") as HTMLImageElement | null)?.getAttribute("src")).toContain("/api/galleries/7/cover");
+    expect((container.querySelector("img") as HTMLImageElement | null)?.getAttribute("src")).toContain(
+      "/api/galleries/7/cover",
+    );
+  });
+
+  it("scrubs only while the navigation overlay pointer is within the gallery media", async () => {
+    const findSpy = vi.spyOn(images, "find").mockResolvedValue({ items: [{ id: 55 }], totalCount: 12 } as any);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const scrubber = screen.getByTestId("gallery-scrub-thumbnail");
+    vi.spyOn(scrubber, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      right: 110,
+      top: 20,
+      bottom: 120,
+      width: 100,
+      height: 100,
+    } as DOMRect);
+    const overlay = container.querySelector('a[aria-label="Open gallery Sample Gallery"]')!;
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 160 });
+    expect(findSpy).not.toHaveBeenCalled();
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 60 });
+    await waitFor(() => expect(findSpy).toHaveBeenCalledOnce());
+    await waitFor(() => expect(scrubber.querySelectorAll("img")).toHaveLength(2));
+    fireEvent.load(scrubber.querySelectorAll("img")[1]!);
+    expect(scrubber.querySelectorAll("img")).toHaveLength(1);
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 160 });
+    expect(scrubber.querySelectorAll("img")).toHaveLength(1);
+    expect((scrubber.querySelector("img") as HTMLImageElement).src).toContain("/api/galleries/7/cover");
   });
 
   it("shows the studio logo overlay and shared studio and performer popovers", () => {
-    render(
+    renderWithQueryClient(
       <GalleryTile
-        gallery={{
-          ...baseGallery,
-          studioId: 9,
-          studioName: "Studio Nine",
-          performers: [{ id: 11, name: "Performer One", imagePath: null }],
-        } as any}
+        gallery={
+          {
+            ...baseGallery,
+            studioId: 9,
+            studioName: "Studio Nine",
+            performers: [{ id: 11, name: "Performer One", imagePath: null }],
+          } as any
+        }
         onClick={vi.fn()}
       />,
     );
@@ -378,20 +626,22 @@ describe("ImageTile", () => {
     vi.useFakeTimers();
     render(
       <ImageTile
-        image={{
-          id: 3,
-          title: "Sample Image",
-          organized: false,
-          urls: [],
-          tags: [{ id: 23, name: "Animated Image Tag", imagePath: "/image-tag.jpg" }],
-          performers: [],
-          galleryCount: 0,
-          galleryIds: [],
-          galleries: [],
-          files: [],
-          createdAt: "",
-          updatedAt: "",
-        } as any}
+        image={
+          {
+            id: 3,
+            title: "Sample Image",
+            organized: false,
+            urls: [],
+            tags: [{ id: 23, name: "Animated Image Tag", imagePath: "/image-tag.jpg" }],
+            performers: [],
+            galleryCount: 0,
+            galleryIds: [],
+            galleries: [],
+            files: [],
+            createdAt: "",
+            updatedAt: "",
+          } as any
+        }
         onClick={vi.fn()}
       />,
     );
@@ -409,23 +659,52 @@ describe("ImageTile", () => {
 describe.each([
   {
     name: "AudioTile",
-    renderTile: (relations: Record<string, unknown> = {}) => render(
-      <AudioTile
-        audio={{ id: 81, title: "Sample Audio", date: "2026-08-20", maxDuration: 90, hasVideoFiles: false, tracks: [], files: [], performers: [], tags: [], groups: [], organized: false, ...relations } as any}
-        onClick={vi.fn()}
-        onNavigate={vi.fn()}
-      />,
-    ),
+    renderTile: (relations: Record<string, unknown> = {}) =>
+      render(
+        <AudioTile
+          audio={
+            {
+              id: 81,
+              title: "Sample Audio",
+              date: "2026-08-20",
+              maxDuration: 90,
+              hasVideoFiles: false,
+              tracks: [],
+              files: [],
+              performers: [],
+              tags: [],
+              groups: [],
+              organized: false,
+              ...relations,
+            } as any
+          }
+          onClick={vi.fn()}
+          onNavigate={vi.fn()}
+        />,
+      ),
   },
   {
     name: "TextTile",
-    renderTile: (relations: Record<string, unknown> = {}) => render(
-      <TextTile
-        text={{ id: 82, title: "Sample Text", date: "2026-08-20", files: [], performers: [], tags: [], groups: [], organized: false, ...relations } as any}
-        onClick={vi.fn()}
-        onNavigate={vi.fn()}
-      />,
-    ),
+    renderTile: (relations: Record<string, unknown> = {}) =>
+      render(
+        <TextTile
+          text={
+            {
+              id: 82,
+              title: "Sample Text",
+              date: "2026-08-20",
+              files: [],
+              performers: [],
+              tags: [],
+              groups: [],
+              organized: false,
+              ...relations,
+            } as any
+          }
+          onClick={vi.fn()}
+          onNavigate={vi.fn()}
+        />,
+      ),
   },
 ])("$name video-card parity", ({ renderTile }) => {
   it("uses the video-card studio overlay and body metadata treatment", () => {
@@ -477,7 +756,22 @@ describe("AudioTile nested navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const { container } = render(
       <AudioTile
-        audio={{ id: 81, title: "Sample Audio", studioId: 9, studioName: "Studio Nine", maxDuration: 90, hasVideoFiles: false, tracks: [], files: [], performers: [{ id: 11, name: "Performer One", imagePath: null }], tags: [{ id: 12, name: "Tag One" }], groups: [], organized: false } as any}
+        audio={
+          {
+            id: 81,
+            title: "Sample Audio",
+            studioId: 9,
+            studioName: "Studio Nine",
+            maxDuration: 90,
+            hasVideoFiles: false,
+            tracks: [],
+            files: [],
+            performers: [{ id: 11, name: "Performer One", imagePath: null }],
+            tags: [{ id: 12, name: "Tag One" }],
+            groups: [],
+            organized: false,
+          } as any
+        }
         onClick={vi.fn()}
         onNavigate={vi.fn()}
       />,
@@ -494,38 +788,100 @@ describe("AudioTile nested navigation", () => {
 
 describe("GroupTile", () => {
   it("uses hover popovers for dynamic mixed group counts", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      items: [
-        { id: -1, groupId: 4, orderIndex: 0, kind: "video", videoId: 10, videoTitle: "Dynamic Video", hostType: "video", hostId: 10, title: "Dynamic Video", createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
-        { id: -2, groupId: 4, orderIndex: 1, kind: "image", imageId: 20, imageTitle: "Group Image", hostType: "image", hostId: 20, title: "Group Image", createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
-        { id: -3, groupId: 4, orderIndex: 2, kind: "audio", hostType: "audio", hostId: 30, title: "Group Audio", createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
-        { id: -4, groupId: 4, orderIndex: 3, kind: "text", hostType: "text", hostId: 40, title: "Group Text", createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
-        { id: -5, groupId: 4, orderIndex: 4, kind: "segment", hostType: "segment", hostId: 50, title: "Group Segment", createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
-      ],
-      totalCount: 5,
-      page: 1,
-      perPage: 0,
-    }), { status: 200 }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: -1,
+                groupId: 4,
+                orderIndex: 0,
+                kind: "video",
+                videoId: 10,
+                videoTitle: "Dynamic Video",
+                hostType: "video",
+                hostId: 10,
+                title: "Dynamic Video",
+                createdAt: "2026-05-01T00:00:00Z",
+                updatedAt: "2026-05-01T00:00:00Z",
+              },
+              {
+                id: -2,
+                groupId: 4,
+                orderIndex: 1,
+                kind: "image",
+                imageId: 20,
+                imageTitle: "Group Image",
+                hostType: "image",
+                hostId: 20,
+                title: "Group Image",
+                createdAt: "2026-05-01T00:00:00Z",
+                updatedAt: "2026-05-01T00:00:00Z",
+              },
+              {
+                id: -3,
+                groupId: 4,
+                orderIndex: 2,
+                kind: "audio",
+                hostType: "audio",
+                hostId: 30,
+                title: "Group Audio",
+                createdAt: "2026-05-01T00:00:00Z",
+                updatedAt: "2026-05-01T00:00:00Z",
+              },
+              {
+                id: -4,
+                groupId: 4,
+                orderIndex: 3,
+                kind: "text",
+                hostType: "text",
+                hostId: 40,
+                title: "Group Text",
+                createdAt: "2026-05-01T00:00:00Z",
+                updatedAt: "2026-05-01T00:00:00Z",
+              },
+              {
+                id: -5,
+                groupId: 4,
+                orderIndex: 4,
+                kind: "segment",
+                hostType: "segment",
+                hostId: 50,
+                title: "Group Segment",
+                createdAt: "2026-05-01T00:00:00Z",
+                updatedAt: "2026-05-01T00:00:00Z",
+              },
+            ],
+            totalCount: 5,
+            page: 1,
+            perPage: 0,
+          }),
+          { status: 200 },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(
       <GroupTile
-        group={{
-          id: 4,
-          name: "Mixed Dynamic Group",
-          kind: "dynamic",
-          frontImagePath: null,
-          tags: [],
-          videoCount: 1,
-          imageCount: 1,
-          audioCount: 1,
-          textCount: 1,
-          segmentCount: 1,
-          subGroupCount: 0,
-          itemCount: 5,
-          createdAt: "2026-05-01T00:00:00Z",
-          updatedAt: "2026-05-01T00:00:00Z",
-        } as any}
+        group={
+          {
+            id: 4,
+            name: "Mixed Dynamic Group",
+            kind: "dynamic",
+            frontImagePath: null,
+            tags: [],
+            videoCount: 1,
+            imageCount: 1,
+            audioCount: 1,
+            textCount: 1,
+            segmentCount: 1,
+            subGroupCount: 0,
+            itemCount: 5,
+            createdAt: "2026-05-01T00:00:00Z",
+            updatedAt: "2026-05-01T00:00:00Z",
+          } as any
+        }
         onClick={vi.fn()}
       />,
     );
@@ -539,7 +895,10 @@ describe("GroupTile", () => {
     fireEvent.mouseEnter(screen.getByTitle("Videos"));
 
     expect(await screen.findByText("Dynamic Video")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/groups/4/items/page?page=1&perPage=0&sort=order&direction=asc", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/groups/4/items/page?page=1&perPage=0&sort=order&direction=asc",
+      expect.any(Object),
+    );
   });
 });
 
@@ -547,16 +906,18 @@ describe("FileInfoTab", () => {
   it("renders every underlying video file", () => {
     renderWithQueryClient(
       <FileInfoTab
-        files={[
-          videoFile,
-          {
-            ...videoFile,
-            id: 11,
-            basename: "beta.mp4",
-            path: "D:\\archive\\beta.mp4",
-          },
-        ] as any}
-      />
+        files={
+          [
+            videoFile,
+            {
+              ...videoFile,
+              id: 11,
+              basename: "beta.mp4",
+              path: "D:\\archive\\beta.mp4",
+            },
+          ] as any
+        }
+      />,
     );
 
     expect(screen.getByText("C:\\library\\alpha.mp4")).toBeInTheDocument();
@@ -582,7 +943,7 @@ describe("DetailsTab performers", () => {
 
     renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
-    expect(screen.getByText("24 yrs old")).toBeInTheDocument();
+    expect(screen.getByText("24 years old")).toBeInTheDocument();
 
     const performerGrid = screen.getByText("Performers").nextElementSibling as HTMLElement;
     expect(performerGrid.className).toContain("grid");
@@ -591,7 +952,6 @@ describe("DetailsTab performers", () => {
     expect(screen.getByRole("link", { name: /Alice Example/i }).className).toContain("absolute inset-0");
     expect(screen.getByRole("link", { name: /Beth Example/i }).className).toContain("absolute inset-0");
   });
-
 });
 
 describe("DetailsTab director", () => {
@@ -630,18 +990,35 @@ describe("DetailsTab director", () => {
 
 describe("DetailsTab tag hover", () => {
   it("renders supplied static media without fetching tag details", () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const video = {
       ...baseVideo,
-      remoteIds: [], urls: [], customFields: undefined,
-      tags: [{ id: 9, name: "Featured", imagePath: "/tag.jpg", description: "Preview description", favorite: false, organized: true, aliases: [], videoCount: 12 }],
+      remoteIds: [],
+      urls: [],
+      customFields: undefined,
+      tags: [
+        {
+          id: 9,
+          name: "Featured",
+          imagePath: "/tag.jpg",
+          description: "Preview description",
+          favorite: false,
+          organized: true,
+          aliases: [],
+          videoCount: 12,
+        },
+      ],
     };
     renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Featured" }));
 
-    expect(screen.getByRole("tooltip", { name: "Media for Featured" })).toContainElement(screen.getByRole("img", { name: "Featured" }));
+    expect(screen.getByRole("tooltip", { name: "Media for Featured" })).toContainElement(
+      screen.getByRole("img", { name: "Featured" }),
+    );
     expect(screen.getByRole("img", { name: "Featured" })).toHaveAttribute("src", "/tag.jpg");
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/tags/"))).toBe(false);
   });

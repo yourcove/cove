@@ -58,7 +58,7 @@ export function clampCardSizeLevel(value: number) {
 
 function getEntityCardSizeProfile(entityType?: string) {
   const normalized = normalizeEntityType(entityType);
-  return normalized ? ENTITY_CARD_SIZE_PROFILES[normalized] ?? DEFAULT_CARD_SIZE_PROFILE : DEFAULT_CARD_SIZE_PROFILE;
+  return normalized ? (ENTITY_CARD_SIZE_PROFILES[normalized] ?? DEFAULT_CARD_SIZE_PROFILE) : DEFAULT_CARD_SIZE_PROFILE;
 }
 
 export function getEntityCardMaxLevel(entityType?: string) {
@@ -70,9 +70,7 @@ export function clampEntityCardSizeLevel(entityType: string | undefined, value: 
 }
 
 export function parseEntityCardSizeLevel(entityType: string | undefined, value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? clampEntityCardSizeLevel(entityType, value)
-    : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? clampEntityCardSizeLevel(entityType, value) : undefined;
 }
 
 export function getEntityCardMinWidthPx(entityType: string | undefined, level: number) {
@@ -109,7 +107,9 @@ function readEntityCardSize(entityType?: string, legacyPageKey?: string, default
     const raw = localStorage.getItem(key);
     if (raw != null) {
       const parsed = Number(raw);
-      return Number.isFinite(parsed) ? clampEntityCardSizeLevel(normalized, parsed) : clampEntityCardSizeLevel(normalized, defaultValue);
+      return Number.isFinite(parsed)
+        ? clampEntityCardSizeLevel(normalized, parsed)
+        : clampEntityCardSizeLevel(normalized, defaultValue);
     }
 
     const legacyValue = readLegacyZoomLevel(legacyPageKey);
@@ -132,20 +132,23 @@ export function useEntityCardSize(entityType?: string, legacyPageKey?: string, d
     setLevelState(readEntityCardSize(normalizedEntityType, legacyPageKey, defaultValue));
   }, [defaultValue, legacyPageKey, normalizedEntityType]);
 
-  const setLevel = useCallback((value: number | ((current: number) => number)) => {
-    setLevelState((current) => {
-      const nextValue = typeof value === "function" ? value(current) : value;
-      const next = clampEntityCardSizeLevel(normalizedEntityType, nextValue);
-      if (typeof window !== "undefined" && normalizedEntityType) {
-        try {
-          localStorage.setItem(`cove.cardSize.${normalizedEntityType}`, String(next));
-        } catch {
-          // Ignore storage write failures.
+  const setLevel = useCallback(
+    (value: number | ((current: number) => number)) => {
+      setLevelState((current) => {
+        const nextValue = typeof value === "function" ? value(current) : value;
+        const next = clampEntityCardSizeLevel(normalizedEntityType, nextValue);
+        if (typeof window !== "undefined" && normalizedEntityType) {
+          try {
+            localStorage.setItem(`cove.cardSize.${normalizedEntityType}`, String(next));
+          } catch {
+            // Ignore storage write failures.
+          }
         }
-      }
-      return next;
-    });
-  }, [normalizedEntityType]);
+        return next;
+      });
+    },
+    [normalizedEntityType],
+  );
 
   return [level, setLevel] as const;
 }

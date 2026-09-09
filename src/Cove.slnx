@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Cove.Api/Cove.Api.csproj" />
+  <Project Path="Cove.ApiTestFaceProvider/Cove.ApiTestFaceProvider.csproj" />
   <Project Path="Cove.ApiTests/Cove.ApiTests.csproj" />
   <Project Path="Cove.Core/Cove.Core.csproj" />
   <Project Path="Cove.Data/Cove.Data.csproj" />

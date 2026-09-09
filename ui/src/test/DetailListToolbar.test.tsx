@@ -1,8 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
+import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
+
+vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
+  useRegisterKeyboardActionHandler: vi.fn(),
+}));
 
 vi.mock("../api/client", () => ({
   savedFilters: {
@@ -31,10 +37,13 @@ afterEach(() => {
 
 describe("DetailListToolbar", () => {
   it("applies the default saved filter's zoom to an embedded list", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 24 },
-      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 24 },
+        uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+      }),
+    );
     const onZoomChange = vi.fn();
     const onDisplayModeChange = vi.fn();
 
@@ -60,10 +69,13 @@ describe("DetailListToolbar", () => {
   });
 
   it("applies default zoom when the embedded list filter was resolved from the URL", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 24 },
-      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 24 },
+        uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+      }),
+    );
     const onFilterChange = vi.fn();
     const onZoomChange = vi.fn();
     const onDisplayModeChange = vi.fn();
@@ -107,11 +119,48 @@ describe("DetailListToolbar", () => {
 
     await user.type(screen.getByPlaceholderText("Search…"), "summer");
 
-    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
-      page: 1,
-      perPage: 24,
-      q: "summer",
-    }));
+    await waitFor(() =>
+      expect(onFilterChange).toHaveBeenCalledWith({
+        page: 1,
+        perPage: 24,
+        q: "summer",
+      }),
+    );
+  });
+
+  it("allows the toolbar to fill the available detail-list width", () => {
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={100}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        showSearch
+      />,
+    );
+
+    const toolbar = screen.getByPlaceholderText("Search…").closest("form")?.parentElement;
+    expect(toolbar).toHaveClass("w-full");
+    expect(toolbar).not.toHaveClass("max-w-7xl");
+  });
+
+  it("registers the filter action when filtering is available", () => {
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={[{ id: "title", label: "Title", type: "string", filterKey: "titleCriterion" }]}
+        objectFilter={{}}
+        onObjectFilterChange={vi.fn()}
+      />,
+    );
+
+    expect(useRegisterKeyboardActionHandler).toHaveBeenCalledWith("list.filters", expect.any(Function), {
+      enabled: true,
+      surface: "list",
+    });
   });
 
   it("renders matching pagination above and below a finite detail list", async () => {
@@ -129,12 +178,7 @@ describe("DetailListToolbar", () => {
           allowInfinitePageSize
         />
         <div>Results</div>
-        <DetailListPagination
-          filter={filter}
-          onFilterChange={onFilterChange}
-          totalCount={100}
-          allowInfinitePageSize
-        />
+        <DetailListPagination filter={filter} onFilterChange={onFilterChange} totalCount={100} allowInfinitePageSize />
       </>,
     );
 
@@ -152,13 +196,7 @@ describe("DetailListToolbar", () => {
   });
 
   it("labels native pagination controls and identifies the current page", () => {
-    render(
-      <DetailListPagination
-        filter={{ page: 2, perPage: 24 }}
-        onFilterChange={vi.fn()}
-        totalCount={100}
-      />,
-    );
+    render(<DetailListPagination filter={{ page: 2, perPage: 24 }} onFilterChange={vi.fn()} totalCount={100} />);
 
     expect(screen.getByRole("button", { name: "First page" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
@@ -228,22 +266,18 @@ describe("DetailListToolbar", () => {
       />,
     );
 
-    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
-      page: 5,
-      perPage: 24,
-      q: "example",
-    }));
+    await waitFor(() =>
+      expect(onFilterChange).toHaveBeenCalledWith({
+        page: 5,
+        perPage: 24,
+        q: "example",
+      }),
+    );
   });
 
   it("does not reset a deep page while its result count is unavailable", () => {
     const onFilterChange = vi.fn();
-    render(
-      <DetailListPagination
-        filter={{ page: 12, perPage: 24 }}
-        onFilterChange={onFilterChange}
-        totalCount={0}
-      />,
-    );
+    render(<DetailListPagination filter={{ page: 12, perPage: 24 }} onFilterChange={onFilterChange} totalCount={0} />);
 
     expect(onFilterChange).not.toHaveBeenCalled();
   });
@@ -259,7 +293,9 @@ describe("DetailListToolbar", () => {
         onFilterChange={onFilterChange}
         totalCount={10}
         sortOptions={[{ value: "title", label: "Title" }]}
-        criteriaDefinitions={[{ id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" }]}
+        criteriaDefinitions={[
+          { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
+        ]}
         objectFilter={{
           tagsCriterion: {
             value: [804],
@@ -291,6 +327,75 @@ describe("DetailListToolbar", () => {
 
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
     expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 24 });
+  });
+
+  it("routes nested expression operators and leaves to their matching filter views", async () => {
+    const user = userEvent.setup();
+    const objectFilter = {
+      _filterExpression: {
+        operator: "AND",
+        children: [
+          {
+            group: {
+              operator: "OR",
+              children: [
+                { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={VIDEO_CRITERIA}
+        objectFilter={objectFilter}
+        onObjectFilterChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Close filters" }));
+    await user.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close filters" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 2 active" }));
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
+  });
+
+  it("normalizes a legacy performer-favorite chip before editing or removing it", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={VIDEO_CRITERIA}
+        objectFilter={{ performerFavoriteCriterion: { value: true } }}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
   });
 
   it("clears all applied object-filter parameters", async () => {
@@ -337,7 +442,9 @@ describe("DetailListToolbar", () => {
 
     await user.click(screen.getByTitle("Ascending"));
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: "random", direction: "desc", seed: 2468 }));
+    expect(onFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: "random", direction: "desc", seed: 2468 }),
+    );
   });
 
   it("shows a shuffle button for random sort and replaces the seed", async () => {
@@ -375,12 +482,62 @@ describe("DetailListToolbar", () => {
     expect(screen.getByRole("slider")).toHaveAttribute("max", "8");
   });
 
+  it("uses wall size levels for an embedded wall list", async () => {
+    const user = userEvent.setup();
+    const onZoomChange = vi.fn();
+    localStorage.setItem("cove.cardSize.video", "5");
+
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={5}
+        onZoomChange={onZoomChange}
+        cardSizeEntityType="videos"
+        displayMode="wall"
+      />,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Wall card size" });
+    expect(slider).toHaveAttribute("min", "2");
+    expect(slider).toHaveAttribute("max", "8");
+    expect(slider).toHaveAttribute("step", "1");
+    expect(screen.getByText("5 cols")).toBeInTheDocument();
+
+    await user.click(slider);
+    fireEvent.change(slider, { target: { value: "8" } });
+
+    expect(onZoomChange).toHaveBeenCalledWith(8);
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("8");
+  });
+
+  it("hides the size slider for embedded modes without card sizing", () => {
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={5}
+        onZoomChange={vi.fn()}
+        displayMode="tagger"
+      />,
+    );
+
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  });
+
   it("applies the complete saved default for an embedded list", async () => {
-    localStorage.setItem("cove-default-filter-galleries", JSON.stringify({
-      findFilter: { page: 7, perPage: 40, sort: "title", direction: "asc", q: "summer" },
-      objectFilter: { favorite: true },
-      uiOptions: { displayMode: "list" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-galleries",
+      JSON.stringify({
+        findFilter: { page: 7, perPage: 40, sort: "title", direction: "asc", q: "summer" },
+        objectFilter: { favorite: true },
+        uiOptions: { displayMode: "list" },
+      }),
+    );
     const onFilterChange = vi.fn();
     const onObjectFilterChange = vi.fn();
     const onDisplayModeChange = vi.fn();
@@ -400,21 +557,26 @@ describe("DetailListToolbar", () => {
       />,
     );
 
-    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
-      page: 1,
-      perPage: 40,
-      sort: "title",
-      direction: "asc",
-      q: "summer",
-    }));
+    await waitFor(() =>
+      expect(onFilterChange).toHaveBeenCalledWith({
+        page: 1,
+        perPage: 40,
+        sort: "title",
+        direction: "asc",
+        q: "summer",
+      }),
+    );
     expect(onObjectFilterChange).toHaveBeenCalledWith({ favorite: true });
     expect(onDisplayModeChange).toHaveBeenCalledWith("list");
   });
 
   it("does not reapply a saved default that URL-backed state resolved before mount", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40, sort: "random", direction: "asc" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40, sort: "random", direction: "asc" },
+      }),
+    );
     const onFilterChange = vi.fn();
 
     renderWithQueryClient(

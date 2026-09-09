@@ -20,7 +20,8 @@ internal sealed class ScanGalleryProcessor(
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
         int? parentFolderId = null,
-        IReadOnlyList<ZipEntryInfo>? prevalidatedEntries = null)
+        IReadOnlyList<ZipEntryInfo>? prevalidatedEntries = null,
+        bool contentChanged = false)
     {
         var stat = fileStat ?? ScanPath.GetFileStat(path);
         var dirPath = ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -30,17 +31,29 @@ internal sealed class ScanGalleryProcessor(
         var existing = await db.Set<GalleryFile>()
             .Include(gf => gf.Gallery)
             .ThenInclude(g => g!.ImageGalleries)
+            .ThenInclude(ig => ig.Image)
+            .ThenInclude(image => image!.Files)
             .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
 
         // Consult entities added but not yet saved in this batch to avoid violating the unique
         // (ParentFolderId, Basename) index when a file is enumerated twice in one pass.
         existing ??= db.Set<GalleryFile>().Local.FirstOrDefault(f => f.ParentFolderId == folderId && f.Basename == basename);
+        var existingArchiveFiles = existing == null || existing.Id == 0
+            ? new List<ImageFile>()
+            : await db.ImageFiles
+                .Include(file => file.Image)
+                .ThenInclude(image => image!.Files)
+                .Where(file => file.ZipFileId == existing.Id)
+                .ToListAsync(ct);
+        var retryableChangedArchive = existing != null && contentChanged && db.Database.IsRelational();
+        var existingGalleryFileId = existing?.Id;
 
-        // If gallery exists and already has images, skip re-processing
-        if (existing?.Gallery?.ImageGalleries.Count > 0)
+        // A forced rescan of an unchanged archive is metadata-only. Confirmed content changes,
+        // however, must replace the images derived from the previous archive.
+        if (!contentChanged && existingArchiveFiles.Count > 0)
         {
-            logger.LogTrace("Gallery already processed with {ImageCount} images: {Path}", existing.Gallery.ImageGalleries.Count, path);
-            return existing.Gallery;
+            logger.LogTrace("Gallery already processed with {ImageCount} images: {Path}", existingArchiveFiles.Count, path);
+            return existing!.Gallery!;
         }
 
         // Create or update the gallery file entry
@@ -92,10 +105,6 @@ internal sealed class ScanGalleryProcessor(
             }
         }
 
-        // Save to get the GalleryFile ID (needed for ZipFileId on images)
-        await db.SaveChangesAsync(ct);
-
-        // Now extract images from the zip file
         try
         {
             // Get all images from the zip, sorted by path
@@ -122,76 +131,180 @@ internal sealed class ScanGalleryProcessor(
                     imageEntries.Count - distinctEntries.Count,
                     path);
 
-            logger.LogTrace("Found {ImageCount} images in gallery: {Path}", distinctEntries.Count, path);
-
-            // Create a virtual folder for this zip's contents
-            // This ensures images from different zips don't conflict on the unique constraint (ParentFolderId + Basename)
-            var virtualFolderPath = $"{path}#virtual";
-            var virtualFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == virtualFolderPath, ct);
-            if (virtualFolder == null)
-            {
-                virtualFolder = new Folder { Path = virtualFolderPath };
-                db.Folders.Add(virtualFolder);
-                await db.SaveChangesAsync(ct);
-            }
-
-            // Create Image entities for each image in the zip
+            // A readable central directory does not prove compressed entry payloads are extractable.
+            // Preflight only new and confirmed-changed archives, before mutating the existing gallery.
             foreach (var entry in distinctEntries)
             {
-                // Create ImageFile record representing the image within the zip
-                // Use FullName to preserve the internal zip path structure and avoid duplicate basenames
-                var imageFile = new ImageFile
-                {
-                    Basename = entry.FullName,  // Use full internal path to avoid collisions
-                    ParentFolderId = virtualFolder.Id,  // Use virtual folder specific to this zip
-                    ZipFileId = galleryFile.Id,  // Link to parent zip file
-                    Size = entry.Length,
-                    ModTime = ScanPath.NormalizeFileModTime(entry.LastWriteTime.UtcDateTime),
-                    Format = Path.GetExtension(entry.Name).TrimStart('.').ToLowerInvariant(),
-                    // TODO: Extract dimensions using image processing library
-                    Width = 0,
-                    Height = 0
-                };
-
-                // Create Image entity
-                var image = new Image
-                {
-                    Title = Path.GetFileNameWithoutExtension(entry.Name),
-                    Files = [imageFile]
-                };
-
-                db.Images.Add(image);
-
-                // Link image to gallery via junction table
-                // Note: We'll add this after the image is saved and has an ID
-                gallery.ImageGalleries.Add(new ImageGallery
-                {
-                    Image = image,
-                    Gallery = gallery
-                });
+                await using var payload = await zipGalleryReader.ExtractEntryAsync(path, entry.FullName, ct);
             }
 
-            // Save all images and their gallery associations
-            await db.SaveChangesAsync(ct);
+            logger.LogTrace("Found {ImageCount} images in gallery: {Path}", distinctEntries.Count, path);
+
+            // Compute stable target timestamps before entering the retrying delegate. Recomputing
+            // these from rows written by an ambiguously committed first attempt would advance them
+            // again and make the replay non-idempotent.
+            var replacementModTimes = existingArchiveFiles
+                .Where(file => distinctEntries.Any(entry => entry.FullName == file.Basename))
+                .GroupBy(file => file.Basename, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group =>
+                    {
+                        var file = group.First();
+                        var entry = distinctEntries.First(item => item.FullName == group.Key);
+                        var entryModTime = ScanPath.NormalizeFileModTime(entry.LastWriteTime.UtcDateTime);
+                        return entryModTime > file.ModTime ? entryModTime : file.ModTime.AddSeconds(2);
+                    },
+                    StringComparer.Ordinal);
+
+            async Task PersistGalleryAsync()
+            {
+                if (retryableChangedArchive)
+                {
+                    // Execution strategies may replay this delegate after a rollback or an ambiguous
+                    // successful commit. Discard the prior attempt's state and rebuild the complete
+                    // graph from the database so each attempt converges on the same replacement.
+                    db.ChangeTracker.Clear();
+                    existing = await db.Set<GalleryFile>()
+                        .Include(file => file.Gallery)
+                        .ThenInclude(item => item!.ImageGalleries)
+                        .ThenInclude(item => item.Image)
+                        .ThenInclude(image => image!.Files)
+                        .SingleAsync(file => file.Id == existingGalleryFileId, ct);
+                    galleryFile = existing;
+                    galleryFile.Size = stat.Size;
+                    galleryFile.ModTime = stat.ModTime;
+                    gallery = existing.Gallery!;
+                    existingArchiveFiles = await db.ImageFiles
+                        .Include(file => file.Image)
+                        .ThenInclude(image => image!.Files)
+                        .Where(file => file.ZipFileId == existing.Id)
+                        .ToListAsync(ct);
+                }
+
+                await using var transaction = retryableChangedArchive
+                    ? await db.Database.BeginTransactionAsync(ct)
+                    : null;
+
+                if (existing != null && contentChanged)
+                {
+                    var derivedImages = existingArchiveFiles
+                        .Select(file => file.Image!)
+                        .DistinctBy(image => image.Id)
+                        .ToList();
+                    var imagesByEntryName = derivedImages
+                        .Select(image => (Image: image, File: image.Files.Single(file => file.ZipFileId == galleryFile.Id)))
+                        .GroupBy(item => item.File.Basename, StringComparer.Ordinal)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+                    var replacementNames = distinctEntries.Select(entry => entry.FullName).ToHashSet(StringComparer.Ordinal);
+                    var removedImages = derivedImages
+                        .Where(image => image.Files.Any(file => file.ZipFileId == galleryFile.Id && !replacementNames.Contains(file.Basename)))
+                        .ToList();
+                    db.ImageFiles.RemoveRange(removedImages.SelectMany(image => image.Files));
+                    db.Images.RemoveRange(removedImages);
+
+                    foreach (var entry in distinctEntries)
+                    {
+                        if (!imagesByEntryName.TryGetValue(entry.FullName, out var matched))
+                            continue;
+
+                        matched.File.Size = entry.Length;
+                        if (replacementModTimes.TryGetValue(entry.FullName, out var replacementModTime))
+                            matched.File.ModTime = replacementModTime;
+                        matched.File.Format = Path.GetExtension(entry.Name).TrimStart('.').ToLowerInvariant();
+                    }
+                }
+                else
+                {
+                    // New gallery files need an ID before their derived ImageFiles can reference it. Existing
+                    // empty galleries also keep the established two-save flow so authorization-backed derived
+                    // counts can observe the newly persisted image before their relationship is summarized.
+                    await db.SaveChangesAsync(ct);
+                }
+
+                // Create a virtual folder for this zip's contents
+                // This ensures images from different zips don't conflict on the unique constraint (ParentFolderId + Basename)
+                var virtualFolderPath = $"{path}#virtual";
+                var virtualFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == virtualFolderPath, ct);
+                if (virtualFolder == null)
+                {
+                    virtualFolder = new Folder { Path = virtualFolderPath };
+                    db.Folders.Add(virtualFolder);
+                    await db.SaveChangesAsync(ct);
+                }
+
+                // Create Image entities for each image in the zip
+                foreach (var entry in distinctEntries)
+                {
+                    if (existing != null && contentChanged && existingArchiveFiles.Any(file => file.Basename == entry.FullName))
+                        continue;
+
+                    // Create ImageFile record representing the image within the zip
+                    // Use FullName to preserve the internal zip path structure and avoid duplicate basenames
+                    var imageFile = new ImageFile
+                    {
+                        Basename = entry.FullName,  // Use full internal path to avoid collisions
+                        ParentFolderId = virtualFolder.Id,  // Use virtual folder specific to this zip
+                        ZipFileId = galleryFile.Id,  // Link to parent zip file
+                        Size = entry.Length,
+                        ModTime = ScanPath.NormalizeFileModTime(entry.LastWriteTime.UtcDateTime),
+                        Format = Path.GetExtension(entry.Name).TrimStart('.').ToLowerInvariant(),
+                        // TODO: Extract dimensions using image processing library
+                        Width = 0,
+                        Height = 0
+                    };
+
+                    // Create Image entity
+                    var image = new Image
+                    {
+                        Title = Path.GetFileNameWithoutExtension(entry.Name),
+                        Files = [imageFile]
+                    };
+
+                    db.Images.Add(image);
+
+                    // Link image to gallery via junction table
+                    // Note: We'll add this after the image is saved and has an ID
+                    gallery.ImageGalleries.Add(new ImageGallery
+                    {
+                        Image = image,
+                        Gallery = gallery
+                    });
+                }
+
+                // Save all images and their gallery associations
+                await db.SaveChangesAsync(ct);
+                if (transaction != null)
+                    await transaction.CommitAsync(ct);
+            }
+
+            if (retryableChangedArchive)
+                await db.Database.CreateExecutionStrategy().ExecuteAsync(PersistGalleryAsync);
+            else
+                await PersistGalleryAsync();
 
             logger.LogTrace("Added gallery with {ImageCount} images: {Path}", distinctEntries.Count, path);
         }
         catch (FileNotFoundException)
         {
             logger.LogError("Zip file not found (may have been moved/deleted): {Path}", path);
+            db.ChangeTracker.Clear();
+            throw;
         }
         catch (InvalidDataException ex)
         {
             logger.LogError("Invalid or corrupt zip file: {Path} - {Error}", path, ex.Message);
+            db.ChangeTracker.Clear();
+            throw;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error processing gallery zip file: {Path}", path);
 
-            // Discard any image rows that failed to persist so the caller's next SaveChanges
-            // doesn't retry them and surface the same error a second time. The gallery row
-            // itself was already committed above, so it survives (as an empty gallery).
+            // Discard failed tracked state after the transaction rolls back so the caller's next
+            // SaveChanges cannot retry it, then propagate the failure to the scan job.
             db.ChangeTracker.Clear();
+            throw;
         }
 
         return gallery;

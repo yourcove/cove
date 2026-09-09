@@ -27,4 +27,12 @@ public interface IAuthorizationService
     Task<AuthorizationResult> AuthorizeAsync(CovePrincipal? principal, string permission, EntityRef? entity, CancellationToken ct);
     void Require(CovePrincipal? principal, string permission, EntityRef? entity = null);
     bool Has(CovePrincipal? principal, string permission);
+
+    async Task<IReadOnlyList<AuthorizationResult>> AuthorizeManyAsync(CovePrincipal? principal, string permission, IReadOnlyList<EntityRef> entities, CancellationToken ct)
+    {
+        var results = new List<AuthorizationResult>(entities.Count);
+        foreach (var entity in entities)
+            results.Add(await AuthorizeAsync(principal, permission, entity, ct));
+        return results;
+    }
 }

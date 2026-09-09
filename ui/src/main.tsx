@@ -14,8 +14,20 @@ document.addEventListener("gestureend", (e) => e.preventDefault(), { passive: fa
 // Prevent multi-touch zoom on all platforms — including during active scroll.
 // touchstart: block new touches when a second finger lands (prevents zoom initiation mid-scroll)
 // touchmove: block multi-touch moves that slipped past touchstart
-document.addEventListener("touchstart", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false, capture: true });
-document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false, capture: true });
+document.addEventListener(
+  "touchstart",
+  (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  },
+  { passive: false, capture: true },
+);
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  },
+  { passive: false, capture: true },
+);
 // Safari fallback: continuously monitor viewport scale and instantly reset if zoomed.
 // This catches cases where the browser ignores preventDefault during momentum scroll.
 if (window.visualViewport) {
@@ -29,7 +41,10 @@ if (window.visualViewport) {
           const vp = document.querySelector('meta[name="viewport"]');
           if (vp) {
             // Toggle viewport to force Safari to recalculate
-            vp.setAttribute("content", "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no");
+            vp.setAttribute(
+              "content",
+              "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no",
+            );
           }
           resetPending = false;
         });
@@ -49,5 +64,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <App />
       </QueryClientProvider>
     </ErrorBoundary>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

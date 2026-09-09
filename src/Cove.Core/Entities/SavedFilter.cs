@@ -11,7 +11,7 @@ public class SavedFilter : BaseEntity
     public string? UIOptions { get; set; } // JSON
 
     // Owning user. Saved filters are per-user; null means an unowned/legacy row (visible when there is
-    // no signed-in user, e.g. auth disabled with no owner). Set to null if the owning user is deleted.
+    // no signed-in user, e.g. auth disabled with no owner). Owned filters are deleted with their user.
     public int? UserId { get; set; }
     public User? User { get; set; }
 }

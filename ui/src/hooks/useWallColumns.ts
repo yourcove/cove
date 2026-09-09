@@ -10,9 +10,19 @@ interface WallColumnOptions<T> {
   getKey?: (item: T) => string | number;
 }
 
-export function useWallColumns<T>(items: T[], maxColumns: number, estimateHeight?: (item: T) => number, options?: WallColumnOptions<T>) {
-  const [columnCount, setColumnCount] = useState(() => getWallColumnCount(typeof window === "undefined" ? 1280 : window.innerWidth, maxColumns));
-  const assignmentRef = useRef<{ columnCount: number; keys: Map<string | number, number> }>({ columnCount, keys: new Map() });
+export function useWallColumns<T>(
+  items: T[],
+  maxColumns: number,
+  estimateHeight?: (item: T) => number,
+  options?: WallColumnOptions<T>,
+) {
+  const [columnCount, setColumnCount] = useState(() =>
+    getWallColumnCount(typeof window === "undefined" ? 1280 : window.innerWidth, maxColumns),
+  );
+  const assignmentRef = useRef<{ columnCount: number; keys: Map<string | number, number> }>({
+    columnCount,
+    keys: new Map(),
+  });
 
   useEffect(() => {
     const updateColumnCount = () => {

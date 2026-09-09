@@ -6,6 +6,9 @@ namespace Cove.Core.Entities.Galleries.Zip;
 /// </summary>
 public class ZipGalleryReader(IZipFileReader zipReader)
 {
+    public Task<Stream> ExtractEntryAsync(string zipFilePath, string entryPath, CancellationToken ct = default)
+        => zipReader.ExtractEntryAsync(zipFilePath, entryPath, ct);
+
     /// <summary>
     /// Gets all image entries from a zip file, sorted by path.
     /// This maintains a consistent ordering for gallery image indexing.

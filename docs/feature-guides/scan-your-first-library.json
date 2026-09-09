@@ -1,0 +1,141 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "scan-your-first-library",
+  "title": "Scan your first library",
+  "parentTopicId": "getting-started",
+  "description": "Add a library path, run a focused first scan, monitor the job, and verify the result.",
+  "order": 15,
+  "pages": ["settings"],
+  "contexts": ["settings-tab:operations/scan-generate", "route:/settings/operations/scan-generate"],
+  "sections": [
+    {
+      "id": "before-you-scan",
+      "title": "Before you scan",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A scan inventories files that Cove can reach. Start with one small, representative folder when possible; it makes path, permission, and file-type problems easier to diagnose before you scan the whole library."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Make sure the Cove process can read the source media.",
+            "Make sure Cove can write to its configured generated-assets directory.",
+            "For Docker, confirm the media volume is mounted and use its container path, such as /media, in Cove. A host path is not visible inside the container unless it is mounted.",
+            "Keep a copy of important metadata or a current backup before pointing Cove at an established library."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "add-or-check-the-library-path",
+      "title": "Add or check the library path",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The first-run setup wizard asks for library paths when you choose Start Fresh. On an existing installation:"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings → Library → Paths & Storage.",
+            "Select Add path and enter a directory Cove can access.",
+            "Select any media types that should be excluded from this path. Leave a type unchecked to include it.",
+            "Wait briefly after editing. Settings auto-save after a short delay; there is no separate Save button on this page."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Open Settings → Library → Scanning & Assets if you need to change the generated or cache path, file exclusions, or generation settings before the scan."
+        }
+      ]
+    },
+    {
+      "id": "run-the-scan",
+      "title": "Run the scan",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings → Operations → Scan & Generate.",
+            "Expand Scan.",
+            "Choose which generated assets to create during the scan, such as video covers, previews, sprite sheets and hashes, or image, audio, and text fingerprints.",
+            "Under Selective scan, select the small folder you want to test. Leave every folder unselected only when you intend to scan the whole library.",
+            "Leave Force rescan (ignore mtime) off for the first pass. It is a recovery option for files Cove previously considered unchanged.",
+            "Select Run on the Scan card."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/first-scan-options.webp",
+          "alt": "Expanded Scan card showing generated-asset choices, force rescan, and the Run control",
+          "caption": "The selective folder chooser continues below these asset options."
+        }
+      ]
+    },
+    {
+      "id": "monitor-the-job",
+      "title": "Monitor the job",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings → Operations → Jobs. The page shows running and queued work plus recent completed, failed, or cancelled jobs. Wait until the scan completes before judging the result. If it fails, record the error and time, then investigate before running a broader scan."
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Troubleshooting", "href": "/docs/user/troubleshooting/", "topicId": "troubleshooting" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "verify-the-result",
+      "title": "Verify the result",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open the corresponding top navigation page: Videos, Images, Audios, or Texts.",
+            "Confirm that files from the test folder appear and open one item.",
+            "Check that the displayed path and media type are correct.",
+            "If you requested generated assets, confirm the selected cover, preview, or other artifact appears after its job completes.",
+            "Return to Settings → Operations → Jobs and confirm there is no failed follow-up work."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "A scan records file paths, media types, file details, and processing state, and creates only the generated artifacts you selected. Tags, performers, studios, groups, segments, and richer metadata can be added later without changing the source file."
+        }
+      ]
+    },
+    {
+      "id": "recover-from-a-bad-first-scan",
+      "title": "Recover from a bad first scan",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "No items appear: recheck the configured container path, Docker volume mount, per-path media exclusions, and configured file extensions.",
+            "Only some files appear: inspect the scan job error and logs for unreadable paths, unsupported files, or exclude-pattern matches.",
+            "Generated assets fail: verify the generated path is writable and review FFmpeg messages in Settings → System Info → Logs.",
+            "A moved, replaced, or unchanged file was skipped: select only its folder and retry with Force rescan (ignore mtime). Do not force-rescan the whole library unless necessary.",
+            "The job is still running: do not queue repeated full scans. Monitor or cancel the existing job under Settings → Operations → Jobs first."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Once the representative folder is correct, repeat the scan with additional folders or leave Selective scan empty to process the whole library."
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Scans reference", "href": "/docs/reference/scans/" },
+            { "label": "Explore your library", "href": "/docs/tutorial/explore-your-library/", "topicId": "explore-your-library" }
+          ]
+        }
+      ]
+    }
+  ]
+}

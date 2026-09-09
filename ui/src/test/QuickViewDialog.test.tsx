@@ -43,12 +43,7 @@ function renderQuickView() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <QuickViewDialog
-        type="video"
-        id={14}
-        onClose={vi.fn()}
-        onNavigate={vi.fn()}
-      />
+      <QuickViewDialog type="video" id={14} onClose={vi.fn()} onNavigate={vi.fn()} />
     </QueryClientProvider>,
   );
 }
@@ -71,9 +66,35 @@ describe("QuickViewDialog media-player extension surface", () => {
     renderQuickView();
 
     expect(await screen.findByTestId("quick-view-video-player")).toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
-      videoId: 14,
-      extensionSurface: "quick-view",
-    }));
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 14,
+        extensionSurface: "quick-view",
+      }),
+    );
+  });
+
+  it("constrains sub-video playback to its parent clip range", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Quick view sub-video",
+      updatedAt: "2026-07-11T00:00:00Z",
+      parentVideoId: 10,
+      clipStartSec: 30,
+      clipEndSec: 60,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+      performers: [],
+      tags: [],
+    });
+
+    renderQuickView();
+
+    expect(await screen.findByTestId("quick-view-video-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 14,
+        clip: { start: 30, end: 60, loop: false },
+      }),
+    );
   });
 });

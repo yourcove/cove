@@ -139,9 +139,19 @@ export function VideoVisualSimilarityPanel({ videoId, onNavigate }: PanelProps &
     <div className="space-y-4">
       <SimilarityToolbar kind={kind} onKind={setKind} perPage={perPage} onPerPage={setPerPage} />
       {kind === "videos" ? (
-        <SimilarVideoSection items={similarVideos.data?.items ?? []} loading={similarVideos.isLoading} error={similarVideos.isError} onNavigate={onNavigate} />
+        <SimilarVideoSection
+          items={similarVideos.data?.items ?? []}
+          loading={similarVideos.isLoading}
+          error={similarVideos.isError}
+          onNavigate={onNavigate}
+        />
       ) : (
-        <SimilarImageSection items={similarImages.data?.items ?? []} loading={similarImages.isLoading} error={similarImages.isError} onNavigate={onNavigate} />
+        <SimilarImageSection
+          items={similarImages.data?.items ?? []}
+          loading={similarImages.isLoading}
+          error={similarImages.isError}
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );
@@ -174,9 +184,19 @@ export function ImageVisualSimilarityPanel({ imageId, onNavigate }: PanelProps &
     <div className="space-y-4">
       <SimilarityToolbar kind={kind} onKind={setKind} perPage={perPage} onPerPage={setPerPage} />
       {kind === "videos" ? (
-        <SimilarVideoSection items={similarVideos.data?.items ?? []} loading={similarVideos.isLoading} error={similarVideos.isError} onNavigate={onNavigate} />
+        <SimilarVideoSection
+          items={similarVideos.data?.items ?? []}
+          loading={similarVideos.isLoading}
+          error={similarVideos.isError}
+          onNavigate={onNavigate}
+        />
       ) : (
-        <SimilarImageSection items={similarImages.data?.items ?? []} loading={similarImages.isLoading} error={similarImages.isError} onNavigate={onNavigate} />
+        <SimilarImageSection
+          items={similarImages.data?.items ?? []}
+          loading={similarImages.isLoading}
+          error={similarImages.isError}
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );
@@ -184,13 +204,27 @@ export function ImageVisualSimilarityPanel({ imageId, onNavigate }: PanelProps &
 
 type SegmentSimilarityInterval = { startSec: number; endSec?: number };
 
-export function useSegmentVisualSimilarityAvailable({ videoId, startSec, endSec, intervals }: { videoId?: number; startSec?: number; endSec?: number; intervals?: SegmentSimilarityInterval[] }) {
+export function useSegmentVisualSimilarityAvailable({
+  videoId,
+  startSec,
+  endSec,
+  intervals,
+}: {
+  videoId?: number;
+  startSec?: number;
+  endSec?: number;
+  intervals?: SegmentSimilarityInterval[];
+}) {
   const visualSimilarity = useVisualSimilarityApi();
   const queryIntervals = normalizeIntervals(intervals, startSec, endSec);
   const intervalKey = queryIntervals.map((interval) => `${interval.startSec}:${interval.endSec ?? ""}`).join("|");
   const preview = useQuery({
     queryKey: ["visual-similarity", "video", videoId, "segment-similar-videos", "preview", intervalKey],
-    queryFn: () => visualSimilarity!.similarVideosForVideoSegment(videoId!, { intervals: queryIntervals, perPage: AVAILABILITY_PER_PAGE }),
+    queryFn: () =>
+      visualSimilarity!.similarVideosForVideoSegment(videoId!, {
+        intervals: queryIntervals,
+        perPage: AVAILABILITY_PER_PAGE,
+      }),
     enabled: visualSimilarity != null && typeof videoId === "number" && videoId > 0 && queryIntervals.length > 0,
     retry: false,
   });
@@ -198,7 +232,13 @@ export function useSegmentVisualSimilarityAvailable({ videoId, startSec, endSec,
   return visualSimilarity != null && (preview.data?.items.length ?? 0) > 0;
 }
 
-export function SegmentVisualSimilarityPanel({ videoId, startSec, endSec, intervals, onNavigate }: PanelProps & { videoId: number; startSec?: number; endSec?: number; intervals?: SegmentSimilarityInterval[] }) {
+export function SegmentVisualSimilarityPanel({
+  videoId,
+  startSec,
+  endSec,
+  intervals,
+  onNavigate,
+}: PanelProps & { videoId: number; startSec?: number; endSec?: number; intervals?: SegmentSimilarityInterval[] }) {
   useManualContext(["panel:visual-similarity", "feature:visual-similarity"]);
   const visualSimilarity = useVisualSimilarityApi();
   const [perPage, setPerPage] = usePersistedPerPage();
@@ -225,19 +265,44 @@ export function SegmentVisualSimilarityPanel({ videoId, startSec, endSec, interv
         <SimilarityHeader />
         <PerPageSelect perPage={perPage} onPerPage={setPerPage} />
       </div>
-      <SimilarVideoSection items={similarVideos.data?.items ?? []} loading={similarVideos.isLoading} error={similarVideos.isError} onNavigate={onNavigate} />
+      <SimilarVideoSection
+        items={similarVideos.data?.items ?? []}
+        loading={similarVideos.isLoading}
+        error={similarVideos.isError}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }
 
-function SimilarityToolbar({ kind, onKind, perPage, onPerPage }: { kind: SimilarKind; onKind: (kind: SimilarKind) => void; perPage: number; onPerPage: (perPage: number) => void }) {
+function SimilarityToolbar({
+  kind,
+  onKind,
+  perPage,
+  onPerPage,
+}: {
+  kind: SimilarKind;
+  onKind: (kind: SimilarKind) => void;
+  perPage: number;
+  onPerPage: (perPage: number) => void;
+}) {
   return (
     <div className="flex items-center justify-between gap-3">
       <SimilarityHeader />
       <div className="flex items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
-          <KindToggleButton active={kind === "videos"} onClick={() => onKind("videos")} icon={<Film className="h-3.5 w-3.5" />} label="Videos" />
-          <KindToggleButton active={kind === "images"} onClick={() => onKind("images")} icon={<ImageIcon className="h-3.5 w-3.5" />} label="Images" />
+          <KindToggleButton
+            active={kind === "videos"}
+            onClick={() => onKind("videos")}
+            icon={<Film className="h-3.5 w-3.5" />}
+            label="Videos"
+          />
+          <KindToggleButton
+            active={kind === "images"}
+            onClick={() => onKind("images")}
+            icon={<ImageIcon className="h-3.5 w-3.5" />}
+            label="Images"
+          />
         </div>
         <PerPageSelect perPage={perPage} onPerPage={onPerPage} />
       </div>
@@ -245,7 +310,17 @@ function SimilarityToolbar({ kind, onKind, perPage, onPerPage }: { kind: Similar
   );
 }
 
-function KindToggleButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: ReactNode; label: string }) {
+function KindToggleButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
   return (
     <button
       type="button"
@@ -260,7 +335,9 @@ function KindToggleButton({ active, onClick, icon, label }: { active: boolean; o
 }
 
 function PerPageSelect({ perPage, onPerPage }: { perPage: number; onPerPage: (perPage: number) => void }) {
-  const options = SIMILAR_PER_PAGE_OPTIONS.includes(perPage) ? SIMILAR_PER_PAGE_OPTIONS : [...SIMILAR_PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
+  const options = SIMILAR_PER_PAGE_OPTIONS.includes(perPage)
+    ? SIMILAR_PER_PAGE_OPTIONS
+    : [...SIMILAR_PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
   return (
     <select
       value={perPage}
@@ -270,7 +347,9 @@ function PerPageSelect({ perPage, onPerPage }: { perPage: number; onPerPage: (pe
       aria-label="Number of items to show"
     >
       {options.map((option) => (
-        <option key={option} value={option}>{option}</option>
+        <option key={option} value={option}>
+          {option}
+        </option>
       ))}
     </select>
   );
@@ -285,7 +364,17 @@ function SimilarityHeader() {
   );
 }
 
-function SimilarVideoSection({ items, loading, error, onNavigate }: { items: VisualSimilarVideo[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+function SimilarVideoSection({
+  items,
+  loading,
+  error,
+  onNavigate,
+}: {
+  items: VisualSimilarVideo[];
+  loading: boolean;
+  error: boolean;
+  onNavigate: (route: any) => void;
+}) {
   const videoIds = useMemo(() => items.map((item) => item.video.id), [items]);
   const { engagementById: videoEngagement } = useEntityEngagementBatch("video", videoIds);
 
@@ -302,7 +391,12 @@ function SimilarVideoSection({ items, loading, error, onNavigate }: { items: Vis
       ) : (
         <EntityCardGrid minCardWidth="240px" gapClassName="gap-4" className="mt-1">
           {items.map((item) => (
-            <SimilarVideoCard key={item.video.id} item={item} engagement={videoEngagement.get(item.video.id)} onNavigate={onNavigate} />
+            <SimilarVideoCard
+              key={item.video.id}
+              item={item}
+              engagement={videoEngagement.get(item.video.id)}
+              onNavigate={onNavigate}
+            />
           ))}
         </EntityCardGrid>
       )}
@@ -310,7 +404,17 @@ function SimilarVideoSection({ items, loading, error, onNavigate }: { items: Vis
   );
 }
 
-function SimilarImageSection({ items, loading, error, onNavigate }: { items: VisualSimilarImage[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+function SimilarImageSection({
+  items,
+  loading,
+  error,
+  onNavigate,
+}: {
+  items: VisualSimilarImage[];
+  loading: boolean;
+  error: boolean;
+  onNavigate: (route: any) => void;
+}) {
   const imageIds = useMemo(() => items.map((item) => item.image.id), [items]);
   const { engagementById: imageEngagement } = useEntityEngagementBatch("image", imageIds);
 
@@ -327,7 +431,12 @@ function SimilarImageSection({ items, loading, error, onNavigate }: { items: Vis
       ) : (
         <EntityCardGrid minCardWidth="190px" gapClassName="gap-4" className="mt-1">
           {items.map((item) => (
-            <SimilarImageCard key={item.image.id} item={item} engagement={imageEngagement.get(item.image.id)} onNavigate={onNavigate} />
+            <SimilarImageCard
+              key={item.image.id}
+              item={item}
+              engagement={imageEngagement.get(item.image.id)}
+              onNavigate={onNavigate}
+            />
           ))}
         </EntityCardGrid>
       )}
@@ -335,24 +444,54 @@ function SimilarImageSection({ items, loading, error, onNavigate }: { items: Vis
   );
 }
 
-function SimilarVideoCard({ item, engagement, onNavigate }: { item: VisualSimilarVideo; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
+function SimilarVideoCard({
+  item,
+  engagement,
+  onNavigate,
+}: {
+  item: VisualSimilarVideo;
+  engagement?: EntityEngagement;
+  onNavigate: (route: any) => void;
+}) {
   const video = item.video;
   const matchStart = item.sectionIndex > 0 ? item.startSec : undefined;
 
   return (
     <div className="relative h-full">
-      <VideoCard video={video} engagement={engagement} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
+      <VideoCard
+        video={video}
+        engagement={engagement}
+        onClick={() =>
+          onNavigate(
+            matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id },
+          )
+        }
+        onNavigate={onNavigate}
+      />
       <SimilarityOverlay distance={item.distance} label={getVideoMeta(item)} />
     </div>
   );
 }
 
-function SimilarImageCard({ item, engagement, onNavigate }: { item: VisualSimilarImage; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
+function SimilarImageCard({
+  item,
+  engagement,
+  onNavigate,
+}: {
+  item: VisualSimilarImage;
+  engagement?: EntityEngagement;
+  onNavigate: (route: any) => void;
+}) {
   const image = item.image;
 
   return (
     <div className="relative h-full">
-      <ImageTile image={image} engagement={engagement} onClick={() => onNavigate({ page: "image", id: image.id })} onNavigate={onNavigate} />
+      <ImageTile
+        image={image}
+        engagement={engagement}
+        onClick={() => onNavigate({ page: "image", id: image.id })}
+        onNavigate={onNavigate}
+      />
       <SimilarityOverlay distance={item.distance} />
     </div>
   );
@@ -362,14 +501,26 @@ function SimilarityOverlay({ distance, label }: { distance: number; label?: stri
   const match = Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
   return (
     <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-2">
-      {label ? <span className="max-w-[70%] truncate rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">{label}</span> : <span />}
-      <span className="shrink-0 rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">{match}%</span>
+      {label ? (
+        <span className="max-w-[70%] truncate rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">
+          {label}
+        </span>
+      ) : (
+        <span />
+      )}
+      <span className="shrink-0 rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">
+        {match}%
+      </span>
     </div>
   );
 }
 
 function LoadingPanel() {
-  return <div className="mt-1 rounded-xl border border-border bg-surface/40 px-4 py-8 text-center text-sm text-secondary">Loading...</div>;
+  return (
+    <div className="mt-1 rounded-xl border border-border bg-surface/40 px-4 py-8 text-center text-sm text-secondary">
+      Loading...
+    </div>
+  );
 }
 
 function EmptyPanel({ icon, message }: { icon: ReactNode; message: string }) {
@@ -387,13 +538,19 @@ function UnavailablePanel({ message }: { message: string }) {
 
 function getVideoMeta(item: VisualSimilarVideo) {
   if (item.sectionIndex > 0 && item.startSec != null) {
-    return item.endSec != null ? `${formatDuration(item.startSec)} - ${formatDuration(item.endSec)}` : formatDuration(item.startSec);
+    return item.endSec != null
+      ? `${formatDuration(item.startSec)} - ${formatDuration(item.endSec)}`
+      : formatDuration(item.startSec);
   }
 
   return undefined;
 }
 
-function normalizeIntervals(intervals: SegmentSimilarityInterval[] | undefined, startSec: number | undefined, endSec: number | undefined) {
+function normalizeIntervals(
+  intervals: SegmentSimilarityInterval[] | undefined,
+  startSec: number | undefined,
+  endSec: number | undefined,
+) {
   const source = intervals && intervals.length > 0 ? intervals : startSec != null ? [{ startSec, endSec }] : [];
   return source
     .filter((interval) => Number.isFinite(interval.startSec))

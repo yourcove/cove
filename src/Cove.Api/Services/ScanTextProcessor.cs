@@ -48,10 +48,15 @@ internal sealed class ScanTextProcessor(
             existing.Path = BaseFileEntity.ComputePath(dirPath, basename);
 
             var existingDocument = existing.TextDocument ?? throw new InvalidOperationException($"Text file {path} is not attached to a text document");
-            await EnrichTextFileAsync(existingDocument, existing, path, ct);
-            // A content change invalidates the stored phash; blank it so the generation phase recomputes it.
-            if (contentChanged && scanOptions?.GenerateTextPhashes == true)
-                ScanFileIdentityService.BlankFingerprint(existing, "phash");
+            await EnrichTextFileAsync(existingDocument, existing, path, ct, moveIndex, refreshFingerprints: !contentChanged);
+            if (contentChanged)
+            {
+                await fileIdentity.RefreshChangedFingerprintsAsync(
+                    existing, path,
+                    md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    moveIndex,
+                    ct);
+            }
             RefreshTextSummary(existingDocument);
             return (existingDocument, false, false);
         }
@@ -82,7 +87,7 @@ internal sealed class ScanTextProcessor(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                     };
                     parentDocument.Files.Add(duplicateFile);
-                    await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
+                    await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct, moveIndex);
                     RefreshTextSummary(parentDocument);
                     logger.LogTrace("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
                     return (parentDocument, true, false);
@@ -121,7 +126,7 @@ internal sealed class ScanTextProcessor(
             db.TextDocuments.Add(textDocument);
         }
 
-        await EnrichTextFileAsync(textDocument, textFile, path, ct);
+        await EnrichTextFileAsync(textDocument, textFile, path, ct, moveIndex);
         RefreshTextSummary(textDocument);
 
         logger.LogTrace("Added text document for {Path}", path);
@@ -129,7 +134,13 @@ internal sealed class ScanTextProcessor(
     }
 
 
-    private async Task EnrichTextFileAsync(TextDocument textDocument, TextFile textFile, string path, CancellationToken ct)
+    private async Task EnrichTextFileAsync(
+        TextDocument textDocument,
+        TextFile textFile,
+        string path,
+        CancellationToken ct,
+        MoveDetectionIndex? moveIndex = null,
+        bool refreshFingerprints = true)
     {
         try
         {
@@ -147,8 +158,11 @@ internal sealed class ScanTextProcessor(
             logger.LogWarning(ex, "Failed to extract text metadata for {Path}", path);
         }
 
+        if (!refreshFingerprints)
+            return;
+
         // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             ScanFileIdentityService.UpsertFingerprint(textFile, "oshash", oshash);
 
@@ -163,7 +177,7 @@ internal sealed class ScanTextProcessor(
     }
 
 
-    private static void RefreshTextSummary(TextDocument textDocument)
+    internal static void RefreshTextSummary(TextDocument textDocument)
     {
         var files = textDocument.Files.ToList();
         textDocument.FileCount = files.Count;

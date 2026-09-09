@@ -12,11 +12,19 @@ describe("WallMediaCard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
 
     const { container } = render(
-      <WallMediaCard title="Missing preview" imageSrc="/image.jpg" videoSrc="/missing.mp4" videoStatusSrc="/missing.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Missing preview"
+        imageSrc="/image.jpg"
+        videoSrc="/missing.mp4"
+        videoStatusSrc="/missing.mp4/status"
+        useVideo
+      />,
     );
 
     expect(screen.getByAltText("Missing preview")).toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/missing.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/missing.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     expect(container.querySelector("video")).not.toBeInTheDocument();
   });
 
@@ -24,18 +32,24 @@ describe("WallMediaCard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ available: false }) }));
 
     const { container } = render(
-      <WallMediaCard title="Unavailable preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Unavailable preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
     expect(screen.getByAltText("Unavailable preview")).toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     expect(container.querySelector("video")).not.toBeInTheDocument();
   });
 
   it("uses the configured image source directly", () => {
-    const { rerender } = render(
-      <WallMediaCard title="Card image" imageSrc="/cover.jpg" />,
-    );
+    const { rerender } = render(<WallMediaCard title="Card image" imageSrc="/cover.jpg" />);
 
     const image = screen.getByAltText("Card image");
     expect(image).toHaveAttribute("src", "/cover.jpg");
@@ -56,7 +70,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -83,7 +100,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -91,10 +111,18 @@ describe("WallMediaCard", () => {
     );
 
     const { container } = render(
-      <WallMediaCard title="Status preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Status preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
   });
 
@@ -112,7 +140,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -120,7 +151,13 @@ describe("WallMediaCard", () => {
     );
 
     const { container } = render(
-      <WallMediaCard title="Async preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Async preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
     await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
@@ -138,7 +175,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -169,7 +209,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -195,5 +238,94 @@ describe("WallMediaCard", () => {
 
     fireEvent.pause(video);
     expect(screen.getByText("Preview paused")).toBeInTheDocument();
+  });
+
+  it("restarts bounded playback at the configured start when it reaches the end", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private readonly callback: IntersectionObserverCallback;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+        }
+
+        disconnect() {}
+      },
+    );
+
+    const { container } = render(
+      <WallMediaCard
+        title="Bounded video"
+        imageSrc="/image.jpg"
+        videoSrc="/video.mp4"
+        useVideo
+        videoStartTimeSec={12}
+        videoEndTimeSec={20}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+    video.currentTime = 20.25;
+
+    fireEvent.timeUpdate(video);
+
+    expect(video.currentTime).toBe(12);
+  });
+
+  it("holds a zero-length range on its configured frame", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private readonly callback: IntersectionObserverCallback;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+        }
+
+        disconnect() {}
+      },
+    );
+
+    const { container } = render(
+      <WallMediaCard
+        title="Still range"
+        imageSrc="/image.jpg"
+        videoSrc="/video.mp4"
+        useVideo
+        videoStartTimeSec={12}
+        videoEndTimeSec={12}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+    video.currentTime = 12;
+    pause.mockClear();
+
+    fireEvent.timeUpdate(video);
+
+    expect(video.currentTime).toBe(12);
+    expect(pause).toHaveBeenCalledOnce();
   });
 });

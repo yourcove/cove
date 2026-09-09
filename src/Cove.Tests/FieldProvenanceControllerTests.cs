@@ -22,11 +22,11 @@ public class FieldProvenanceControllerTests
 
         var face = new Face { Label = "Candidate", PrimarySourceKey = "ext:test" };
         db.Faces.Add(face);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var fieldProvenance = new FieldProvenanceService(db);
         await fieldProvenance.RecordAsync(AffinityHostType.Face, face.Id, "label", "Candidate", "metadata:test", cancellationToken: CancellationToken.None);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new FacesController(
             db,
@@ -53,7 +53,7 @@ public class FieldProvenanceControllerTests
 
         var video = new Video { Title = "Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var segment = new Segment
         {
@@ -65,11 +65,11 @@ public class FieldProvenanceControllerTests
             Title = "Detected beat",
         };
         db.Segments.Add(segment);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var fieldProvenance = new FieldProvenanceService(db);
         await fieldProvenance.RecordAsync(AffinityHostType.Segment, segment.Id, "title", "Detected beat", "ext:test", cancellationToken: CancellationToken.None);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(db, null!, new MemoryCache(new MemoryCacheOptions()), fieldProvenance);
 

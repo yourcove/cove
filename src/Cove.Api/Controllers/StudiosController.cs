@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -18,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StudiosRead)]
-public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, StudioMergeService? studioMergeService = null) : ControllerBase
+public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, StudioMergeService? studioMergeService = null, ICurrentPrincipalAccessor? principalAccessor = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private sealed record StudioUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -63,6 +64,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<StudioDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {
@@ -121,23 +123,24 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
 
         if (dto.Urls != null)
         {
-            studio.Urls.Clear();
-            studio.Urls = dto.Urls.Select(u => new StudioUrl { Url = u, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.Urls, dto.Urls, item => item.Url, url => new StudioUrl { Url = url, StudioId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.Aliases != null)
         {
-            studio.Aliases.Clear();
-            studio.Aliases = dto.Aliases.Select(a => new StudioAlias { Alias = a, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.Aliases, dto.Aliases, item => item.Alias, alias => new StudioAlias { Alias = alias, StudioId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.TagIds != null)
         {
-            studio.StudioTags.Clear();
-            studio.StudioTags = dto.TagIds.Select(tid => new StudioTag { TagId = tid, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.StudioTags, dto.TagIds, item => item.TagId, tagId => new StudioTag { TagId = tagId, StudioId = id }))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.RemoteIds != null)
         {
-            studio.RemoteIds.Clear();
-            studio.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new StudioRemoteId { StudioId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new StudioRemoteId { StudioId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(studio);
         }
         try
         {
@@ -147,8 +150,11 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         {
             return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(studio);
+            await studioRepo.UpdateAsync(studio, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Studio, id, dto.Rating, cancellationToken: ct);
         var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);
@@ -160,6 +166,19 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Studio,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var s = await studioRepo.GetByIdAsync(id, ct);
         if (s == null) return NotFound();
         await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Studio, id, ct);
@@ -217,17 +236,16 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.StudiosDelete)]
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one studio to delete.");
 
-        var studios = await db.Studios.Where(s => ids.Contains(s.Id)).ToListAsync(ct);
-        foreach (var studio in studios)
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Studio, studio.Id, ct);
-        db.Studios.RemoveRange(studios);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(studios.Select(studio => studio.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Studio,
+            ids));
     }
 
     // ===== Merge =====
@@ -279,7 +297,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         s.Id, s.Name, s.ParentId, s.Parent?.Name, s.Favorite, s.Details, s.Organized,
         s.Urls.Select(u => u.Url).ToList(),
         s.Aliases.Select(a => a.Alias).ToList(),
-        s.StudioTags.Where(st => st.Tag != null).Select(st => TagDtoMapping.MapTagDto(st.Tag!)).ToList(),
+        s.StudioTags.Where(st => st.Tag != null).Select(st => TagDtoMapping.MapTagDto(st.Tag!)).OrderForDisplay().ToList(),
         s.RemoteIds.Select(sid => new StudioRemoteIdDto(sid.Endpoint, sid.RemoteId)).ToList(),
         usageCounts?.VideoCount ?? s.VideoCount,
         usageCounts?.ImageCount ?? s.ImageCount,
@@ -475,7 +493,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             .Include(s => s.RemoteIds)
             .Include(s => s.Aliases)
             .Include(s => s.Urls)
-            .Include(s => s.StudioTags).ThenInclude(st => st.Tag)
+            .Include(s => s.StudioTags).ThenInclude(st => st.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(s => s.Parent)
             .FirstOrDefaultAsync(s => s.Id == id, ct);
         if (studio == null) return NotFound();
@@ -554,7 +572,8 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
                 return Forbid();
         }
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principal),
             "metadata-server:studios",
             $"Tagging {ids.Count} studios from {dto.Endpoint}",
             async (progress, jobCt) =>

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { savedFilters } from "../api/client";
 import type { FindFilter, SavedFilterUIOptions } from "../api/types";
@@ -44,7 +45,12 @@ export function useDefaultSavedFilterOnMount(
 }
 
 /** Set the default filter for a mode (account-backed when signed in, plus a browser-local fallback). */
-function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: SavedFilterUIOptions) {
+function setDefaultFilter(
+  mode: string,
+  findFilter: FindFilter,
+  objectFilter?: Record<string, unknown>,
+  uiOptions?: SavedFilterUIOptions,
+) {
   const json = JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions });
   const key = mode.trim().toLowerCase();
   localStorage.setItem(`cove-default-filter-${mode}`, json);
@@ -82,6 +88,76 @@ interface SavedFilterMenuProps {
   onApplyUIOptions?: (options: SavedFilterUIOptions) => void;
 }
 
+function SavedFilterName({ name, onClick }: { name: string; onClick: () => void }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const tooltipId = useId();
+  const [tooltip, setTooltip] = useState<{ top: number; left: number; maxWidth: number } | null>(null);
+
+  const showTooltipIfTruncated = () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    const button = buttonRef.current;
+    if (!button || button.scrollWidth <= button.clientWidth) {
+      setTooltip(null);
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const viewportPadding = 8;
+    const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - viewportPadding);
+    setTooltip({
+      top: rect.bottom + 6,
+      left,
+      maxWidth: Math.max(0, window.innerWidth - left - viewportPadding),
+    });
+  };
+
+  const hideTooltip = () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = window.setTimeout(() => setTooltip(null), 100);
+  };
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={onClick}
+        onPointerEnter={showTooltipIfTruncated}
+        onPointerLeave={hideTooltip}
+        onFocus={showTooltipIfTruncated}
+        onBlur={hideTooltip}
+        aria-describedby={tooltip ? tooltipId : undefined}
+        className="saved-filter-name flex-1 text-left text-xs text-foreground hover:text-accent"
+      >
+        {name}
+      </button>
+      {tooltip &&
+        createPortal(
+          <div
+            id={tooltipId}
+            role="tooltip"
+            onPointerEnter={() => {
+              if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+            }}
+            onPointerLeave={hideTooltip}
+            className="fixed z-[100] rounded border border-border bg-card px-2 py-1 text-xs text-foreground shadow-lg"
+            style={{ top: tooltip.top, left: tooltip.left, maxWidth: tooltip.maxWidth, overflowWrap: "anywhere" }}
+          >
+            {name}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export function SavedFilterMenu({
   mode,
   defaultFilterKey,
@@ -97,6 +173,15 @@ export function SavedFilterMenu({
   const [saveName, setSaveName] = useState("");
   const [showSave, setShowSave] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPosition, setPanelPosition] = useState<{
+    top: number;
+    left: number;
+    maxHeight: number;
+    maxWidth: number;
+    minWidth: number;
+  } | null>(null);
   // Named saved filters are keyed by `mode` (server-side, enum-validated); the auto-applied default
   // is keyed separately so views sharing a `mode` can still keep independent defaults.
   const defaultKey = defaultFilterKey ?? mode;
@@ -125,6 +210,77 @@ export function SavedFilterMenu({
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPosition(null);
+      return;
+    }
+
+    const positionPanel = () => {
+      const trigger = triggerRef.current;
+      const panel = panelRef.current;
+      if (!trigger || !panel) return;
+      const viewportPadding = 8;
+      const visualViewport = window.visualViewport;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportBottom = viewportTop + (visualViewport?.height ?? window.innerHeight);
+      const viewportRight = viewportLeft + (visualViewport?.width ?? window.innerWidth);
+      const maxHeight = Math.max(0, viewportBottom - viewportTop - viewportPadding * 2);
+      const maxWidth = Math.max(0, viewportRight - viewportLeft - viewportPadding * 2);
+      panel.style.maxHeight = `${maxHeight}px`;
+      panel.style.maxWidth = `${maxWidth}px`;
+      panel.style.minWidth = `${Math.min(224, maxWidth)}px`;
+      const triggerRect = trigger.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const editingInsidePanel =
+        document.activeElement instanceof HTMLInputElement &&
+        panel.contains(document.activeElement) &&
+        document.activeElement.placeholder === "Filter name...";
+      if ((triggerRect.bottom < viewportTop || triggerRect.top > viewportBottom) && !editingInsidePanel) {
+        setOpen(false);
+        return;
+      }
+      const below = triggerRect.bottom + 4;
+      const above = triggerRect.top - panelRect.height - 4;
+      const preferredTop =
+        below + panelRect.height <= viewportBottom - viewportPadding
+          ? below
+          : above >= viewportTop + viewportPadding
+            ? above
+            : viewportTop + viewportPadding;
+      const top = Math.min(
+        Math.max(preferredTop, viewportTop + viewportPadding),
+        Math.max(viewportTop + viewportPadding, viewportBottom - panelRect.height - viewportPadding),
+      );
+      setPanelPosition({
+        top,
+        left: Math.min(
+          Math.max(triggerRect.right - panelRect.width, viewportLeft + viewportPadding),
+          viewportRight - panelRect.width - viewportPadding,
+        ),
+        maxHeight,
+        maxWidth,
+        minWidth: Math.min(224, maxWidth),
+      });
+    };
+
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+    window.visualViewport?.addEventListener("resize", positionPanel);
+    window.visualViewport?.addEventListener("scroll", positionPanel);
+    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(positionPanel) : null;
+    if (panelRef.current) resizeObserver?.observe(panelRef.current);
+    return () => {
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+      window.visualViewport?.removeEventListener("resize", positionPanel);
+      window.visualViewport?.removeEventListener("scroll", positionPanel);
+      resizeObserver?.disconnect();
+    };
+  }, [open, filters]);
+
   const createMut = useMutation({
     meta: { suppressGlobalError: true },
     mutationFn: () =>
@@ -132,8 +288,12 @@ export function SavedFilterMenu({
         mode,
         name: saveName,
         findFilter: JSON.stringify(stripRandomSeed(currentFilter)),
-        objectFilter: currentObjectFilter && Object.keys(currentObjectFilter).length > 0 ? JSON.stringify(currentObjectFilter) : undefined,
-        uiOptions: currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
+        objectFilter:
+          currentObjectFilter && Object.keys(currentObjectFilter).length > 0
+            ? JSON.stringify(currentObjectFilter)
+            : undefined,
+        uiOptions:
+          currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
@@ -175,7 +335,7 @@ export function SavedFilterMenu({
 
     if (onApplyObjectFilter) {
       try {
-        onApplyObjectFilter(objectFilterJson ? JSON.parse(objectFilterJson) as Record<string, unknown> : {});
+        onApplyObjectFilter(objectFilterJson ? (JSON.parse(objectFilterJson) as Record<string, unknown>) : {});
       } catch {
         onApplyObjectFilter({});
       }
@@ -192,12 +352,13 @@ export function SavedFilterMenu({
     setOpen(false);
   };
   const normalizedSaveName = saveName.trim().toLocaleLowerCase();
-  const hasDuplicateName = !!normalizedSaveName
-    && !!filters?.some((filter) => filter.name.trim().toLocaleLowerCase() === normalizedSaveName);
+  const hasDuplicateName =
+    !!normalizedSaveName && !!filters?.some((filter) => filter.name.trim().toLocaleLowerCase() === normalizedSaveName);
 
   return (
     <div ref={menuRef} className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -209,29 +370,31 @@ export function SavedFilterMenu({
       </button>
 
       {open && (
-        <div role="dialog" aria-label="Saved filters" className="styled-dropdown-panel absolute top-full right-0 z-50 mt-1 w-56 rounded-lg border border-border shadow-lg">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-label="Saved filters"
+          className="saved-filter-menu-panel styled-dropdown-panel fixed z-50 rounded-lg border border-border shadow-lg"
+          style={{
+            top: panelPosition?.top ?? 0,
+            left: panelPosition?.left ?? 0,
+            maxHeight: panelPosition?.maxHeight,
+            maxWidth: panelPosition?.maxWidth,
+            minWidth: panelPosition?.minWidth,
+            overflowY: "auto",
+            visibility: panelPosition ? "visible" : "hidden",
+          }}
+        >
           <div className="p-2 border-b border-border">
-            <p className="text-[10px] text-muted uppercase tracking-wider font-medium">
-              Saved Filters
-            </p>
+            <p className="text-[10px] text-muted uppercase tracking-wider font-medium">Saved Filters</p>
           </div>
 
           {/* Existing filters */}
           <div className="max-h-48 overflow-y-auto">
-            {(!filters || filters.length === 0) && (
-              <p className="px-3 py-2 text-xs text-muted">No saved filters</p>
-            )}
+            {(!filters || filters.length === 0) && <p className="px-3 py-2 text-xs text-muted">No saved filters</p>}
             {filters?.map((f) => (
-              <div
-                key={f.id}
-                className="group flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-card/80"
-              >
-                <button
-                  onClick={() => applyFilter(f.findFilter, f.objectFilter, f.uiOptions)}
-                  className="text-xs text-foreground hover:text-accent truncate flex-1 text-left"
-                >
-                  {f.name}
-                </button>
+              <div key={f.id} className="group flex items-center px-3 py-1.5 hover:bg-card/80">
+                <SavedFilterName name={f.name} onClick={() => applyFilter(f.findFilter, f.objectFilter, f.uiOptions)} />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -241,11 +404,13 @@ export function SavedFilterMenu({
                   disabled={updateMut.isPending}
                   aria-label={`Update saved filter "${f.name}"`}
                   title="Update with current filter"
-                  className="p-1 text-muted hover:text-accent transition-colors disabled:opacity-50"
+                  className="shrink-0 p-1 text-muted hover:text-accent transition-colors disabled:opacity-50"
                 >
-                  {updateMut.isPending && updateMut.variables === f.id
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <Save className="w-3 h-3" />}
+                  {updateMut.isPending && updateMut.variables === f.id ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Save className="w-3 h-3" />
+                  )}
                 </button>
                 <button
                   onClick={(e) => {
@@ -254,7 +419,7 @@ export function SavedFilterMenu({
                   }}
                   aria-label={`Delete saved filter "${f.name}"`}
                   title="Delete saved filter"
-                  className="p-1 text-muted hover:text-red-400 transition-colors"
+                  className="shrink-0 p-1 text-muted hover:text-red-400 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -271,7 +436,10 @@ export function SavedFilterMenu({
           <div className="border-t border-border p-2 space-y-1.5">
             {/* Set/clear default filter */}
             <button
-              onClick={() => { setDefaultFilter(defaultKey, currentFilter, currentObjectFilter, currentUIOptions); setOpen(false); }}
+              onClick={() => {
+                setDefaultFilter(defaultKey, currentFilter, currentObjectFilter, currentUIOptions);
+                setOpen(false);
+              }}
               className="flex items-center gap-1.5 text-xs text-secondary hover:text-yellow-400 w-full"
               title="Apply the current filter state automatically when opening this page"
             >
@@ -280,7 +448,10 @@ export function SavedFilterMenu({
             </button>
             {hasDefault && (
               <button
-                onClick={() => { clearDefaultFilter(defaultKey); setOpen(false); }}
+                onClick={() => {
+                  clearDefaultFilter(defaultKey);
+                  setOpen(false);
+                }}
                 className="flex items-center gap-1.5 text-xs text-muted hover:text-red-400 w-full"
               >
                 <Star className="w-3 h-3" />
@@ -293,8 +464,13 @@ export function SavedFilterMenu({
                   <input
                     type="text"
                     value={saveName}
-                    onChange={(e) => { setSaveName(e.target.value); createMut.reset(); }}
-                    onKeyDown={(e) => e.key === "Enter" && normalizedSaveName && !hasDuplicateName && createMut.mutate()}
+                    onChange={(e) => {
+                      setSaveName(e.target.value);
+                      createMut.reset();
+                    }}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && normalizedSaveName && !hasDuplicateName && createMut.mutate()
+                    }
                     placeholder="Filter name..."
                     className="flex-1 rounded border border-border bg-card/70 px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
                     autoFocus

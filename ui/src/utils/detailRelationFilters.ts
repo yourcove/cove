@@ -3,8 +3,7 @@ import type { MultiIdCriterion } from "../api/types";
 function isMultiIdCriterion(value: unknown): value is MultiIdCriterion {
   if (!value || typeof value !== "object") return false;
   const criterion = value as Partial<MultiIdCriterion>;
-  return typeof criterion.modifier === "string"
-    && (criterion.value === undefined || Array.isArray(criterion.value));
+  return typeof criterion.modifier === "string" && (criterion.value === undefined || Array.isArray(criterion.value));
 }
 
 export function constrainMultiIdCriterion(criterion: unknown, requiredId: number): MultiIdCriterion {
@@ -19,7 +18,12 @@ export function constrainSingleIdCriterion(criterion: unknown, requiredId: numbe
   return constrainMultiIdCriterion(criterion, requiredId);
 }
 
-export function withRequiredMultiId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number, depth?: number): TFilter {
+export function withRequiredMultiId<TFilter extends object>(
+  filter: TFilter,
+  key: keyof TFilter & string,
+  requiredId: number,
+  depth?: number,
+): TFilter {
   const source = filter as Record<string, unknown>;
   const criterion = constrainMultiIdCriterion(source[key], requiredId);
   return {
@@ -28,7 +32,12 @@ export function withRequiredMultiId<TFilter extends object>(filter: TFilter, key
   } as TFilter;
 }
 
-export function withRequiredSingleId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number, depth?: number): TFilter {
+export function withRequiredSingleId<TFilter extends object>(
+  filter: TFilter,
+  key: keyof TFilter & string,
+  requiredId: number,
+  depth?: number,
+): TFilter {
   const source = filter as Record<string, unknown>;
   const criterion = constrainSingleIdCriterion(source[key], requiredId);
   return {

@@ -15,7 +15,10 @@ namespace Cove.Data.Services;
 ///
 /// The stored value is the <em>global</em> top suggestion and deliberately ignores per-user reject
 /// decisions; a single shared projection cannot be per-user. Per-user filtering still applies on the
-/// single-face detail/suggestions endpoints, which remain compute-on-read.
+/// single-face detail/suggestions endpoints, which remain compute-on-read — and on the list read path,
+/// which overlays the caller's decisions onto the stored columns (see
+/// <c>FacesController.ResolveDecidedTopSuggestionsAsync</c>). Never treat the stored columns as
+/// user-facing without that overlay, or a rejected performer reappears the next time this runs.
 /// </summary>
 public sealed class FaceTopSuggestionService(
     CoveContext db,

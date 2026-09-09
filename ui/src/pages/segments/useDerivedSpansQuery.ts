@@ -44,15 +44,33 @@ export function buildSpanSearchRequest(opts: {
   appliedQuery: AppliedDerivedQuery | null;
   rawFilter: RawSegmentFilterValue;
 }): SegmentSpanSearchRequest {
-  const { activeProfileId, pageNumber, perPage, q, videoTitle, videoTagIds, videoTagDepth, sort, direction, seed, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter } = opts;
+  const {
+    activeProfileId,
+    pageNumber,
+    perPage,
+    q,
+    videoTitle,
+    videoTagIds,
+    videoTagDepth,
+    sort,
+    direction,
+    seed,
+    includeVideoIds,
+    excludeVideoIds,
+    appliedQuery,
+    rawFilter,
+  } = opts;
   return {
     profile: activeProfileId,
-    derivedQuery: appliedQuery != null ? {
-      operator: appliedQuery.operator,
-      operands: appliedQuery.operands,
-      mergeGapSec: appliedQuery.mergeGapSec,
-      minDurationSec: appliedQuery.minDurationSec,
-    } : undefined,
+    derivedQuery:
+      appliedQuery != null
+        ? {
+            operator: appliedQuery.operator,
+            operands: appliedQuery.operands,
+            mergeGapSec: appliedQuery.mergeGapSec,
+            minDurationSec: appliedQuery.minDurationSec,
+          }
+        : undefined,
     page: pageNumber,
     perPage,
     sort,
@@ -103,23 +121,65 @@ export function buildSpanSearchRequest(opts: {
 
 export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
   const {
-    activeProfileId, pageNumber, perPage, q, videoTitle, videoTagIds, videoTagDepth, sort, direction, seed,
-    includeVideoIds, excludeVideoIds, appliedQuery, derivedQueryDescriptor, rawFilter, enabled,
+    activeProfileId,
+    pageNumber,
+    perPage,
+    q,
+    videoTitle,
+    videoTagIds,
+    videoTagDepth,
+    sort,
+    direction,
+    seed,
+    includeVideoIds,
+    excludeVideoIds,
+    appliedQuery,
+    derivedQueryDescriptor,
+    rawFilter,
+    enabled,
   } = options;
   return useQuery({
     queryKey: [
-      "segments-page", "search", activeProfileId, pageNumber, perPage, q, videoTitle, videoTagIds.join(","), videoTagDepth, sort, direction, seed,
-      includeVideoIds.join(","), excludeVideoIds.join(","), appliedQuery ?? null, rawFilter,
+      "segments-page",
+      "search",
+      activeProfileId,
+      pageNumber,
+      perPage,
+      q,
+      videoTitle,
+      videoTagIds.join(","),
+      videoTagDepth,
+      sort,
+      direction,
+      seed,
+      includeVideoIds.join(","),
+      excludeVideoIds.join(","),
+      appliedQuery ?? null,
+      rawFilter,
     ],
     queryFn: async (): Promise<{ items: DerivedSpanItem[]; totalCount: number; hasMore: boolean }> => {
       if (activeProfileId == null) {
         return { items: [], totalCount: 0, hasMore: false };
       }
 
-      const response = await segmentSpans.search(buildSpanSearchRequest({
-        activeProfileId, pageNumber, perPage, q, videoTitle, videoTagIds, videoTagDepth, sort, direction, seed,
-        includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
-      }));
+      const response = await segmentSpans.search(
+        buildSpanSearchRequest({
+          activeProfileId,
+          pageNumber,
+          perPage,
+          q,
+          videoTitle,
+          videoTagIds,
+          videoTagDepth,
+          sort,
+          direction,
+          seed,
+          includeVideoIds,
+          excludeVideoIds,
+          appliedQuery,
+          rawFilter,
+        }),
+      );
 
       return {
         items: response.items.map((item) => ({
@@ -131,12 +191,15 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
           videoUpdatedAt: item.videoUpdatedAt,
           span: item.span,
           profileId: item.profileId,
-          derivedQuery: appliedQuery != null ? {
-            operator: appliedQuery.operator,
-            operands: appliedQuery.operands,
-            mergeGapSec: appliedQuery.mergeGapSec,
-            minDurationSec: appliedQuery.minDurationSec,
-          } : undefined,
+          derivedQuery:
+            appliedQuery != null
+              ? {
+                  operator: appliedQuery.operator,
+                  operands: appliedQuery.operands,
+                  mergeGapSec: appliedQuery.mergeGapSec,
+                  minDurationSec: appliedQuery.minDurationSec,
+                }
+              : undefined,
           derivedQueryDescriptor,
         })),
         totalCount: response.totalCount,
@@ -153,18 +216,52 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
  * filters only (not page/sort/direction), so it's fetched once per filter set and reused across paging.
  */
 export function useDerivedSpansCountQuery(options: UseDerivedSpansQueryOptions) {
-  const { activeProfileId, q, videoTitle, videoTagIds, videoTagDepth, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter, enabled } = options;
+  const {
+    activeProfileId,
+    q,
+    videoTitle,
+    videoTagIds,
+    videoTagDepth,
+    includeVideoIds,
+    excludeVideoIds,
+    appliedQuery,
+    rawFilter,
+    enabled,
+  } = options;
   return useQuery({
     queryKey: [
-      "segments-page", "count", activeProfileId, q, videoTitle, videoTagIds.join(","), videoTagDepth,
-      includeVideoIds.join(","), excludeVideoIds.join(","), appliedQuery ?? null, rawFilter,
+      "segments-page",
+      "count",
+      activeProfileId,
+      q,
+      videoTitle,
+      videoTagIds.join(","),
+      videoTagDepth,
+      includeVideoIds.join(","),
+      excludeVideoIds.join(","),
+      appliedQuery ?? null,
+      rawFilter,
     ],
     queryFn: async () => {
       if (activeProfileId == null) return { totalCount: 0, duration: 0 };
-      const response = await segmentSpans.count(buildSpanSearchRequest({
-        activeProfileId, pageNumber: 1, perPage: options.perPage, q, videoTitle, videoTagIds, videoTagDepth,
-        sort: options.sort, direction: options.direction, seed: options.seed, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
-      }));
+      const response = await segmentSpans.count(
+        buildSpanSearchRequest({
+          activeProfileId,
+          pageNumber: 1,
+          perPage: options.perPage,
+          q,
+          videoTitle,
+          videoTagIds,
+          videoTagDepth,
+          sort: options.sort,
+          direction: options.direction,
+          seed: options.seed,
+          includeVideoIds,
+          excludeVideoIds,
+          appliedQuery,
+          rawFilter,
+        }),
+      );
       return response;
     },
     enabled: enabled && activeProfileId != null,

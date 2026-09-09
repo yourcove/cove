@@ -28,7 +28,8 @@ internal sealed class ScanJobRunner(
     ScanGalleryProcessor galleryProcessor,
     ScanAudioProcessor audioProcessor,
     ScanTextProcessor textProcessor,
-    ILogger logger)
+    ILogger logger,
+    PhysicalFileAccessCoordinator physicalFileCoordinator)
 {
     private const int ScanSaveBatchSize = 50;
     private static readonly TimeSpan ScanCommandTimeout = TimeSpan.FromMinutes(5);
@@ -47,6 +48,7 @@ internal sealed class ScanJobRunner(
 
         return jobService.Enqueue("scan", "Scanning library", async (progress, ct) =>
         {
+            using var scanLease = await physicalFileCoordinator.AcquireReadAsync(ct);
             var cfg = config;
             var scanStopwatch = Stopwatch.StartNew();
             var discovery = await discoveryService.DiscoverAsync(options, progress, ct);
@@ -119,15 +121,6 @@ internal sealed class ScanJobRunner(
                     indexStopwatch.ElapsedMilliseconds,
                     existingFiles.Count,
                     files.Count);
-
-                // Move/rename detection is only meaningful when the library already has files (a first
-                // scan has nothing to move). Gating on existing files also avoids paying for per-new-file
-                // identity lookups on the initial import, where none can possibly match.
-                var moveDetectionEnabled = config.EnableMoveDetection
-                    && await db.Set<BaseFileEntity>().AnyAsync(f => f.ZipFileId == null, ct);
-                var moveIndex = new MoveDetectionIndex { Enabled = moveDetectionEnabled };
-                if (moveDetectionEnabled)
-                    logger.LogInformation("Move/rename detection enabled for this scan.");
 
                 void PublishScanEntityEvent(string entityType, int entityId, bool isUpdate)
                 {
@@ -263,6 +256,22 @@ internal sealed class ScanJobRunner(
                     filesToProcess.Add(new ScanWorkItem(file, isKnownFile, contentChanged, forceMetadataProbe));
                 }
 
+                // Load the compact identity key set once, and only when discovery found new paths that
+                // could be moves or duplicates. Workers can then reject impossible matches in memory,
+                // reserving fingerprint candidate queries for actual hash matches.
+                var moveIndexStopwatch = Stopwatch.StartNew();
+                var moveIndex = await MoveDetectionIndex.LoadAsync(
+                    db,
+                    config.EnableMoveDetection && newFileCount > 0,
+                    ct);
+                if (moveIndex.Enabled)
+                {
+                    logger.LogInformation(
+                        "Move/rename detection enabled for this scan. Loaded {FingerprintCount} stored identity fingerprints in {ElapsedMs} ms.",
+                        moveIndex.KnownFingerprintCount,
+                        moveIndexStopwatch.ElapsedMilliseconds);
+                }
+
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look
                 // folders up in memory instead of each re-querying (and re-locking) the Folders table,
                 // and the batched save path below stays free of incidental folder writes.
@@ -343,7 +352,20 @@ internal sealed class ScanJobRunner(
                             {
                                 if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
                                     processedImagePaths.TryAdd(file.Path, 0);
-                                var (image, relinked, moved) = await imageProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                var (image, relinked, moved) = await imageProcessor.ProcessAsync(
+                                    workerDb,
+                                    file.Path,
+                                    null,
+                                    ct,
+                                    file.Stat,
+                                    null,
+                                    knownNew: !isKnownFile,
+                                    parentFolderId: folderId,
+                                    contentChanged: contentChanged,
+                                    scanOptions: options,
+                                    moveIndex: moveIndex,
+                                    validatedWidth: validation.Width,
+                                    validatedHeight: validation.Height);
                                 events.Add(() =>
                                 {
                                     RecordPersistedFile(isKnownFile || moved);
@@ -395,7 +417,7 @@ internal sealed class ScanJobRunner(
                                     if (!RecordValidationOutcome(file, validation))
                                         return;
 
-                                    var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries);
+                                    var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries, contentChanged: work.ContentChanged);
                                     await workerDb.SaveChangesAsync(ct);
                                     RecordPersistedFile(isKnownFile);
                                     PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);

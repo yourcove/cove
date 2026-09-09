@@ -7,6 +7,7 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Interfaces;
@@ -186,9 +187,7 @@ public class ThumbnailService(
 
         if (imageFile == null) return null;
 
-        var filePath = imageFile.ParentFolder != null
-            ? Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename)
-            : imageFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(imageFile.Path);
 
         return File.Exists(filePath) ? filePath : null;
     }
@@ -237,8 +236,9 @@ public class ThumbnailService(
         var declaredThumbnailPath = GetImageThumbnailPath(thumbnailBasePath, declaredThumbnailOutput);
         if (config.WriteImageThumbnails && IsImageThumbnailCurrent(declaredThumbnailPath, imageFile.ModTime))
         {
-            var cachedStream = new FileStream(declaredThumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-            return (cachedStream, declaredThumbnailOutput.ContentType, true);
+            var cachedStream = FileReadRace.TryOpenRead(declaredThumbnailPath, pathWasObserved: true);
+            if (cachedStream != null)
+                return (cachedStream, declaredThumbnailOutput.ContentType, true);
         }
 
         var source = await OpenImageSourceStreamAsync(imageFile, ct);
@@ -251,9 +251,22 @@ public class ThumbnailService(
 
         if (config.WriteImageThumbnails && !string.Equals(declaredThumbnailPath, thumbnailPath, StringComparison.OrdinalIgnoreCase) && IsImageThumbnailCurrent(thumbnailPath, imageFile.ModTime))
         {
-            await source.Value.stream.DisposeAsync();
-            var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-            return (cachedStream, thumbnailOutput.ContentType, true);
+            FileStream? cachedStream;
+            try
+            {
+                cachedStream = FileReadRace.TryOpenRead(thumbnailPath, pathWasObserved: true);
+            }
+            catch
+            {
+                await source.Value.stream.DisposeAsync();
+                throw;
+            }
+
+            if (cachedStream != null)
+            {
+                await source.Value.stream.DisposeAsync();
+                return (cachedStream, thumbnailOutput.ContentType, true);
+            }
         }
 
         if (!CanGenerateImageThumbnail(sourceContentType))
@@ -270,8 +283,8 @@ public class ThumbnailService(
                     await source.Value.stream.DisposeAsync();
                     DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
 
-                    var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                    return (cachedStream, thumbnailOutput.ContentType, true);
+                    var cachedStream = FileReadRace.TryOpenRead(thumbnailPath, pathWasObserved: true);
+                    return cachedStream == null ? null : (cachedStream, thumbnailOutput.ContentType, true);
                 }
 
                 if (source.Value.stream.CanSeek)
@@ -309,8 +322,9 @@ public class ThumbnailService(
         var cachedThumbnail = FindExistingImageThumbnail(thumbnailBasePath);
         if (cachedThumbnail != null)
         {
-            var cachedStream = new FileStream(cachedThumbnail.Value.path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-            return (cachedStream, cachedThumbnail.Value.contentType, true);
+            var cachedStream = FileReadRace.TryOpenRead(cachedThumbnail.Value.path, pathWasObserved: true);
+            if (cachedStream != null)
+                return (cachedStream, cachedThumbnail.Value.contentType, true);
         }
 
         var source = await blobService.GetBlobAsync(blobId, ct);
@@ -331,8 +345,8 @@ public class ThumbnailService(
                 await source.Value.Stream.DisposeAsync();
                 DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
 
-                var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                return (cachedStream, thumbnailOutput.ContentType, true);
+                var cachedStream = FileReadRace.TryOpenRead(thumbnailPath, pathWasObserved: true);
+                return cachedStream == null ? null : (cachedStream, thumbnailOutput.ContentType, true);
             }
 
             if (source.Value.Stream.CanSeek)
@@ -388,10 +402,12 @@ public class ThumbnailService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        return await db.ImageFiles
+        return await db.Images
+            .Where(image => image.Id == imageId)
+            .SelectMany(image => image.Files)
             .Include(f => f.ParentFolder)
             .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.ImageId == imageId, ct);
+            .FirstOrDefaultAsync(ct);
     }
 
     private async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> OpenImageSourceStreamAsync(ImageFile imageFile, CancellationToken ct)
@@ -422,12 +438,12 @@ public class ThumbnailService(
             if (zipResult != null) return zipResult;
         }
 
-        if (!File.Exists(resolvedFilePath)) return null;
-
         var ext = Path.GetExtension(resolvedFilePath);
         var contentType = ImageMimeTypes.GetValueOrDefault(ext, "application/octet-stream");
-        var stream = new FileStream(resolvedFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-        return (stream, contentType, true);
+        if (!File.Exists(resolvedFilePath)) return null;
+
+        var stream = FileReadRace.TryOpenRead(resolvedFilePath, pathWasObserved: true);
+        return stream == null ? null : (stream, contentType, true);
     }
 
     private string? TryGetDirectImageSourcePath(ImageFile imageFile)
@@ -764,8 +780,19 @@ public class ThumbnailService(
     {
         if (!File.Exists(thumbnailPath)) return false;
 
-        var cachedModifiedAt = File.GetLastWriteTimeUtc(thumbnailPath);
-        return cachedModifiedAt >= NormalizeUtc(sourceModifiedAt).AddSeconds(-1);
+        try
+        {
+            var cachedModifiedAt = File.GetLastWriteTimeUtc(thumbnailPath);
+            return cachedModifiedAt >= NormalizeUtc(sourceModifiedAt).AddSeconds(-1);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, thumbnailPath))
+        {
+            return false;
+        }
     }
 
     private static int NormalizeImageThumbnailMaxDimension(int maxDimension)
@@ -852,6 +879,14 @@ public class ThumbnailService(
             }
             catch (FileNotFoundException)
             {
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, archivePath))
+            {
+                return null;
             }
             catch (InvalidDataException)
             {
@@ -1821,7 +1856,6 @@ public class ThumbnailService(
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
         var query = db.VideoFiles
-            .Include(f => f.ParentFolder)
             .AsNoTracking()
             .Where(f => f.VideoId == videoId);
 
@@ -1834,9 +1868,7 @@ public class ThumbnailService(
 
         if (videoFile == null) return (null, 0);
 
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
 
         return File.Exists(filePath) ? (filePath, videoFile.Duration) : (null, 0);
     }

@@ -31,16 +31,9 @@ function formatQueueDuration(seconds?: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function VideoQueue({
-  videos: initialVideos,
-  initialIndex = 0,
-  onClose,
-  onNavigate,
-}: VideoQueueProps) {
+export function VideoQueue({ videos: initialVideos, initialIndex = 0, onClose, onNavigate }: VideoQueueProps) {
   const [queue, setQueue] = useState(initialVideos);
-  const [currentIndex, setCurrentIndex] = useState(
-    Math.min(initialIndex, initialVideos.length - 1),
-  );
+  const [currentIndex, setCurrentIndex] = useState(Math.min(initialIndex, initialVideos.length - 1));
   const [queueOpen, setQueueOpen] = useState(true);
   const [repeat, setRepeat] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -253,21 +246,14 @@ export function VideoQueue({
                   if (el) queueItemRefs.current.set(video.id, el);
                 }}
                 className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-l-2 transition-colors ${
-                  idx === currentIndex
-                    ? "border-l-accent bg-accent/10"
-                    : "border-l-transparent hover:bg-surface"
+                  idx === currentIndex ? "border-l-accent bg-accent/10" : "border-l-transparent hover:bg-surface"
                 }`}
                 onClick={() => goTo(idx)}
               >
                 {/* Thumbnail */}
                 <div className="w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-surface">
                   {video.screenshotUrl ? (
-                    <img
-                      src={video.screenshotUrl}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
+                    <img src={video.screenshotUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted text-[10px]">
                       No thumb
@@ -277,12 +263,8 @@ export function VideoQueue({
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground truncate">
-                    {video.title || "Untitled"}
-                  </p>
-                  <p className="text-[10px] text-muted">
-                    {formatQueueDuration(video.duration)}
-                  </p>
+                  <p className="text-xs text-foreground truncate">{video.title || "Untitled"}</p>
+                  <p className="text-[10px] text-muted">{formatQueueDuration(video.duration)}</p>
                 </div>
 
                 {/* Actions */}
@@ -323,4 +305,3 @@ export function VideoQueue({
     document.body,
   );
 }
-

@@ -7,6 +7,7 @@ import { StudioDetailPage } from "../pages/StudioDetailPage";
 
 const mocks = vi.hoisted(() => ({
   studioGet: vi.fn(),
+  setFavorite: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -30,22 +31,22 @@ vi.mock("../api/client", () => ({
 
 function buildStudio() {
   return {
-      id: 25,
-      name: "Example Studio",
-      aliases: [],
-      urls: [],
-      tags: [],
-      remoteIds: [],
-      videoCount: 1,
-      performerCount: 0,
-      galleryCount: 0,
-      imageCount: 0,
-      audioCount: 0,
-      textCount: 0,
-      childStudioCount: 0,
-      groupCount: 0,
-      customFields: {},
-    };
+    id: 25,
+    name: "Example Studio",
+    aliases: [],
+    urls: [],
+    tags: [],
+    remoteIds: [],
+    videoCount: 1,
+    performerCount: 0,
+    galleryCount: 0,
+    imageCount: 0,
+    audioCount: 0,
+    textCount: 0,
+    childStudioCount: 0,
+    groupCount: 0,
+    customFields: {},
+  };
 }
 
 vi.mock("../hooks/useDetailListQuery", () => ({
@@ -61,11 +62,12 @@ vi.mock("../hooks/useDetailListQuery", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({ useAppConfig: () => ({ config: {} }) }));
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({ useResolvedKeybindingOverrides: () => ({}) }));
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ user: { kind: "user" }, hasPermission: () => true }),
 }));
 vi.mock("../hooks/useEntityEngagement", () => ({
-  useEntityEngagement: () => ({ favorite: false, setFavorite: vi.fn(), rating: 0, setRating: vi.fn() }),
+  useEntityEngagement: () => ({ favorite: false, setFavorite: mocks.setFavorite, rating: 0, setRating: vi.fn() }),
 }));
 vi.mock("../hooks/useBackNavigation", () => ({
   useBackNavigation: () => ({ backLabel: "Back to Studios", goBack: vi.fn() }),
@@ -93,6 +95,7 @@ vi.mock("../components/CoverImageDialog", () => ({ CoverImageDialog: () => null 
 describe("StudioDetailPage", () => {
   beforeEach(() => {
     mocks.studioGet.mockReset().mockResolvedValue(buildStudio());
+    mocks.setFavorite.mockReset();
     localStorage.clear();
     window.history.replaceState(null, "", "/studio/25?perPage=100&sort=rating&filters=%7B%22favorite%22%3Atrue%7D");
   });
@@ -129,6 +132,20 @@ describe("StudioDetailPage", () => {
 
     expect(await screen.findByText("Studio not found")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("places the tabs first so the hero layout prevents doubled leading spacing", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const tablist = await screen.findByRole("tablist", { name: "Detail tabs" });
+    const tabs = tablist.parentElement?.parentElement;
+    expect(tabs?.parentElement?.firstElementChild).toBe(tabs);
+    expect(tabs).toHaveAttribute("data-entity-detail-tabs");
   });
 
   it("persists include sub-studio content in the URL", async () => {

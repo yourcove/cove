@@ -15,6 +15,7 @@ public class AiDataController(
     ICurrentPrincipalAccessor principalAccessor) : ControllerBase
 {
     [HttpGet("summary")]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<AiDataSummaryDto>> Summary(
         [FromQuery] string? sourceKey,
         [FromQuery] string? sourceRunId,
@@ -31,9 +32,16 @@ public class AiDataController(
 
     [HttpPost("purge")]
     [RequiresPermission(Permissions.AiDataClear)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete", ActionArgumentName = "request", SkipWhenPropertyTrue = "DryRun")]
     public async Task<ActionResult<AiDataPurgeResultDto>> Purge([FromBody] AiDataPurgeRequestDto request, CancellationToken cancellationToken)
     {
         var selector = request.ToSelectorDto();
+        if (!AiDataPurgeService.TryValidateDestructiveSelector(selector, out var error))
+        {
+            return BadRequest(new { error });
+        }
+
         var result = await aiDataPurgeService.PurgeAsync(selector, request.DryRun, cancellationToken);
 
         if (!request.DryRun)

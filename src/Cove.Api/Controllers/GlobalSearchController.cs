@@ -2,6 +2,8 @@ using System.Linq.Expressions;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
+using Cove.Core.Helpers;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +37,7 @@ public sealed class GlobalSearchController(
         public string? FallbackTitle { get; init; }
         public string? Subtitle { get; init; }
         public DateOnly? Date { get; init; }
+        public DatePrecision DatePrecision { get; init; }
         public string? Alias { get; init; }
     }
 
@@ -64,6 +67,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = video.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = video.Studio != null ? video.Studio.Name : null,
                 Date = video.Date,
+                DatePrecision = video.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Performer>(
@@ -114,6 +118,7 @@ public sealed class GlobalSearchController(
                     ?? (gallery.Folder != null ? gallery.Folder.Path : null),
                 Subtitle = gallery.Studio != null ? gallery.Studio.Name : null,
                 Date = gallery.Date,
+                DatePrecision = gallery.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Image>(
@@ -127,6 +132,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = image.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = image.Studio != null ? image.Studio.Name : null,
                 Date = image.Date,
+                DatePrecision = image.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Group>(
@@ -139,6 +145,7 @@ public sealed class GlobalSearchController(
                 Title = group.Name,
                 Subtitle = group.Studio != null ? group.Studio.Name : null,
                 Date = group.Date,
+                DatePrecision = group.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Audio>(
@@ -152,6 +159,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = audio.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = audio.Studio != null ? audio.Studio.Name : null,
                 Date = audio.Date,
+                DatePrecision = audio.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<TextDocument>(
@@ -165,6 +173,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = text.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = text.Studio != null ? text.Studio.Name : null,
                 Date = text.Date,
+                DatePrecision = text.DatePrecision,
             }, groups, failedTypes, ct);
 
         return Ok(new GlobalSearchResponseDto(groups, failedTypes));
@@ -203,7 +212,7 @@ public sealed class GlobalSearchController(
                 FirstNonEmpty(row.Title, LeafName(row.FallbackTitle)) ?? $"{TitleFor(type)} {row.Id}",
                 !string.IsNullOrWhiteSpace(row.Alias)
                     ? $"Aliases: {row.Alias}"
-                    : FirstNonEmpty(row.Subtitle, row.Date?.ToString("yyyy-MM-dd")))).ToList();
+                    : FirstNonEmpty(row.Subtitle, PartialDate.Format(row.Date, row.DatePrecision)))).ToList();
             groups.Add(new GlobalSearchGroupDto(type, items));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -250,7 +259,10 @@ public sealed class GlobalSearchController(
         var text = FullTextSearchHelpers.Apply(db, query, term,
             performer => performer.Name, performer => performer.Disambiguation, performer => performer.Details, performer => performer.SearchText);
         var lower = term.ToLowerInvariant();
-        var aliases = text.Concat(query.Where(performer => performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
+        var aliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(performer => performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
         return FullTextSearchHelpers.ApplyRelationalMatches(aliases, query, term,
             tagSelectors: [performer => performer.PerformerTags.Where(link => link.Tag != null).Select(link => link.Tag!)]);
     }
@@ -259,7 +271,10 @@ public sealed class GlobalSearchController(
     {
         var text = FullTextSearchHelpers.Apply(db, query, term, studio => studio.Name, studio => studio.Details, studio => studio.SearchText);
         var lower = term.ToLowerInvariant();
-        var aliases = text.Concat(query.Where(studio => studio.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
+        var aliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(studio => studio.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
         return FullTextSearchHelpers.ApplyRelationalMatches(aliases, query, term,
             tagSelectors: [studio => studio.StudioTags.Where(link => link.Tag != null).Select(link => link.Tag!)]);
     }
@@ -268,7 +283,10 @@ public sealed class GlobalSearchController(
     {
         var text = FullTextSearchHelpers.Apply(db, query, term, tag => tag.Name, tag => tag.SortName, tag => tag.Description, tag => tag.SearchText);
         var lower = term.ToLowerInvariant();
-        return text.Concat(query.Where(tag => tag.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower)))).Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(tag => tag.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
     }
 
     private IQueryable<Gallery> ApplyGallerySearch(IQueryable<Gallery> query, string term)
@@ -279,9 +297,12 @@ public sealed class GlobalSearchController(
             tagSelectors: [gallery => gallery.GalleryTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
             performerSelectors: [gallery => gallery.GalleryPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         var path = term.ToLowerInvariant().Replace('\\', '/');
-        return relational.Concat(query.Where(gallery =>
-            gallery.Files.Any(file => file.Path.ToLower().Contains(path))
-            || (gallery.Folder != null && gallery.Folder.Path.ToLower().Contains(path)))).Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            relational,
+            query.Where(gallery =>
+                gallery.Files.Any(file => file.Path.ToLower().Contains(path))
+                || (gallery.Folder != null && gallery.Folder.Path.ToLower().Contains(path))));
     }
 
     private IQueryable<Image> ApplyImageSearch(IQueryable<Image> query, string term)

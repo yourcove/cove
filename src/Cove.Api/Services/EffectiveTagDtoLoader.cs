@@ -111,8 +111,7 @@ internal static class EffectiveTagDtoLoader
                 })
                 .Where(tag => tag != null)
                 .Select(tag => tag!)
-                .OrderBy(tag => tag.Name)
-                .ThenBy(tag => tag.Id)
+                .OrderForDisplay()
                 .ToList();
 
             result[hostGroup.Key] = tagDtos;

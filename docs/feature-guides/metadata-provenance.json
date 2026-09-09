@@ -1,0 +1,87 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "metadata-provenance",
+  "title": "Metadata provenance",
+  "description": "Review where a metadata value came from so you can decide whether to trust, keep, replace, or correct it upstream.",
+  "order": 80,
+  "sections": [
+    {
+      "id": "why-it-matters",
+      "title": "Why it matters",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Use provenance when the origin of a value affects whether you trust, keep, or replace it. It is especially useful after automated or provider-driven changes."
+        },
+        {
+          "type": "image",
+          "src": "assets/metadata-provenance.png",
+          "alt": "Tag provenance popup showing a manual source and applied time",
+          "caption": "Hover or focus a supported metadata field to see its source and when that value was applied."
+        },
+        {
+          "type": "paragraph",
+          "text": "Large libraries often combine manual edits, file scans, scrapers, downloaders, analysis workflows, and extensions. Reviewing origin lets you distinguish an upstream mismatch from a local edit and decide whether to correct one field or the workflow that supplied it."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Provenance reference",
+              "href": "/docs/reference/provenance/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "what-to-review",
+      "title": "What to review",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Check which source supplied the field you are questioning.",
+            "Compare that source with the record's provider identity and surrounding values.",
+            "Decide whether the correction belongs on this record, in provider configuration, or in an extension workflow.",
+            "Re-run automation on a small sample before applying the same correction broadly."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "correct-the-right-layer",
+      "title": "Correct the right layer",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Edit the record for a one-off exception.",
+            "Change provider configuration for a consistent matching or mapping issue.",
+            "Correct the scraper, downloader, analyzer, or extension when it repeatedly supplies the wrong value.",
+            "Keep the source evidence when a derived view can present the value cleanly without rewriting it."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Manual edits are provenance too. They help explain why a later value differs from imported or analyzed metadata."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Metadata reference",
+              "href": "/docs/reference/metadata/"
+            },
+            {
+              "label": "Providers, scrapers, and downloaders",
+              "href": "/docs/user/metadata/providers-scrapers-downloaders/",
+              "topicId": "providers-scrapers-downloaders"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -13,7 +13,7 @@ public sealed class ExtensionMigrationTransactionTests
     public async Task ApplyExtensionMigrationAsync_RollsBackSchemaWhenMigrationFailsBeforeReceipt()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var db = new DbContext(new DbContextOptionsBuilder<DbContext>()
             .UseSqlite(connection)
             .Options);
@@ -23,7 +23,7 @@ public sealed class ExtensionMigrationTransactionTests
                 migration_name TEXT NOT NULL,
                 PRIMARY KEY (extension_id, migration_name)
             );
-            """);
+            """, cancellationToken: TestContext.Current.CancellationToken);
 
         var broken = new ExtensionMigration("probe", """
             CREATE TABLE migration_probe (id INTEGER PRIMARY KEY);
@@ -53,7 +53,7 @@ public sealed class ExtensionMigrationTransactionTests
     public async Task ApplyExtensionMigrationAsync_RunsManualTransactionInsideRetryingStrategy()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var transientReceiptFailure = new TransientReceiptInterceptor();
         await using var db = new DbContext(new DbContextOptionsBuilder<DbContext>()
             .UseSqlite(connection)
@@ -66,7 +66,7 @@ public sealed class ExtensionMigrationTransactionTests
                 migration_name TEXT NOT NULL,
                 PRIMARY KEY (extension_id, migration_name)
             );
-            """);
+            """, cancellationToken: TestContext.Current.CancellationToken);
 
         var migration = new ExtensionMigration(
             "retrying-strategy",

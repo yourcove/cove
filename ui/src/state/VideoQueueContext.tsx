@@ -43,7 +43,10 @@ export interface VideoQueueItem {
   imagePath?: string | null;
 }
 
-interface VideoQueuePageResult { items: VideoQueueItem[]; hasMore: boolean }
+interface VideoQueuePageResult {
+  items: VideoQueueItem[];
+  hasMore: boolean;
+}
 interface VideoQueueOptions {
   startIndex?: number;
   totalCount?: number;
@@ -88,25 +91,28 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     }
   }, [queue]);
 
-  const setQueue = useCallback((ids: number[], currentId: number, items?: VideoQueueItem[], options?: VideoQueueOptions) => {
-    queueGenerationRef.current += 1;
-    const idx = ids.indexOf(currentId);
-    const itemMap = items?.reduce<Record<number, VideoQueueItem>>((map, item) => {
-      map[item.id] = item;
-      return map;
-    }, {});
-    loadersRef.current = { loadPrevious: options?.loadPrevious, loadNext: options?.loadNext };
-    setQueueState({
-      videoIds: ids,
-      currentIndex: idx >= 0 ? idx : 0,
-      autoplay: options?.autoplay ?? false,
-      items: itemMap,
-      startIndex: options?.startIndex ?? 0,
-      totalCount: options?.totalCount ?? ids.length,
-      hasRemotePrevious: Boolean(options?.loadPrevious),
-      hasRemoteNext: Boolean(options?.loadNext),
-    });
-  }, []);
+  const setQueue = useCallback(
+    (ids: number[], currentId: number, items?: VideoQueueItem[], options?: VideoQueueOptions) => {
+      queueGenerationRef.current += 1;
+      const idx = ids.indexOf(currentId);
+      const itemMap = items?.reduce<Record<number, VideoQueueItem>>((map, item) => {
+        map[item.id] = item;
+        return map;
+      }, {});
+      loadersRef.current = { loadPrevious: options?.loadPrevious, loadNext: options?.loadNext };
+      setQueueState({
+        videoIds: ids,
+        currentIndex: idx >= 0 ? idx : 0,
+        autoplay: options?.autoplay ?? false,
+        items: itemMap,
+        startIndex: options?.startIndex ?? 0,
+        totalCount: options?.totalCount ?? ids.length,
+        hasRemotePrevious: Boolean(options?.loadPrevious),
+        hasRemoteNext: Boolean(options?.loadNext),
+      });
+    },
+    [],
+  );
 
   const clearQueue = useCallback(() => {
     queueGenerationRef.current += 1;
@@ -114,20 +120,22 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     setQueueState(null);
   }, []);
 
-  const currentId = queue ? queue.videoIds[queue.currentIndex] ?? null : null;
+  const currentId = queue ? (queue.videoIds[queue.currentIndex] ?? null) : null;
   const prevId = queue && queue.currentIndex > 0 ? queue.videoIds[queue.currentIndex - 1] : null;
-  const nextId = queue && queue.currentIndex < queue.videoIds.length - 1 ? queue.videoIds[queue.currentIndex + 1] : null;
-  const queueItems = queue
-    ? queue.videoIds.map((id) => queue.items?.[id] ?? { id })
-    : [];
+  const nextId =
+    queue && queue.currentIndex < queue.videoIds.length - 1 ? queue.videoIds[queue.currentIndex + 1] : null;
+  const queueItems = queue ? queue.videoIds.map((id) => queue.items?.[id] ?? { id }) : [];
 
-  const goToIndex = useCallback((index: number) => {
-    if (!queue || index < 0 || index >= queue.videoIds.length) return null;
-    queueGenerationRef.current += 1;
-    const id = queue.videoIds[index];
-    setQueueState({ ...queue, currentIndex: index });
-    return id;
-  }, [queue]);
+  const goToIndex = useCallback(
+    (index: number) => {
+      if (!queue || index < 0 || index >= queue.videoIds.length) return null;
+      queueGenerationRef.current += 1;
+      const id = queue.videoIds[index];
+      setQueueState({ ...queue, currentIndex: index });
+      return id;
+    },
+    [queue],
+  );
 
   const loadBoundary = useCallback(async (direction: "previous" | "next") => {
     if (loadingBoundaryRef.current) return null;
@@ -141,15 +149,28 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
       if (result.items.length === 0) return null;
       const ids = result.items.map((item) => item.id);
       const itemMap = Object.fromEntries(result.items.map((item) => [item.id, item]));
-      const targetId = direction === "previous" ? ids.at(-1) ?? null : ids[0] ?? null;
+      const targetId = direction === "previous" ? (ids.at(-1) ?? null) : (ids[0] ?? null);
       setQueueState((current) => {
         if (!current) return current;
         if (direction === "previous") {
           if (!result.hasMore) loadersRef.current.loadPrevious = undefined;
-          return { ...current, videoIds: [...ids, ...current.videoIds], currentIndex: ids.length - 1, startIndex: Math.max(0, (current.startIndex ?? 0) - ids.length), items: { ...current.items, ...itemMap }, hasRemotePrevious: result.hasMore };
+          return {
+            ...current,
+            videoIds: [...ids, ...current.videoIds],
+            currentIndex: ids.length - 1,
+            startIndex: Math.max(0, (current.startIndex ?? 0) - ids.length),
+            items: { ...current.items, ...itemMap },
+            hasRemotePrevious: result.hasMore,
+          };
         }
         if (!result.hasMore) loadersRef.current.loadNext = undefined;
-        return { ...current, videoIds: [...current.videoIds, ...ids], currentIndex: current.videoIds.length, items: { ...current.items, ...itemMap }, hasRemoteNext: result.hasMore };
+        return {
+          ...current,
+          videoIds: [...current.videoIds, ...ids],
+          currentIndex: current.videoIds.length,
+          items: { ...current.items, ...itemMap },
+          hasRemoteNext: result.hasMore,
+        };
       });
       return targetId;
     } catch {
@@ -169,7 +190,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
   }, [goToIndex, loadBoundary, nextId, queue]);
 
   const toggleAutoplay = useCallback(() => {
-    setQueueState((prev) => prev ? { ...prev, autoplay: !prev.autoplay } : null);
+    setQueueState((prev) => (prev ? { ...prev, autoplay: !prev.autoplay } : null));
   }, []);
 
   return (

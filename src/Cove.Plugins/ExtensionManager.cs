@@ -1182,12 +1182,13 @@ public class ExtensionManager : IExtensionContributionRuntime
     /// </summary>
     public async Task InitializeAllAsync(IServiceProvider services, CancellationToken ct = default)
     {
-        _rootServices = services;
-        CaptureScopeFactory(services);
-        _logger = services.GetService<ILogger<ExtensionManager>>();
+        _rootServices ??= services;
+        var runtimeServices = _rootServices;
+        CaptureScopeFactory(runtimeServices);
+        _logger = runtimeServices.GetService<ILogger<ExtensionManager>>();
 
         // Load installation state from DB
-        await LoadInstallationStateAsync(services, ct);
+        await LoadInstallationStateAsync(runtimeServices, ct);
 
         // Clean up stale installation records for extensions that no longer exist on disk.
         var staleIds = _installations.Keys
@@ -1246,7 +1247,7 @@ public class ExtensionManager : IExtensionContributionRuntime
 
                 if (ext is IStatefulExtension stateful)
                 {
-                    var factory = services.GetService<IExtensionStoreFactory>();
+                    var factory = runtimeServices.GetService<IExtensionStoreFactory>();
                     if (factory != null)
                         stateful.SetStore(factory.CreateStore(ext.Id));
                 }
@@ -1262,14 +1263,14 @@ public class ExtensionManager : IExtensionContributionRuntime
                 var extServices = extensionLease.Services;
 
                 if (ext is IDataExtension)
-                    await ApplyExtensionMigrationsAsync(services, ext.Id, ct);
+                    await ApplyExtensionMigrationsAsync(runtimeServices, ext.Id, ct);
 
                 // Check if this is a new installation
                 var install = GetInstallation(ext.Id);
                 if (install == null)
                 {
                     await ext.OnInstallAsync(extServices, ct);
-                    await SaveInstallationAsync(services, ext.Id, ct);
+                    await SaveInstallationAsync(runtimeServices, ext.Id, ct);
                     _logger?.LogInformation("Extension {Id} installed (v{Version})", ext.Id, ext.Version);
                 }
 
@@ -1487,6 +1488,7 @@ public class ExtensionManager : IExtensionContributionRuntime
             await ext.InitializeAsync(extServices, ct);
             MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
+            _startupDisabledExtensions.TryRemove(ext.Id, out _);
             _extensionFailureReasons.TryRemove(ext.Id, out _);
             var manifest = GetManifestFile(ext.Id);
             TryUpdateInstallation(ext.Id, install =>
@@ -1572,6 +1574,8 @@ public class ExtensionManager : IExtensionContributionRuntime
             await ext.InitializeAsync(extServices, ct);
             MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
+            _startupDisabledExtensions.TryRemove(ext.Id, out _);
+            _extensionFailureReasons.TryRemove(ext.Id, out _);
             PublishExtensionEndpoints(ext.Id);
             _logger?.LogInformation("Extension {Id} initialized on demand", ext.Id);
             return true;
@@ -1738,6 +1742,21 @@ public class ExtensionManager : IExtensionContributionRuntime
     // MANIFEST AGGREGATION
     // ========================================================================
 
+    private static string NamespaceKeyboardActionId(string extensionId, string actionId) =>
+        actionId.StartsWith("extension:", StringComparison.Ordinal)
+            || actionId.StartsWith("global.", StringComparison.Ordinal)
+            || actionId.StartsWith("list.", StringComparison.Ordinal)
+            || actionId.StartsWith("detail.", StringComparison.Ordinal)
+            || actionId.StartsWith("player.", StringComparison.Ordinal)
+            || actionId.StartsWith("viewer.", StringComparison.Ordinal)
+            ? actionId
+            : $"extension:{extensionId}:{actionId}";
+
+    private static string? NamespaceKeyboardPresetId(string extensionId, string? presetId) =>
+        string.IsNullOrWhiteSpace(presetId) || presetId.Contains(':', StringComparison.Ordinal)
+            ? presetId
+            : $"extension:{extensionId}:{presetId}";
+
     /// <summary>Get the aggregated UI manifest from all enabled extensions.</summary>
     public UIManifest GetAggregatedManifest()
     {
@@ -1782,6 +1801,21 @@ public class ExtensionManager : IExtensionContributionRuntime
             manifest.PageOverrides.AddRange(extManifest.PageOverrides.Select(pageOverride => pageOverride with { ExtensionId = ext.Id }));
             manifest.DialogOverrides.AddRange(extManifest.DialogOverrides.Select(dialogOverride => dialogOverride with { ExtensionId = ext.Id }));
             manifest.Actions.AddRange(extManifest.Actions.Select(action => action with { ExtensionId = ext.Id }));
+            manifest.KeyboardActions.AddRange(extManifest.KeyboardActions.Select(action => action with
+            {
+                Id = $"extension:{ext.Id}:{action.Id}",
+                ExtensionId = ext.Id,
+            }));
+            manifest.KeyboardShortcutPresets.AddRange(extManifest.KeyboardShortcutPresets.Select(preset => preset with
+            {
+                Id = $"extension:{ext.Id}:{preset.Id}",
+                ExtensionId = ext.Id,
+                BasePresetId = NamespaceKeyboardPresetId(ext.Id, preset.BasePresetId),
+                Bindings = preset.Bindings.ToDictionary(
+                    entry => NamespaceKeyboardActionId(ext.Id, entry.Key),
+                    entry => entry.Value,
+                    StringComparer.Ordinal),
+            }));
             AddTutorialTopics(extManifest.TutorialTopics, ext.Id);
             manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with
             {
@@ -1789,6 +1823,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                 FilterId = string.IsNullOrWhiteSpace(filter.FilterId) ? null : filter.FilterId.Trim(),
             }));
             manifest.ListSorts.AddRange(extManifest.ListSorts.Select(sort => sort with { ExtensionId = ext.Id }));
+            manifest.DashboardWidgets.AddRange(extManifest.DashboardWidgets.Select(widget => widget with { ExtensionId = ext.Id }));
         }
 
         var manifestIds = _manifestFiles.Keys
@@ -1803,6 +1838,24 @@ public class ExtensionManager : IExtensionContributionRuntime
             if (manifestFile?.TutorialTopics.Count > 0)
             {
                 AddTutorialTopics(manifestFile.TutorialTopics, manifestFile.Id);
+            }
+            if (manifestFile is not null && GetExtension(extensionId) is not IUIExtension)
+            {
+                manifest.KeyboardActions.AddRange(manifestFile.KeyboardActions.Select(action => action with
+                {
+                    Id = NamespaceKeyboardActionId(manifestFile.Id, action.Id),
+                    ExtensionId = manifestFile.Id,
+                }));
+                manifest.KeyboardShortcutPresets.AddRange(manifestFile.KeyboardShortcutPresets.Select(preset => preset with
+                {
+                    Id = NamespaceKeyboardPresetId(manifestFile.Id, preset.Id)!,
+                    ExtensionId = manifestFile.Id,
+                    BasePresetId = NamespaceKeyboardPresetId(manifestFile.Id, preset.BasePresetId),
+                    Bindings = preset.Bindings.ToDictionary(
+                        entry => NamespaceKeyboardActionId(manifestFile.Id, entry.Key),
+                        entry => entry.Value,
+                        StringComparer.Ordinal),
+                }));
             }
         }
 
@@ -1840,6 +1893,9 @@ public class ExtensionManager : IExtensionContributionRuntime
         });
         manifest.SelectorOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.KeyboardActions.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.KeyboardShortcutPresets.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.DashboardWidgets.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.TutorialTopics.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));

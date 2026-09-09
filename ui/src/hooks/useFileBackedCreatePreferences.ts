@@ -19,7 +19,8 @@ function readPreferences(storageKey: string): FileBackedCreatePreferences {
     const parsed = JSON.parse(raw) as Partial<FileBackedCreatePreferences>;
     return {
       urlDownloadMode: parsed.urlDownloadMode === "later" ? "later" : "now",
-      scrapeMetadata: typeof parsed.scrapeMetadata === "boolean" ? parsed.scrapeMetadata : DEFAULT_PREFERENCES.scrapeMetadata,
+      scrapeMetadata:
+        typeof parsed.scrapeMetadata === "boolean" ? parsed.scrapeMetadata : DEFAULT_PREFERENCES.scrapeMetadata,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -44,21 +45,30 @@ export function useFileBackedCreatePreferences(entity: DownloadEntityName) {
     setPreferences(readPreferences(storageKey));
   }, [storageKey]);
 
-  const updatePreferences = useCallback((updater: (current: FileBackedCreatePreferences) => FileBackedCreatePreferences) => {
-    setPreferences((current) => {
-      const next = updater(current);
-      writePreferences(storageKey, next);
-      return next;
-    });
-  }, [storageKey]);
+  const updatePreferences = useCallback(
+    (updater: (current: FileBackedCreatePreferences) => FileBackedCreatePreferences) => {
+      setPreferences((current) => {
+        const next = updater(current);
+        writePreferences(storageKey, next);
+        return next;
+      });
+    },
+    [storageKey],
+  );
 
-  const setUrlDownloadMode = useCallback((urlDownloadMode: UrlDownloadMode) => {
-    updatePreferences((current) => ({ ...current, urlDownloadMode }));
-  }, [updatePreferences]);
+  const setUrlDownloadMode = useCallback(
+    (urlDownloadMode: UrlDownloadMode) => {
+      updatePreferences((current) => ({ ...current, urlDownloadMode }));
+    },
+    [updatePreferences],
+  );
 
-  const setScrapeMetadata = useCallback((scrapeMetadata: boolean) => {
-    updatePreferences((current) => ({ ...current, scrapeMetadata }));
-  }, [updatePreferences]);
+  const setScrapeMetadata = useCallback(
+    (scrapeMetadata: boolean) => {
+      updatePreferences((current) => ({ ...current, scrapeMetadata }));
+    },
+    [updatePreferences],
+  );
 
   return {
     urlDownloadMode: preferences.urlDownloadMode,

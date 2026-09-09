@@ -4,6 +4,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
@@ -171,7 +172,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Face" };
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -247,7 +248,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Highlights" };
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -257,7 +258,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -298,7 +299,7 @@ public class SegmentCoreControllerTests
                 Kind = "face",
                 SourceKey = "ext:ai.faces",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(7));
@@ -336,7 +337,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Hidden On Timeline", ShowAsSegment = false };
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var rawProfile = new SegmentDisplayProfile
         {
@@ -345,7 +346,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(rawProfile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.Add(new Segment
         {
@@ -357,7 +358,7 @@ public class SegmentCoreControllerTests
             Kind = "tag",
             SourceKey = "ext:ai.tagging",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -380,7 +381,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Display By Profile", ShowAsSegment = false };
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var defaultProfile = new SegmentDisplayProfile
         {
@@ -389,7 +390,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(defaultProfile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -409,7 +410,7 @@ public class SegmentCoreControllerTests
             Kind = "tag",
             SourceKey = "ext:ai.tagging",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -428,7 +429,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var video = new Video { Title = "Audio Segment Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -437,7 +438,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -480,7 +481,7 @@ public class SegmentCoreControllerTests
                 SourceKey = "ext:ai.audio",
                 Title = "speech",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -502,7 +503,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var video = new Video { Title = "Derived Segment Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -541,7 +542,7 @@ public class SegmentCoreControllerTests
                 Kind = "user.face",
                 SourceKey = "user",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -578,7 +579,7 @@ public class SegmentCoreControllerTests
             SegmentLaneOverride = 3,
         };
         context.AddRange(video, tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -588,7 +589,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -609,7 +610,7 @@ public class SegmentCoreControllerTests
             Kind = "action",
             SourceKey = "ext:test",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(7));
@@ -631,7 +632,7 @@ public class SegmentCoreControllerTests
         var secondaryTag = new Tag { Name = "Secondary" };
         context.Videos.Add(video);
         context.Tags.AddRange(primaryTag, secondaryTag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -658,7 +659,7 @@ public class SegmentCoreControllerTests
                 Payload = JsonDocument.Parse($"{{\"secondaryTagIds\":[{secondaryTag.Id}]}}"),
                 SourceKey = "ext:ai.faces",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var controller = CreateVideoSegmentsController(context, spanResolver);
@@ -690,7 +691,7 @@ public class SegmentCoreControllerTests
         var group = new Group { Name = "Derived Query Compilation" };
         context.Videos.Add(video);
         context.Groups.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -711,7 +712,7 @@ public class SegmentCoreControllerTests
                 Kind = "user.face",
                 SourceKey = "user",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var videoController = CreateVideoSegmentsController(context, spanResolver);
@@ -741,7 +742,7 @@ public class SegmentCoreControllerTests
         Assert.Equal(11, detailDto.Intervals[0].StartSec);
         Assert.Equal(12, detailDto.Intervals[0].EndSec);
 
-        var groupController = new GroupItemsController(context, spanResolver);
+        var groupController = CreateGroupItemsController(context, spanResolver);
         var createFromSpansResult = await groupController.CreateFromSpans(group.Id, new GroupItemsFromSpansDto([
             new GroupItemSpanInputDto(derivedSpan.SpanKey, video.Id, null, null, null, null)
         ]), CancellationToken.None);
@@ -765,7 +766,7 @@ public class SegmentCoreControllerTests
         var group = new Group { Name = "Explicit Derived Query Group" };
         context.Videos.Add(video);
         context.Groups.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -786,10 +787,10 @@ public class SegmentCoreControllerTests
                 Kind = "user.face",
                 SourceKey = "user",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
-        var controller = new GroupItemsController(context, spanResolver);
+        var controller = CreateGroupItemsController(context, spanResolver);
         var derivedQuery = new SegmentSpanDerivedQueryDto(
             "intersection",
             [
@@ -829,7 +830,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Highlight" };
         context.Videos.AddRange(video, otherVideo);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -853,7 +854,7 @@ public class SegmentCoreControllerTests
                 Title = "Other beat",
                 SourceKey = "ext:ai.tags",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -887,12 +888,12 @@ public class SegmentCoreControllerTests
         var parent = new Tag { Name = "Parent" };
         var child = new Tag { Name = "Child" };
         context.AddRange(video, parent, child);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
         context.Segments.AddRange(
             new Segment { HostType = SegmentHostType.Video, HostId = video.Id, TagId = parent.Id, Title = "parent" },
             new Segment { HostType = SegmentHostType.Video, HostId = video.Id, TagId = child.Id, Title = "child" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -922,7 +923,7 @@ public class SegmentCoreControllerTests
         var otherVideo = new Video { Title = "Other host" };
         var videoTag = new Tag { Name = "Host tag" };
         context.AddRange(matchingVideo, otherVideo, videoTag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.TagApplications.Add(new TagApplication
         {
             HostType = AffinityHostType.Video,
@@ -933,12 +934,12 @@ public class SegmentCoreControllerTests
 
         var profile = new SegmentDisplayProfile { Name = "Video tag profile", IsDefault = true, Version = 1 };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profile.Id, SourceKey = "user", Visible = true, MergeGapSec = 0 });
         context.Segments.AddRange(
             new Segment { HostType = SegmentHostType.Video, HostId = matchingVideo.Id, StartSec = 1, EndSec = 3, SourceKey = "user", Title = "matching" },
             new Segment { HostType = SegmentHostType.Video, HostId = otherVideo.Id, StartSec = 1, EndSec = 3, SourceKey = "user", Title = "other" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -972,7 +973,7 @@ public class SegmentCoreControllerTests
         var tag = new Tag { Name = "Tagged" };
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -1012,7 +1013,7 @@ public class SegmentCoreControllerTests
                 Confidence = 0.78f,
                 UpdatedAt = new DateTime(2024, 1, 4, 12, 0, 0, DateTimeKind.Utc),
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -1046,7 +1047,7 @@ public class SegmentCoreControllerTests
         var otherTag = new Tag { Name = "Keep Me" };
         context.Videos.Add(video);
         context.Tags.AddRange(tag, otherTag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var targetSegment = new Segment
         {
@@ -1079,7 +1080,7 @@ public class SegmentCoreControllerTests
             SourceKey = "user",
         };
         context.Segments.AddRange(targetSegment, unselectedSegment, differentTagSegment);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -1092,9 +1093,9 @@ public class SegmentCoreControllerTests
         var count = Assert.IsType<int>(ok.Value?.GetType().GetProperty("count")?.GetValue(ok.Value));
         Assert.Equal(1, count);
 
-        await context.Entry(targetSegment).ReloadAsync();
-        await context.Entry(unselectedSegment).ReloadAsync();
-        await context.Entry(differentTagSegment).ReloadAsync();
+        await context.Entry(targetSegment).ReloadAsync(TestContext.Current.CancellationToken);
+        await context.Entry(unselectedSegment).ReloadAsync(TestContext.Current.CancellationToken);
+        await context.Entry(differentTagSegment).ReloadAsync(TestContext.Current.CancellationToken);
         Assert.Null(targetSegment.TagId);
         Assert.Equal(tag.Id, unselectedSegment.TagId);
         Assert.Equal(otherTag.Id, differentTagSegment.TagId);
@@ -1108,7 +1109,7 @@ public class SegmentCoreControllerTests
 
         var video = new Video { Title = "Distinct Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -1138,7 +1139,7 @@ public class SegmentCoreControllerTests
                 Kind = "action",
                 SourceKey = "ext:ai.actions",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -1172,7 +1173,7 @@ public class SegmentCoreControllerTests
             })
             .ToList();
         context.Videos.AddRange(videos);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -1181,7 +1182,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -1218,7 +1219,7 @@ public class SegmentCoreControllerTests
                 Kind = "clip",
                 SourceKey = "user",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
@@ -1267,7 +1268,7 @@ public class SegmentCoreControllerTests
 
         var video = new Video { Title = "Span Filter Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -1276,7 +1277,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -1318,7 +1319,7 @@ public class SegmentCoreControllerTests
             UpdatedAt = new DateTime(2024, 1, 6, 0, 0, 0, DateTimeKind.Utc),
         };
         context.Segments.AddRange(older, matching);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
@@ -1374,7 +1375,7 @@ public class SegmentCoreControllerTests
         var parent = new Tag { Name = "Parent span tag" };
         var child = new Tag { Name = "Child span tag" };
         context.AddRange(video, parent, child);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
         var profile = new SegmentDisplayProfile
@@ -1384,7 +1385,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
             ProfileId = profile.Id,
@@ -1401,7 +1402,7 @@ public class SegmentCoreControllerTests
             TagId = child.Id,
             SourceKey = "user",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new SegmentsController(
             context,
@@ -1429,7 +1430,7 @@ public class SegmentCoreControllerTests
 
         var video = new Video { Title = "Span Updated Sort Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -1438,7 +1439,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -1494,7 +1495,7 @@ public class SegmentCoreControllerTests
             UpdatedAt = new DateTime(2024, 1, 30, 0, 0, 0, DateTimeKind.Utc),
         };
         context.Segments.AddRange(stableOld, mid, mergedOldPart, mergedNewestPart);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
@@ -1526,7 +1527,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var video = new Video { Title = "Detection Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new VideoDetectionsController(context);
         var createDto = new DetectionCreateDto(
@@ -1598,7 +1599,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var image = new Image { Title = "Detection Image" };
         context.Images.Add(image);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new ImageDetectionsController(context);
         var createDto = new DetectionCreateDto(
@@ -1667,7 +1668,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var tag = new Tag { Name = "Highlights" };
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         var spanResolver = new SegmentSpanResolver(context, principalAccessor, new MemoryCache(new MemoryCacheOptions()));
@@ -1834,7 +1835,7 @@ public class SegmentCoreControllerTests
         var video = new Video { Title = "Preview Video" };
         var tag = new Tag { Name = "Highlight" };
         context.AddRange(video, tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.Add(new Segment
         {
@@ -1846,7 +1847,7 @@ public class SegmentCoreControllerTests
             Kind = "action",
             SourceKey = "ext:ai.actions",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(7));
@@ -1891,7 +1892,7 @@ public class SegmentCoreControllerTests
         var context = scope.Context;
         var tag = new Tag { Name = "Highlights" };
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(9));
@@ -1971,9 +1972,9 @@ public class SegmentCoreControllerTests
         var videoB = new Video { Title = "Video B", MaxDuration = 90 };
         context.Groups.Add(group);
         context.Videos.AddRange(videoA, videoB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = new GroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+        var controller = CreateGroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
 
         var createVideoResult = await controller.Create(group.Id, new GroupItemCreateDto(
             0,
@@ -2041,7 +2042,7 @@ public class SegmentCoreControllerTests
         var image = new Image { Title = "Image Chapter" };
         var video = new Video { Title = "Segment Host", MaxDuration = 80 };
         context.AddRange(group, audio, text, image, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var segment = new Segment
         {
             HostType = SegmentHostType.Video,
@@ -2052,9 +2053,9 @@ public class SegmentCoreControllerTests
             Title = "Segment Chapter",
         };
         context.Segments.Add(segment);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = new GroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+        var controller = CreateGroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
 
         var createAudioResult = await controller.Create(group.Id, new GroupItemCreateDto(
             0,
@@ -2138,7 +2139,7 @@ public class SegmentCoreControllerTests
         Assert.Contains(manifest.Items, item => item.AudioId == audio.Id && item.Src == $"/api/audios/{audio.Id}/stream");
         Assert.Contains(manifest.Items, item => item.TextId == text.Id && item.Src == $"/api/texts/{text.Id}/file");
         Assert.Contains(manifest.Items, item => item.ImageId == image.Id && item.Src == $"/api/stream/image/{image.Id}");
-        var segmentManifestItem = Assert.Single(manifest.Items.Where(item => item.SegmentId == segment.Id));
+        var segmentManifestItem = Assert.Single(manifest.Items, item => item.SegmentId == segment.Id);
         Assert.Equal("segment", segmentManifestItem.HostType);
         Assert.Equal(video.Id, segmentManifestItem.VideoId);
         Assert.Equal(30, segmentManifestItem.StartSec);
@@ -2157,7 +2158,7 @@ public class SegmentCoreControllerTests
         context.Groups.Add(group);
         context.Videos.Add(video);
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile
         {
@@ -2167,7 +2168,7 @@ public class SegmentCoreControllerTests
             Version = 1,
         };
         context.SegmentDisplayProfiles.Add(profile);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.SegmentDisplayRules.Add(new SegmentDisplayRule
         {
@@ -2198,7 +2199,7 @@ public class SegmentCoreControllerTests
                 Kind = "face",
                 SourceKey = "ext:ai.faces",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(11));
@@ -2206,7 +2207,7 @@ public class SegmentCoreControllerTests
         var resolved = await spanResolver.ResolveVideoAsync(video.Id, profile.Id, CancellationToken.None);
         var span = Assert.Single(resolved.Spans);
 
-        var controller = new GroupItemsController(context, spanResolver);
+        var controller = CreateGroupItemsController(context, spanResolver);
         var createFromSpansResult = await controller.CreateFromSpans(group.Id, new GroupItemsFromSpansDto([
             new GroupItemSpanInputDto(span.SpanKey, video.Id, null, null, null, profile.Id)
         ]), CancellationToken.None);
@@ -2237,7 +2238,35 @@ public class SegmentCoreControllerTests
 
         var context = new SegmentCoreTestContext(options);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 1, Username = "user-1", PasswordHash = "test" },
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" },
+            new User { Id = 11, Username = "user-11", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection);
+    }
+
+    private static GroupItemsController CreateGroupItemsController(CoveContext context, SegmentSpanResolver spanResolver)
+    {
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(CreatePrincipal(1));
+        return new GroupItemsController(context, spanResolver, new AllowAllAuthorizationService(), principalAccessor);
+    }
+
+    private sealed class AllowAllAuthorizationService : IAuthorizationService
+    {
+        public AuthorizationResult Authorize(CovePrincipal? principal, string permission, EntityRef? entity = null)
+            => AuthorizationResult.Allow();
+
+        public Task<AuthorizationResult> AuthorizeAsync(CovePrincipal? principal, string permission, EntityRef? entity, CancellationToken ct)
+            => Task.FromResult(AuthorizationResult.Allow());
+
+        public void Require(CovePrincipal? principal, string permission, EntityRef? entity = null)
+        {
+        }
+
+        public bool Has(CovePrincipal? principal, string permission) => true;
     }
 
     private static ServiceProvider CreateSegmentControllerServiceProvider(SqliteConnection connection)

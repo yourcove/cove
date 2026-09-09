@@ -28,6 +28,25 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasMany(u => u.ApiTokens).WithOne(t => t.User!).HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(u => u.ExternalIdentities).WithOne(link => link.User!).HasForeignKey(link => link.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany<UserInviteToken>().WithOne(t => t.User!).HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(u => u.Dashboards).WithOne(d => d.User!).HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public class DashboardConfiguration : IEntityTypeConfiguration<Dashboard>
+{
+    public void Configure(EntityTypeBuilder<Dashboard> builder)
+    {
+        builder.ToTable("dashboards");
+        builder.HasKey(dashboard => dashboard.Id);
+        builder.Property(dashboard => dashboard.Name).IsRequired().HasMaxLength(100);
+        builder.Property(dashboard => dashboard.NormalizedName).IsRequired().HasMaxLength(100);
+        builder.Property(dashboard => dashboard.WidgetsJson).IsRequired().HasColumnType("jsonb");
+        builder.Property(dashboard => dashboard.Version).HasDefaultValue(1).IsConcurrencyToken();
+
+        builder.HasIndex(dashboard => new { dashboard.UserId, dashboard.NormalizedName }).IsUnique();
+        builder.HasIndex(dashboard => dashboard.UserId)
+            .IsUnique()
+            .HasFilter("\"IsDefault\" = TRUE");
     }
 }
 
@@ -195,6 +214,7 @@ public class ShareLinkConfiguration : IEntityTypeConfiguration<ShareLink>
         builder.Property(s => s.TokenHash).IsRequired().HasMaxLength(128);
         builder.Property(s => s.EntityKind).IsRequired().HasMaxLength(64);
         builder.Property(s => s.EntityIds).HasColumnType("jsonb");
+        builder.Property(s => s.ContainedEntityIds).HasColumnType("jsonb");
         builder.Property(s => s.PasswordHash).HasMaxLength(500);
 
         builder.HasIndex(s => s.TokenHash).IsUnique();

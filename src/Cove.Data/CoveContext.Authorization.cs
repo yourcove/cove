@@ -24,6 +24,50 @@ public partial class CoveContext
         _embeddingReadAuthorizationFilterSuppressionDepth > 0;
 
     internal bool AuthorizationBypassedForReadOptimization => AuthorizationFiltersBypassed;
+    internal bool CanReadVideoTagTreeWithoutAuthorizationFilters
+    {
+        get
+        {
+            if (CurrentShareLinkId is not null) return false;
+            if (AuthorizationFiltersBypassed) return true;
+            var principal = CurrentPrincipal;
+            return principal?.Has(PermissionKeys.VideosRead) == true
+                && principal.Has(PermissionKeys.TagsRead)
+                && !principal.ReadRestrictedEntityKinds.Contains(EntityKinds.Video)
+                && !principal.ReadRestrictedEntityKinds.Contains(EntityKinds.Tag);
+        }
+    }
+
+    internal bool CanUseUnfilteredEmbeddingAnn(EmbeddingHostType? hostType)
+    {
+        if (EmbeddingReadAuthorizationFilterBypassed)
+            return true;
+
+        var principal = CurrentPrincipal;
+        if (principal?.Has(PermissionKeys.EmbeddingsRead) != true)
+            return false;
+
+        bool Unrestricted(string entityKind, string permission)
+            => principal.Has(permission) && !principal.ReadRestrictedEntityKinds.Contains(entityKind);
+
+        return hostType switch
+        {
+            EmbeddingHostType.Video => Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead),
+            EmbeddingHostType.Image => Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead),
+            EmbeddingHostType.Performer => Unrestricted(EntityKinds.Performer, PermissionKeys.PerformersRead),
+            EmbeddingHostType.Face => principal.Has(PermissionKeys.FacesRead),
+            EmbeddingHostType.Segment => Unrestricted(EntityKinds.Segment, PermissionKeys.SegmentsRead)
+                && Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead)
+                && Unrestricted(EntityKinds.Audio, PermissionKeys.AudiosRead)
+                && Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead),
+            _ => Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead)
+                && Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead)
+                && Unrestricted(EntityKinds.Performer, PermissionKeys.PerformersRead)
+                && principal.Has(PermissionKeys.FacesRead)
+                && Unrestricted(EntityKinds.Segment, PermissionKeys.SegmentsRead)
+                && Unrestricted(EntityKinds.Audio, PermissionKeys.AudiosRead),
+        };
+    }
 
     private string[] CurrentRoleNames => CurrentPrincipal?.Roles.ToArray() ?? [];
 
@@ -150,10 +194,41 @@ public partial class CoveContext
             AuthorizationFiltersBypassed || CanReadFaces);
 
         modelBuilder.Entity<Embedding>().HasQueryFilter(embedding =>
-            EmbeddingReadAuthorizationFilterBypassed || CanReadEmbeddings);
+            EmbeddingReadAuthorizationFilterBypassed
+            || CanReadEmbeddings
+            && (embedding.HostType == EmbeddingHostType.Video
+                ? Videos.Any(video => video.Id == embedding.HostId)
+                : embedding.HostType == EmbeddingHostType.Image
+                    ? Images.Any(image => image.Id == embedding.HostId)
+                    : embedding.HostType == EmbeddingHostType.Performer
+                        ? Performers.Any(performer => performer.Id == embedding.HostId)
+                        : embedding.HostType == EmbeddingHostType.Face
+                            ? Faces.Any(face => face.Id == embedding.HostId)
+                            : embedding.HostType == EmbeddingHostType.Segment
+                              && Segments.Any(segment =>
+                                  segment.Id == embedding.HostId
+                                  && (!RequiresSegmentReadScopeEvaluation
+                                      ? CanReadSegments
+                                      : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule,
+                                          CurrentRoleNames, CurrentShareLinkId, EntityKinds.Segment, segment.Id))
+                                  && (segment.HostType == SegmentHostType.Video
+                                      ? Videos.Any(video => video.Id == segment.HostId)
+                                      : segment.HostType == SegmentHostType.Audio
+                                          ? Audios.Any(audio => audio.Id == segment.HostId)
+                                          : segment.HostType == SegmentHostType.Image
+                                              && Images.Any(image => image.Id == segment.HostId)))));
 
         modelBuilder.Entity<AiRun>().HasQueryFilter(run =>
-            AuthorizationFiltersBypassed || CanReadAiRuns);
+            AuthorizationFiltersBypassed
+            || CanReadAiRuns
+            && (run.TargetType == AiRunTargetType.Video
+                ? Videos.Any(video => video.Id == run.TargetId)
+                : run.TargetType == AiRunTargetType.Image
+                    ? Images.Any(image => image.Id == run.TargetId)
+                    : run.TargetType == AiRunTargetType.Performer
+                        ? Performers.Any(performer => performer.Id == run.TargetId)
+                        : run.TargetType == AiRunTargetType.Face
+                          && Faces.Any(face => face.Id == run.TargetId)));
 
         modelBuilder.Entity<UserEntityAffinity>().HasQueryFilter(affinity =>
             AuthorizationFiltersBypassed || (CurrentUserId != null && affinity.UserId == CurrentUserId));
@@ -206,6 +281,20 @@ public partial class CoveContext
                 : !RequiresVideoReadScopeEvaluation
                     ? CanReadVideos
                     : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, entry.VideoId));
+
+        modelBuilder.Entity<DuplicateSearchItem>().HasQueryFilter(item =>
+            AuthorizationFiltersBypassed
+                ? true
+                : !RequiresVideoReadScopeEvaluation
+                    ? CanReadVideos
+                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, item.VideoId));
+
+        modelBuilder.Entity<DuplicateDeletionKeeperReservation>().HasQueryFilter(item =>
+            AuthorizationFiltersBypassed
+                ? true
+                : !RequiresVideoReadScopeEvaluation
+                    ? CanReadVideos
+                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, item.VideoId));
 
         modelBuilder.Entity<PerformerUrl>().HasQueryFilter(link =>
             AuthorizationFiltersBypassed
@@ -333,11 +422,42 @@ public partial class CoveContext
                         ? (!RequiresImageReadScopeEvaluation
                             ? CanReadImages
                             : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadImages, CanReadImagesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Image, item.HostId))
-                        : item.HostType == "group"
-                            ? (!RequiresGroupReadScopeEvaluation
-                                ? CanReadGroups
-                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.HostId))
-                            : false)
+                    : item.HostType == "performer"
+                        ? (!RequiresPerformerReadScopeEvaluation
+                            ? CanReadPerformers
+                            : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadPerformers, CanReadPerformersByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Performer, item.HostId))
+                        : item.HostType == "studio"
+                            ? (!RequiresStudioReadScopeEvaluation
+                                ? CanReadStudios
+                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadStudios, CanReadStudiosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Studio, item.HostId))
+                            : item.HostType == "tag"
+                                ? (!RequiresTagReadScopeEvaluation
+                                    ? CanReadTags
+                                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadTags, CanReadTagsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Tag, item.HostId))
+                                : item.HostType == "gallery"
+                                    ? (!RequiresGalleryReadScopeEvaluation
+                                        ? CanReadGalleries
+                                        : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGalleries, CanReadGalleriesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Gallery, item.HostId))
+                                    : item.HostType == "face"
+                                        ? CanReadFaces
+                                        : item.HostType == "segment"
+                                            ? (!RequiresSegmentReadScopeEvaluation
+                                                ? CanReadSegments
+                                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Segment, item.HostId))
+                                              && Segments.Any(segment =>
+                                                  segment.Id == item.HostId
+                                                  && (segment.HostType == SegmentHostType.Video
+                                                      ? Videos.Any(video => video.Id == segment.HostId)
+                                                      : segment.HostType == SegmentHostType.Audio
+                                                          ? Audios.Any(audio => audio.Id == segment.HostId)
+                                                          : segment.HostType == SegmentHostType.Image
+                                                              ? Images.Any(image => image.Id == segment.HostId)
+                                                              : false))
+                                            : item.HostType == "group"
+                                                ? (!RequiresGroupReadScopeEvaluation
+                                                    ? CanReadGroups
+                                                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.HostId))
+                                                : false)
                 && (!RequiresGroupReadScopeEvaluation
                     ? CanReadGroups
                     : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.GroupId)));

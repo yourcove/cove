@@ -2,6 +2,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -21,8 +22,8 @@ public class EntityEngagementControllerTests
         var principalAccessor = scope.PrincipalAccessor;
 
         context.Performers.Add(new Performer { Name = "Scoped Performer" });
-        await context.SaveChangesAsync();
-        var performerId = await context.Performers.Select(performer => performer.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var performerId = await context.Performers.Select(performer => performer.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var controller = new EntityEngagementController(new UserEngagementService(context, principalAccessor), principalAccessor);
 
@@ -48,7 +49,7 @@ public class EntityEngagementControllerTests
         var ratingsDto = Assert.IsType<EntityRatingsDto>(ratingsOk.Value);
         Assert.Equal(91, ratingsDto.Ratings["overall"]);
         Assert.Equal(40, ratingsDto.Ratings["audio"]);
-        Assert.Equal(91, await context.Ratings.Where(rating => rating.UserId == 7 && rating.HostType == RatingHostType.Performer && rating.HostId == performerId && rating.Aspect == "overall").Select(rating => rating.Value).SingleAsync());
+        Assert.Equal(91, await context.Ratings.Where(rating => rating.UserId == 7 && rating.HostType == RatingHostType.Performer && rating.HostId == performerId && rating.Aspect == "overall").Select(rating => rating.Value).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         context.ChangeTracker.Clear();
         principalAccessor.Set(CreatePrincipal(9));
@@ -81,8 +82,8 @@ public class EntityEngagementControllerTests
         var principalAccessor = scope.PrincipalAccessor;
 
         context.Images.Add(new Image { Title = "Tracked Image" });
-        await context.SaveChangesAsync();
-        var imageId = await context.Images.Select(image => image.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var imageId = await context.Images.Select(image => image.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var controller = new EntityEngagementController(new UserEngagementService(context, principalAccessor), principalAccessor);
 
@@ -145,7 +146,7 @@ public class EntityEngagementControllerTests
         Assert.Empty(otherUserInteractions);
 
         principalAccessor.Set(CreatePrincipal(7));
-        var interactionRows = await context.Interactions.IgnoreQueryFilters().OrderBy(interaction => interaction.Id).ToListAsync();
+        var interactionRows = await context.Interactions.IgnoreQueryFilters().OrderBy(interaction => interaction.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(3, interactionRows.Count);
         Assert.Contains(interactionRows, interaction => interaction.HostType == InteractionHostType.Search && interaction.Kind == InteractionKind.SearchQuery && interaction.HostId == 0);
         Assert.Contains(interactionRows, interaction => interaction.HostType == InteractionHostType.Collection && interaction.Kind == InteractionKind.FilterApply && interaction.HostId == 0);
@@ -177,6 +178,10 @@ public class EntityEngagementControllerTests
 
         var context = new EntityEngagementTestContext(options, principalAccessor);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection, principalAccessor);
     }
 

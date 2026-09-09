@@ -10,6 +10,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 using Cove.Data;
 using Cove.Data.Services;
 
@@ -959,7 +960,9 @@ query Me {
             performer.Disambiguation,
             performer.Gender,
             performer.Birthdate,
+            performer.BirthdatePrecision,
             performer.DeathDate,
+            performer.DeathDatePrecision,
             performer.Country,
             performer.Ethnicity,
             performer.EyeColor,
@@ -968,7 +971,9 @@ query Me {
             performer.Measurements,
             performer.FakeTits,
             performer.CareerStart,
+            performer.CareerStartPrecision,
             performer.CareerEnd,
+            performer.CareerEndPrecision,
             performer.Tattoos,
             performer.Piercings,
             performer.ImageBlobId,
@@ -985,8 +990,8 @@ query Me {
         if (ShouldExclude(excludedFields, "name")) performer.Name = snapshot.Name;
         if (ShouldExclude(excludedFields, "disambiguation")) performer.Disambiguation = snapshot.Disambiguation;
         if (ShouldExclude(excludedFields, "gender")) performer.Gender = snapshot.Gender;
-        if (ShouldExclude(excludedFields, "birthdate", "birth")) performer.Birthdate = snapshot.Birthdate;
-        if (ShouldExclude(excludedFields, "deathdate", "death")) performer.DeathDate = snapshot.DeathDate;
+        if (ShouldExclude(excludedFields, "birthdate", "birth")) { performer.Birthdate = snapshot.Birthdate; performer.BirthdatePrecision = snapshot.BirthdatePrecision; }
+        if (ShouldExclude(excludedFields, "deathdate", "death")) { performer.DeathDate = snapshot.DeathDate; performer.DeathDatePrecision = snapshot.DeathDatePrecision; }
         if (ShouldExclude(excludedFields, "country")) performer.Country = snapshot.Country;
         if (ShouldExclude(excludedFields, "ethnicity")) performer.Ethnicity = snapshot.Ethnicity;
         if (ShouldExclude(excludedFields, "eyecolor")) performer.EyeColor = snapshot.EyeColor;
@@ -994,8 +999,8 @@ query Me {
         if (ShouldExclude(excludedFields, "height", "heightcm")) performer.HeightCm = snapshot.HeightCm;
         if (ShouldExclude(excludedFields, "measurements")) performer.Measurements = snapshot.Measurements;
         if (ShouldExclude(excludedFields, "faketits", "breasttype")) performer.FakeTits = snapshot.FakeTits;
-        if (ShouldExclude(excludedFields, "career", "careerstart")) performer.CareerStart = snapshot.CareerStart;
-        if (ShouldExclude(excludedFields, "career", "careerend")) performer.CareerEnd = snapshot.CareerEnd;
+        if (ShouldExclude(excludedFields, "career", "careerstart")) { performer.CareerStart = snapshot.CareerStart; performer.CareerStartPrecision = snapshot.CareerStartPrecision; }
+        if (ShouldExclude(excludedFields, "career", "careerend")) { performer.CareerEnd = snapshot.CareerEnd; performer.CareerEndPrecision = snapshot.CareerEndPrecision; }
         if (ShouldExclude(excludedFields, "tattoos")) performer.Tattoos = snapshot.Tattoos;
         if (ShouldExclude(excludedFields, "piercings")) performer.Piercings = snapshot.Piercings;
         if (ShouldExclude(excludedFields, "aliases")) ReplacePerformerAliases(performer, snapshot.Aliases);
@@ -1113,7 +1118,9 @@ query Me {
         string? Disambiguation,
         GenderEnum? Gender,
         DateOnly? Birthdate,
+        DatePrecision BirthdatePrecision,
         DateOnly? DeathDate,
+        DatePrecision DeathDatePrecision,
         string? Country,
         string? Ethnicity,
         string? EyeColor,
@@ -1122,7 +1129,9 @@ query Me {
         string? Measurements,
         string? FakeTits,
         DateOnly? CareerStart,
+        DatePrecision CareerStartPrecision,
         DateOnly? CareerEnd,
+        DatePrecision CareerEndPrecision,
         string? Tattoos,
         string? Piercings,
         string? ImageBlobId,
@@ -1343,14 +1352,19 @@ query Me {
         ApplyMetadataStringField(fieldProvenance, "code", remote.Code, GetMetadataFieldStrategy(fieldStrategies, "code", defaultScalarStrategy), value => video.Code = value, video.Code);
         ApplyMetadataStringField(fieldProvenance, "details", remote.Details, GetMetadataFieldStrategy(fieldStrategies, "details", defaultScalarStrategy), value => video.Details = value, video.Details);
         ApplyMetadataStringField(fieldProvenance, "director", remote.Director, GetMetadataFieldStrategy(fieldStrategies, "director", defaultScalarStrategy), value => video.Director = value, video.Director);
-        var parsedRemoteDate = ParseDate(remote.Date);
+        var parsedRemotePartialDate = PartialDate.TryParse(remote.Date, out var remoteDate) ? remoteDate : default;
+        var parsedRemoteDate = parsedRemotePartialDate.Value;
         var dateStrategy = GetMetadataFieldStrategy(fieldStrategies, "date", defaultScalarStrategy);
+        var useRemoteDate = parsedRemoteDate.HasValue && dateStrategy != MetadataFieldStrategy.Ignore
+            && (dateStrategy == MetadataFieldStrategy.Overwrite || !video.Date.HasValue);
         var mergedDate = MergeDateField(video.Date, parsedRemoteDate, dateStrategy);
         if (mergedDate.HasValue)
         {
             video.Date = mergedDate;
+            if (useRemoteDate)
+                video.DatePrecision = parsedRemotePartialDate.Precision;
             if (parsedRemoteDate.HasValue && dateStrategy != MetadataFieldStrategy.Ignore)
-                fieldProvenance["date"] = mergedDate.Value.ToString("yyyy-MM-dd");
+                fieldProvenance["date"] = PartialDate.Format(mergedDate, video.DatePrecision);
         }
         if (markOrganized) video.Organized = true;
 
@@ -1611,7 +1625,7 @@ query Me {
             details = video.Details,
             director = video.Director,
             url = video.Urls.Select(u => u.Url).FirstOrDefault(),
-            date = video.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(video.Date, video.DatePrecision),
             studio,
             performers,
             tags,
@@ -1636,8 +1650,8 @@ query Me {
             disambiguation = performer.Disambiguation,
             aliases = string.Join(", ", performer.Aliases.Select(a => a.Alias)),
             gender = performer.Gender?.ToString().ToUpperInvariant(),
-            birthdate = performer.Birthdate?.ToString("yyyy-MM-dd"),
-            deathdate = performer.DeathDate?.ToString("yyyy-MM-dd"),
+            birthdate = PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
+            deathdate = PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision),
             urls = performer.Urls.Select(u => u.Url).ToList(),
             ethnicity = performer.Ethnicity,
             country = performer.Country,
@@ -1927,8 +1941,16 @@ query Me {
             performer.Name = remote.Name.Trim();
             performer.Disambiguation = string.IsNullOrWhiteSpace(remote.Disambiguation) ? performer.Disambiguation : remote.Disambiguation.Trim();
             performer.Gender = MapGender(remote.Gender) ?? performer.Gender;
-            performer.Birthdate = ParseDate(remote.BirthDate) ?? performer.Birthdate;
-            performer.DeathDate = ParseDate(remote.DeathDate) ?? performer.DeathDate;
+            if (PartialDate.TryParse(remote.BirthDate, out var birthdate) && birthdate.Value.HasValue)
+            {
+                performer.Birthdate = birthdate.Value;
+                performer.BirthdatePrecision = birthdate.Precision;
+            }
+            if (PartialDate.TryParse(remote.DeathDate, out var deathDate) && deathDate.Value.HasValue)
+            {
+                performer.DeathDate = deathDate.Value;
+                performer.DeathDatePrecision = deathDate.Precision;
+            }
             performer.Country = Coalesce(performer.Country, remote.Country);
             performer.Ethnicity = Coalesce(performer.Ethnicity, HumanizeGraphQlEnum(remote.Ethnicity));
             performer.EyeColor = Coalesce(performer.EyeColor, HumanizeGraphQlEnum(remote.EyeColor));
@@ -1936,8 +1958,16 @@ query Me {
             performer.HeightCm = remote.Height > 0 ? remote.Height.Value : performer.HeightCm;
             performer.Measurements = Coalesce(performer.Measurements, FormatMeasurements(remote.Measurements));
             performer.FakeTits = Coalesce(performer.FakeTits, HumanizeGraphQlEnum(remote.BreastType));
-            performer.CareerStart = remote.CareerStartYear > 0 ? new DateOnly(remote.CareerStartYear.Value, 1, 1) : performer.CareerStart;
-            performer.CareerEnd = remote.CareerEndYear > 0 ? new DateOnly(remote.CareerEndYear.Value, 1, 1) : performer.CareerEnd;
+            if (remote.CareerStartYear > 0)
+            {
+                performer.CareerStart = new DateOnly(remote.CareerStartYear.Value, 1, 1);
+                performer.CareerStartPrecision = DatePrecision.Year;
+            }
+            if (remote.CareerEndYear > 0)
+            {
+                performer.CareerEnd = new DateOnly(remote.CareerEndYear.Value, 1, 1);
+                performer.CareerEndPrecision = DatePrecision.Year;
+            }
             performer.Tattoos = Coalesce(performer.Tattoos, FormatBodyModifications(remote.Tattoos));
             performer.Piercings = Coalesce(performer.Piercings, FormatBodyModifications(remote.Piercings));
             MergeAliases(performer, aliases);
@@ -1955,12 +1985,13 @@ query Me {
                     setter(merged);
             }
 
-            void ApplyDate(string field, string? value, Action<DateOnly?> setter, DateOnly? currentValue)
+            void ApplyDate(string field, string? value, Action<PartialDate> setter, DateOnly? currentValue)
             {
                 var strategy = GetMetadataFieldStrategy(fieldStrategies, field, MetadataFieldStrategy.Merge);
-                var parsed = ParseDate(value);
-                var merged = MergeDateField(currentValue, parsed, strategy);
-                setter(merged);
+                if (!PartialDate.TryParse(value, out var parsed) || !parsed.Value.HasValue || strategy == MetadataFieldStrategy.Ignore)
+                    return;
+                if (strategy == MetadataFieldStrategy.Overwrite || !currentValue.HasValue)
+                    setter(parsed);
             }
 
             void ApplyInt(string field, int? value, Action<int?> setter, int? currentValue)
@@ -1978,8 +2009,8 @@ query Me {
             var remoteGender = MapGender(remote.Gender);
             if (remoteGender.HasValue && genderStrategy != MetadataFieldStrategy.Ignore && (genderStrategy == MetadataFieldStrategy.Overwrite || performer.Gender == null))
                 performer.Gender = remoteGender.Value;
-            ApplyDate("birthdate", remote.BirthDate, value => performer.Birthdate = value, performer.Birthdate);
-            ApplyDate("deathDate", remote.DeathDate, value => performer.DeathDate = value, performer.DeathDate);
+            ApplyDate("birthdate", remote.BirthDate, value => { performer.Birthdate = value.Value; performer.BirthdatePrecision = value.Precision; }, performer.Birthdate);
+            ApplyDate("deathDate", remote.DeathDate, value => { performer.DeathDate = value.Value; performer.DeathDatePrecision = value.Precision; }, performer.DeathDate);
             ApplyString("country", remote.Country, value => performer.Country = value, performer.Country);
             ApplyString("ethnicity", HumanizeGraphQlEnum(remote.Ethnicity), value => performer.Ethnicity = value, performer.Ethnicity);
             ApplyString("eyeColor", HumanizeGraphQlEnum(remote.EyeColor), value => performer.EyeColor = value, performer.EyeColor);
@@ -3234,13 +3265,6 @@ query Me {
     {
         var name = value?.Trim();
         return !string.IsNullOrWhiteSpace(name) && !WhitespaceRegex.IsMatch(name);
-    }
-
-    private static DateOnly? ParseDate(string? value)
-    {
-        return DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-            ? date
-            : null;
     }
 
     private static string? FormatMeasurements(MetadataServerRemoteMeasurements? measurements)

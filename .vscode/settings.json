@@ -1,0 +1,7 @@
+{
+  "coverage-gutters.coverageBaseDir": "artifacts/coverage",
+  "coverage-gutters.coverageFileNames": [
+    "all-dotnet-tests-single-session.coverage-gutters.xml"
+  ],
+  "coverage-gutters.watchOnActivate": true
+}

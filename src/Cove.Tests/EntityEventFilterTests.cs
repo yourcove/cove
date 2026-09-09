@@ -1,4 +1,5 @@
 using Cove.Api.Middleware;
+using Cove.Api.Services;
 using Cove.Api.Http;
 using Cove.Core.DTOs;
 using Cove.Core.Events;
@@ -87,6 +88,21 @@ public class EntityEventFilterTests
         var evt = Assert.Single(published);
         Assert.Equal(EventType.AudioDeleted, evt.Type);
         Assert.Equal(8, evt.EntityId);
+    }
+
+    [Fact]
+    public async Task AcceptedBulkDeletionJobPublishesNothingUntilTheJobCommitsEntities()
+    {
+        var published = await ExecuteAsync(
+            controller: "Videos",
+            action: "DestroyBatch",
+            result: new AcceptedResult((string?)null, new BulkDeletionJobStart("delete-job", 2)),
+            actionArguments: new Dictionary<string, object?>
+            {
+                ["dto"] = new BatchDeleteDto([8, 12]),
+            });
+
+        Assert.Empty(published);
     }
 
     private static async Task<IReadOnlyList<EntityEvent>> ExecuteAsync(

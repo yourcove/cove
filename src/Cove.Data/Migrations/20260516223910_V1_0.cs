@@ -3836,7 +3836,7 @@ namespace Cove.Data.Migrations
 
             // Row-level authorization SQL functions (see AuthorizationSqlDefinitions). Content-rule / share
             // access checks call these from generated SQL; they reference the tables created above.
-            migrationBuilder.Sql(AuthorizationSqlDefinitions.CreateFunctionsSql);
+            migrationBuilder.Sql(AuthorizationSqlDefinitions.CreateFunctionsWithoutShareContainmentSql);
 
             // Per-family asset-level (SectionIndex = 0) HNSW ANN indexes over the embeddings vector column.
             // The dimension differs per embedding kind, so it is detected dynamically; the DO blocks are

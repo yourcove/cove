@@ -24,10 +24,10 @@ public sealed class Wave1TaggingSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync("/api/tags?q=squirt&perPage=10&sort=name&direction=asc");
+        var response = await client.GetAsync("/api/tags?q=squirt&perPage=10&sort=name&direction=asc", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var items = payload.RootElement.GetProperty("items").EnumerateArray().ToArray();
 
         Assert.Contains(items, item => item.GetProperty("name").GetString() == "Searchable Squirting");
@@ -48,10 +48,10 @@ public sealed class Wave1TaggingSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync("/api/videos?q=squirt&perPage=10&sort=title&direction=asc");
+        var response = await client.GetAsync("/api/videos?q=squirt&perPage=10&sort=title&direction=asc", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var items = payload.RootElement.GetProperty("items").EnumerateArray().ToArray();
 
         Assert.Contains(items, item => item.GetProperty("title").GetString() == "Searchable Squirt Video");
@@ -90,10 +90,10 @@ public sealed class Wave1TaggingSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"/api/videos?q={Uri.EscapeDataString(query)}&perPage=10&sort=title&direction=asc");
+        var response = await client.GetAsync($"/api/videos?q={Uri.EscapeDataString(query)}&perPage=10&sort=title&direction=asc", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var items = payload.RootElement.GetProperty("items").EnumerateArray().ToArray();
 
         Assert.Contains(items, item => item.GetProperty("title").GetString() == expectedTitle);
@@ -129,10 +129,10 @@ public sealed class Wave1TaggingSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"{endpoint}?q={Uri.EscapeDataString(query)}&perPage=10");
+        var response = await client.GetAsync($"{endpoint}?q={Uri.EscapeDataString(query)}&perPage=10", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var items = payload.RootElement.GetProperty("items").EnumerateArray().ToArray();
 
         Assert.Contains(items, item => item.GetProperty(propertyName).GetString() == expectedValue);
@@ -156,10 +156,10 @@ public sealed class Wave1TaggingSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"{endpoint}?q={Uri.EscapeDataString(query)}&perPage=10&sort=name&direction=asc");
+        var response = await client.GetAsync($"{endpoint}?q={Uri.EscapeDataString(query)}&perPage=10&sort=name&direction=asc", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var items = payload.RootElement.GetProperty("items").EnumerateArray().ToArray();
 
         Assert.Contains(items, item => item.GetProperty(propertyName).GetString() == expectedValue);
@@ -180,7 +180,7 @@ public sealed class Wave1TaggingSmokeTests
             entityTypes = new[] { CustomFieldEntityTypes.Tag },
             filterable = true,
             sortable = true,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         textFieldResponse.EnsureSuccessStatusCode();
 
         var dateFieldResponse = await client.PostAsJsonAsync("/api/custom-fields", new
@@ -191,7 +191,7 @@ public sealed class Wave1TaggingSmokeTests
             entityTypes = new[] { CustomFieldEntityTypes.Tag },
             filterable = true,
             sortable = true,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         dateFieldResponse.EnsureSuccessStatusCode();
 
         var createResponse = await client.PostAsJsonAsync("/api/tags", new
@@ -202,18 +202,18 @@ public sealed class Wave1TaggingSmokeTests
                 ["source_id"] = "cf-ui",
                 ["reviewed_on"] = "2026-05-09",
             },
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         createResponse.EnsureSuccessStatusCode();
 
-        var created = await createResponse.Content.ReadApiJsonAsync<TagDetailDto>();
+        var created = await createResponse.Content.ReadApiJsonAsync<TagDetailDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(created);
         Assert.NotNull(created!.CustomFields);
         Assert.Equal("cf-ui", Assert.IsType<JsonElement>(created.CustomFields!["source_id"]).GetString());
         Assert.Equal("2026-05-09", Assert.IsType<JsonElement>(created.CustomFields!["reviewed_on"]).GetString());
 
-        var detailResponse = await client.GetAsync($"/api/tags/{created.Id}");
+        var detailResponse = await client.GetAsync($"/api/tags/{created.Id}", TestContext.Current.CancellationToken);
         detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadApiJsonAsync<TagDetailDto>();
+        var detail = await detailResponse.Content.ReadApiJsonAsync<TagDetailDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(detail);
         Assert.NotNull(detail!.CustomFields);
         Assert.Equal("cf-ui", Assert.IsType<JsonElement>(detail.CustomFields!["source_id"]).GetString());
@@ -238,37 +238,37 @@ public sealed class Wave1TaggingSmokeTests
             entityTypes = new[] { entityType },
             filterable = true,
             sortable = true,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         fieldResponse.EnsureSuccessStatusCode();
 
-        var createResponse = await client.PostAsJsonAsync(endpoint, CreateCustomFieldPayload(entityType, fieldKey, "initial"), IntegrationHttpJson.Options);
+        var createResponse = await client.PostAsJsonAsync(endpoint, CreateCustomFieldPayload(entityType, fieldKey, "initial"), IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         createResponse.EnsureSuccessStatusCode();
-        using var createdPayload = JsonDocument.Parse(await createResponse.Content.ReadAsStringAsync());
+        using var createdPayload = JsonDocument.Parse(await createResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var id = createdPayload.RootElement.GetProperty("id").GetInt32();
         Assert.Equal("initial", ReadCustomField(createdPayload.RootElement, fieldKey));
 
         var updateResponse = await client.PutAsJsonAsync($"{endpoint}/{id}", new
         {
             customFields = new Dictionary<string, object?> { [fieldKey] = "updated" },
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         updateResponse.EnsureSuccessStatusCode();
-        using var updatedPayload = JsonDocument.Parse(await updateResponse.Content.ReadAsStringAsync());
+        using var updatedPayload = JsonDocument.Parse(await updateResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal("updated", ReadCustomField(updatedPayload.RootElement, fieldKey));
 
-        var detailResponse = await client.GetAsync($"{endpoint}/{id}");
+        var detailResponse = await client.GetAsync($"{endpoint}/{id}", TestContext.Current.CancellationToken);
         detailResponse.EnsureSuccessStatusCode();
-        using var detailPayload = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync());
+        using var detailPayload = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal("updated", ReadCustomField(detailPayload.RootElement, fieldKey));
 
         var clearResponse = await client.PutAsJsonAsync($"{endpoint}/{id}", new
         {
             customFields = new Dictionary<string, object?>(),
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         clearResponse.EnsureSuccessStatusCode();
 
-        var clearedDetailResponse = await client.GetAsync($"{endpoint}/{id}?cacheBust=clear");
+        var clearedDetailResponse = await client.GetAsync($"{endpoint}/{id}?cacheBust=clear", TestContext.Current.CancellationToken);
         clearedDetailResponse.EnsureSuccessStatusCode();
-        using var clearedPayload = JsonDocument.Parse(await clearedDetailResponse.Content.ReadAsStringAsync());
+        using var clearedPayload = JsonDocument.Parse(await clearedDetailResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Null(ReadCustomField(clearedPayload.RootElement, fieldKey));
     }
 
@@ -285,9 +285,9 @@ public sealed class Wave1TaggingSmokeTests
             description = "Wave one grouping",
             color = "#22c55e",
             sortOrder = 7,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         groupResponse.EnsureSuccessStatusCode();
-        var group = await groupResponse.Content.ReadApiJsonAsync<TagGroupDto>();
+        var group = await groupResponse.Content.ReadApiJsonAsync<TagGroupDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(group);
         Assert.Equal("Wave Group", group!.Name);
         Assert.Equal("#22c55e", group.Color);
@@ -301,9 +301,9 @@ public sealed class Wave1TaggingSmokeTests
             minOccurrenceSec = 4.5,
             minOccurrencePercent = 12.5,
             aliases = new[] { "wave alias" },
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         tagResponse.EnsureSuccessStatusCode();
-        var tag = await tagResponse.Content.ReadApiJsonAsync<TagDetailDto>();
+        var tag = await tagResponse.Content.ReadApiJsonAsync<TagDetailDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(tag);
         Assert.Equal("#0ea5e9", tag!.Color);
         Assert.Equal(group.Id, tag.TagGroupId);
@@ -311,9 +311,9 @@ public sealed class Wave1TaggingSmokeTests
         Assert.Equal(4.5, tag.MinOccurrenceSec);
         Assert.Equal(12.5, tag.MinOccurrencePercent);
 
-        var groupsResponse = await client.GetAsync("/api/taggroups");
+        var groupsResponse = await client.GetAsync("/api/taggroups", TestContext.Current.CancellationToken);
         groupsResponse.EnsureSuccessStatusCode();
-        var groups = await groupsResponse.Content.ReadApiJsonAsync<List<TagGroupDto>>();
+        var groups = await groupsResponse.Content.ReadApiJsonAsync<List<TagGroupDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(groups);
         var listedGroup = Assert.Single(groups!);
         Assert.Equal(1, listedGroup.TagCount);
@@ -325,9 +325,9 @@ public sealed class Wave1TaggingSmokeTests
             tagGroupId = (int?)null,
             minOccurrenceSec = (double?)null,
             minOccurrencePercent = (double?)null,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         clearResponse.EnsureSuccessStatusCode();
-        var cleared = await clearResponse.Content.ReadApiJsonAsync<TagDetailDto>();
+        var cleared = await clearResponse.Content.ReadApiJsonAsync<TagDetailDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(cleared);
         Assert.Null(cleared!.Color);
         Assert.Null(cleared.TagGroupId);
@@ -386,17 +386,17 @@ public sealed class Wave1TaggingSmokeTests
             sourceKey = "user",
             totalDurationSec = 18.0,
             hostDurationSec = 100.0,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         createResponse.EnsureSuccessStatusCode();
-        var application = await createResponse.Content.ReadApiJsonAsync<TagApplicationDto>();
+        var application = await createResponse.Content.ReadApiJsonAsync<TagApplicationDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(application);
         Assert.Equal("performer", application!.ContextType);
         Assert.Equal(performerId, application.ContextId);
         Assert.Equal(18.0, application.TotalDurationSec);
 
-        var videoResponse = await client.GetAsync($"/api/videos/{videoId}");
+        var videoResponse = await client.GetAsync($"/api/videos/{videoId}", TestContext.Current.CancellationToken);
         videoResponse.EnsureSuccessStatusCode();
-        var video = await videoResponse.Content.ReadApiJsonAsync<VideoDto>();
+        var video = await videoResponse.Content.ReadApiJsonAsync<VideoDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(video);
         var contextApplication = Assert.Single(video!.ContextTagApplications!);
         Assert.Equal(application.Id, contextApplication.Id);
@@ -410,10 +410,10 @@ public sealed class Wave1TaggingSmokeTests
             contextType = "performer",
             contextId = performerId + 1000,
             tagId,
-        }, IntegrationHttpJson.Options);
+        }, IntegrationHttpJson.Options, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
 
-        var deleteResponse = await client.DeleteAsync($"/api/tagapplications/{application.Id}");
+        var deleteResponse = await client.DeleteAsync($"/api/tagapplications/{application.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         await factory.WithDbContextAsync(async db =>

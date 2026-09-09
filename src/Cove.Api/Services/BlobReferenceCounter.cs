@@ -17,21 +17,24 @@ public sealed class BlobReferenceCounter(IServiceScopeFactory scopeFactory) : IB
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        IQueryable<int> references = db.Set<Video>().Where(item => item.ImageBlobId == blobId).Select(_ => 1);
-        references = references.Concat(db.Set<Audio>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<TextDocument>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Performer>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Performer>().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Studio>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Studio>().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Tag>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Tag>().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Group>().Where(item => item.FrontImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Group>().Where(item => item.BackImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Gallery>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Gallery>().Where(item => item.BackImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Segment>().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
-        references = references.Concat(db.Set<Face>().Where(item => item.CoverBlobId == blobId).Select(_ => 1));
+        // Blob ownership is a storage-integrity question, not a visibility question. The deletion
+        // endpoint has already authorized its target; hiding another owner must never make a shared
+        // blob look unreferenced.
+        IQueryable<int> references = db.Set<Video>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1);
+        references = references.Concat(db.Set<Audio>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<TextDocument>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Performer>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Performer>().IgnoreQueryFilters().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Studio>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Studio>().IgnoreQueryFilters().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Tag>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Tag>().IgnoreQueryFilters().Where(item => item.ImageOverrideBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Group>().IgnoreQueryFilters().Where(item => item.FrontImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Group>().IgnoreQueryFilters().Where(item => item.BackImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Gallery>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Gallery>().IgnoreQueryFilters().Where(item => item.BackImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Segment>().IgnoreQueryFilters().Where(item => item.ImageBlobId == blobId).Select(_ => 1));
+        references = references.Concat(db.Set<Face>().IgnoreQueryFilters().Where(item => item.CoverBlobId == blobId).Select(_ => 1));
 
         return await references.Take(maximum).CountAsync(ct);
     }

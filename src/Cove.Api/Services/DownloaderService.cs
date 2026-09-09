@@ -3,6 +3,7 @@ using System.Text.Json;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
@@ -36,13 +37,16 @@ public partial class DownloaderService(
     ILoggerFactory loggerFactory,
     CoveConfiguration config,
     IServiceScopeFactory serviceScopeFactory,
-    ILogger<DownloaderService> logger)
+    ILogger<DownloaderService> logger,
+    PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
 {
     private readonly string _tempRoot = Path.Combine(Path.GetTempPath(), "cove", "downloaders");
     private readonly Lock _downloadSlotLock = new();
     private readonly Lock _libraryMoveLock = new();
     private SemaphoreSlim? _downloadSlots;
     private int _downloadSlotCapacity;
+    private readonly PhysicalFileAccessCoordinator _physicalFileAccessCoordinator =
+        physicalFileAccessCoordinator ?? PhysicalFileAccessCoordinator.Shared;
 
     [LoggerMessage(EventId = 2501, Level = LogLevel.Trace,
         Message = "Starting downloader {DownloaderId} for {Entity} URL {Url}; quality={QualityId}")]
@@ -273,6 +277,9 @@ public partial class DownloaderService(
         if (result == null)
             return (null, null);
 
+        // A physical deletion must not enter between placing the file in the library and the scan
+        // committing its BaseFileEntity reference.
+        using var fileProductionLease = await _physicalFileAccessCoordinator.AcquireReadAsync(ct);
         var libraryPath = MoveDownloadedFileToLibrary(result, request.Entity, request.DownloaderId, request.Url);
         TraceDownloadMoved(request.DownloaderId, request.Entity, request.Url, libraryPath);
 
@@ -1091,6 +1098,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             audio.Date = parsedDate;
+            audio.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 
@@ -1179,6 +1187,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             image.Date = parsedDate;
+            image.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 
@@ -1266,6 +1275,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             textDocument.Date = parsedDate;
+            textDocument.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 
@@ -2877,31 +2887,41 @@ public partial class DownloaderService(
     private static async Task<int> ImportVideoAsync(IScanService scanService, string libraryPath, int? entityId, Cove.Core.Interfaces.IJobProgress? progress, CancellationToken ct)
     {
         progress?.Report(0.98d, entityId.HasValue ? "Importing downloaded video..." : "Creating video from download...");
-        return await scanService.ImportDownloadedVideoAsync(libraryPath, entityId, ct);
+        return scanService is ScanService coreScanService
+            ? await coreScanService.ImportDownloadedVideoWithinProducerLeaseAsync(libraryPath, entityId, ct)
+            : await scanService.ImportDownloadedVideoAsync(libraryPath, entityId, ct);
     }
 
     private static async Task<int> ImportImageAsync(IScanService scanService, string libraryPath, int? entityId, Cove.Core.Interfaces.IJobProgress? progress, CancellationToken ct)
     {
         progress?.Report(0.98d, entityId.HasValue ? "Importing downloaded image..." : "Creating image from download...");
-        return await scanService.ImportDownloadedImageAsync(libraryPath, entityId, ct);
+        return scanService is ScanService coreScanService
+            ? await coreScanService.ImportDownloadedImageWithinProducerLeaseAsync(libraryPath, entityId, ct)
+            : await scanService.ImportDownloadedImageAsync(libraryPath, entityId, ct);
     }
 
     private static async Task<int> ImportGalleryAsync(IScanService scanService, string libraryPath, int? entityId, Cove.Core.Interfaces.IJobProgress? progress, CancellationToken ct)
     {
         progress?.Report(0.98d, entityId.HasValue ? "Importing downloaded gallery..." : "Creating gallery from download...");
-        return await scanService.ImportDownloadedGalleryAsync(libraryPath, entityId, ct);
+        return scanService is ScanService coreScanService
+            ? await coreScanService.ImportDownloadedGalleryWithinProducerLeaseAsync(libraryPath, entityId, ct)
+            : await scanService.ImportDownloadedGalleryAsync(libraryPath, entityId, ct);
     }
 
     private static async Task<int> ImportAudioAsync(IScanService scanService, string libraryPath, int? entityId, Cove.Core.Interfaces.IJobProgress? progress, CancellationToken ct)
     {
         progress?.Report(0.98d, entityId.HasValue ? "Importing downloaded audio..." : "Creating audio from download...");
-        return await scanService.ImportDownloadedAudioAsync(libraryPath, entityId, ct);
+        return scanService is ScanService coreScanService
+            ? await coreScanService.ImportDownloadedAudioWithinProducerLeaseAsync(libraryPath, entityId, ct)
+            : await scanService.ImportDownloadedAudioAsync(libraryPath, entityId, ct);
     }
 
     private static async Task<int> ImportTextAsync(IScanService scanService, string libraryPath, int? entityId, Cove.Core.Interfaces.IJobProgress? progress, CancellationToken ct)
     {
         progress?.Report(0.98d, entityId.HasValue ? "Importing downloaded text..." : "Creating text from download...");
-        return await scanService.ImportDownloadedTextAsync(libraryPath, entityId, ct);
+        return scanService is ScanService coreScanService
+            ? await coreScanService.ImportDownloadedTextWithinProducerLeaseAsync(libraryPath, entityId, ct)
+            : await scanService.ImportDownloadedTextAsync(libraryPath, entityId, ct);
     }
 
     private static void TryDeleteParentDirectory(string filePath)

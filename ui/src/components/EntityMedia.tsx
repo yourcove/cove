@@ -6,14 +6,7 @@ import { ExtensionComponentOverrideRenderer, useExtensions } from "../extensions
 
 export const ENTITY_MEDIA_TARGET = "entity.media" as const;
 
-export type EntityMediaSurface =
-  | "card"
-  | "hero"
-  | "list"
-  | "picker"
-  | "recommendation"
-  | "dialog"
-  | "hover";
+export type EntityMediaSurface = "card" | "hero" | "list" | "picker" | "recommendation" | "dialog" | "hover";
 
 export type EntityMediaFit = "cover" | "contain";
 
@@ -42,9 +35,7 @@ const DEFAULT_HOVER_ASPECT_RATIO = "4 / 3";
 
 /** Override roots may declare their intrinsic frame shape for host-owned hover layout. */
 function readDeclaredAspectRatio(container: HTMLElement | null) {
-  const raw = container
-    ?.querySelector<HTMLElement>("[data-entity-media-aspect-ratio]")
-    ?.dataset.entityMediaAspectRatio;
+  const raw = container?.querySelector<HTMLElement>("[data-entity-media-aspect-ratio]")?.dataset.entityMediaAspectRatio;
   const match = raw?.match(/^\s*(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)\s*$/);
   if (!match) return DEFAULT_HOVER_ASPECT_RATIO;
 
@@ -67,7 +58,15 @@ export function getTagMediaImageUrl(tag: TagMediaReference) {
 }
 
 /** Shared hover boundary for compact tag references across cards, feeds, and badges. */
-export function TagMediaHover({ tag, children, wrapperClassName }: { tag: TagMediaReference; children: ReactNode; wrapperClassName?: string }) {
+export function TagMediaHover({
+  tag,
+  children,
+  wrapperClassName,
+}: {
+  tag: TagMediaReference;
+  children: ReactNode;
+  wrapperClassName?: string;
+}) {
   return (
     <EntityMediaHover
       entityType="tag"
@@ -133,19 +132,20 @@ function useEntityMediaPreview(componentProps: Omit<EntityMediaRenderProps, "ren
   const staticImageUrl = componentProps.imageUrl || null;
   const hasStaticImage = Boolean(staticImageUrl) && failedImageUrl !== staticImageUrl;
   const enabled = hasStaticImage || getComponentOverrides(ENTITY_MEDIA_TARGET).length > 0;
-  const renderDefault = () => staticImageUrl && failedImageUrl !== staticImageUrl ? (
-    <img
-      src={staticImageUrl}
-      alt={componentProps.alt}
-      className={`h-full w-full ${componentProps.fit === "contain" ? "object-contain" : "object-cover"}`}
-      loading={componentProps.loading}
-      onError={() => setFailedImageUrl(staticImageUrl)}
-    />
-  ) : null;
+  const renderDefault = () =>
+    staticImageUrl && failedImageUrl !== staticImageUrl ? (
+      <img
+        src={staticImageUrl}
+        alt={componentProps.alt}
+        className={`h-full w-full ${componentProps.fit === "contain" ? "object-contain" : "object-cover"}`}
+        loading={componentProps.loading}
+        onError={() => setFailedImageUrl(staticImageUrl)}
+      />
+    ) : null;
 
   return {
     enabled,
-    render: () => enabled ? <EntityMedia {...componentProps} renderDefault={renderDefault} /> : null,
+    render: () => (enabled ? <EntityMedia {...componentProps} renderDefault={renderDefault} /> : null),
   };
 }
 
@@ -176,14 +176,19 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
     const tooltip = tooltipRef.current;
     const updateAspectRatio = () => {
       const next = readDeclaredAspectRatio(tooltip);
-      setAspectRatio((current) => current === next ? current : next);
+      setAspectRatio((current) => (current === next ? current : next));
     };
 
     updateAspectRatio();
     if (!tooltip) return;
 
     const observer = new MutationObserver(updateAspectRatio);
-    observer.observe(tooltip, { attributes: true, attributeFilter: ["data-entity-media-aspect-ratio"], childList: true, subtree: true });
+    observer.observe(tooltip, {
+      attributes: true,
+      attributeFilter: ["data-entity-media-aspect-ratio"],
+      childList: true,
+      subtree: true,
+    });
     return () => observer.disconnect();
   }, [preview.enabled, open]);
 
@@ -197,9 +202,10 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
       const height = width / aspectRatioValue(aspectRatio);
       const margin = 8;
       const left = Math.min(Math.max(margin, anchor.left), window.innerWidth - width - margin);
-      const top = anchor.top - height - margin >= margin
-        ? anchor.top - height - margin
-        : Math.min(anchor.bottom + margin, window.innerHeight - height - margin);
+      const top =
+        anchor.top - height - margin >= margin
+          ? anchor.top - height - margin
+          : Math.min(anchor.bottom + margin, window.innerHeight - height - margin);
       setPosition({ left, top: Math.max(margin, top) });
     };
 
@@ -226,18 +232,20 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
       }}
     >
       {children}
-      {open && typeof document !== "undefined" ? createPortal(
-        <div
-          ref={tooltipRef}
-          role="tooltip"
-          aria-label={`Media for ${mediaProps.alt}`}
-          className="pointer-events-none fixed z-[10000] block w-72 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl empty:hidden"
-          style={{ ...position, aspectRatio }}
-        >
-          {preview.render()}
-        </div>,
-        document.body,
-      ) : null}
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={tooltipRef}
+              role="tooltip"
+              aria-label={`Media for ${mediaProps.alt}`}
+              className="pointer-events-none fixed z-[10000] block w-72 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl empty:hidden"
+              style={{ ...position, aspectRatio }}
+            >
+              {preview.render()}
+            </div>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }

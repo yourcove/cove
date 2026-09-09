@@ -1,16 +1,11 @@
 ---
 title: Your first hour with Cove
-description: Learn Cove through a guided scan, library tour, search, and small collection.
+description: Start with files on disk and finish with a small, useful collection you can find again.
 prev: false
+tableOfContents: false
 ---
 
-This tutorial path starts with files on disk and ends with a small, useful collection you can find again. It is for anyone using Cove; no development tools or extension knowledge are required.
+import FeatureGuide from "../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../docs/feature-guides/getting-started.json";
 
-If Cove is not running yet, begin at [Get Started](../get-started/) to choose an installation and complete the shared first-run setup.
-
-1. [Scan your first library](../user/getting-started/first-scan/) to connect one representative folder and verify the records Cove creates.
-2. [Explore your library](./explore-your-library/) to learn the home page, media navigation, cards, and detail pages.
-3. [Find anything](./find-anything/) with global search and the controls on a single media list.
-4. [Organize a collection](./organize-a-collection/) by editing useful metadata and bringing related items together.
-
-If you imported or restored an established library, begin at **Explore your library**. After the tutorial, use the [User Guide](../user/) for everyday tasks or [Developer](../developer/) if you want to work on Cove or build an extension.
+<FeatureGuide guide={guide} />

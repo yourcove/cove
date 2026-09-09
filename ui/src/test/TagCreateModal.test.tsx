@@ -49,7 +49,7 @@ describe("TagCreateModal", () => {
 
   it("shows a server error in the dialog when tag creation fails", async () => {
     const user = userEvent.setup();
-    mocks.tagsCreate.mockRejectedValue(new Error("API Error 409: {\"message\":\"Tag 'Existing' already exists\"}"));
+    mocks.tagsCreate.mockRejectedValue(new Error('API Error 409: {"message":"Tag \'Existing\' already exists"}'));
 
     renderModal();
 
