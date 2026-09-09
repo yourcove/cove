@@ -39,6 +39,7 @@ function explainCriterionValue(
   }
   const clause = value as {
     value?: unknown;
+    values?: string[];
     value2?: unknown;
     modifier?: string;
     _names?: Record<string, string>;
@@ -49,11 +50,14 @@ function explainCriterionValue(
     if (typeof candidate === "number") return clause._names?.[String(candidate)] ?? String(candidate);
     return String(candidate ?? "");
   };
-  const rawValues = Array.isArray(clause.value)
-    ? clause.value.map(displayScalar)
-    : clause._selectedValues?.length
-      ? clause._selectedValues
-      : [displayScalar(clause.value)];
+  const rawValues =
+    criterion.type === "country" && clause.values && (clause.modifier === "INCLUDES" || clause.modifier === "EXCLUDES")
+      ? clause.values
+      : Array.isArray(clause.value)
+        ? clause.value.map(displayScalar)
+        : clause._selectedValues?.length
+          ? clause._selectedValues
+          : [displayScalar(clause.value)];
   const values = rawValues.filter(Boolean);
   const first = values[0] ?? formatFilterChipValue(criterion, value);
   const second = displayScalar(clause.value2);

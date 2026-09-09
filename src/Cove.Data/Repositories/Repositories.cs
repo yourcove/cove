@@ -483,7 +483,19 @@ public class PerformerRepository : IPerformerRepository
             // String criteria
             query = FilterHelpers.ApplyString(query, filter.GenderCriterion, p => p.Gender != null ? p.Gender.ToString() : null);
             query = FilterHelpers.ApplyString(query, filter.EthnicityCriterion, p => p.Ethnicity);
-            var countryCriterion = filter.CountryCriterion;
+            StringCriterion? countryCriterion = filter.CountryCriterion;
+            if (filter.CountryCriterion is { Values: not null } listCriterion
+                && listCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.Excludes)
+            {
+                var countries = listCriterion.Values.Select(CountryCatalog.Normalize)
+                    .Where(value => !string.IsNullOrEmpty(value))
+                    .Select(value => value!.ToLowerInvariant()).Distinct().ToArray();
+                if (countries.Length > 0)
+                    query = listCriterion.Modifier == CriterionModifier.Includes
+                        ? query.Where(p => p.Country != null && countries.Contains(p.Country.ToLower()))
+                        : query.Where(p => p.Country == null || !countries.Contains(p.Country.ToLower()));
+                countryCriterion = null;
+            }
             if (countryCriterion is not null)
             {
                 var originalValue = countryCriterion.Value;

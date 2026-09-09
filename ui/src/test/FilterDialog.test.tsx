@@ -54,6 +54,34 @@ function startRootSubgroupCreation() {
 }
 
 describe("FilterDialog", () => {
+  it("retains and edits a saved list of performer countries", async () => {
+    const onApply = vi.fn();
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={PERFORMER_CRITERIA}
+        activeFilter={{ countryCriterion: { value: "", values: ["CA", "US"], modifier: "INCLUDES" } }}
+        onApply={onApply}
+      />,
+      (client) =>
+        client.setQueryData(
+          ["performer-country-options"],
+          [
+            { value: "CA", code: "CA", name: "Canada", performerCount: 12, isCustom: false },
+            { value: "US", code: "US", name: "United States", performerCount: 20, isCustom: false },
+          ],
+        ),
+    );
+    await user.click(screen.getByRole("tab", { name: "Country" }));
+    expect(screen.getByRole("button", { name: "Remove CA" })).toHaveTextContent("Canada");
+    expect(screen.getByRole("button", { name: "Remove US" })).toHaveTextContent("United States");
+    await user.click(screen.getByRole("button", { name: "Remove CA" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith({ countryCriterion: { value: "", values: ["US"], modifier: "INCLUDES" } });
+  });
+
   beforeEach(() => {
     localStorage.clear();
     tagsFind.mockResolvedValue({ items: [] });
