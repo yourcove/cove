@@ -2075,19 +2075,25 @@ public partial class CoveContext : DbContext
         CancellationToken cancellationToken)
         where TEntity : BaseEntity
     {
-        var allIds = await Set<TEntity>().AsNoTracking().Select(entity => entity.Id).ToListAsync(cancellationToken);
+        var query = Set<TEntity>().AsNoTracking();
+        var total = await query.CountAsync(cancellationToken);
         var processed = 0;
-        foreach (var batch in allIds.Chunk(batchSize))
+        int? afterId = null;
+        while (true)
         {
+            var batch = await query.Where(entity => afterId == null || entity.Id > afterId)
+                .OrderBy(entity => entity.Id).Select(entity => entity.Id).Take(batchSize).ToArrayAsync(cancellationToken);
+            if (batch.Length == 0) break;
+            afterId = batch[^1];
             await refresh([.. batch]);
             if (ChangeTracker.HasChanges())
                 await base.SaveChangesAsync(cancellationToken);
             ChangeTracker.Clear();
             processed += batch.Length;
-            progress?.Report($"Recomputed {processed}/{allIds.Count} {label}");
+            progress?.Report($"Recomputed {processed}/{total} {label}");
         }
 
-        return allIds.Count;
+        return processed;
     }
 
     private void RefreshTagCounts(HashSet<int> affectedTagIds)
