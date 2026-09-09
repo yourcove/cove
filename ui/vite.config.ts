@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { extensionRuntimeModules, extensionRuntimeVersion } from "./scripts/extension-runtime-contract.ts";
 
 // Exposes the repo-root CHANGELOG.md to the app as `virtual:changelog-raw`.
@@ -106,9 +107,17 @@ function extensionLucideBundlePlugin() {
 
 export default defineConfig(({ command }) => {
   const useDevRuntimeModules = command === "serve";
+  const buildId = randomUUID();
 
   return {
+    define: { __COVE_FRONTEND_BUILD_ID__: JSON.stringify(buildId) },
     plugins: [
+      {
+        name: "cove-frontend-build",
+        generateBundle() {
+          this.emitFile({ type: "asset", fileName: "frontend-build.json", source: JSON.stringify({ buildId }) });
+        },
+      },
       react(),
       tailwindcss(),
       changelogPlugin(),
