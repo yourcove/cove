@@ -77,7 +77,7 @@ export type { DisplayMode, ListPageProps } from "./ListPage";
 export { RelatedEntityListView, getRelatedEntityDisplayModes } from "./RelatedEntityListView";
 export { FilterDialog } from "./FilterDialog";
 export { FilterButton } from "./FilterButton";
-export { TAG_CRITERIA, VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
+export { PERFORMER_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
 export type { CriterionDefinition, FilterDialogCustomSection } from "./filterCriteriaTypes";
 export { BulkEditDialog, VIDEO_BULK_FIELDS, PERFORMER_BULK_FIELDS } from "./BulkEditDialog";
 // The complete set of bulk actions for a video multi-selection (download / edit / identify / merge / play /
