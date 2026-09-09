@@ -2338,6 +2338,28 @@ describe("FilterDialog", () => {
     );
   });
 
+  it("filters tags whose tag group is null without requiring a selected group", () => {
+    const onApply = vi.fn();
+
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={TAG_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Tag Group"));
+    fireEvent.click(screen.getByRole("button", { name: "Is Null" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      tagGroupsCriterion: { modifier: "IS_NULL" },
+    });
+  });
+
   it("renders the career length filter with a years/months unit selector", () => {
     const onApply = vi.fn();
 

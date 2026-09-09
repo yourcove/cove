@@ -393,7 +393,7 @@ export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
     type: "multiId",
     entityType: "tagGroups",
     filterKey: "tagGroupsCriterion",
-    modifiers: ["INCLUDES"],
+    modifiers: ["INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"],
   },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },

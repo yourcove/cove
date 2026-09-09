@@ -47,7 +47,7 @@ export { registerManualContext, useManualContext } from "./ManualContext";
 export type { TutorialOpenRequest } from "./ManualContext";
 
 // ─── Entity Cards & Popovers ─────────────────────────────────────────────
-export { PopoverButton, VideoCardPopovers, PerformerTile, VideoCard, VideoTile, ImageTile } from "./EntityCards";
+export { PopoverButton, VideoCardPopovers, PerformerTile, VideoCard, VideoTile, ImageTile, TagTile } from "./EntityCards";
 export { EntityReferenceSelector, EntityReferenceMultiSelector, EntityReferenceValue } from "./EntityReferenceSelector";
 export type { EntityReferenceOption, EntityReferenceType } from "./EntityReferenceSelector";
 
@@ -77,7 +77,7 @@ export type { DisplayMode, ListPageProps } from "./ListPage";
 export { RelatedEntityListView, getRelatedEntityDisplayModes } from "./RelatedEntityListView";
 export { FilterDialog } from "./FilterDialog";
 export { FilterButton } from "./FilterButton";
-export { VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
+export { TAG_CRITERIA, VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
 export type { CriterionDefinition, FilterDialogCustomSection } from "./filterCriteriaTypes";
 export { BulkEditDialog, VIDEO_BULK_FIELDS, PERFORMER_BULK_FIELDS } from "./BulkEditDialog";
 // The complete set of bulk actions for a video multi-selection (download / edit / identify / merge / play /
@@ -94,6 +94,7 @@ export { Pager } from "./Pager";
 // renders its own results layout needs this for infinite page size to work at all.
 export { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
 export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
+export { TAG_SORT_OPTIONS } from "./tagSortOptions";
 export { GroupItemFeed } from "./GroupItemFeed";
 export type { GroupItemFeedProps } from "./GroupItemFeed";
 
