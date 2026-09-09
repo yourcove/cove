@@ -10,33 +10,7 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
-## [1.4.1] - 2026-09-07
-
-Restored compatibility for existing extensions and improved extension-owned infinite scrolling.
-
-- Extensions compiled against Cove 1.3 and earlier can again call video and performer repository searches and library cleanup without `MissingMethodException`. Cove 1.4.0 had appended optional parameters to these public interface methods, which changed their binary signatures; hidden forwarding overloads now preserve the original contracts while retaining the new filtering and path-selection capabilities.
-- Extension result layouts can now reuse Cove's infinite-scroll sentinel so grid, wall, feed, and vertical display modes continue loading when an extension owns the rendered content.
-
-## [1.4.0] - 2026-09-06
-
-Personal dashboards, richer custom metadata, customizable shortcuts, deeper search, and safer long-running library work.
-
-- The home page is now a set of personal dashboards. Create and name dashboards, arrange their widgets, reuse saved filters in grids, feeds, walls, and carousels, and let extensions contribute widget types alongside Cove's own.
-- The User Guide has been overhauled with broader, more detailed guidance, and the website and in-app versions now share similarly expanded content.
-- Custom fields add unbounded Long Text and structured JSON values. JSON fields support validated editing, readable detail-page presentation, and typed JSON Pointer targets for filtering and sorting. First-run Stash imports now migrate custom fields into Cove with readable keys, detect compatible Number and JSON values, and otherwise preserve values as Long Text.
-- Keyboard shortcuts now use a central, context-aware system with a searchable reference, Cove and Stash-compatible presets, editable personal copies, multi-key chords, optional chord hints, JSON import and export, and extension-contributed actions and presets. Shortcut settings separate Cove and extension actions by source, and personal presets can be renamed.
-- Filters can now express nested Boolean and quantified relationships across related media. Video and audio searches can match distinct related performers, their occurrence tags, countries, and other connected criteria, while the editor keeps the full expression visible and directly editable.
-- Duplicate searches and bulk deletions now run as durable, observable background jobs. Duplicate results and keeper decisions survive navigation and retries, deletion coordinates dependent records and physical files safely, and the UI refreshes affected library views when work finishes.
-- Search is faster and ranks contiguous phrases and direct matches more naturally, list pagination is stable when sort values tie, and recursive parent-tag filters include every descendant. Saved-filter names remain readable across screen sizes, and dashboards render every saved-filter display mode.
-- Audio and text gain broader parity with other media through favorite workflows, shared detail presentation, performer counts, and consistent tag ordering. Narrative metadata can optionally render as Markdown, gallery cards show assigned dates and hover scrubbing, and performer dates preserve partial precision and stop age calculations at death.
-- Scanning and media maintenance better handle large libraries and changing files: scan exclusions accept glob patterns, forced rescans protect fingerprints, changed gallery archives refresh correctly, missing files and Windows deletion races do not remove surviving media, and incompatible video containers transcode by default.
-- Face, cover, metadata, and access workflows are more dependable. Face crops can be assigned to performers, rejected suggestions stay rejected, cover edits are hardened, video tagging preserves existing performer metadata, invite links retain their public origin, and deleting a user cascades through user-owned library data.
-- Extension and API behavior is more consistent: enums outside controllers and in OpenAPI use camel-case strings, extension navigation icons load dynamically from Lucide, host library data access is documented, extension logging survives reloads, and unavailable extension measurements no longer appear as zero counts.
-
-## [1.3.1] - 2026-08-24
-
-Stronger access boundaries, safer metadata workflows, and more reliable face and media operations.
-
+- Unraid Docker templates are published for `cove-app`: Cove-CPU, Cove-NVIDIA, and Cove-VAAPI. They map appdata and media and accept an external PostgreSQL/pgvector connection string.
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
 - Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.

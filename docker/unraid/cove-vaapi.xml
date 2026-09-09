@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Cove-VAAPI</Name>
+  <Repository>ghcr.io/yourcove/cove-app:latest</Repository>
+  <Registry>https://github.com/yourcove/cove/pkgs/container/cove-app</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/yourcove/cove/issues</Support>
+  <Project>https://yourcove.net</Project>
+  <Overview>Cove is a local media organizer for videos, images, galleries, audio, and text. This VAAPI template runs ghcr.io/yourcove/cove-app with Intel or AMD GPU transcoding via /dev/dri.[br][br]This container needs PostgreSQL 18 with pgvector running separately. Point the connection string at that database before starting Cove. On a custom Docker network, set Host to the PostgreSQL container name. On the default bridge network, set Host to your Unraid server IP and publish PostgreSQL port 5432.[br][br]After the container starts, open the WebUI and complete first-run setup. Add /media as a library path inside Cove. Do not expose the WebUI to the internet until you have created the owner account.[br][br]Keep appdata on a cache pool. The app runs as uid 1000; if startup reports it cannot write to /config, run chown -R 1000:1000 /mnt/user/appdata/cove from the Unraid terminal.[br][br]Leave the VAAPI Device mapping at /dev/dri. Hardware acceleration defaults to vaapi; switch it to qsv in Cove Settings - Transcoding for Intel Quick Sync. For NVIDIA GPUs, use Cove-NVIDIA. For CPU-only hosts, use Cove-CPU.</Overview>
+  <Category>MediaApp:Video MediaApp:Music MediaApp:Photos MediaServer:Video</Category>
+  <WebUI>http://[IP]:[PORT:5073]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/yourcove/cove/main/docker/unraid/cove-vaapi.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/yourcove/cove/main/docker/unraid/cove%2Bvaapi.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <Date>2026-08-20</Date>
+  <DonateText>Support Cove on Open Collective</DonateText>
+  <DonateLink>https://opencollective.com/yourcove</DonateLink>
+  <Requires>/dev/dri</Requires>
+  <Screenshot>https://raw.githubusercontent.com/yourcove/cove/main/docs/screenshots/search-and-filters.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/yourcove/cove/main/docs/screenshots/global-search.png</Screenshot>
+  <Config Name="WebUI Port" Target="5073" Default="5073" Mode="tcp" Description="Cove web interface port" Type="Port" Display="always" Required="true" Mask="false">5073</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/cove/config" Mode="rw" Description="Cove configuration, installed extensions, and logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/config</Config>
+  <Config Name="Generated Assets" Target="/generated" Default="/mnt/user/appdata/cove/generated" Mode="rw" Description="Covers, thumbnails, previews, and other derived assets. Can grow large; move to a share if needed." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/generated</Config>
+  <Config Name="Backups" Target="/backups" Default="/mnt/user/appdata/cove/backups" Mode="rw" Description="Automatic database backups created before migrations" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/backups</Config>
+  <Config Name="Cache" Target="/cache" Default="/mnt/user/appdata/cove/cache" Mode="rw" Description="Temporary cache. Safe to delete." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/cache</Config>
+  <Config Name="Media" Target="/media" Default="/mnt/user/media" Mode="rw" Description="Host path to your media library. Add /media as a library path in Cove. Change to read-only to prevent source deletion and extension-provided rename operations. Add more Path mappings for additional shares." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/media</Config>
+  <Config Name="PostgreSQL Connection String" Target="COVE__Postgres__ConnectionString" Default="Host=db;Port=5432;Database=cove;Username=cove;Password=cove" Mode="" Description="PostgreSQL 18 with pgvector. On a custom docker network, Host is the database container name. On bridge, set Host to your Unraid server IP." Type="Variable" Display="always" Required="true" Mask="false">Host=db;Port=5432;Database=cove;Username=cove;Password=cove</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Container timezone, for example America/Chicago" Type="Variable" Display="always" Required="false" Mask="false">UTC</Config>
+  <Config Name="VAAPI Device" Target="/dev/dri" Default="/dev/dri" Mode="" Description="Intel or AMD GPU device. Do not remove or leave empty; Docker rejects --device=''." Type="Device" Display="always" Required="true" Mask="false">/dev/dri</Config>
+  <Config Name="Hardware Acceleration" Target="COVE__TranscodeHardwareAcceleration" Default="vaapi" Mode="" Description="vaapi for Intel/AMD. Use qsv instead for Intel Quick Sync. Confirm the same value in Cove Settings - Transcoding." Type="Variable" Display="advanced" Required="true" Mask="false">vaapi</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/cove/data" Mode="rw" Description="Reserved for managed PostgreSQL data. Unused with the external database in this template." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/cove/data</Config>
+  <Config Name="Managed PostgreSQL" Target="COVE__Postgres__Managed" Default="false" Mode="" Description="Must stay false. This image uses the external PostgreSQL connection string." Type="Variable" Display="advanced" Required="true" Mask="false">false</Config>
+</Container>

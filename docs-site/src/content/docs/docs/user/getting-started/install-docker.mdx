@@ -9,7 +9,7 @@ next:
   label: Complete first-run setup
 ---
 
-Use Docker on any system that can run Linux containers. This includes Docker Engine on Linux and Docker Desktop on Windows or macOS. Cove publishes Linux `amd64` and `arm64` images for stable releases and provides two Compose files:
+Use Docker on any system that can run Linux containers. This includes Docker Engine on Linux, Docker Desktop on Windows or macOS, and Unraid. Cove publishes Linux `amd64` and `arm64` images for stable releases and provides two Compose files:
 
 - **All in one** runs Cove, PostgreSQL, pgvector, and FFmpeg in one application container. Choose it when you want the fewest services to operate.
 - **App and database** runs Cove and PostgreSQL as separate services. Choose it when you want to manage the database container separately.
@@ -72,6 +72,27 @@ Both provided deployments use the same host layout under `COVE_DATA_DIR`:
 | The media path you add | `/media` in the example | Source media |
 
 The named cache volume is disposable. Do not remove the database, config, generated, or backup mounts when customizing the Compose file.
+
+## Install on Unraid
+
+Unraid templates run `ghcr.io/yourcove/cove-app` and expect a PostgreSQL 18 server with pgvector that you provide. Use a template rather than Compose.
+
+| Template | Use when |
+| --- | --- |
+| [`cove-cpu.xml`](https://github.com/yourcove/cove/blob/main/docker/unraid/cove-cpu.xml) | CPU only |
+| [`cove-nvidia.xml`](https://github.com/yourcove/cove/blob/main/docker/unraid/cove-nvidia.xml) | NVIDIA NVENC |
+| [`cove-vaapi.xml`](https://github.com/yourcove/cove/blob/main/docker/unraid/cove-vaapi.xml) | Intel/AMD VAAPI or QSV |
+
+1. Copy the matching XML file to `/boot/config/plugins/dockerMan/templates-user/` on the Unraid flash drive (as `my-Cove-CPU.xml`, `my-Cove-NVIDIA.xml`, or `my-Cove-VAAPI.xml`), or add `https://github.com/yourcove/cove` as a template repository under **Settings → Docker**.
+2. Run PostgreSQL 18 with pgvector (for example `pgvector/pgvector:pg18`) before starting Cove.
+3. Open the **Docker** tab, choose **Add Container**, and select **Cove-CPU**, **Cove-NVIDIA**, or **Cove-VAAPI**.
+4. Set the PostgreSQL connection string. On a custom Docker network, `Host` is the database container name. On the default `bridge` network, set `Host` to your Unraid server IP and publish PostgreSQL port `5432`.
+5. Keep appdata on a cache pool. Set **Media** to your library share (default `/mnt/user/media`). Add extra Path mappings if you have more than one share.
+6. Apply, then open the WebUI on port `5073` (for example `http://192.168.1.10:5073`). During first-run setup, add `/media` as the library path.
+
+The NVIDIA template requires the Nvidia-Driver plugin from Community Applications and already sets `--runtime=nvidia`. Do not add `--gpus all`. The VAAPI template maps `/dev/dri`; switch hardware acceleration to `qsv` in Cove if you want Intel Quick Sync. The app runs as uid `1000`; if it cannot write to `/config`, run `chown -R 1000:1000 /mnt/user/appdata/cove`.
+
+Do not expose the WebUI to the internet until the owner account exists.
 
 ## Open and verify Cove
 
