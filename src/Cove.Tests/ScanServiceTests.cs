@@ -2382,15 +2382,155 @@ public class ScanServiceTests
         }
     }
 
+    [Fact]
+    public async Task Discovery_DoesNotRetainEnumeratedCandidateObjectsAndDeduplicatesRoots()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"scan-paged-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            for (var i = 0; i < 601; i++)
+                await File.WriteAllBytesAsync(Path.Combine(root, $"file-{i:D4}.mp4"), [], TestContext.Current.CancellationToken);
+            await using var environment = await CreateBareEnvironmentAsync(root);
+            var discovery = new ScanDiscoveryService(environment.Services.GetRequiredService<IServiceScopeFactory>(), environment.Config, NullLogger.Instance);
+            using var result = await discovery.DiscoverAsync(new ScanOperationOptions { Rescan = true, Paths = [root, Path.Combine(root, "file-0000.mp4")] }, new RecordingProgress(), TestContext.Current.CancellationToken);
+            Assert.Equal(601, result.Files.Count);
+            Assert.Equal(result.Files.Select(file => file.StoredPath).Order(StringComparer.OrdinalIgnoreCase), result.Files.Select(file => file.StoredPath));
+            var weak = FirstCandidateReference(result.Files);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Assert.False(weak.IsAlive, "Discovery retains enumerated candidate objects for the whole scan.");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference FirstCandidateReference(IEnumerable<DiscoveredFile> files) => new(files.First());
+
+    [Fact]
+    public async Task StartScan_LinksCanonicalParentBeforeChildAcrossDirectoryPages()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"scan-hierarchy-{Guid.NewGuid():N}");
+        var parent = Path.Combine(root, "a-parent");
+        var child = Path.Combine(parent, "nested");
+        Directory.CreateDirectory(child);
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(root, "root.mp4"));
+            await WriteValidVideoAsync(Path.Combine(parent, "parent.mp4"));
+            await WriteValidVideoAsync(Path.Combine(child, "child.mp4"));
+            for (var i = 0; i < 254; i++)
+            {
+                var sibling = Path.Combine(root, $"sibling-{i:D4}");
+                Directory.CreateDirectory(sibling);
+                await WriteValidVideoAsync(Path.Combine(sibling, "file.mp4"));
+            }
+            await using var environment = await CreateBareEnvironmentAsync(root);
+            environment.Config.EnableMoveDetection = false;
+            int parentId;
+            await using (var setupScope = environment.Services.CreateAsyncScope())
+            {
+                var setupDb = setupScope.ServiceProvider.GetRequiredService<CoveContext>();
+                var storedParent = new Folder { Path = ScanPath.NormalizeStoredFolderPath(parent) + "/." };
+                setupDb.Folders.Add(storedParent);
+                await setupDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+                parentId = storedParent.Id;
+            }
+            environment.Service.StartScan(new ScanOperationOptions { Rescan = true });
+            await using var scope = environment.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            var nested = await db.Folders.SingleAsync(folder => folder.Path == ScanPath.NormalizeStoredFolderPath(child), TestContext.Current.CancellationToken);
+            Assert.Equal(parentId, nested.ParentFolderId);
+            Assert.Equal(257, await db.VideoFiles.CountAsync(TestContext.Current.CancellationToken));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private sealed class RecordingProgress : Cove.Core.Interfaces.IJobProgress
+    {
+        public void Report(double progress, string? subTask = null) { }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartScan_PagesGalleryLinksAndRollsBackLaterPageFailure(bool failLaterPage)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"scan-gallery-pages-{Guid.NewGuid():N}");
+        var excluded = Path.Combine(root, "excluded");
+        Directory.CreateDirectory(excluded);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(excluded, ".nogallery"), "", ct);
+            await WriteValidVideoAsync(Path.Combine(root, "trigger.mp4"));
+            var failure = new GalleryPageFailure(failLaterPage);
+            await using var environment = await CreateBareEnvironmentAsync(root, relational: true, interceptor: failure);
+            environment.Config.CreateGalleriesFromFolders = true;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var folder = new Folder { Path = ScanPath.NormalizeStoredFolderPath(root) };
+                var ignoredFolder = new Folder { Path = ScanPath.NormalizeStoredFolderPath(excluded) };
+                db.AddRange(folder, ignoredFolder);
+                await db.SaveChangesAsync(ct);
+                for (var i = 0; i < 270; i++)
+                {
+                    var image = new Cove.Core.Entities.Image();
+                    image.Files.Add(new ImageFile { ParentFolderId = folder.Id, Basename = $"image-{i}.jpg" });
+                    if (i == 0) image.Files.Add(new ImageFile { ParentFolderId = folder.Id, Basename = "same-image-again.jpg" });
+                    db.Images.Add(image);
+                }
+                db.Images.Add(new Cove.Core.Entities.Image { Files = [new ImageFile { ParentFolderId = ignoredFolder.Id, Basename = "excluded.jpg" }] });
+                await db.SaveChangesAsync(ct);
+            }
+            if (failLaterPage)
+                Assert.Throws<InvalidOperationException>(() => environment.Service.StartScan());
+            else
+                environment.Service.StartScan();
+            await using var verifyScope = environment.Services.CreateAsyncScope();
+            var verify = verifyScope.ServiceProvider.GetRequiredService<CoveContext>();
+            if (failLaterPage)
+            {
+                Assert.Empty(await verify.Galleries.ToListAsync(ct));
+                Assert.Empty(await verify.Set<ImageGallery>().ToListAsync(ct));
+            }
+            else
+            {
+                var gallery = await verify.Galleries.SingleAsync(ct);
+                Assert.Equal(270, gallery.ImageCount);
+                Assert.Equal(270, await verify.Set<ImageGallery>().CountAsync(ct));
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private sealed class GalleryPageFailure(bool enabled) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private int savedLinks;
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var pending = eventData.Context!.ChangeTracker.Entries<ImageGallery>().Count(entry => entry.State == EntityState.Added);
+            if (enabled && pending > 0 && savedLinks >= 256) throw new InvalidOperationException("Injected later gallery page failure");
+            savedLinks += pending;
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private static async Task<TestEnvironment> CreateBareEnvironmentAsync(
         string libraryRoot,
         IMediaProbeService? mediaProbeService = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null, bool relational = false, Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor? interceptor = null)
     {
         var services = new ServiceCollection();
-        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"scan-service-{Guid.NewGuid():N}")
-            .Options;
+        var builder = new DbContextOptionsBuilder<CoveContext>();
+        if (relational) builder.UseSqlite($"Data Source={Path.Combine(libraryRoot, "scan-test.db")};Pooling=False");
+        else builder.UseInMemoryDatabase($"scan-service-{Guid.NewGuid():N}");
+        if (interceptor != null) builder.AddInterceptors(interceptor);
+        var dbOptions = builder.Options;
 
         services.AddSingleton(dbOptions);
         services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
