@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -108,39 +109,59 @@ public sealed class GenerateJobService(
         if (!videoWorkRequested)
             return;
 
-        var query = db.Videos
-            .Include(video => video.Files).ThenInclude(file => file.ParentFolder)
-            .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
-            .AsSplitQuery();
-
-        var videos = hasVideoSelection
-            ? await query.Where(video => options.VideoIds!.Contains(video.Id)).ToListAsync(ct)
-            : await query.ToListAsync(ct);
-
-        List<string> filterPaths = hasVideoSelection
-            ? []
-            : GeneratePathFilter.Normalize(options.Paths);
-        var workItems = videos
-            .Select(video => CreateVideoWorkItem(video, filterPaths))
-            .Where(item => item is not null)
-            .Cast<VideoWorkItem>()
-            .Where(item => NeedsVideoWork(item, options))
-            .ToList();
+        // Freeze eligible IDs on disk so concurrent metadata/assets changes cannot
+        // change aggregate job totals between selection and processing.
+        await using var workSet = await GenerationWorkSet.CreateAsync(ct);
+        await foreach (var batch in ReadVideoWorkAsync(db, options, hasVideoSelection, ct))
+            await workSet.AddAsync(batch.Select(item => item.Video.Id), ct);
+        progress.DeclareUnitCount(workSet.Count);
 
         var segmentThumbnails = options.SegmentThumbnails || options.SegmentPreviews || options.Segments;
         var segmentPreviews = options.SegmentPreviews || options.Segments;
-        var segmentsByVideoId = segmentThumbnails
-            ? await LoadSegmentsAsync(db, workItems, ct)
-            : [];
+        var filterPaths = hasVideoSelection ? [] : GeneratePathFilter.Normalize(options.Paths);
+        await foreach (var ids in workSet.ReadAsync(ct))
+        {
+            var workItems = await LoadVideoWorkAsync(db, ids, filterPaths, ct);
+            var availableIds = workItems.Select(item => item.Video.Id).ToHashSet();
+            foreach (var missingId in ids.Where(id => !availableIds.Contains(id)))
+            {
+                using var unit = progress.StartUnit(missingId.ToString());
+                unit.Complete(JobUnitOutcome.Skipped, "Selected video or source file is no longer available");
+            }
+            var segmentsByVideoId = segmentThumbnails ? await LoadSegmentsAsync(db, workItems, ct) : [];
+            await jobService.RunBatchAsync(
+                workItems,
+                parallelism,
+                (item, unit, token) => GenerateVideoAsync(item, options, segmentThumbnails, segmentPreviews, segmentsByVideoId, unit, token),
+                progress,
+                unitIdFactory: (item, _) => item.Video.Id.ToString(),
+                labelFactory: item => item.Video.Title,
+                ct: ct);
+        }
+    }
 
-        await jobService.RunBatchAsync(
-            workItems,
-            parallelism,
-            (item, unit, token) => GenerateVideoAsync(item, options, segmentThumbnails, segmentPreviews, segmentsByVideoId, unit, token),
-            progress,
-            unitIdFactory: (item, _) => item.Video.Id.ToString(),
-            labelFactory: item => item.Video.Title,
-            ct: ct);
+    private async IAsyncEnumerable<List<VideoWorkItem>> ReadVideoWorkAsync(
+        CoveContext db, GenerateOptionsDto options, bool hasVideoSelection,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var filterPaths = hasVideoSelection ? [] : GeneratePathFilter.Normalize(options.Paths);
+        await foreach (var ids in GenerationSelection.VideosAsync(db, options, ct))
+        {
+            var work = (await LoadVideoWorkAsync(db, ids, filterPaths, ct))
+                .Where(item => NeedsVideoWork(item, options)).ToList();
+            if (work.Count > 0)
+                yield return work;
+        }
+    }
+
+    private async Task<List<VideoWorkItem>> LoadVideoWorkAsync(
+        CoveContext db, int[] ids, IReadOnlyList<string> filterPaths, CancellationToken ct)
+    {
+        var videos = await db.Videos.AsNoTracking().Where(video => ids.Contains(video.Id))
+            .Include(video => video.Files).ThenInclude(file => file.ParentFolder)
+            .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
+            .AsSplitQuery().OrderBy(video => video.Id).ToListAsync(ct);
+        return videos.Select(video => CreateVideoWorkItem(video, filterPaths)).OfType<VideoWorkItem>().ToList();
     }
 
     private VideoWorkItem? CreateVideoWorkItem(Video video, IReadOnlyList<string> filterPaths)

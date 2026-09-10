@@ -35,42 +35,48 @@ public sealed class NonVideoGenerationService(
         if (!options.ImagePhashes && !options.ImageThumbnails && !options.Md5)
             return;
 
-        var files = await db.ImageFiles
-            .Include(file => file.ParentFolder)
-            .Include(file => file.Fingerprints)
-            .ToListAsync(ct);
-        files = FilterFiles(files, options.Paths, options.ImageIds, file => file.ImageId);
-
-        await RunParallelWithProgressAsync(files, parallelism, progress, "image", async (file, token) =>
+        var query = db.ImageFiles.AsNoTracking();
+        if (options.ImageIds is { Count: > 0 })
+            query = query.Where(file => file.ImageId.HasValue && options.ImageIds.Contains(file.ImageId.Value));
+        var total = await CountSelectedAsync(() => GenerationSelection.FilesAsync(query, options.Paths, ct));
+        var completed = 0;
+        await foreach (var ids in GenerationSelection.FilesAsync(query, options.Paths, ct))
         {
-            try
+            var files = await query.Where(file => ids.Contains(file.Id))
+                .Include(file => file.ParentFolder).Include(file => file.Fingerprints)
+                .OrderBy(file => file.Id).ToListAsync(ct);
+            await RunParallelWithProgressAsync(files, parallelism, progress, "image", async (file, token) =>
             {
-                var path = GeneratePathFilter.Resolve(file);
-                if (options.ImageThumbnails && file.ImageId.HasValue)
-                    await thumbnailService.GenerateImageThumbnailAsync(file.ImageId.Value, overwrite: options.Overwrite, ct: token);
-
-                if (!File.Exists(path))
-                    return;
-
-                if (options.ImagePhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                try
                 {
-                    var phash = await fingerprintService.ComputeImagePhashAsync(path, token);
-                    if (!string.IsNullOrWhiteSpace(phash))
-                        await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
-                }
+                    var path = GeneratePathFilter.Resolve(file);
+                    if (options.ImageThumbnails && file.ImageId.HasValue)
+                        await thumbnailService.GenerateImageThumbnailAsync(file.ImageId.Value, overwrite: options.Overwrite, ct: token);
 
-                if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
-                {
-                    var md5 = await fingerprintService.ComputeMd5Async(path, token);
-                    if (!string.IsNullOrWhiteSpace(md5))
-                        await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    if (!File.Exists(path))
+                        return;
+
+                    if (options.ImagePhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                    {
+                        var phash = await fingerprintService.ComputeImagePhashAsync(path, token);
+                        if (!string.IsNullOrWhiteSpace(phash))
+                            await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
+                    }
+
+                    if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
+                    {
+                        var md5 = await fingerprintService.ComputeMd5Async(path, token);
+                        if (!string.IsNullOrWhiteSpace(md5))
+                            await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    }
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Skipped image {ImageId} during generate after an error", file.ImageId);
-            }
-        }, ct);
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Skipped image {ImageId} during generate after an error", file.ImageId);
+                }
+            }, ct, completed, total);
+            completed += files.Count;
+        }
     }
 
     private async Task GenerateGalleriesAsync(
@@ -83,55 +89,50 @@ public sealed class NonVideoGenerationService(
         if (!options.GalleryThumbnails && !options.Md5)
             return;
 
-        var galleries = await db.Galleries
-            .Include(gallery => gallery.Folder)
-            .Include(gallery => gallery.Files).ThenInclude(file => file.ParentFolder)
-            .Include(gallery => gallery.Files).ThenInclude(file => file.Fingerprints)
-            .AsSplitQuery()
-            .ToListAsync(ct);
-
-        var filterPaths = GeneratePathFilter.Normalize(options.Paths);
-        if (filterPaths.Count > 0)
+        var total = await CountSelectedAsync(() => GenerationSelection.GalleriesAsync(db, options.Paths, ct));
+        var completed = 0;
+        await foreach (var ids in GenerationSelection.GalleriesAsync(db, options.Paths, ct))
         {
-            galleries = galleries.Where(gallery =>
-                (gallery.Folder is not null && GeneratePathFilter.Contains(gallery.Folder.Path, filterPaths))
-                || gallery.Files.Any(file => GeneratePathFilter.Contains(GeneratePathFilter.Resolve(file), filterPaths)))
-                .ToList();
+            var galleries = await db.Galleries.AsNoTracking().Where(gallery => ids.Contains(gallery.Id))
+                .Include(gallery => gallery.Folder)
+                .Include(gallery => gallery.Files).ThenInclude(file => file.ParentFolder)
+                .Include(gallery => gallery.Files).ThenInclude(file => file.Fingerprints)
+                .AsSplitQuery().OrderBy(gallery => gallery.Id).ToListAsync(ct);
+            var firstImageByGalleryId = await LoadFirstGalleryImagesAsync(db, galleries, ct);
+            await RunParallelWithProgressAsync(galleries, parallelism, progress, "gallery", async (gallery, token) =>
+            {
+                try
+                {
+                    if (options.GalleryThumbnails)
+                    {
+                        var coverImageId = gallery.CoverImageId;
+                        if (!coverImageId.HasValue && firstImageByGalleryId.TryGetValue(gallery.Id, out var firstImageId))
+                            coverImageId = firstImageId;
+                        if (coverImageId.HasValue)
+                            await thumbnailService.GenerateImageThumbnailAsync(coverImageId.Value, overwrite: options.Overwrite, ct: token);
+                    }
+
+                    if (!options.Md5)
+                        return;
+
+                    foreach (var file in gallery.Files)
+                    {
+                        var path = GeneratePathFilter.Resolve(file);
+                        if (!File.Exists(path) || (!options.Overwrite && HasFingerprint(file, "md5")))
+                            continue;
+
+                        var md5 = await fingerprintService.ComputeMd5Async(path, token);
+                        if (!string.IsNullOrWhiteSpace(md5))
+                            await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Skipped gallery {GalleryId} during generate after an error", gallery.Id);
+                }
+            }, ct, completed, total);
+            completed += galleries.Count;
         }
-
-        var firstImageByGalleryId = await LoadFirstGalleryImagesAsync(db, galleries, ct);
-        await RunParallelWithProgressAsync(galleries, parallelism, progress, "gallery", async (gallery, token) =>
-        {
-            try
-            {
-                if (options.GalleryThumbnails)
-                {
-                    var coverImageId = gallery.CoverImageId;
-                    if (!coverImageId.HasValue && firstImageByGalleryId.TryGetValue(gallery.Id, out var firstImageId))
-                        coverImageId = firstImageId;
-                    if (coverImageId.HasValue)
-                        await thumbnailService.GenerateImageThumbnailAsync(coverImageId.Value, overwrite: options.Overwrite, ct: token);
-                }
-
-                if (!options.Md5)
-                    return;
-
-                foreach (var file in gallery.Files)
-                {
-                    var path = GeneratePathFilter.Resolve(file);
-                    if (!File.Exists(path) || (!options.Overwrite && HasFingerprint(file, "md5")))
-                        continue;
-
-                    var md5 = await fingerprintService.ComputeMd5Async(path, token);
-                    if (!string.IsNullOrWhiteSpace(md5))
-                        await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Skipped gallery {GalleryId} during generate after an error", gallery.Id);
-            }
-        }, ct);
     }
 
     private async Task GenerateAudiosAsync(
@@ -144,39 +145,45 @@ public sealed class NonVideoGenerationService(
         if (!options.AudioPhashes && !options.Md5)
             return;
 
-        var files = await db.AudioFiles
-            .Include(file => file.ParentFolder)
-            .Include(file => file.Fingerprints)
-            .ToListAsync(ct);
-        files = FilterFiles(files, options.Paths, options.AudioIds, file => file.AudioId);
-
-        await RunParallelWithProgressAsync(files, parallelism, progress, "audio", async (file, token) =>
+        var query = db.AudioFiles.AsNoTracking();
+        if (options.AudioIds is { Count: > 0 })
+            query = query.Where(file => file.AudioId.HasValue && options.AudioIds.Contains(file.AudioId.Value));
+        var total = await CountSelectedAsync(() => GenerationSelection.FilesAsync(query, options.Paths, ct));
+        var completed = 0;
+        await foreach (var ids in GenerationSelection.FilesAsync(query, options.Paths, ct))
         {
-            try
+            var files = await query.Where(file => ids.Contains(file.Id))
+                .Include(file => file.ParentFolder).Include(file => file.Fingerprints)
+                .OrderBy(file => file.Id).ToListAsync(ct);
+            await RunParallelWithProgressAsync(files, parallelism, progress, "audio", async (file, token) =>
             {
-                var path = GeneratePathFilter.Resolve(file);
-                if (!File.Exists(path))
-                    return;
-
-                if (options.AudioPhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                try
                 {
-                    var phash = await fingerprintService.ComputeAudioPhashAsync(path, token);
-                    if (!string.IsNullOrWhiteSpace(phash))
-                        await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
-                }
+                    var path = GeneratePathFilter.Resolve(file);
+                    if (!File.Exists(path))
+                        return;
 
-                if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
-                {
-                    var md5 = await fingerprintService.ComputeMd5Async(path, token);
-                    if (!string.IsNullOrWhiteSpace(md5))
-                        await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    if (options.AudioPhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                    {
+                        var phash = await fingerprintService.ComputeAudioPhashAsync(path, token);
+                        if (!string.IsNullOrWhiteSpace(phash))
+                            await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
+                    }
+
+                    if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
+                    {
+                        var md5 = await fingerprintService.ComputeMd5Async(path, token);
+                        if (!string.IsNullOrWhiteSpace(md5))
+                            await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    }
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Skipped audio {AudioId} during generate after an error", file.AudioId);
-            }
-        }, ct);
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Skipped audio {AudioId} during generate after an error", file.AudioId);
+                }
+            }, ct, completed, total);
+            completed += files.Count;
+        }
     }
 
     private async Task GenerateTextsAsync(
@@ -189,60 +196,53 @@ public sealed class NonVideoGenerationService(
         if (!options.TextPhashes && !options.Md5)
             return;
 
-        var files = await db.TextFiles
-            .Include(file => file.ParentFolder)
-            .Include(file => file.Fingerprints)
-            .ToListAsync(ct);
-        files = FilterFiles(files, options.Paths, options.TextIds, file => file.TextDocumentId);
-
-        await RunParallelWithProgressAsync(files, parallelism, progress, "text", async (file, token) =>
+        var query = db.TextFiles.AsNoTracking();
+        if (options.TextIds is { Count: > 0 })
+            query = query.Where(file => file.TextDocumentId.HasValue && options.TextIds.Contains(file.TextDocumentId.Value));
+        var total = await CountSelectedAsync(() => GenerationSelection.FilesAsync(query, options.Paths, ct));
+        var completed = 0;
+        await foreach (var ids in GenerationSelection.FilesAsync(query, options.Paths, ct))
         {
-            try
+            var files = await query.Where(file => ids.Contains(file.Id))
+                .Include(file => file.ParentFolder).Include(file => file.Fingerprints)
+                .OrderBy(file => file.Id).ToListAsync(ct);
+            await RunParallelWithProgressAsync(files, parallelism, progress, "text", async (file, token) =>
             {
-                var path = GeneratePathFilter.Resolve(file);
-                if (!File.Exists(path))
-                    return;
-
-                if (options.TextPhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                try
                 {
-                    var phash = await fingerprintService.ComputeTextPhashAsync(path, token);
-                    if (!string.IsNullOrWhiteSpace(phash))
-                        await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
-                }
+                    var path = GeneratePathFilter.Resolve(file);
+                    if (!File.Exists(path))
+                        return;
 
-                if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
-                {
-                    var md5 = await fingerprintService.ComputeMd5Async(path, token);
-                    if (!string.IsNullOrWhiteSpace(md5))
-                        await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    if (options.TextPhashes && (options.Overwrite || !HasFingerprint(file, "phash")))
+                    {
+                        var phash = await fingerprintService.ComputeTextPhashAsync(path, token);
+                        if (!string.IsNullOrWhiteSpace(phash))
+                            await fingerprintWriter.UpsertAsync(file.Id, "phash", phash, token);
+                    }
+
+                    if (options.Md5 && (options.Overwrite || !HasFingerprint(file, "md5")))
+                    {
+                        var md5 = await fingerprintService.ComputeMd5Async(path, token);
+                        if (!string.IsNullOrWhiteSpace(md5))
+                            await fingerprintWriter.UpsertAsync(file.Id, "md5", md5, token);
+                    }
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Skipped text {TextId} during generate after an error", file.TextDocumentId);
-            }
-        }, ct);
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Skipped text {TextId} during generate after an error", file.TextDocumentId);
+                }
+            }, ct, completed, total);
+            completed += files.Count;
+        }
     }
 
-    private static List<TFile> FilterFiles<TFile>(
-        List<TFile> files,
-        IEnumerable<string>? paths,
-        IEnumerable<int>? entityIds,
-        Func<TFile, int?> entityIdSelector)
-        where TFile : BaseFileEntity
+    private static async Task<int> CountSelectedAsync(Func<IAsyncEnumerable<int[]>> select)
     {
-        var filterPaths = GeneratePathFilter.Normalize(paths);
-        if (filterPaths.Count > 0)
-            files = files.Where(file => GeneratePathFilter.Contains(GeneratePathFilter.Resolve(file), filterPaths)).ToList();
-
-        if (entityIds is not null)
-        {
-            var idSet = entityIds.ToHashSet();
-            if (idSet.Count > 0)
-                files = files.Where(file => entityIdSelector(file) is int id && idSet.Contains(id)).ToList();
-        }
-
-        return files;
+        var total = 0;
+        await foreach (var ids in select())
+            total = checked(total + ids.Length);
+        return total;
     }
 
     private static async Task<Dictionary<int, int>> LoadFirstGalleryImagesAsync(
@@ -254,14 +254,12 @@ public sealed class NonVideoGenerationService(
             return [];
 
         var galleryIds = galleries.Select(gallery => gallery.Id).ToList();
-        var links = await db.Set<ImageGallery>()
+        return await db.Set<ImageGallery>()
             .AsNoTracking()
             .Where(link => galleryIds.Contains(link.GalleryId))
-            .Select(link => new { link.GalleryId, link.ImageId })
-            .ToListAsync(ct);
-        return links
             .GroupBy(link => link.GalleryId)
-            .ToDictionary(group => group.Key, group => group.Min(link => link.ImageId));
+            .Select(group => new { GalleryId = group.Key, ImageId = group.Min(link => link.ImageId) })
+            .ToDictionaryAsync(row => row.GalleryId, row => row.ImageId, ct);
     }
 
     private static async Task RunParallelWithProgressAsync<T>(
@@ -270,7 +268,9 @@ public sealed class NonVideoGenerationService(
         IJobProgress progress,
         string label,
         Func<T, CancellationToken, Task> work,
-        CancellationToken ct)
+        CancellationToken ct,
+        int previouslyCompleted,
+        int total)
     {
         var completed = 0;
         await Parallel.ForEachAsync(
@@ -284,10 +284,10 @@ public sealed class NonVideoGenerationService(
                 }
                 finally
                 {
-                    var current = Interlocked.Increment(ref completed);
+                    var current = previouslyCompleted + Interlocked.Increment(ref completed);
                     progress.Report(
-                        items.Count == 0 ? 1d : (double)current / items.Count,
-                        $"Generating {label} content ({current}/{items.Count})");
+                        total == 0 ? 1d : (double)current / total,
+                        $"Generating {label} content ({current}/{total})");
                 }
             });
     }

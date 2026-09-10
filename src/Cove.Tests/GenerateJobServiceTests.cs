@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -189,12 +190,131 @@ public class GenerateJobServiceTests
             await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Equal(selectedFileId, thumbnails.PreviewSourceFileId);
+            Assert.Equal(1, jobs.Progress.DeclaredTotal);
             var unit = Assert.Single(jobs.Progress.Units);
             Assert.Equal(JobUnitOutcome.Failed, unit.Outcome);
         }
         finally
         {
             Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImageGenerationBoundsMaterializationAndAppliesSelectionBeforeLoadingFiles(bool scoped)
+    {
+        var guard = new GenerationMaterializationGuard();
+        var dbOptions = new DbContextOptionsBuilder<CoveContext>().UseSqlite("Data Source=:memory:").AddInterceptors(guard).Options;
+        await using var db = new CoveContext(dbOptions);
+        await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var folder = new Folder { Path = "/generation/memory" };
+        var images = Enumerable.Range(0, 601).Select(index => new Image
+        {
+            Title = $"image {index}",
+            Files = [new ImageFile { ParentFolder = folder, Basename = $"{index}.jpg" }],
+        }).ToArray();
+        db.Images.AddRange(images);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var selectedId = images[^1].Id;
+        db.ChangeTracker.Clear();
+        guard.Enabled = true;
+        await using var provider = new ServiceCollection().BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+        var trackedDuringWork = false;
+        var thumbnails = new CapturingThumbnailService(Path.GetTempPath())
+        {
+            OnImageThumbnail = _ =>
+            {
+                guard.Processed++;
+                trackedDuringWork |= db.ChangeTracker.Entries().Any();
+                return Task.FromResult(true);
+            },
+        };
+        var service = new NonVideoGenerationService(thumbnails, new NullFingerprintService(),
+            new FileFingerprintWriter(scopeFactory), NullLogger<NonVideoGenerationService>.Instance);
+        await service.GenerateAsync(db, new GenerateOptionsDto
+        {
+            Thumbnails = false, ImageThumbnails = true,
+            ImageIds = scoped ? [selectedId] : null,
+        }, 1, new CapturingJobProgress(), TestContext.Current.CancellationToken);
+        Assert.Equal(scoped ? 1 : 601, guard.Materialized);
+        Assert.Equal(guard.Materialized, guard.Processed);
+        Assert.False(trackedDuringWork);
+    }
+
+    [Fact]
+    public async Task VideoGenerationBatchesGraphsAndKeepsCountedUnitsWhenAssetsChange()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-generate-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var guard = new GenerationMaterializationGuard { EntityType = typeof(Video) };
+            var options = new DbContextOptionsBuilder<CoveContext>()
+                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").AddInterceptors(guard).Options;
+            var services = new ServiceCollection();
+            services.AddScoped(_ => new CoveContext(options));
+            await using var provider = services.BuildServiceProvider();
+            int firstId;
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+                var folder = new Folder { Path = Path.Combine(root, "missing-source") };
+                var videos = Enumerable.Range(0, 601).Select(index => new Video
+                {
+                    Title = $"video {index}", Files = [new VideoFile { ParentFolder = folder, Basename = $"{index}.mp4" }],
+                }).ToArray();
+                db.Videos.AddRange(videos);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                firstId = videos[0].Id;
+            }
+            var jobs = new CapturingJobService();
+            jobs.Progress.OnDeclared = () =>
+            {
+                // This was selected as missing, then appears before processing begins.
+                File.WriteAllBytes(Path.Combine(root, $"{firstId}.jpg"), [0]);
+                guard.Enabled = true;
+            };
+            jobs.Progress.OnCompleted = () => guard.Processed++;
+            var thumbnails = new CapturingThumbnailService(root);
+            var fingerprints = new NullFingerprintService();
+            var scopes = provider.GetRequiredService<IServiceScopeFactory>();
+            var writer = new FileFingerprintWriter(scopes);
+            var service = new GenerateJobService(jobs, thumbnails, thumbnails, fingerprints, writer,
+                new NonVideoGenerationService(thumbnails, fingerprints, writer, NullLogger<NonVideoGenerationService>.Instance),
+                scopes, new CoveConfiguration { MaxParallelTasks = 1 }, NullLogger<GenerateJobService>.Instance);
+            service.Start(new GenerateOptionsDto { Thumbnails = true });
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(601, jobs.Progress.DeclaredTotal);
+            Assert.Equal(601, jobs.Progress.Units.Count);
+            Assert.Equal(601, guard.Processed);
+            Assert.Equal(601, guard.Materialized);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class GenerationMaterializationGuard : IMaterializationInterceptor
+    {
+        public Type EntityType { get; init; } = typeof(ImageFile);
+        public bool Enabled { get; set; }
+        public int Materialized { get; private set; }
+        public int Processed { get; set; }
+        public object InitializedInstance(MaterializationInterceptionData data, object entity)
+        {
+            if (Enabled && EntityType.IsInstanceOfType(entity))
+            {
+                Materialized++;
+                Assert.True(Materialized - Processed <= GenerationSelection.BatchSize,
+                    "Generation materialized more than one batch before processing it.");
+            }
+            return entity;
         }
     }
 
@@ -245,6 +365,10 @@ public class GenerateJobServiceTests
     private sealed class CapturingJobProgress : IJobProgress
     {
         public List<CapturingJobUnit> Units { get; } = [];
+        public int? DeclaredTotal { get; private set; }
+        public Action? OnDeclared { get; set; }
+        public Action? OnCompleted { get; set; }
+        public void DeclareUnitCount(int totalUnits) { DeclaredTotal = totalUnits; OnDeclared?.Invoke(); }
 
         public void Report(double progress, string? subTask = null)
         {
@@ -252,13 +376,13 @@ public class GenerateJobServiceTests
 
         public IJobUnit StartUnit(string unitId, string? label = null)
         {
-            var unit = new CapturingJobUnit();
+            var unit = new CapturingJobUnit(OnCompleted);
             Units.Add(unit);
             return unit;
         }
     }
 
-    private sealed class CapturingJobUnit : IJobUnit
+    private sealed class CapturingJobUnit(Action? onCompleted = null) : IJobUnit
     {
         public JobUnitOutcome? Outcome { get; private set; }
 
@@ -268,7 +392,11 @@ public class GenerateJobServiceTests
 
         public void Complete(JobUnitOutcome outcome, string? message = null)
         {
-            Outcome ??= outcome;
+            if (Outcome == null)
+            {
+                Outcome = outcome;
+                onCompleted?.Invoke();
+            }
         }
 
         public void Dispose()
@@ -279,6 +407,7 @@ public class GenerateJobServiceTests
     private sealed class CapturingThumbnailService(string generatedRoot) : IThumbnailService, IVideoAssetGenerator
     {
         public int? PreviewSourceFileId { get; private set; }
+        public Func<int, Task<bool>>? OnImageThumbnail { get; init; }
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
@@ -327,7 +456,7 @@ public class GenerateJobServiceTests
             int maxDimension = 640,
             bool overwrite = false,
             CancellationToken ct = default)
-            => Task.FromResult(true);
+            => OnImageThumbnail?.Invoke(imageId) ?? Task.FromResult(true);
 
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
 
