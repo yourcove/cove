@@ -169,8 +169,8 @@ public sealed class FullTextSearchQueryShapeTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(db);
-        var candidates = repository.ApplyVideoSearch(db.Videos.AsNoTracking(), "needle");
-        var ordered = repository.ApplyVideoRelevanceOrdering(candidates, "needle");
+        var candidates = await repository.ApplyVideoSearchAsync(db.Videos.AsNoTracking(), "needle", TestContext.Current.CancellationToken);
+        var ordered = await repository.ApplyVideoRelevanceOrderingAsync(candidates, "needle", TestContext.Current.CancellationToken);
 
         var titles = await ordered.Select(video => video.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
 
@@ -202,8 +202,8 @@ public sealed class FullTextSearchQueryShapeTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(db);
-        var candidates = repository.ApplyVideoSearch(db.Videos.AsNoTracking(), "my soft pink");
-        var ordered = repository.ApplyVideoRelevanceOrdering(candidates, "my soft pink");
+        var candidates = await repository.ApplyVideoSearchAsync(db.Videos.AsNoTracking(), "my soft pink", TestContext.Current.CancellationToken);
+        var ordered = await repository.ApplyVideoRelevanceOrderingAsync(candidates, "my soft pink", TestContext.Current.CancellationToken);
 
         var titles = await ordered.Select(video => video.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
 

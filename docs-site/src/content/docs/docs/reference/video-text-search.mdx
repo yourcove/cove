@@ -17,47 +17,50 @@ Video text search is the built-in **Text** mode on the **Videos** page. Permissi
 
 The tables below describe this built-in **Text** query. [Other video search paths](#other-video-search-paths) compares global, visual, compilation-inclusive, and metadata-provider searches.
 
-## Indexed values and rank weights
+## Video values searched
 
-Cove builds one searchable text vector for each video. Only the values in this table contribute to its weighted full-text rank. The weight affects **Relevance** order; it does not determine whether a value can match.
+Cove indexes the following video values. For each query term, only the strongest matching row contributes video-text points. Repeating the word in a description or caption does not increase its score.
 
-| Weight | Video values |
+| Video values | Points per matching term |
 | --- | --- |
-| A, highest | Title and studio code |
-| B | Description and director |
-| C | Captions, combined source-file paths, and the internal SearchText compatibility field |
+| Title and studio code | 8 |
+| Description and director | 2 |
+| Captions, combined source-file paths, and the internal SearchText compatibility field | 1 |
 
 SearchText is an internal database field. Cove includes an existing value in search, but does not currently populate the field or expose it through the video create and edit APIs.
 
 ## Related values
 
-Related values are matched separately from the indexed video text and do not receive A, B, or C weights. If a video has a nonzero indexed-text rank, a related-value match gives it no additional boost. For videos with zero indexed-text rank, exact related-value matches come before partial related-value matches.
+Related values contribute additional points even when the title or description also matches. An exact related name or alias is stronger evidence than a description mention.
 
-| Relationship | Values searched | Operator applied to the complete trimmed query |
+| Relationship | Values searched | How each query term matches |
 | --- | --- | --- |
 | Studio | Name | Case-insensitive substring |
 | Performers | Name and aliases | Case-insensitive substring |
-| Tags | Name and aliases | Case-insensitive, complete space-delimited text |
+| Tags | Name and aliases | Complete word, without regard to case; punctuation separates words |
 | Galleries | Title | Case-insensitive substring |
 | Groups | Name | Case-insensitive substring |
 
-Studio and group aliases are not searched. Tag matching prevents a query such as **1F** from also matching **1F1M**.
+Studio and group aliases are not searched. Tag matching prevents a query such as **1F** from also matching **1F1M**. Only related entities the current user can read contribute matches or points.
 
 ## How a query matches
 
-Cove removes whitespace from the beginning and end of the query and compares text without regard to letter case. For indexed video text and file paths, it treats each sequence of letters or digits as a term. Spaces, underscores, hyphens, periods, plus signs, slashes, and other non-alphanumeric characters separate terms.
+Cove removes whitespace from the beginning and end of the query and compares text without regard to letter case. It treats each sequence of letters or digits as a term. Spaces, underscores, hyphens, periods, plus signs, slashes, and other punctuation separate terms. Repeated terms count once.
 
-A video is included when it satisfies at least one of these branches:
+Every distinct query term must match, but different terms can come from different sources:
 
-1. **Indexed video text:** Every query term begins a word somewhere in the combined indexed values. Different terms can occur in different fields. Source paths are combined before indexing, so different terms can also occur in different paths. For example, **small ho** can match words beginning with **small** and **ho**.
-2. **One directly attached file path:** Every distinct query term occurs somewhere in the same path. Because punctuation separates terms, queries such as **small hole**, **small_hole**, and **small-hole** use the same two terms for this branch. This branch applies only to videos with directly attached files.
-3. **Studio:** The complete trimmed query occurs within the studio name.
-4. **Performer:** The complete trimmed query occurs within an assigned performer's name or alias.
-5. **Tag:** The complete trimmed query matches space-delimited text in an applied tag's name or alias.
-6. **Gallery:** The complete trimmed query occurs within the title of a gallery containing the video.
-7. **Group:** The complete trimmed query occurs within the name of a group containing the video.
+1. **Indexed video text:** A term begins a word in any indexed video value. For example, **small ho** can match words beginning with **small** and **ho**. Different terms can occur in different fields or in different indexed source paths.
+2. **Studio:** A term occurs within the studio name.
+3. **Performer:** A term occurs within an assigned performer's name or alias.
+4. **Tag:** A term matches a complete word in an applied tag's name or alias.
+5. **Gallery:** A term occurs within the title of a gallery containing the video.
+6. **Group:** A term occurs within the name of a group containing the video.
 
-A sub-video inherits its parent's indexed path text, so it can match source-path words through the first branch. Its files belong to the parent video, so it does not use the directly attached path branch. Related branches compare the complete query as one contiguous value; separate query terms are not distributed across multiple relationships. If the trimmed input contains no letters or digits, the indexed-text branch does not narrow the candidate set.
+A query can therefore combine title words with multiple tags and a performer name. It does not need to match one complete field or relationship.
+
+There is also a file-path fallback: a video matches when every distinct query term occurs somewhere in the same directly attached file path. This includes partial path text that the word index might miss. A sub-video inherits its parent's indexed path text, but does not use this fallback because its files belong to the parent video.
+
+If the input contains no letters or digits, text search does not narrow the candidate set.
 
 ## Values that require filters
 
@@ -78,21 +81,25 @@ A sub-video inherits its parent's indexed path text, so it can match source-path
 
 | Active primary sort | Effect of match quality |
 | --- | --- |
-| **Relevance** | Uses the ranking keys below to bring stronger matches forward. |
+| **Relevance** | Uses the additive score below to bring stronger matches forward. |
 | Any other sort | Ignores match quality and orders every match only by the selected field and direction. |
 
-When **Relevance** is active, Cove applies these keys in order:
+Cove adds the following points and places the highest-scoring videos first:
 
-| Priority | Ordering key |
+| Evidence | Points |
 | --- | --- |
-| 1 | Title equals the complete query, without regard to case |
-| 2 | Title, description, studio code, or director contains the complete query as a contiguous phrase |
-| 3 | Weighted indexed-text rank using the A, B, and C weights above |
-| 4 | Exact performer, performer-alias, tag, tag-alias, studio, gallery, or group match, when indexed-text rank is zero |
-| 5 | Partial related-value match, when indexed-text rank is zero |
-| 6 | Same-file path match, when indexed-text rank is zero |
-| 7 | Updated time, newest first |
-| 8 | Video ID, lowest first |
+| Title equals the complete trimmed query, without regard to case | 100 |
+| Title or studio code contains the complete query, or the complete title occurs as a space-delimited phrase in the query | 40 |
+| Description or director contains the complete trimmed query as a contiguous phrase | 4 |
+| Query term belongs to a related name or alias whose complete wording occurs in the query | 20 per distinct term |
+| Query term partially matches a related name or alias, with no exact related match for that term | 8 per distinct term |
+| Indexed video-text match | 8, 2, or 1 per distinct term, as listed above |
+
+The title bonuses can both apply. Exact related matches recognize multiword names and aliases; punctuation separates their words. Each term receives at most one relationship contribution and one indexed-text contribution. Extra aliases, overlapping tags, or repeated text do not multiply those contributions. A file-path fallback match receives no separate bonus.
+
+For example, two videos with the same title and the same first tag receive the same points for that evidence. If a second search term matches another tag on one video but only its description on the other, the video with the second tag ranks higher. Descriptions are searched literally: a phrase denying an occurrence still text-matches, but contributes fewer points than a confirmed tag.
+
+Equal scores are ordered by newest update, then lowest video ID. Search does not silently become a tag filter: untagged videos can still match through their text. Use the **Tags** filter when a tag is required.
 
 | Videos-page action | Sort result |
 | --- | --- |
