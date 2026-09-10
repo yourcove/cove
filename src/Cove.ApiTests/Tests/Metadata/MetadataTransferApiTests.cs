@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
@@ -224,6 +225,64 @@ public sealed class MetadataTransferApiTests(
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
         (await AsUser().GetTagsAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Name == tagName);
+    }
+
+    [Fact]
+    public async Task GivenLaterBatchFailure_WhenImportFails_ThenEarlierBatchesRollBack()
+    {
+        var prefix = $"Rollback import {Guid.NewGuid():N}";
+        var json = JsonSerializer.Serialize(new
+        {
+            tags = Enumerable.Range(0, 600).Select(index => new { name = $"{prefix} {index}" }),
+            groups = new object?[] { null },
+        }, ApiJson.Options);
+        var file = AsTestFileSystem().CreateTextFile(json);
+        var jobId = await AsUser().StartMetadataImportAsync(new ImportOptionsDto { FilePath = file }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        job.Status.Should().Be(JobStatus.Failed);
+        using var client = AsUser().CreateHttpClient();
+        var tags = await client.GetFromJsonAsync<PaginatedResponse<TagListDto>>(
+            $"/api/tags?name={Uri.EscapeDataString(prefix)}", ApiJson.Options, TestContext.Current.CancellationToken);
+        tags!.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GivenRepeatedNewGroupsAcrossBatches_WhenImported_ThenOriginalDuplicateBehaviorIsPreserved()
+    {
+        var name = $"Repeated import group {Guid.NewGuid():N}";
+        var file = AsTestFileSystem().CreateTextFile(JsonSerializer.Serialize(new
+        {
+            groups = Enumerable.Range(0, 257).Select(_ => new { name }),
+        }, ApiJson.Options));
+        var jobId = await AsUser().StartMetadataImportAsync(new ImportOptionsDto { FilePath = file }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        job.Status.Should().Be(JobStatus.Completed);
+        using var client = AsUser().CreateHttpClient();
+        var groups = await client.GetFromJsonAsync<PaginatedResponse<GroupDto>>(
+            $"/api/groups?name={Uri.EscapeDataString(name)}", ApiJson.Options, TestContext.Current.CancellationToken);
+        groups!.TotalCount.Should().Be(257);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GivenCrossBatchTagsAndAnExistingAlias_WhenImported_ThenDuplicateHandlingIsPreserved(bool overwrite)
+    {
+        var name = $"Cross batch tag {Guid.NewGuid():N}";
+        var alias = $"Import alias {Guid.NewGuid():N}";
+        var owner = await AsUser().CreateTagAsync(new TagBuilder().WithAlias(alias).WithDescription("original").Build(), TestContext.Current.CancellationToken);
+        var file = AsTestFileSystem().CreateTextFile(JsonSerializer.Serialize(new
+        {
+            tags = Enumerable.Range(0, 257).Select(index => new { name, description = index.ToString() })
+                .Append(new { name = alias, description = "updated" }),
+        }, ApiJson.Options));
+        var jobId = await AsUser().StartMetadataImportAsync(new ImportOptionsDto { FilePath = file, DuplicateHandling = overwrite }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        job.Status.Should().Be(JobStatus.Completed);
+        var tags = await AsUser().GetTagsAsync(TestContext.Current.CancellationToken);
+        tags.Should().ContainSingle(tag => tag.Name == name).Which.Description.Should().Be(overwrite ? "256" : "0");
+        tags.Should().ContainSingle(tag => tag.Id == owner.Id).Which.Description.Should().Be(overwrite ? "updated" : "original");
+        tags.Should().NotContain(tag => tag.Name == alias);
     }
 
     private static JsonElement FindExportedEntity(

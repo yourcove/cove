@@ -83,18 +83,21 @@ public partial class CoveContext
                 .Concat(DeletedIds<Performer>())
                 .Distinct()
                 .ToArray();
-            var rows = await Performers.IgnoreQueryFilters().AsNoTracking()
-                .Where(performer => !excludedIds.Contains(performer.Id))
-                .Select(performer => new { performer.Name, performer.Disambiguation })
-                .ToListAsync(cancellationToken);
-            var existing = rows
-                .Select(performer => new EntityIdentityTarget(
+            int? afterId = null;
+            while (true)
+            {
+                var rows = await Performers.IgnoreQueryFilters().AsNoTracking()
+                    .Where(performer => !excludedIds.Contains(performer.Id) && (afterId == null || performer.Id > afterId))
+                    .OrderBy(performer => performer.Id).Take(256)
+                    .Select(performer => new { performer.Id, performer.Name, performer.Disambiguation })
+                    .ToListAsync(cancellationToken);
+                if (rows.Count == 0) break;
+                afterId = rows[^1].Id;
+                ThrowForPersistedIdentityConflicts(performers, rows.Select(performer => new EntityIdentityTarget(
                     NameConflictEntityTypes.Performer,
                     EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
-                    performer.Name,
-                    performer.Disambiguation))
-                .ToArray();
-            ThrowForPersistedIdentityConflicts(performers, existing);
+                    performer.Name, performer.Disambiguation)).ToArray());
+            }
         }
 
         ValidateTrackedIdentityCandidates(studios);
@@ -106,18 +109,20 @@ public partial class CoveContext
                 .Concat(DeletedIds<Studio>())
                 .Distinct()
                 .ToArray();
-            var rows = await Studios.IgnoreQueryFilters().AsNoTracking()
-                .Where(studio => !excludedIds.Contains(studio.Id))
-                .Select(studio => studio.Name)
-                .ToListAsync(cancellationToken);
-            var existing = rows
-                .Select(name => new EntityIdentityTarget(
+            int? afterId = null;
+            while (true)
+            {
+                var rows = await Studios.IgnoreQueryFilters().AsNoTracking()
+                    .Where(studio => !excludedIds.Contains(studio.Id) && (afterId == null || studio.Id > afterId))
+                    .OrderBy(studio => studio.Id).Take(256)
+                    .Select(studio => new { studio.Id, studio.Name })
+                    .ToListAsync(cancellationToken);
+                if (rows.Count == 0) break;
+                afterId = rows[^1].Id;
+                ThrowForPersistedIdentityConflicts(studios, rows.Select(studio => new EntityIdentityTarget(
                     NameConflictEntityTypes.Studio,
-                    EntityNameRules.StudioIdentityKey(name),
-                    name,
-                    null))
-                .ToArray();
-            ThrowForPersistedIdentityConflicts(studios, existing);
+                    EntityNameRules.StudioIdentityKey(studio.Name), studio.Name, null)).ToArray());
+            }
         }
     }
 

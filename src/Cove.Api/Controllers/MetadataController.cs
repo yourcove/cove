@@ -354,32 +354,19 @@ public class MetadataController(
 
         var jobId = jobService.Enqueue("import", "Importing metadata", async (progress, ct) =>
         {
-            using var scope = scopeFactory.CreateScope();
-            var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
             progress.Report(0.05, "Reading import file...");
-            var json = await System.IO.File.ReadAllTextAsync(filePath, ct);
-            var importData = JsonSerializer.Deserialize<JsonElement>(json, CoveJson.Default);
-            var importTags = ReadImportEntities<Tag>(importData, "tags");
-            var importStudios = ReadImportEntities<Studio>(importData, "studios");
-            var importPerformers = ReadImportEntities<Performer>(importData, "performers");
-            var importGroups = ReadImportEntities<Group>(importData, "groups");
-
-            // An import can touch several entity kinds. Keep all staged saves atomic so a later
-            // identity conflict or malformed relationship cannot leave an unretryable partial job.
-            await dbCtx.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            await using var input = System.IO.File.OpenRead(filePath);
+            await MetadataImportRunner.RunAsync(scopeFactory, input, async (dbCtx, staged, ct) =>
             {
-                dbCtx.ChangeTracker.Clear();
-                await using var transaction = await dbCtx.Database.BeginTransactionAsync(ct);
 
                 // Import tags first (no dependencies)
-                if (importTags.Count > 0)
+                await foreach (var importTags in staged.ReadBatchesAsync<Tag>("tags", ct))
                 {
                     progress.Report(0.1, "Importing tags...");
                     var normalizedNames = importTags
                         .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
                         .ToArray();
-                    var tagLookup = await RelationNameResolver.ResolveTagsAsync(dbCtx, normalizedNames, ct);
+                    var tagLookup = await ResolveImportTagsAsync(dbCtx, staged, normalizedNames, ct);
                     foreach (var tag in importTags)
                     {
                         ct.ThrowIfCancellationRequested();
@@ -397,30 +384,36 @@ public class MetadataController(
                         }
                     }
                     await dbCtx.SaveChangesAsync(ct);
+                    await staged.AddTagsAsync(dbCtx.ChangeTracker.Entries<Tag>().Select(entry => entry.Entity), ct);
+                    dbCtx.ChangeTracker.Clear();
                 }
 
                 // Import studios (may reference parent studios)
-                if (importStudios.Count > 0)
+                await foreach (var importStudios in staged.ReadBatchesAsync<Studio>("studios", ct))
                 {
                     progress.Report(0.3, "Importing studios...");
-                    await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct);
+                    await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct, staged);
+                    dbCtx.ChangeTracker.Clear();
                 }
 
                 // Import performers
-                if (importPerformers.Count > 0)
+                await foreach (var importPerformers in staged.ReadBatchesAsync<Performer>("performers", ct))
                 {
                     progress.Report(0.5, "Importing performers...");
-                    await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct);
+                    await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct, staged);
+                    dbCtx.ChangeTracker.Clear();
                 }
 
                 // Import groups
-                if (importGroups.Count > 0)
+                await foreach (var importGroups in staged.ReadBatchesAsync<Group>("groups", ct))
                 {
                     progress.Report(0.7, "Importing groups...");
+                    var groupIds = await staged.FindTargetIdsAsync("groups", importGroups.Select(group => group.Name), ct);
                     foreach (var group in importGroups)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var existing = await dbCtx.Groups.FirstOrDefaultAsync(g => g.Name == group.Name, ct);
+                        var existingIds = groupIds.GetValueOrDefault(group.Name) ?? [];
+                        var existing = existingIds.Count == 0 ? null : await dbCtx.Groups.FindAsync([existingIds[0]], ct);
                         if (existing != null)
                         {
                             if (overwrite) { existing.Director = group.Director; existing.Synopsis = group.Synopsis; }
@@ -431,10 +424,10 @@ public class MetadataController(
                         }
                     }
                     await dbCtx.SaveChangesAsync(ct);
+                    dbCtx.ChangeTracker.Clear();
                 }
 
-                await transaction.CommitAsync(ct);
-            });
+            }, ct);
 
             progress.Report(1.0, "Import completed");
             logger.LogInformation("Metadata import completed from: {Path}", filePath);
@@ -443,11 +436,70 @@ public class MetadataController(
         return Ok(new { jobId });
     }
 
-    internal static List<TEntity> ReadImportEntities<TEntity>(JsonElement root, string propertyName)
-        where TEntity : class
-        => root.TryGetProperty(propertyName, out var value)
-            ? JsonSerializer.Deserialize<List<TEntity>>(value.GetRawText(), CoveJson.Default) ?? []
-            : [];
+    private static async Task<Dictionary<string, Tag>> ResolveImportTagsAsync(
+        CoveContext db, MetadataImportStage staged, IReadOnlyCollection<string> names, CancellationToken ct)
+    {
+        var requested = names.Select(TagNameRules.NormalizeAlias).OfType<string>()
+            .Distinct(TagNameRules.NamespaceComparer).ToArray();
+        var keys = requested.Select(TagNameRules.NamespaceKey).ToArray();
+        var canonical = await staged.FindTargetIdsAsync("tags", keys, ct);
+        var aliases = await staged.FindTargetIdsAsync("tag-aliases", keys.Where(key => !canonical.ContainsKey(key)), ct);
+        var matches = new Dictionary<string, int>(TagNameRules.NamespaceComparer);
+        foreach (var name in requested)
+        {
+            var key = TagNameRules.NamespaceKey(name);
+            var ids = canonical.GetValueOrDefault(key) ?? aliases.GetValueOrDefault(key) ?? [];
+            if (ids.Count > 0)
+                matches[name] = ids[0];
+        }
+        var matchedIds = matches.Values.Distinct().ToArray();
+        var tags = await db.Tags.Where(tag => matchedIds.Contains(tag.Id)).ToDictionaryAsync(tag => tag.Id, ct);
+        return matches.ToDictionary(pair => pair.Key, pair => tags[pair.Value], TagNameRules.NamespaceComparer);
+    }
+
+    private static async Task<List<TEntity>> ReadImportIdentityCandidatesAsync<TEntity>(
+        DbSet<TEntity> entities, IReadOnlySet<string> requestedKeys,
+        Func<TEntity, string> identitySelector, CancellationToken ct, MetadataImportStage? staged) where TEntity : BaseEntity
+    {
+        if (staged != null)
+        {
+            var ids = new List<int>();
+            var section = typeof(TEntity) == typeof(Studio) ? "studios" : "performers";
+            var targetIds = await staged.FindTargetIdsAsync(section, requestedKeys, ct);
+            foreach (var key in requestedKeys)
+            {
+                var found = targetIds.GetValueOrDefault(key) ?? [];
+                if (found.Count > 1)
+                    throw new EntityNameConflictException(typeof(TEntity) == typeof(Studio)
+                        ? NameConflictEntityTypes.Studio : NameConflictEntityTypes.Performer);
+                ids.AddRange(found);
+            }
+            return await entities.Where(entity => ids.Contains(entity.Id)).ToListAsync(ct);
+        }
+        var matches = new List<TEntity>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        int? afterId = null;
+        while (true)
+        {
+            var page = await entities.AsNoTracking().Where(entity => afterId == null || entity.Id > afterId)
+                .OrderBy(entity => entity.Id).Take(MetadataImportStage.BatchSize).ToListAsync(ct);
+            if (page.Count == 0)
+                break;
+            afterId = page[^1].Id;
+            foreach (var entity in page)
+            {
+                var key = identitySelector(entity);
+                if (!requestedKeys.Contains(key))
+                    continue;
+                if (!seen.Add(key))
+                    throw new EntityNameConflictException(typeof(TEntity) == typeof(Studio)
+                        ? NameConflictEntityTypes.Studio : NameConflictEntityTypes.Performer);
+                // Reuse any already tracked instance for callers outside the job.
+                matches.Add(entities.Local.FirstOrDefault(local => local.Id == entity.Id) ?? entities.Attach(entity).Entity);
+            }
+        }
+        return matches;
+    }
 
     internal static Dictionary<string, TEntity> BuildUniqueImportIdentityLookup<TEntity>(
         IEnumerable<TEntity> candidates,
@@ -473,14 +525,16 @@ public class MetadataController(
         CoveContext db,
         IReadOnlyCollection<Studio> imported,
         bool overwrite,
-        CancellationToken ct)
+        CancellationToken ct,
+        MetadataImportStage? staged = null)
     {
         var groups = imported
             .GroupBy(studio => EntityNameRules.StudioIdentityKey(studio.Name), StringComparer.Ordinal)
             .ToArray();
         var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
         var existingByIdentity = BuildUniqueImportIdentityLookup(
-            await db.Studios.ToListAsync(ct),
+            await ReadImportIdentityCandidatesAsync(db.Studios, requestedKeys,
+                studio => EntityNameRules.StudioIdentityKey(studio.Name), ct, staged),
             studio => EntityNameRules.StudioIdentityKey(studio.Name),
             requestedKeys,
             NameConflictEntityTypes.Studio);
@@ -511,7 +565,8 @@ public class MetadataController(
         CoveContext db,
         IReadOnlyCollection<Performer> imported,
         bool overwrite,
-        CancellationToken ct)
+        CancellationToken ct,
+        MetadataImportStage? staged = null)
     {
         var groups = imported
             .GroupBy(
@@ -520,7 +575,8 @@ public class MetadataController(
             .ToArray();
         var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
         var existingByIdentity = BuildUniqueImportIdentityLookup(
-            await db.Performers.ToListAsync(ct),
+            await ReadImportIdentityCandidatesAsync(db.Performers, requestedKeys,
+                performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation), ct, staged),
             performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
             requestedKeys,
             NameConflictEntityTypes.Performer);
