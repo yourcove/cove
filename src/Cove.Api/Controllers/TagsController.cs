@@ -612,15 +612,29 @@ public class TagsController(
     {
         if (bulkEntityDeletionService is not null)
         {
-            var deleted = await bulkEntityDeletionService.DeleteAsync(
-                BulkDeletionEntityKind.Tag,
-                id,
-                new BulkDeletionExecutionContext(),
-                deleteFiles: false,
-                deleteGenerated: true,
-                ct,
-                publishEvent: false);
-            return deleted ? NoContent() : NotFound();
+            try
+            {
+                var deleted = await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Tag,
+                    id,
+                    new BulkDeletionExecutionContext(),
+                    deleteFiles: false,
+                    deleteGenerated: true,
+                    ct,
+                    publishEvent: false);
+                return deleted ? NoContent() : NotFound();
+            }
+            catch (TagDeletionBlockedException exception)
+            {
+                return Conflict(new
+                {
+                    code = "TAG_DELETE_EXTENSION_REFERENCES",
+                    message = exception.Message,
+                    exception.Extensions,
+                    exception.HasUninspectableReferences,
+                    exception.HasUnknownExtensionOwners,
+                });
+            }
         }
 
         var tag = await tagRepo.GetByIdAsync(id, ct);

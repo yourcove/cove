@@ -30,7 +30,9 @@ export function MutationFailureNotice() {
       <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="font-semibold">Couldn’t complete the action</p>
-        <p className="mt-0.5 text-sm text-red-100">{getRequestFailureDetail(failure.error, availability)}</p>
+        <p className="mt-0.5 whitespace-pre-line text-sm text-red-100">
+          {getRequestFailureDetail(failure.error, availability)}
+        </p>
       </div>
       <button
         type="button"

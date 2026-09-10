@@ -12,6 +12,7 @@ using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using IExtensionServiceExchange = Cove.Plugins.IExtensionServiceExchange;
 
 namespace Cove.Api.Services;
@@ -328,7 +329,8 @@ public sealed class BulkEntityDeletionService(
     ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null,
     PhysicalFileDeletionService? physicalFileDeletionService = null,
     BlobReferenceTransactionCoordinator? blobReferenceTransactions = null,
-    IAuthorizationService? authorizationService = null)
+    IAuthorizationService? authorizationService = null,
+    ITagExternalReferenceInspector? tagExternalReferenceInspector = null)
 {
     private readonly EntityHostDependencyService _hostDependencies = hostDependencyService ?? new EntityHostDependencyService(db);
     private readonly PhysicalFileDeletionService _physicalFileDeletion = physicalFileDeletionService
@@ -352,7 +354,7 @@ public sealed class BulkEntityDeletionService(
             BulkDeletionEntityKind.Text => await DeleteTextAsync(id, executionContext, deleteFiles, deleteGenerated, ct),
             BulkDeletionEntityKind.Gallery => await DeleteGalleryAsync(id, ct),
             BulkDeletionEntityKind.Performer => await DeleteSimpleAsync(db.Performers, id, CustomFieldEntityTypes.Performer, AffinityHostType.Performer, item => [item.ImageBlobId, item.ImageOverrideBlobId], ct),
-            BulkDeletionEntityKind.Tag => await DeleteSimpleAsync(db.Tags, id, CustomFieldEntityTypes.Tag, AffinityHostType.Tag, item => [item.ImageBlobId, item.ImageOverrideBlobId], ct),
+            BulkDeletionEntityKind.Tag => await DeleteTagAsync(id, ct),
             BulkDeletionEntityKind.Studio => await DeleteSimpleAsync(db.Studios, id, CustomFieldEntityTypes.Studio, AffinityHostType.Studio, item => [item.ImageBlobId, item.ImageOverrideBlobId], ct),
             BulkDeletionEntityKind.Group => await DeleteGroupAsync(id, ct),
             BulkDeletionEntityKind.Face => await DeleteFaceAsync(id, ct),
@@ -634,6 +636,60 @@ public sealed class BulkEntityDeletionService(
             await CleanupBlobBestEffortAsync(blobId, deleteGenerated: true, ct);
         return true;
     }
+
+    private async Task<bool> DeleteTagAsync(int id, CancellationToken ct)
+    {
+        if (!await db.Tags.AsNoTracking().AnyAsync(item => item.Id == id, ct))
+            return false;
+
+        if (tagExternalReferenceInspector is not null)
+        {
+            var blockingReferences = (await tagExternalReferenceInspector.InspectAsync([id], ct))
+                .Where(reference => reference.DeleteBehavior is "restrict" or "no action" or "mixed" or "unknown")
+                .ToArray();
+            if (blockingReferences.Length > 0)
+            {
+                var extensions = blockingReferences
+                    .Where(reference => !string.IsNullOrWhiteSpace(reference.ExtensionId))
+                    .GroupBy(reference => reference.ExtensionId!, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => new TagDeletionExtensionOwner(
+                        group.Key,
+                        group.Select(reference => reference.ExtensionName)
+                            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
+                            ?? group.Key))
+                    .OrderBy(extension => extension.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                throw new TagDeletionBlockedException(
+                    extensions,
+                    blockingReferences.Any(reference => reference.AccessLimitation is not null),
+                    blockingReferences.Any(reference => string.IsNullOrWhiteSpace(reference.ExtensionId)));
+            }
+        }
+
+        try
+        {
+            return await DeleteSimpleAsync(
+                db.Tags,
+                id,
+                CustomFieldEntityTypes.Tag,
+                AffinityHostType.Tag,
+                item => [item.ImageBlobId, item.ImageOverrideBlobId],
+                ct);
+        }
+        catch (DbUpdateException exception) when (IsTagReferenceConstraintViolation(exception))
+        {
+            throw new TagDeletionBlockedException(
+                extensions: [],
+                hasUnknownExtensionOwners: true,
+                innerException: exception);
+        }
+    }
+
+    private static bool IsTagReferenceConstraintViolation(DbUpdateException exception)
+        => exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.RestrictViolation or PostgresErrorCodes.ForeignKeyViolation,
+        };
 
     private async Task<bool> DeleteGalleryAsync(int id, CancellationToken ct)
     {

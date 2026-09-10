@@ -1,15 +1,20 @@
 using Cove.Api.Services;
 using Cove.Core.Auth;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Plugins;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Pgvector;
 
 namespace Cove.Tests;
@@ -697,15 +702,378 @@ public sealed class DeletionSafetyTests
         Assert.Equal([314], invalidator.VideoIds);
     }
 
-    private static CoveContext CreateContext(ICurrentPrincipalAccessor? principalAccessor = null)
+    [Fact]
+    public async Task TagDeletionReturnsAConflictBeforeRemovingATagWithRestrictedExtensionReferences()
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
+        await using var db = CreateContext();
+        var tag = new Tag { Name = "Extension-referenced tag" };
+        db.Tags.Add(tag);
+        await db.SaveChangesAsync();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: new StubTagExternalReferenceInspector(
+            [
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "foreign-key-fixture",
+                    "public",
+                    "extension_items",
+                    "tag_id",
+                    "restrict",
+                    84)
+                {
+                    ExtensionId = "com.example.segment-studio",
+                    ExtensionName = "Segment Studio",
+                },
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "second-foreign-key-fixture",
+                    "public",
+                    "extension_items_two",
+                    "tag_id",
+                    "restrict",
+                    2)
+                {
+                    ExtensionId = "com.example.library-helper",
+                    ExtensionName = "Library Helper",
+                },
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "duplicate-owner-foreign-key-fixture",
+                    "public",
+                    "extension_items_three",
+                    "tag_id",
+                    "restrict",
+                    3)
+                {
+                    ExtensionId = "com.example.segment-studio",
+                    ExtensionName = "Segment Studio",
+                },
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "unknown-foreign-key-fixture",
+                    "public",
+                    "unmapped_extension_items",
+                    "tag_id",
+                    "restrict",
+                    1),
+            ]));
+        var controller = new Cove.Api.Controllers.TagsController(
+            null!,
+            db,
+            customFields,
+            null!,
+            bulkEntityDeletionService: service);
+
+        var result = await controller.Delete(tag.Id, CancellationToken.None);
+
+        var conflict = Assert.IsType<Microsoft.AspNetCore.Mvc.ConflictObjectResult>(result);
+        var response = System.Text.Json.JsonSerializer.Serialize(conflict.Value);
+        using var responseDocument = System.Text.Json.JsonDocument.Parse(response);
+        var responseRoot = responseDocument.RootElement;
+        Assert.Equal("TAG_DELETE_EXTENSION_REFERENCES", responseRoot.GetProperty("code").GetString());
+        Assert.Contains(
+            "• Library Helper\n• Segment Studio\n• An unidentified extension",
+            responseRoot.GetProperty("message").GetString(),
+            StringComparison.Ordinal);
+        Assert.True(responseRoot.GetProperty("HasUnknownExtensionOwners").GetBoolean());
+        Assert.Contains(
+            responseRoot.GetProperty("Extensions").EnumerateArray(),
+            extension => extension.GetProperty("Id").GetString() == "com.example.segment-studio"
+                && extension.GetProperty("Name").GetString() == "Segment Studio");
+        Assert.Equal(2, responseRoot.GetProperty("Extensions").GetArrayLength());
+        Assert.DoesNotContain("extension_items", response, StringComparison.Ordinal);
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+    }
+
+    [Fact]
+    public void TagReferenceOwnerResolutionRequiresAUniqueMappedExtensionAssembly()
+    {
+        var modelBuilder = new ModelBuilder(new ConventionSet());
+        modelBuilder.Entity<OwnerResolverFixture>().ToTable("owned_fixture", "extension_schema");
+        var model = modelBuilder.FinalizeModel();
+        var first = new OwnerResolverDataExtension("com.example.first", "First Extension");
+
+        var unique = PostgresTagExternalReferenceInspector.ResolveExtensionOwner(
+            model,
+            [first],
+            "extension_schema",
+            "owned_fixture");
+        var ambiguous = PostgresTagExternalReferenceInspector.ResolveExtensionOwner(
+            model,
+            [first, new OwnerResolverDataExtension("com.example.second", "Second Extension")],
+            "extension_schema",
+            "owned_fixture");
+        var unmapped = PostgresTagExternalReferenceInspector.ResolveExtensionOwner(
+            model,
+            [first],
+            "extension_schema",
+            "other_fixture");
+
+        Assert.Equal(("com.example.first", "First Extension"), unique);
+        Assert.Null(ambiguous);
+        Assert.Null(unmapped);
+    }
+
+    [Theory]
+    [InlineData(PostgresErrorCodes.RestrictViolation)]
+    [InlineData(PostgresErrorCodes.ForeignKeyViolation)]
+    public async Task TagDeletionMapsLatePostgresReferenceFailuresToASafeConflict(string sqlState)
+    {
+        var saveFailure = new PostgresSaveFailureInterceptor(sqlState);
+        await using var db = CreateContext(saveChangesInterceptor: saveFailure);
+        var tag = new Tag { Name = "Late extension reference" };
+        db.Tags.Add(tag);
+        await db.SaveChangesAsync();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: new StubTagExternalReferenceInspector([]));
+        var controller = new Cove.Api.Controllers.TagsController(
+            null!,
+            db,
+            customFields,
+            null!,
+            bulkEntityDeletionService: service);
+        saveFailure.Arm();
+
+        var result = await controller.Delete(tag.Id, CancellationToken.None);
+
+        var conflict = Assert.IsType<Microsoft.AspNetCore.Mvc.ConflictObjectResult>(result);
+        var response = System.Text.Json.JsonSerializer.Serialize(conflict.Value);
+        Assert.Contains("TAG_DELETE_EXTENSION_REFERENCES", response, StringComparison.Ordinal);
+        Assert.DoesNotContain(PostgresSaveFailureInterceptor.SensitiveDetail, response, StringComparison.Ordinal);
+        db.ChangeTracker.Clear();
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+    }
+
+    [Fact]
+    public async Task TagDeletionDoesNotHideAnUnrelatedPostgresFailure()
+    {
+        var saveFailure = new PostgresSaveFailureInterceptor(PostgresErrorCodes.SerializationFailure);
+        await using var db = CreateContext(saveChangesInterceptor: saveFailure);
+        var tag = new Tag { Name = "Unrelated database failure" };
+        db.Tags.Add(tag);
+        await db.SaveChangesAsync();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: new StubTagExternalReferenceInspector([]));
+        saveFailure.Arm();
+
+        var exception = await Assert.ThrowsAsync<DbUpdateException>(() => service.DeleteAsync(
+            BulkDeletionEntityKind.Tag,
+            tag.Id,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None));
+
+        Assert.IsType<PostgresException>(exception.InnerException);
+        db.ChangeTracker.Clear();
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+    }
+
+    [Fact]
+    public async Task TagDeletionAllowsExtensionReferencesWithDatabaseManagedCleanup()
+    {
+        await using var db = CreateContext();
+        var tag = new Tag { Name = "Cascade-referenced tag" };
+        db.Tags.Add(tag);
+        await db.SaveChangesAsync();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: new StubTagExternalReferenceInspector(
+            [
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "foreign-key-fixture",
+                    "public",
+                    "extension_items",
+                    "tag_id",
+                    "cascade",
+                    1),
+            ]));
+
+        Assert.True(await service.DeleteAsync(
+            BulkDeletionEntityKind.Tag,
+            tag.Id,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None));
+        Assert.False(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+    }
+
+    [Fact]
+    public async Task MissingTagDeletionSkipsExternalReferenceInspection()
+    {
+        await using var db = CreateContext();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var inspector = new StubTagExternalReferenceInspector(
+        [
+            new TagExternalReferenceDto(
+                999,
+                "foreign-key-fixture",
+                "public",
+                "extension_items",
+                "tag_id",
+                "restrict",
+                null,
+                TagExternalReferenceAccessLimitations.DatabasePermission),
+        ]);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: inspector);
+
+        Assert.False(await service.DeleteAsync(
+            BulkDeletionEntityKind.Tag,
+            999,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None));
+        Assert.Equal(0, inspector.InspectionCount);
+    }
+
+    [Fact]
+    public async Task UninspectableTagReferencesExplainHowToRestoreAccess()
+    {
+        await using var db = CreateContext();
+        var tag = new Tag { Name = "Uninspectable extension reference" };
+        db.Tags.Add(tag);
+        await db.SaveChangesAsync();
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus(),
+            tagExternalReferenceInspector: new StubTagExternalReferenceInspector(
+            [
+                new TagExternalReferenceDto(
+                    tag.Id,
+                    "foreign-key-fixture",
+                    "public",
+                    "extension_items",
+                    "tag_id",
+                    "no action",
+                    null,
+                    TagExternalReferenceAccessLimitations.RowLevelSecurity)
+                {
+                    ExtensionId = "com.example.private-data",
+                    ExtensionName = "Private Data",
+                },
+            ]));
+
+        var exception = await Assert.ThrowsAsync<TagDeletionBlockedException>(() => service.DeleteAsync(
+            BulkDeletionEntityKind.Tag,
+            tag.Id,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None));
+
+        Assert.True(exception.HasUninspectableReferences);
+        Assert.Contains("Restore access", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("• Private Data", exception.Message, StringComparison.Ordinal);
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+    }
+
+    private static CoveContext CreateContext(
+        ICurrentPrincipalAccessor? principalAccessor = null,
+        SaveChangesInterceptor? saveChangesInterceptor = null)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite("Data Source=:memory:");
+        if (saveChangesInterceptor is not null)
+            optionsBuilder.AddInterceptors(saveChangesInterceptor);
+        var options = optionsBuilder.Options;
         var context = new CoveContext(options, principalAccessor);
         context.Database.OpenConnection();
         context.Database.EnsureCreated();
         return context;
+    }
+
+    private sealed class PostgresSaveFailureInterceptor(string sqlState) : SaveChangesInterceptor
+    {
+        public const string SensitiveDetail = "foreign key fixture detail";
+        private bool _armed;
+
+        public void Arm() => _armed = true;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_armed)
+                return ValueTask.FromResult(result);
+
+            _armed = false;
+            throw new DbUpdateException(
+                "Injected save failure",
+                new PostgresException(SensitiveDetail, "ERROR", "ERROR", sqlState));
+        }
+    }
+
+    private sealed class OwnerResolverFixture
+    {
+        public int Id { get; set; }
+    }
+
+    private sealed class OwnerResolverDataExtension(string id, string name) : IDataExtension
+    {
+        public string Id => id;
+        public string Name => name;
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
+        public void ConfigureModel(ModelBuilder modelBuilder) { }
     }
 
     private sealed class RecordingSegmentInvalidator : ISegmentSpanCacheInvalidator
@@ -723,6 +1091,26 @@ public sealed class DeletionSafetyTests
                 + await db.Galleries.CountAsync(item => item.ImageBlobId == blobId || item.BackImageBlobId == blobId, ct);
             return Math.Min(maximum, count);
         }
+    }
+
+    private sealed class StubTagExternalReferenceInspector(IReadOnlyList<TagExternalReferenceDto> references)
+        : ITagExternalReferenceInspector
+    {
+        public int InspectionCount { get; private set; }
+
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
+            IReadOnlyCollection<int> tagIds,
+            CancellationToken ct = default)
+        {
+            InspectionCount++;
+            return Task.FromResult(references);
+        }
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class ReferenceAwareBlobService(CoveContext db) : IBlobService

@@ -8,7 +8,11 @@ public sealed record TagExternalReferenceDto(
     string ColumnName,
     string DeleteBehavior,
     int? RowCount,
-    string? AccessLimitation = null);
+    string? AccessLimitation = null)
+{
+    public string? ExtensionId { get; init; }
+    public string? ExtensionName { get; init; }
+}
 
 public sealed record TagExternalReferenceResolutionDto(
     int TagId,

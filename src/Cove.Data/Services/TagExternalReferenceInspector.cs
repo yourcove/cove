@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -32,8 +33,12 @@ public sealed class TagExternalReferenceRepairException(string message, Exceptio
 /// keys outlive their loaded EF model. A false positive blocks a merge; a false negative could delete
 /// extension data through a cascading foreign key.
 /// </summary>
-public sealed class PostgresTagExternalReferenceInspector(CoveContext db) : ITagExternalReferenceInspector
+public sealed class PostgresTagExternalReferenceInspector(
+    CoveContext db,
+    ExtensionManager? extensionManager = null) : ITagExternalReferenceInspector
 {
+    private readonly record struct ExtensionOwner(string Id, string Name);
+
     private readonly record struct ReferenceLocation(
         string Schema,
         string Table,
@@ -115,6 +120,7 @@ public sealed class PostgresTagExternalReferenceInspector(CoveContext db) : ITag
                 for (var locationIndex = 0; locationIndex < externalLocations.Length; locationIndex++)
                 {
                     var location = externalLocations[locationIndex];
+                    var owner = ResolveExtensionOwner(location);
                     var savepoint = $"cove_tag_reference_probe_{locationIndex}";
                     await transaction.SaveAsync(savepoint, ct);
                     var sql = $"""
@@ -144,7 +150,11 @@ public sealed class PostgresTagExternalReferenceInspector(CoveContext db) : ITag
                                     location.Table,
                                     location.Column,
                                     location.DeleteBehavior,
-                                    reader.GetInt32(1)));
+                                    reader.GetInt32(1))
+                                {
+                                    ExtensionId = owner?.Id,
+                                    ExtensionName = owner?.Name,
+                                });
                             }
                         }
 
@@ -169,7 +179,11 @@ public sealed class PostgresTagExternalReferenceInspector(CoveContext db) : ITag
                                 location.Column,
                                 location.DeleteBehavior,
                                 null,
-                                limitation));
+                                limitation)
+                            {
+                                ExtensionId = owner?.Id,
+                                ExtensionName = owner?.Name,
+                            });
                         }
                     }
                 }
@@ -203,6 +217,42 @@ public sealed class PostgresTagExternalReferenceInspector(CoveContext db) : ITag
             if (openedHere)
                 await db.Database.CloseConnectionAsync();
         }
+    }
+
+    private ExtensionOwner? ResolveExtensionOwner(ReferenceLocation location)
+    {
+        if (extensionManager is null)
+            return null;
+
+        var owner = ResolveExtensionOwner(
+            db.Model,
+            extensionManager.Extensions.OfType<IDataExtension>(),
+            location.Schema,
+            location.Table);
+        return owner.HasValue ? new ExtensionOwner(owner.Value.Id, owner.Value.Name) : null;
+    }
+
+    internal static (string Id, string Name)? ResolveExtensionOwner(
+        IModel model,
+        IEnumerable<IDataExtension> dataExtensions,
+        string schema,
+        string table)
+    {
+        var entityAssemblies = model.GetEntityTypes()
+            .Where(entityType => string.Equals(entityType.GetTableName(), table, StringComparison.Ordinal)
+                && string.Equals(entityType.GetSchema() ?? "public", schema, StringComparison.Ordinal))
+            .Select(entityType => entityType.ClrType.Assembly)
+            .ToHashSet();
+        if (entityAssemblies.Count == 0)
+            return null;
+
+        var candidates = dataExtensions
+            .Where(extension => entityAssemblies.Contains(extension.GetType().Assembly))
+            .Select(extension => (extension.Id, extension.Name))
+            .DistinctBy(owner => owner.Id, StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
     }
 
     public async Task ApplyResolutionsAsync(
