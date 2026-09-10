@@ -602,6 +602,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
         foreach (var gallery in galleries)
         {
+            var relationshipsChanged = false;
+
             if (clearFields.Contains("studioId")) gallery.StudioId = null;
             if (clearFields.Contains("date")) gallery.Date = null;
             if (clearFields.Contains("code")) gallery.Code = null;
@@ -614,37 +616,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             if (dto.Details != null) gallery.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
             if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                gallery.GalleryTags.Clear();
-                gallery.GalleryTags = dto.TagIds.Select(tid => new GalleryTag { TagId = tid, GalleryId = gallery.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = gallery.GalleryTags.Select(gt => gt.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    gallery.GalleryTags.Add(new GalleryTag { TagId = tid, GalleryId = gallery.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                gallery.GalleryTags = gallery.GalleryTags.Where(gt => !dto.TagIds.Contains(gt.TagId)).ToList();
-            }
+            if (dto.TagIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(gallery.GalleryTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new GalleryTag { TagId = tagId, GalleryId = gallery.Id });
 
-            if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Set)
-            {
-                gallery.GalleryPerformers.Clear();
-                gallery.GalleryPerformers = dto.PerformerIds.Select(pid => new GalleryPerformer { PerformerId = pid, GalleryId = gallery.Id }).ToList();
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Add)
-            {
-                var existing = gallery.GalleryPerformers.Select(gp => gp.PerformerId).ToHashSet();
-                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)))
-                    gallery.GalleryPerformers.Add(new GalleryPerformer { PerformerId = pid, GalleryId = gallery.Id });
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
-            {
-                gallery.GalleryPerformers = gallery.GalleryPerformers.Where(gp => !dto.PerformerIds.Contains(gp.PerformerId)).ToList();
-            }
+            if (dto.PerformerIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(gallery.GalleryPerformers, dto.PerformerIds, dto.PerformerMode, item => item.PerformerId, performerId => new GalleryPerformer { PerformerId = performerId, GalleryId = gallery.Id });
+
+            if (relationshipsChanged)
+                MetadataCollectionUpdater.Touch(gallery);
         }
 
         await db.SaveChangesAsync(ct);

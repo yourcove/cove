@@ -14,6 +14,45 @@ namespace Cove.Tests;
 
 public class VideoMutationEventTests
 {
+    [Fact]
+    public async Task BulkRelationshipUpdateTouchesParentOnlyWhenCollectionChanges()
+    {
+        var (db, principal) = CreateContext();
+        await using (db)
+        {
+            var video = new Video
+            {
+                Title = "Bulk relationship update",
+                VideoTags = [new VideoTag { TagId = 10 }],
+            };
+            db.Videos.Add(video);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            var originalUpdatedAt = DateTime.UtcNow.AddDays(-1);
+            video.UpdatedAt = originalUpdatedAt;
+            db.Entry(video).Property(item => item.UpdatedAt).IsModified = false;
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var controller = CreateController(db, principal, new EventBus(), cache);
+            var update = new BulkVideoUpdateDto
+            {
+                Ids = [video.Id],
+                TagIds = [10],
+                TagMode = BulkUpdateMode.Remove,
+            };
+
+            await controller.BulkUpdate(update, TestContext.Current.CancellationToken);
+
+            Assert.Empty(video.VideoTags);
+            await db.Entry(video).ReloadAsync(TestContext.Current.CancellationToken);
+            Assert.True(video.UpdatedAt > originalUpdatedAt);
+            var changedUpdatedAt = video.UpdatedAt;
+
+            await controller.BulkUpdate(update, TestContext.Current.CancellationToken);
+
+            await db.Entry(video).ReloadAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(changedUpdatedAt, video.UpdatedAt);
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

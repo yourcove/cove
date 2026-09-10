@@ -1615,6 +1615,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         foreach (var video in videos)
         {
             var previousTagIds = dto.TagIds != null ? video.VideoTags.Select(videoTag => videoTag.TagId).ToArray() : [];
+            var relationshipsChanged = false;
 
             if (clearFields.Contains("studioId")) video.StudioId = null;
             if (clearFields.Contains("date")) video.Date = null;
@@ -1627,21 +1628,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             if (dto.Code != null) video.Code = dto.Code;
             if (dto.Director != null) video.Director = dto.Director;
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                video.VideoTags.Clear();
-                video.VideoTags = dto.TagIds.Select(tid => new VideoTag { TagId = tid, VideoId = video.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = video.VideoTags.Select(st => st.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    video.VideoTags.Add(new VideoTag { TagId = tid, VideoId = video.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                video.VideoTags = video.VideoTags.Where(st => !dto.TagIds.Contains(st.TagId)).ToList();
-            }
+            if (dto.TagIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(video.VideoTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new VideoTag { TagId = tagId, VideoId = video.Id });
 
             if (dto.TagIds != null && tagProvenanceService != null)
             {
@@ -1653,41 +1641,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     cancellationToken: ct);
             }
 
-            if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Set)
-            {
-                video.VideoPerformers.Clear();
-                video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = video.Id }).ToList();
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Add)
-            {
-                var existing = video.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)).Distinct())
-                    video.VideoPerformers.Add(new VideoPerformer { PerformerId = pid, VideoId = video.Id });
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
-            {
-                video.VideoPerformers = video.VideoPerformers.Where(sp => !dto.PerformerIds.Contains(sp.PerformerId)).ToList();
-            }
+            if (dto.PerformerIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(video.VideoPerformers, dto.PerformerIds, dto.PerformerMode, item => item.PerformerId, performerId => new VideoPerformer { PerformerId = performerId, VideoId = video.Id });
 
-            if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Set)
-            {
-                video.VideoGalleries.Clear();
-                video.VideoGalleries = dto.GalleryIds.Select(gid => new VideoGallery { GalleryId = gid, VideoId = video.Id }).ToList();
-            }
-            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Add)
-            {
-                var existing = video.VideoGalleries.Select(sg => sg.GalleryId).ToHashSet();
-                foreach (var gid in dto.GalleryIds.Where(g => !existing.Contains(g)))
-                    video.VideoGalleries.Add(new VideoGallery { GalleryId = gid, VideoId = video.Id });
-            }
-            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Remove)
-            {
-                video.VideoGalleries = video.VideoGalleries.Where(sg => !dto.GalleryIds.Contains(sg.GalleryId)).ToList();
-            }
+            if (dto.GalleryIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(video.VideoGalleries, dto.GalleryIds, dto.GalleryMode, item => item.GalleryId, galleryId => new VideoGallery { GalleryId = galleryId, VideoId = video.Id });
 
             if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Set)
             {
-                ReplaceWholeVideoGroupItems(video, dto.GroupIds);
+                relationshipsChanged |= ReplaceWholeVideoGroupItems(video, dto.GroupIds);
             }
             else if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Add)
             {
@@ -1696,6 +1658,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     .Select(item => item.GroupId)
                     .ToHashSet();
                 foreach (var g in dto.GroupIds.Where(g => !existing.Contains(g.GroupId)))
+                {
                     video.GroupItems.Add(new GroupItem
                     {
                         GroupId = g.GroupId,
@@ -1703,12 +1666,19 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                         Kind = GroupItemKind.Video,
                         VideoId = video.Id,
                     });
+                    relationshipsChanged = true;
+                }
             }
             else if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Remove)
             {
                 var removeIds = dto.GroupIds.Select(g => g.GroupId).ToHashSet();
-                RemoveWholeVideoGroupItems(video, video.GroupItems.Where(item => item.Kind == GroupItemKind.Video && removeIds.Contains(item.GroupId)).ToList());
+                var removedItems = video.GroupItems.Where(item => item.Kind == GroupItemKind.Video && removeIds.Contains(item.GroupId)).ToList();
+                RemoveWholeVideoGroupItems(video, removedItems);
+                relationshipsChanged |= removedItems.Count > 0;
             }
+
+            if (relationshipsChanged)
+                MetadataCollectionUpdater.Touch(video);
         }
 
         await db.SaveChangesAsync(ct);
