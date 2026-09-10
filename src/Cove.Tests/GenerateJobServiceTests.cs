@@ -64,11 +64,12 @@ public class GenerateJobServiceTests
     }
 
     [Fact]
-    public void SelectVideoFile_UsesTheFileInsideTheRequestedPath()
+    public void SelectVideoFile_UsesThePrimaryFileInsideTheRequestedPath()
     {
         var video = CreateVideoWithFiles(
             (1, "/library/original", "first.mp4"),
             (2, "/library/private", "selected.mp4"));
+        video.PrimaryFileId = 2;
 
         var selected = GenerateJobService.SelectVideoFile(video, ["/library/private"]);
 
@@ -80,10 +81,39 @@ public class GenerateJobServiceTests
     public void SelectVideoFile_ReturnsNullWhenNoFileMatchesTheRequestedPath()
     {
         var video = CreateVideoWithFiles((1, "/library/original", "first.mp4"));
+        video.PrimaryFileId = 1;
 
         var selected = GenerateJobService.SelectVideoFile(video, ["/library/private"]);
 
         Assert.Null(selected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(1)]
+    [InlineData(99)]
+    public void SelectVideoFile_DoesNotFallBackToMatchingSecondaryFile(int? primaryFileId)
+    {
+        var video = CreateVideoWithFiles(
+            (1, "/library/original", "primary.mp4"),
+            (2, "/library/private", "secondary.mp4"));
+        video.PrimaryFileId = primaryFileId;
+
+        Assert.Null(GenerateJobService.SelectVideoFile(video, ["/library/private"]));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(2, 2)]
+    [InlineData(99, null)]
+    public void SelectVideoFile_WithoutPathFilterRequiresAnAvailablePrimaryFile(int? primaryFileId, int? expectedFileId)
+    {
+        var video = CreateVideoWithFiles(
+            (1, "/library/original", "first.mp4"),
+            (2, "/library/private", "primary.mp4"));
+        video.PrimaryFileId = primaryFileId;
+
+        Assert.Equal(expectedFileId, GenerateJobService.SelectVideoFile(video, [])?.Id);
     }
 
     [Theory]
@@ -127,7 +157,7 @@ public class GenerateJobServiceTests
     }
 
     [Fact]
-    public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingSourceFile()
+    public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingPrimaryFile()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         var originalRoot = Path.Combine(tempRoot, "original");
@@ -157,6 +187,8 @@ public class GenerateJobServiceTests
                 db.Videos.Add(video);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 selectedFileId = video.Files.Single(file => file.Basename == "selected.mp4").Id;
+                video.PrimaryFileId = selectedFileId;
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var jobs = new CapturingJobService();

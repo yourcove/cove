@@ -892,7 +892,12 @@ export function VideoPlayer({
   const effectiveStreamUrl =
     selectedQuality === "Direct"
       ? streamUrl
-      : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined, fileId);
+      : videos.transcodeUrl(
+          videoId,
+          transcodeResolution,
+          transcodeStartSec > 0 ? transcodeStartSec : undefined,
+          fileId,
+        );
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
 

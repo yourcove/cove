@@ -173,11 +173,22 @@ describe("extension keyboard runtime", () => {
   });
 
   it("suppresses background shortcuts while a shared edit modal is open", () => {
-    const view = render(<KeyboardShortcutProvider><ExtensionHarness /><EditModal open title="Split into a new scene" onClose={() => {}}><button>Prepopulate</button></EditModal></KeyboardShortcutProvider>);
-    fireEvent.keyDown(screen.getByRole("button", {name: "Prepopulate"}), {key: "r"});
+    const view = render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+        <EditModal open title="Split into a new scene" onClose={() => {}}>
+          <button>Prepopulate</button>
+        </EditModal>
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Prepopulate" }), { key: "r" });
     expect(action).not.toHaveBeenCalled();
-    view.rerender(<KeyboardShortcutProvider><ExtensionHarness /></KeyboardShortcutProvider>);
-    fireEvent.keyDown(screen.getByRole("button"), {key: "r"});
+    view.rerender(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
     expect(action).toHaveBeenCalledOnce();
   });
 

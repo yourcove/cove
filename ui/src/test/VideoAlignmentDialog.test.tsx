@@ -8,8 +8,20 @@ vi.mock("../api/client", () => ({
   videos: { streamUrl: (id: number, fileId?: number) => `/stream/video/${id}?fileId=${fileId}` },
 }));
 
-const assessment = { sourceFileId: 10, targetFileId: 11, sourceDuration: 30, targetDuration: 36, equivalent: false, canAlign: true, dependencyCount: 3, dependencyCounts: { segment: 1, clip: 2 } };
-const anchors = [{ sourceSec: 0, targetSec: 6, section: 0 }, { sourceSec: 20, targetSec: 26, section: 0 }];
+const assessment = {
+  sourceFileId: 10,
+  targetFileId: 11,
+  sourceDuration: 30,
+  targetDuration: 36,
+  equivalent: false,
+  canAlign: true,
+  dependencyCount: 3,
+  dependencyCounts: { segment: 1, clip: 2 },
+};
+const anchors = [
+  { sourceSec: 0, targetSec: 6, section: 0 },
+  { sourceSec: 20, targetSec: 26, section: 0 },
+];
 
 describe("primary-file alignment", () => {
   beforeEach(() => {
@@ -20,14 +32,35 @@ describe("primary-file alignment", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     api.assess.mockResolvedValue(assessment);
     api.analyze.mockResolvedValue({ anchors, sampleStep: 0.5, message: "matches" });
-    api.preview.mockResolvedValue({ message: "resolve all", comparisonCounts: { segment: 1, clip: 2 }, comparisons: [
-      { kind: "segment", id: 8, title: "Opening", sourceSec: 4, targetSec: 10, sourceThumbnail: "/9j/old", targetThumbnail: "/9j/new" },
-      { kind: "clip", id: 1, title: "Mapped", sourceSec: 3.5, targetSec: 9.5, sourceThumbnail: "/9j/old", targetThumbnail: "/9j/new" },
-    ], dependencies: [
-      { kind: "segment", id: 8, title: "Opening", startSec: 2, endSec: 6, mapped: { startSec: 8, endSec: 12 } },
-      { kind: "clip", id: 1, title: "Mapped", startSec: 2, endSec: 5, mapped: { startSec: 8, endSec: 11 } },
-      { kind: "clip", id: 2, title: "Missing", startSec: 25, endSec: 29, mapped: null },
-    ] });
+    api.preview.mockResolvedValue({
+      message: "resolve all",
+      comparisonCounts: { segment: 1, clip: 2 },
+      comparisons: [
+        {
+          kind: "segment",
+          id: 8,
+          title: "Opening",
+          sourceSec: 4,
+          targetSec: 10,
+          sourceThumbnail: "/9j/old",
+          targetThumbnail: "/9j/new",
+        },
+        {
+          kind: "clip",
+          id: 1,
+          title: "Mapped",
+          sourceSec: 3.5,
+          targetSec: 9.5,
+          sourceThumbnail: "/9j/old",
+          targetThumbnail: "/9j/new",
+        },
+      ],
+      dependencies: [
+        { kind: "segment", id: 8, title: "Opening", startSec: 2, endSec: 6, mapped: { startSec: 8, endSec: 12 } },
+        { kind: "clip", id: 1, title: "Mapped", startSec: 2, endSec: 5, mapped: { startSec: 8, endSec: 11 } },
+        { kind: "clip", id: 2, title: "Missing", startSec: 25, endSec: 29, mapped: null },
+      ],
+    });
     api.apply.mockResolvedValue({ primaryFileId: 11, mapped: 1, deleted: 1 });
   });
 
@@ -89,7 +122,13 @@ describe("primary-file alignment", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Delete clip video" }));
     expect(apply).toBeEnabled();
     fireEvent.click(apply);
-    await waitFor(() => expect(api.apply).toHaveBeenCalledWith(42, expect.objectContaining({ resolution: "align", expectedPrimaryFileId: 10 }), expect.any(AbortSignal)));
+    await waitFor(() =>
+      expect(api.apply).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ resolution: "align", expectedPrimaryFileId: 10 }),
+        expect.any(AbortSignal),
+      ),
+    );
     expect(screen.queryByText(/saved alignment/i)).not.toBeInTheDocument();
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("permanently delete 1 clip video"));
   });
@@ -121,7 +160,13 @@ describe("primary-file alignment", () => {
     render(<VideoAlignmentDialog videoId={42} targetFileId={11} onClose={vi.fn()} />);
     const setPrimary = await screen.findByRole("button", { name: "Set as primary" });
     fireEvent.click(setPrimary);
-    await waitFor(() => expect(api.apply).toHaveBeenCalledWith(42, expect.objectContaining({ resolution: "direct" }), expect.any(AbortSignal)));
+    await waitFor(() =>
+      expect(api.apply).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ resolution: "direct" }),
+        expect.any(AbortSignal),
+      ),
+    );
     expect(api.analyze).not.toHaveBeenCalled();
   });
 
@@ -138,7 +183,14 @@ describe("primary-file alignment", () => {
   });
 
   it("describes direct assignment when no primary or timed content exists", async () => {
-    api.assess.mockResolvedValue({ ...assessment, sourceFileId: null, sourceDuration: null, canAlign: false, dependencyCount: 0, dependencyCounts: {} });
+    api.assess.mockResolvedValue({
+      ...assessment,
+      sourceFileId: null,
+      sourceDuration: null,
+      canAlign: false,
+      dependencyCount: 0,
+      dependencyCounts: {},
+    });
     render(<VideoAlignmentDialog videoId={42} targetFileId={11} onClose={vi.fn()} />);
 
     await screen.findByText(/no current primary file and no timed content to adjust/i);

@@ -632,7 +632,11 @@ function getGroupFeedTitle(item: GroupItem, entity?: GroupFeedEntity) {
   if (!entity) return item.videoTitle || item.imageTitle || item.childGroupName || "Loading item…";
   switch (entity.type) {
     case "video":
-      return entity.value.title || entity.value.files.find((file) => file.id === entity.value.primaryFileId)?.basename || `Video ${entity.value.id}`;
+      return (
+        entity.value.title ||
+        entity.value.files.find((file) => file.id === entity.value.primaryFileId)?.basename ||
+        `Video ${entity.value.id}`
+      );
     case "image":
       return getImageDisplayTitle(entity.value);
     case "audio":

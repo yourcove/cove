@@ -165,7 +165,7 @@ public sealed class VideoGenerationAndRescanApiTests(
             .Replace("\r\n", "\n")
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Single(line => line.StartsWith($"/api/stream/video/{video.Id}/hls/segment/", StringComparison.Ordinal));
-        segmentUrl.Should().EndWith("?access_token=<access-token>");
+        segmentUrl.Should().EndWith($"?fileId={video.PrimaryFileId}&access_token=<access-token>");
         var segmentName = segmentUrl.Split('?', 2)[0].Split('/').Last();
         segmentName.Should().Be("original_0000.ts");
 

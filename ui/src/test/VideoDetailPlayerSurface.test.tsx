@@ -185,8 +185,16 @@ function renderVideoDetail(id = 14, initialSeekTo?: number) {
 
 describe("VideoDetailPage media-player extension surface", () => {
   it("does not offer file actions after the last file disappears", async () => {
-    mockVideos.get.mockResolvedValue({ id: 14, title: "Missing media", organized: false,
-      updatedAt: "2026-07-11T00:00:00Z", files: [], performers: [], tags: [], contextTagApplications: [] });
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Missing media",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
     renderVideoDetail();
     fireEvent.click(await screen.findByRole("tab", { name: "File Info" }));
     expect(screen.queryByRole("button", { name: "Set as primary" })).not.toBeInTheDocument();

@@ -39,7 +39,9 @@ export function EditModal({ title, open, onClose, children, maxWidthClassName = 
         className={`relative bg-surface sm:rounded-lg shadow-xl w-full ${maxWidthClassName} h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4`}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
-          <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
           <button onClick={onClose} className="text-secondary hover:text-foreground p-1">
             <X className="w-5 h-5" />
           </button>

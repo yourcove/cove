@@ -26,12 +26,7 @@ import {
   type MultiSelectToggleOptions,
 } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import {
-  formatDuration,
-  formatFileSize,
-  getResolutionLabel,
-  RatingBadge,
-} from "../components/shared";
+import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
@@ -1191,7 +1186,6 @@ export function VideosPage({ onNavigate }: Props) {
     </>
   );
 }
-
 
 function CompilationGroupCard({ group, onNavigate }: { group: Group; onNavigate: (r: any) => void }) {
   return (

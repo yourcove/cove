@@ -620,7 +620,10 @@ export const videos = {
   assignFile: (id: number, fileId: number) =>
     request<void>(`/videos/${id}/assign-file`, { method: "POST", body: JSON.stringify({ fileId }) }),
   splitFile: (id: number, fileId: number, title?: string, metadata?: VideoCreate) =>
-    request<{ videoId: number }>(`/videos/${id}/split-file`, { method: "POST", body: JSON.stringify({ fileId, title, metadata }) }),
+    request<{ videoId: number }>(`/videos/${id}/split-file`, {
+      method: "POST",
+      body: JSON.stringify({ fileId, title, metadata }),
+    }),
   streamUrl: (id: number, fileId?: number) => buildMediaUrl(`/stream/video/${id}`, undefined, undefined, { fileId }),
   screenshotUrl: (id: number, version?: string, seconds?: number) =>
     buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
@@ -632,7 +635,8 @@ export const videos = {
   transcodeUrl: (id: number, resolution?: string, start?: number, fileId?: number) =>
     buildMediaUrl(`/stream/video/${id}/transcode`, undefined, undefined, { resolution, start, fileId }),
   hlsMasterUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/hls/master.m3u8`),
-  getResolutions: (id: number, fileId?: number) => request<string[]>(`/stream/video/${id}/resolutions${fileId == null ? "" : `?fileId=${fileId}`}`),
+  getResolutions: (id: number, fileId?: number) =>
+    request<string[]>(`/stream/video/${id}/resolutions${fileId == null ? "" : `?fileId=${fileId}`}`),
   segments: {
     list: (videoId: number) => request<Segment[]>(`/videos/${videoId}/segments`),
     create: (videoId: number, data: SegmentCreate) =>
@@ -686,7 +690,8 @@ export const videos = {
 
 export const fileOps = {
   reveal: (fileId: number) => request<void>(`/files/${fileId}/reveal`, { method: "POST" }),
-  delete: (fileId: number, deleteFromDisk: boolean) => request<void>("/files/delete", { method: "POST", body: JSON.stringify({ fileIds: [fileId], deleteFromDisk }) }),
+  delete: (fileId: number, deleteFromDisk: boolean) =>
+    request<void>("/files/delete", { method: "POST", body: JSON.stringify({ fileIds: [fileId], deleteFromDisk }) }),
   revealFolder: (folderId: number) => request<void>(`/files/folders/${folderId}/reveal`, { method: "POST" }),
 };
 
@@ -2519,7 +2524,17 @@ export const videoAlignments = {
       signal,
       timeoutMs: null,
     }),
-  apply: (id: number, data: { fileId: number; resolution: "direct" | "align" | "delete"; anchors?: AlignmentAnchor[]; deleteDependencies?: { kind: string; id: number }[]; expectedPrimaryFileId: number | null }, signal?: AbortSignal) =>
+  apply: (
+    id: number,
+    data: {
+      fileId: number;
+      resolution: "direct" | "align" | "delete";
+      anchors?: AlignmentAnchor[];
+      deleteDependencies?: { kind: string; id: number }[];
+      expectedPrimaryFileId: number | null;
+    },
+    signal?: AbortSignal,
+  ) =>
     request<{ primaryFileId: number; mapped?: number; deleted?: number }>(`/videos/${id}/alignments/apply`, {
       method: "POST",
       body: JSON.stringify(data),

@@ -50,6 +50,7 @@ import { RelatedEntityListRow, RelatedEntityListView } from "../components/Relat
 const video = {
   id: 42,
   title: "Sample Video",
+  primaryFileId: 1,
   imagePath: "/video-source.jpg",
   updatedAt: "2026-07-11T00:00:00Z",
   files: [{ id: 1, basename: "sample.mp4", size: 1000, duration: 120, width: 1920, height: 1080 }],

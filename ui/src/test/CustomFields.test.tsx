@@ -59,10 +59,12 @@ describe("JSON custom fields", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const onFieldChange = vi.fn();
-    renderWithDefinition(<CustomFieldsEditor value={{}} onChange={onChange} onFieldChange={onFieldChange} entityType="video" />);
-    await user.click(screen.getByRole("button", {name: "Add Structured Metadata JSON"}));
-    fireEvent.change(screen.getByRole("textbox", {name: "Structured Metadata JSON"}), {target: {value: "null"}});
-    await user.click(screen.getByRole("button", {name: "Apply JSON"}));
+    renderWithDefinition(
+      <CustomFieldsEditor value={{}} onChange={onChange} onFieldChange={onFieldChange} entityType="video" />,
+    );
+    await user.click(screen.getByRole("button", { name: "Add Structured Metadata JSON" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Structured Metadata JSON" }), { target: { value: "null" } });
+    await user.click(screen.getByRole("button", { name: "Apply JSON" }));
     expect(onChange).toHaveBeenCalledWith({});
     expect(onFieldChange).toHaveBeenCalledWith("structured_metadata");
   });

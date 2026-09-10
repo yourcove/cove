@@ -81,12 +81,13 @@ export function WallMediaCard({
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     const previous = videoRef.current;
     videoRef.current = element;
-    if (previous && previous !== element) queueMicrotask(() => {
-      if (videoRef.current === previous) return;
-      previous.pause();
-      previous.removeAttribute("src");
-      previous.load();
-    });
+    if (previous && previous !== element)
+      queueMicrotask(() => {
+        if (videoRef.current === previous) return;
+        previous.pause();
+        previous.removeAttribute("src");
+        previous.load();
+      });
     onVideoElementChangeRef.current?.(element);
   }, []);
   const [videoFailed, setVideoFailed] = useState(false);

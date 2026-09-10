@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
@@ -232,7 +233,7 @@ public sealed class VideoDiscoveryReconciliationApiTests(
     [Fact]
     [CoversEndpoint("POST", "/api/videos/from-file")]
     [CoversEndpoint("POST", "/api/videos/{id:int}/assign-file")]
-    public async Task GivenImportedFile_WhenAssignedToAnotherVideo_ThenTheNewOwnerPersistsTheFile()
+    public async Task GivenSecondaryFile_WhenAssignedToAnotherVideo_ThenTheNewOwnerPersistsTheFile()
     {
         // Arrange
         var path = AsTestFileSystem().CreateTextFile("A local file imported through the video API.");
@@ -241,13 +242,51 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         // Act
         var imported = await AsUser(ApiTestUsers.Eva).CreateVideoFromFileAsync(path, TestContext.Current.CancellationToken);
         var file = imported.Files.Should().ContainSingle().Which;
+        await AsUser(ApiTestUsers.Eva).AssertResponseAsync(HttpMethod.Post, $"/api/videos/{target.Id}/assign-file",
+            HttpStatusCode.Conflict, new VideoAssignFileDto(file.Id), TestContext.Current.CancellationToken);
+        (await AsUser().GetVideoByIdAsync(imported.Id, TestContext.Current.CancellationToken)).PrimaryFileId.Should().Be(file.Id);
+        (await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
+
+        var primaryPath = AsTestFileSystem().CreateTextFile("A retained primary video file.");
+        var source = await AsUser().CreateVideoFromFileAsync(primaryPath, TestContext.Current.CancellationToken);
+        var primaryFileId = source.PrimaryFileId;
+        await AsUser().MergeVideosAsync(source, TestContext.Current.CancellationToken, imported);
         await AsUser(ApiTestUsers.Eva).AssignVideoFileAsync(target, file.Id, TestContext.Current.CancellationToken);
         var targetAfter = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
-        var sourceAfter = await AsUser().GetVideoByIdAsync(imported.Id, TestContext.Current.CancellationToken);
+        var sourceAfter = await AsUser().GetVideoByIdAsync(source.Id, TestContext.Current.CancellationToken);
 
         // Assert
         targetAfter.Files.Should().ContainSingle(candidate => candidate.Id == file.Id && candidate.Path == path);
-        sourceAfter.Files.Should().BeEmpty();
+        sourceAfter.Files.Should().ContainSingle(candidate => candidate.Id == primaryFileId);
+        sourceAfter.PrimaryFileId.Should().Be(primaryFileId);
+        targetAfter.PrimaryFileId.Should().Be(file.Id);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/split-file")]
+    public async Task GivenSecondaryFile_WhenSplit_ThenNewVideoOwnsFileAndPrimarySourceIsPreserved()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = AsUser();
+        var source = await owner.CreateVideoFromFileAsync(AsTestFileSystem().CreateTextFile("Retained primary"), ct);
+        var secondary = await owner.CreateVideoFromFileAsync(AsTestFileSystem().CreateTextFile("File to split"), ct);
+        var primaryFileId = source.PrimaryFileId!.Value;
+        var secondaryFileId = secondary.PrimaryFileId!.Value;
+        await owner.MergeVideosAsync(source, ct, secondary);
+
+        await owner.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{source.Id}/split-file", HttpStatusCode.Conflict,
+            new VideoSplitFileDto(primaryFileId), ct);
+        var splitId = await owner.SplitVideoFileAsync(source.Id,
+            new VideoSplitFileDto(secondaryFileId, Title: "Split destination", Details: "Explicit split details"), ct);
+
+        var split = await owner.GetVideoByIdAsync(splitId, ct);
+        split.Title.Should().Be("Split destination");
+        split.Details.Should().Be("Explicit split details");
+        split.PrimaryFileId.Should().Be(secondaryFileId);
+        split.Files.Should().ContainSingle(file => file.Id == secondaryFileId);
+        var updatedSource = await owner.GetVideoByIdAsync(source.Id, ct);
+        updatedSource.PrimaryFileId.Should().Be(primaryFileId);
+        updatedSource.Files.Should().ContainSingle(file => file.Id == primaryFileId);
     }
 
 }
