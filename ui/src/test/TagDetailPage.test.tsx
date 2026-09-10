@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { performers, savedFilters, segmentLibrary } from "../api/client";
+import { videos, performers, savedFilters, segmentLibrary } from "../api/client";
 import { TagDetailPage } from "../pages/TagDetailPage";
 
 const mocks = vi.hoisted(() => ({
@@ -22,12 +22,12 @@ vi.mock("../api/client", () => ({
     create: vi.fn(),
     delete: vi.fn(),
   },
-  videos: {},
+  videos: { aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0, duration: 0 }) },
   performers: { findFiltered: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }) },
-  images: {},
-  galleries: {},
-  audios: {},
-  texts: {},
+  images: { aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0 }) },
+  galleries: { aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0 }) },
+  audios: { aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0, duration: 0 }) },
+  texts: { aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0 }) },
   segmentLibrary: {
     distinctKinds: vi.fn().mockResolvedValue([]),
     distinctSourceKeys: vi.fn().mockResolvedValue([]),
@@ -183,7 +183,25 @@ describe("TagDetailPage", () => {
       </QueryClientProvider>,
     );
 
+    await waitFor(() =>
+      expect(videos.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectFilter: expect.objectContaining({
+            tagsCriterion: { value: [], modifier: "INCLUDES", requiredIds: [1206] },
+          }),
+        }),
+      ),
+    );
     await user.click(await screen.findByRole("checkbox", { name: "Include sub-tag content" }));
+    await waitFor(() =>
+      expect(videos.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectFilter: expect.objectContaining({
+            tagsCriterion: { value: [], modifier: "INCLUDES", requiredIds: [1206], requiredIdsDepth: -1 },
+          }),
+        }),
+      ),
+    );
 
     await waitFor(() => {
       const params = new URLSearchParams(window.location.search);

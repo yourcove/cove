@@ -1,3 +1,4 @@
+import { MediaDetailListToolbar } from "../components/MediaDetailListToolbar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   audios,
@@ -730,7 +731,10 @@ function TagVideosPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="videos"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -997,7 +1001,10 @@ function TagImagesPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="images"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1133,7 +1140,10 @@ function TagGalleriesPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="galleries"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1258,7 +1268,10 @@ function TagAudiosPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="audios"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1385,7 +1398,10 @@ function TagTextsPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="texts"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}

@@ -1,3 +1,4 @@
+import { MediaDetailListToolbar } from "../components/MediaDetailListToolbar";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
 import type {
@@ -1358,7 +1359,10 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
     }
   };
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="videos"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1502,7 +1506,10 @@ function PerformerGalleriesPanel({ performerId, onNavigate }: { performerId: num
     }
   };
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="galleries"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1640,7 +1647,10 @@ function PerformerImagesPanel({ performerId, onNavigate }: { performerId: number
     }
   };
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="images"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1778,7 +1788,10 @@ function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number
     }
   };
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="audios"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1910,7 +1923,10 @@ function PerformerTextsPanel({ performerId, onNavigate }: { performerId: number;
     }
   };
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="texts"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}

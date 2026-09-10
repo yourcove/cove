@@ -1,3 +1,4 @@
+import { MediaDetailListToolbar } from "../components/MediaDetailListToolbar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, images, videos, fileOps } from "../api/client";
 import type { FindFilter, Gallery, Image, ImageFilterCriteria, Video, VideoFilterCriteria } from "../api/types";
@@ -34,7 +35,7 @@ import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { InteractiveRating } from "../components/Rating";
-import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { DetailListPagination } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { PerformerTile } from "../components/EntityCards";
@@ -305,6 +306,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     mutationFn: (imageIds: number[]) => galleries.addImages(id, imageIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gallery-images", id] });
+      queryClient.invalidateQueries({ queryKey: ["images", "aggregate"] });
       queryClient.invalidateQueries({ queryKey: ["gallery", id] });
       queryClient.invalidateQueries({ queryKey: ["gallery-like-count", id] });
       setShowAddImages(false);
@@ -698,7 +700,10 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="videos"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "galleriesCriterion", galleryId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -846,7 +851,10 @@ function GalleryImagesPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="images"
+      aggregateObjectFilter={withRequiredMultiId(objectFilter, "galleriesCriterion", galleryId)}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={galleryImages?.totalCount ?? 0}
