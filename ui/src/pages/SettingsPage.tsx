@@ -1603,7 +1603,6 @@ export function SettingsPage() {
   });
 
   const syncCustomFieldsMutation = useMutation({
-    meta: { suppressGlobalError: true },
     mutationFn: ({
       definitions,
     }: {

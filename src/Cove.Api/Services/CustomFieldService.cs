@@ -94,7 +94,7 @@ public sealed class CustomFieldService(
 
         if (dto.Key != null)
         {
-            var key = NormalizeKey(dto.Key, definition.Label);
+            var key = NormalizeKey(dto.Key, definition.Label, definition.Key);
             if (await KeyExistsAsync(key, id, ct))
                 throw new ArgumentException("A custom field with that key already exists.");
             definition.Key = key;
@@ -164,7 +164,8 @@ public sealed class CustomFieldService(
                 if (definition.Id is int id && !existingDefinitionsById.ContainsKey(id))
                     throw new ArgumentException("A custom field definition no longer exists.");
 
-                var key = NormalizeKey(definition.Key, definition.Label);
+                var existingKey = definition.Id is int existingId ? existingDefinitionsById[existingId].Key : null;
+                var key = NormalizeKey(definition.Key, definition.Label, existingKey);
                 var type = CustomFieldTypes.Normalize(definition.Type);
                 return new NormalizedDefinitionInput(
                     definition.Id,
@@ -845,8 +846,12 @@ public sealed class CustomFieldService(
         return true;
     }
 
-    private static string NormalizeKey(string? key, string? label)
+    private static string NormalizeKey(string? key, string? label, string? existingKey = null)
     {
+        // Extension-created keys are identifiers; unrelated edits must not rewrite them.
+        if (existingKey != null && string.Equals(key, existingKey, StringComparison.Ordinal))
+            return existingKey;
+
         var raw = string.IsNullOrWhiteSpace(key) ? label : key;
         if (string.IsNullOrWhiteSpace(raw))
             throw new ArgumentException("A custom field label is required.");

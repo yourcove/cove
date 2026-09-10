@@ -13,6 +13,151 @@ namespace Cove.Tests;
 public class CustomFieldServiceTests
 {
     [Fact]
+    public async Task ReplaceDefinitionsAsync_PreservesExistingKeysAndValuesWhenAddingAndDeletingUnrelatedFields()
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+        var repository = new CustomFieldRepository(context);
+        foreach (var key in new[] { "plugin.metricScore", "plugin_metricscore" })
+        {
+            await repository.FindOrCreateDefinitionAsync(new CustomFieldDefinition
+            {
+                Key = key,
+                Label = key,
+                Type = CustomFieldTypes.Text,
+                EntityTypes = [CustomFieldEntityTypes.Video],
+            }, TestContext.Current.CancellationToken);
+        }
+        var original = await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken);
+        await service.SaveValuesAsync(CustomFieldEntityTypes.Video, 41,
+            original.ToDictionary(definition => definition.Key, definition => (object)$"Value for {definition.Key}"),
+            TestContext.Current.CancellationToken);
+        var retained = original.Select(definition => new CustomFieldDefinitionSyncDto
+        {
+            Id = definition.Id,
+            Key = definition.Key,
+            Label = "Updated label",
+            Type = definition.Type,
+            EntityTypes = definition.EntityTypes,
+        }).ToList();
+
+        await service.ReplaceDefinitionsAsync([
+            .. retained,
+            new CustomFieldDefinitionSyncDto
+            {
+                Key = "New Field",
+                Label = "New field",
+                Type = CustomFieldTypes.Text,
+                EntityTypes = [CustomFieldEntityTypes.Video],
+            },
+        ], TestContext.Current.CancellationToken);
+        context.ChangeTracker.Clear();
+        Assert.Contains(await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken),
+            definition => definition.Key == "new_field");
+
+        await service.ReplaceDefinitionsAsync(retained, TestContext.Current.CancellationToken);
+        context.ChangeTracker.Clear();
+        var persisted = await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken);
+        Assert.Equal(original.Select(definition => (definition.Id, definition.Key)).OrderBy(item => item.Id),
+            persisted.Select(definition => (definition.Id, definition.Key)).OrderBy(item => item.Id));
+        Assert.All(persisted, definition => Assert.Equal("Updated label", definition.Label));
+        var values = await context.CustomFieldValues.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, values.Count);
+        foreach (var definition in original)
+            Assert.Equal($"Value for {definition.Key}", Assert.Single(values, value => value.DefinitionId == definition.Id).TextValue);
+    }
+
+    [Theory]
+    [InlineData("plugin.metricScore")]
+    [InlineData("MixedCase")]
+    public async Task UpdateDefinitionAsync_PreservesUnchangedKey(string key)
+    {
+        await using var context = CreateContext();
+        var definition = new CustomFieldDefinition
+        {
+            Key = key,
+            Label = "Original label",
+            Type = CustomFieldTypes.Text,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        };
+        context.CustomFieldDefinitions.Add(definition);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new CustomFieldService(context);
+
+        await service.UpdateDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            Key = key,
+            Label = "Updated label",
+        }, TestContext.Current.CancellationToken);
+
+        context.ChangeTracker.Clear();
+        var persisted = Assert.Single(await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken));
+        Assert.Equal(key, persisted.Key);
+        Assert.Equal("Updated label", persisted.Label);
+    }
+
+    [Theory]
+    [InlineData("Renamed Field", "renamed_field")]
+    [InlineData("PLUGIN.metricScore", "plugin_metricscore")]
+    public async Task UpdateDefinitionAsync_NormalizesExplicitRename(string requestedKey, string expectedKey)
+    {
+        await using var context = CreateContext();
+        var repository = new CustomFieldRepository(context);
+        var definition = await repository.FindOrCreateDefinitionAsync(new CustomFieldDefinition
+        {
+            Key = "plugin.metricScore", Label = "Original", Type = CustomFieldTypes.Text,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        }, TestContext.Current.CancellationToken);
+        var service = new CustomFieldService(context);
+
+        await service.UpdateDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto { Key = requestedKey },
+            TestContext.Current.CancellationToken);
+
+        context.ChangeTracker.Clear();
+        var persisted = Assert.Single(await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken));
+        Assert.Equal(definition.Id, persisted.Id);
+        Assert.Equal(expectedKey, persisted.Key);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReplaceDefinitionsAsync_RejectsActualDuplicateWithoutSavingOtherChanges(bool renameExisting)
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+        var existing = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "existing_key", Label = "Original", Type = CustomFieldTypes.Text,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        }, TestContext.Current.CancellationToken);
+        var other = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "other_key", Label = "Other", Type = CustomFieldTypes.Text,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        }, TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ReplaceDefinitionsAsync([
+            new CustomFieldDefinitionSyncDto
+            {
+                Id = existing.Id, Key = existing.Key, Label = "Must not be saved", Type = existing.Type,
+                EntityTypes = existing.EntityTypes,
+            },
+            new CustomFieldDefinitionSyncDto
+            {
+                Id = renameExisting ? other.Id : null, Key = "Existing Key", Label = "Duplicate", Type = existing.Type,
+                EntityTypes = existing.EntityTypes,
+            },
+        ], TestContext.Current.CancellationToken));
+
+        context.ChangeTracker.Clear();
+        var persisted = await service.GetDefinitionsAsync(ct: TestContext.Current.CancellationToken);
+        Assert.Equal(2, persisted.Count);
+        Assert.Contains(persisted, definition => definition.Id == existing.Id && definition.Label == "Original");
+        Assert.Contains(persisted, definition => definition.Id == other.Id && definition.Key == "other_key");
+    }
+
+    [Fact]
     public async Task ReplaceDefinitionsAsync_PreservesNamespacedKeyAndValues()
     {
         await using var context = CreateContext();
