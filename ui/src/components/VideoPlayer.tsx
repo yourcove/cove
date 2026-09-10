@@ -222,6 +222,7 @@ export function VideoPlayer({
   extensionSurface,
   interactionResetKey,
   suspended = false,
+  keyboardShortcutsEnabled = true,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -262,6 +263,8 @@ export function VideoPlayer({
   extensionSurface?: MediaPlayerSurface;
   interactionResetKey?: unknown;
   suspended?: boolean;
+  /** Keeps media lifecycle active while declining global player shortcut ownership. */
+  keyboardShortcutsEnabled?: boolean;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -1571,7 +1574,7 @@ export function VideoPlayer({
     timelineStart,
     toggleFullscreen,
   ]);
-  useKeySequence(playerKeyboardBindings);
+  useKeySequence(playerKeyboardBindings, keyboardShortcutsEnabled);
 
   const togglePlay = () => {
     const v = videoRef.current;

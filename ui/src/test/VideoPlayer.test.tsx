@@ -155,6 +155,29 @@ describe("VideoPlayer source lifecycle", () => {
     expect(playMock).toHaveBeenCalled();
   });
 
+  it("keeps media loaded while player keyboard shortcuts are disabled", () => {
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        keyboardShortcutsEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    const source = container.querySelector("source") as HTMLSourceElement;
+    fireEvent.loadedMetadata(video);
+    video.currentTime = 7;
+
+    fireEvent.keyDown(window, { key: "5" });
+
+    expect(source).toHaveAttribute("src", "/api/stream/video/1");
+    expect(video.currentTime).toBe(7);
+  });
+
   it("seeks to an explicit timestamp without playing when automatic resume is disabled", () => {
     mockUiConfig.alwaysResumeOnPlayback = false;
     const { container } = render(
