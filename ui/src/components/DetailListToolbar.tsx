@@ -54,7 +54,9 @@ const DISPLAY_MODE_BUTTONS: Array<{ mode: DetailListDisplayMode; title: string; 
   { mode: "vertical", title: "Vertical Viewer", icon: <MonitorPlay className="h-3.5 w-3.5" /> },
 ];
 
-interface DetailListToolbarProps {
+export interface DetailListToolbarProps {
+  metadataByline?: React.ReactNode;
+  selectionMetadata?: React.ReactNode;
   filter: FindFilter;
   onFilterChange: (f: FindFilter) => void;
   totalCount: number;
@@ -147,6 +149,8 @@ export function DetailListPagination({
 }
 
 export function DetailListToolbar({
+  metadataByline,
+  selectionMetadata,
   filter,
   onFilterChange,
   totalCount,
@@ -291,10 +295,11 @@ export function DetailListToolbar({
   return (
     <>
       <div className="mx-auto mb-2 flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 text-sm shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
-        <div className="mr-auto flex min-w-0 items-center gap-2 pr-2">
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2 pr-2">
           <span className="text-xs text-muted">
             {totalCount > 0 ? `${start}–${end} of ${totalCount.toLocaleString()}` : "0 items"}
           </span>
+          {metadataByline}
         </div>
 
         {showSearch && (
@@ -489,6 +494,7 @@ export function DetailListToolbar({
       {selectedCount !== undefined && selectedCount > 0 && (
         <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-1.5">
           <span className="text-xs text-secondary">{selectedCount} selected</span>
+          {selectionMetadata}
           {onSelectAll && (
             <button
               onClick={onSelectAll}

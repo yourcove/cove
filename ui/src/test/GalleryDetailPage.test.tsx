@@ -18,11 +18,13 @@ const { mockGalleries, mockImages, mockVideos, mockEntityImages, mockSetRating, 
     deleteChapter: vi.fn(),
   },
   mockImages: {
+    aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0 }),
     find: vi.fn(),
     imageUrl: vi.fn((id: number) => `/image-${id}.jpg`),
     thumbnailUrl: vi.fn((id: number) => `/thumb-${id}.jpg`),
   },
   mockVideos: {
+    aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 0, duration: 0 }),
     find: vi.fn(),
   },
   mockEntityImages: {
@@ -146,6 +148,12 @@ vi.mock("../components/Lightbox", () => ({
   Lightbox: ({ open }: { open: boolean }) => (open ? <div>Lightbox</div> : null),
 }));
 
+vi.mock("../components/EntityReferenceSelector", () => ({
+  EntityReferenceMultiSelector: ({ onChange }: { onChange: (ids: number[]) => void }) => (
+    <button onClick={() => onChange([92])}>Choose image</button>
+  ),
+}));
+
 function buildGallery(overrides: Record<string, unknown> = {}) {
   return {
     id: 21,
@@ -205,6 +213,23 @@ describe("GalleryDetailPage", () => {
     vi.clearAllMocks();
     mockGalleries.get.mockReset();
     localStorage.clear();
+  });
+
+  it("refreshes image storage totals after adding an image", async () => {
+    mockGalleries.get.mockResolvedValue(buildGallery());
+    mockImages.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockImages.aggregate
+      .mockResolvedValueOnce({ count: 0, fileSize: 0 })
+      .mockResolvedValueOnce({ count: 1, fileSize: 1048576 });
+    mockGalleries.addImages.mockResolvedValue(undefined);
+    renderPage();
+    await screen.findByText("0 B");
+    fireEvent.click(screen.getAllByRole("button", { name: "Add Images" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Choose image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1" }));
+    expect(await screen.findByText("1 MB")).toBeInTheDocument();
+    expect(mockImages.aggregate).toHaveBeenCalledTimes(2);
   });
 
   it("applies the saved gallery image page size", async () => {

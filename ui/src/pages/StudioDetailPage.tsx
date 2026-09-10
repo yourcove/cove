@@ -1,3 +1,4 @@
+import { MediaDetailListToolbar } from "../components/MediaDetailListToolbar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, studios, texts, entityImages } from "../api/client";
 import type {
@@ -913,7 +914,15 @@ function StudioVideosPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="videos"
+      aggregateObjectFilter={withRequiredMultiId(
+        objectFilter,
+        "studiosCriterion",
+        studioId,
+        includeSubStudios ? -1 : undefined,
+      )}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1056,7 +1065,15 @@ function StudioGalleriesPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="galleries"
+      aggregateObjectFilter={withRequiredMultiId(
+        objectFilter,
+        "studiosCriterion",
+        studioId,
+        includeSubStudios ? -1 : undefined,
+      )}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1197,7 +1214,15 @@ function StudioImagesPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="images"
+      aggregateObjectFilter={withRequiredMultiId(
+        objectFilter,
+        "studiosCriterion",
+        studioId,
+        includeSubStudios ? -1 : undefined,
+      )}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1338,7 +1363,15 @@ function StudioAudiosPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="audios"
+      aggregateObjectFilter={withRequiredMultiId(
+        objectFilter,
+        "studiosCriterion",
+        studioId,
+        includeSubStudios ? -1 : undefined,
+      )}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
@@ -1473,7 +1506,15 @@ function StudioTextsPanel({
   });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar
+    <MediaDetailListToolbar
+      mediaType="texts"
+      aggregateObjectFilter={withRequiredMultiId(
+        objectFilter,
+        "studiosCriterion",
+        studioId,
+        includeSubStudios ? -1 : undefined,
+      )}
+      selectedIds={selectedIds}
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}

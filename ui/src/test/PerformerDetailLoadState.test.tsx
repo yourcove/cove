@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { videos, images, galleries, audios, texts } from "../api/client";
 import { PerformerDetailPage } from "../pages/PerformerDetailPage";
 
 const { mockConfig, mockPerformers, mockPageState } = vi.hoisted(() => ({
@@ -19,6 +20,11 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     performers: { ...actual.performers, ...mockPerformers },
+    videos: { ...actual.videos, aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 1024, duration: 60 }) },
+    images: { ...actual.images, aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 1024 }) },
+    galleries: { ...actual.galleries, aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 1024 }) },
+    audios: { ...actual.audios, aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 1024, duration: 60 }) },
+    texts: { ...actual.texts, aggregate: vi.fn().mockResolvedValue({ count: 0, fileSize: 1024 }) },
     savedFilters: {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
@@ -142,6 +148,24 @@ describe("PerformerDetailPage load state", () => {
     mockPerformers.get.mockReset();
     mockConfig.current = { ui: {} };
     mockPageState.activeTab = undefined;
+  });
+
+  it.each([
+    ["videos", videos, "1m 0s · 1 KB"],
+    ["images", images, "1 KB"],
+    ["galleries", galleries, "1 KB"],
+    ["audios", audios, "1m 0s · 1 KB"],
+    ["texts", texts, "1 KB"],
+  ] as const)("scopes %s toolbar totals to the current performer", async (tab, api, expected) => {
+    mockPageState.activeTab = tab;
+    mockPerformers.get.mockResolvedValue(buildPerformer());
+    renderPage();
+    const metadata = await screen.findByText(expected);
+    expect(metadata.parentElement).toHaveTextContent("0 items");
+    expect(api.aggregate).toHaveBeenCalledWith({
+      findFilter: { q: undefined, page: 1, perPage: 0 },
+      objectFilter: { performersCriterion: { value: [], modifier: "INCLUDES", requiredIds: [17] } },
+    });
   });
 
   it("shows a retryable load error and recovers", async () => {
