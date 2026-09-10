@@ -92,6 +92,7 @@ import type {
   UserTrackingPreferences,
 } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
+import { ExtensionLoadFailureDetails } from "../extensions/ExtensionLoadStatus";
 import { getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
@@ -7662,6 +7663,8 @@ function ExtensionSettingsForm({
 // ===== Extensions Panel — unified view of all extensions =====
 function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   const {
+    loadFailures = [],
+    retryFailedExtensions,
     availableThemes,
     activeThemeId,
     setActiveTheme,
@@ -8027,6 +8030,16 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 
       {mode === "installed" && (
         <SectionCard title="Installed Extensions" description="Manage extensions loaded into this instance.">
+          {loadFailures
+            .filter((failure) => !allExtensions.some((extension) => extension.id === failure.extensionId))
+            .map((failure) => (
+              <div key={String(failure.extensionId)} className="mb-4 rounded-lg border border-yellow-500/30">
+                <p className="px-4 py-2 text-sm font-medium">
+                  {typeof failure.extensionId === "symbol" ? "Legacy extension bundle" : failure.extensionId}
+                </p>
+                <ExtensionLoadFailureDetails failure={failure} retry={retryFailedExtensions} />
+              </div>
+            ))}
           {/* Search and filter bar */}
           <div className="flex items-center gap-3 mb-4">
             <div className="relative flex-1">
@@ -8068,6 +8081,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 
           <div className="space-y-2">
             {filtered.map((ext) => {
+              const loadFailure = loadFailures.find((failure) => failure.extensionId === ext.id);
               const isExpanded = expandedId === ext.id;
               const isBundle = ext.kind === "bundle";
               const update = installedUpdateMap.get(ext.id);
@@ -8079,7 +8093,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className={`w-2 h-2 rounded-full shrink-0 ${ext.enabled ? "bg-green-400" : "bg-gray-500"}`}
+                        className={`w-2 h-2 rounded-full shrink-0 ${loadFailure ? "bg-yellow-500" : ext.enabled ? "bg-green-400" : "bg-gray-500"}`}
                       />
                       <div className="min-w-0">
                         <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
@@ -8166,7 +8180,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                               : "bg-card/30 text-secondary hover:bg-card-hover/40"
                           }`}
                         >
-                          {ext.enabled ? "Enabled" : "Disabled"}
+                          {loadFailure && ext.enabled ? "Disable" : ext.enabled ? "Enabled" : "Disabled"}
                         </button>
                       )}
                       {ext.source === "native" && (
@@ -8194,6 +8208,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                     </div>
                   </div>
 
+                  {loadFailure && <ExtensionLoadFailureDetails failure={loadFailure} retry={retryFailedExtensions} />}
                   {isExpanded && (
                     <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
                       <div className="text-xs text-muted">

@@ -733,7 +733,10 @@ public record UIExtensionBundle(
     string Version,
     string? JsBundleUrl = null,
     string? CssBundleUrl = null
-);
+)
+{
+    public string[] Dependencies { get; init; } = [];
+}
 
 /// <summary>In-app tutorial/manual topic contributed by Cove or an extension.</summary>
 public record UITutorialTopic(
@@ -907,21 +910,30 @@ public record UIThemeDefinition(
     string? LayoutStyle = null,
     string? BackgroundAnimation = null,
     string? ColorScheme = null
-);
+)
+{
+    public string? ExtensionId { get; init; }
+}
 
 /// <summary>Built-in component style presets (Layer 2).</summary>
 public record UIComponentStyleDef(
     string Id,
     string Name,
     string? Description = null
-);
+)
+{
+    public string? ExtensionId { get; init; }
+}
 
 /// <summary>Built-in layout presets (Layer 3).</summary>
 public record UILayoutStyleDef(
     string Id,
     string Name,
     string? Description = null
-);
+)
+{
+    public string? ExtensionId { get; init; }
+}
 
 /// <summary>How a settings tab's content is laid out.</summary>
 public enum SettingsTabLayout

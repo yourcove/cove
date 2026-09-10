@@ -124,6 +124,179 @@ describe("ExtensionRuntimeReconciler", () => {
     expect(events.indexOf("register:beta")).toBeLessThan(events.indexOf("load:beta"));
   });
 
+  it.each(["import", "validation", "initialization", "cleanup"])(
+    "isolates %s failures and retries without reloading healthy extensions",
+    async (phase) => {
+      const events: string[] = [];
+      const good = descriptor("good", 1);
+      const broken = descriptor("broken", 1);
+      let failing = true;
+      const goodLoad = vi.fn();
+      const registrations = createRegistrationAdapter(events);
+      const reconciler = createExtensionRuntimeReconciler({
+        registrations: registrations.adapter,
+        importBundle: async (url) => {
+          if (url === good.jsBundleUrl) return { default: { components: { Panel: () => null }, onLoad: goodLoad } };
+          if (failing && phase === "import") throw new Error("import failed");
+          if (failing && phase === "validation") return { default: { components: { Panel: 42 } } };
+          return {
+            default: {
+              components: { Panel: () => null },
+              actionHandlers: { run: () => "ok" },
+              onLoad: () => {
+                if (failing) throw new Error("initialization failed");
+              },
+              onUnload: () => {
+                if (failing && phase === "cleanup") throw new Error("cleanup failed");
+              },
+            },
+          };
+        },
+      });
+      await reconciler.reconcile([broken, good]);
+      expect(registrations.components.has("good:Panel")).toBe(true);
+      expect(registrations.components.has("broken:Panel")).toBe(false);
+      expect(registrations.actionHandlers.has("broken:run")).toBe(false);
+      expect(reconciler.getFailures()).toEqual([
+        expect.objectContaining({ extensionId: "broken", phase: phase === "cleanup" ? "cleanup" : "load" }),
+      ]);
+      failing = false;
+      await reconciler.reconcile([broken, good]);
+      expect(reconciler.getFailures()).toEqual([]);
+      expect(registrations.components.has("broken:Panel")).toBe(true);
+      expect(goodLoad).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("blocks dependents after initialization fails and restores them in dependency order on retry", async () => {
+    const events: string[] = [];
+    const registrations = createRegistrationAdapter(events);
+    const base = descriptor("base", 1);
+    const dependent = { ...descriptor("dependent", 1), dependencies: ["BASE", "backend-only"] };
+    const transitive = { ...descriptor("transitive", 1), dependencies: ["dependent"] };
+    const healthy = descriptor("healthy", 1);
+    let failing = true;
+    const reconciler = createExtensionRuntimeReconciler({
+      registrations: registrations.adapter,
+      importBundle: async (url) => ({
+        default: {
+          components: { Panel: () => null },
+          onLoad: () => {
+            if (failing && url === base.jsBundleUrl) throw new Error("base failed");
+          },
+        },
+      }),
+    });
+    const descriptors = [transitive, dependent, base, healthy];
+    await reconciler.reconcile(descriptors);
+    expect([...registrations.components.keys()]).toEqual(["healthy:Panel"]);
+    expect(reconciler.getFailures()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ extensionId: "dependent", phase: "dependency" }),
+        expect.objectContaining({ extensionId: "transitive", phase: "dependency" }),
+      ]),
+    );
+    failing = false;
+    events.length = 0;
+    await reconciler.reconcile(descriptors);
+    expect(reconciler.getFailures()).toEqual([]);
+    expect(events.filter((event) => event.startsWith("register:"))).toEqual([
+      "register:base",
+      "register:dependent",
+      "register:transitive",
+    ]);
+  });
+
+  it("withdraws unchanged dependents when a dependency update fails", async () => {
+    const registrations = createRegistrationAdapter([]);
+    const base = descriptor("base", 1);
+    const dependent = { ...descriptor("dependent", 1), dependencies: ["base"] };
+    const reconciler = createExtensionRuntimeReconciler({
+      registrations: registrations.adapter,
+      importBundle: async (url) => ({
+        default: {
+          components: { Panel: () => null },
+          onLoad: () => {
+            if (url === descriptor("base", 2).jsBundleUrl) throw new Error("bad update");
+          },
+        },
+      }),
+    });
+    await reconciler.reconcile([dependent, base]);
+    await reconciler.reconcile([dependent, descriptor("base", 2)]);
+    expect(registrations.components.size).toBe(0);
+    expect(reconciler.getFailures()).toHaveLength(2);
+  });
+
+  it("reports dependency cycles without blocking unrelated extensions", async () => {
+    const registrations = createRegistrationAdapter([]);
+    const reconciler = createExtensionRuntimeReconciler({
+      registrations: registrations.adapter,
+      importBundle: async () => ({ default: { components: { Panel: () => null } } }),
+    });
+    await reconciler.reconcile([
+      { ...descriptor("a", 1), dependencies: ["b"] },
+      { ...descriptor("b", 1), dependencies: ["a"] },
+      descriptor("healthy", 1),
+    ]);
+    expect([...registrations.components.keys()]).toEqual(["healthy:Panel"]);
+    expect(reconciler.getFailures()).toHaveLength(2);
+  });
+
+  it("continues replacing and removing extensions when an unload hook fails", async () => {
+    const registrations = createRegistrationAdapter([]);
+    const reconciler = createExtensionRuntimeReconciler({
+      registrations: registrations.adapter,
+      importBundle: async (url) => ({
+        default: {
+          components: { Panel: () => null },
+          onUnload: () => {
+            if (url.includes("broken")) throw new Error("unload failed");
+          },
+        },
+      }),
+    });
+    await reconciler.reconcile([descriptor("broken", 1), descriptor("healthy", 1)]);
+    await reconciler.reconcile([descriptor("healthy", 2)]);
+    expect([...registrations.components.keys()]).toEqual(["healthy:Panel"]);
+    expect(reconciler.getFailures()).toEqual([{ extensionId: "broken", phase: "cleanup", message: "unload failed" }]);
+  });
+
+  it("unloads dependents before their dependencies on replacement and disposal", async () => {
+    const events: string[] = [];
+    const registrations = createRegistrationAdapter(events);
+    const reconciler = createExtensionRuntimeReconciler({
+      registrations: registrations.adapter,
+      importBundle: async (url) => ({
+        default: {
+          components: { Panel: () => null },
+          onUnload: () => {
+            if (url.includes("dependent")) expect(registrations.components.has("base:Panel")).toBe(true);
+          },
+        },
+      }),
+    });
+    const descriptors = (version: number) => [
+      descriptor("base", version),
+      { ...descriptor("dependent", version), dependencies: ["base"] },
+    ];
+    await reconciler.reconcile(descriptors(1));
+    // Only the dependency changes; its unchanged dependent must still release it first.
+    await reconciler.reconcile([descriptor("base", 2), { ...descriptor("dependent", 1), dependencies: ["base"] }]);
+    expect(reconciler.getFailures()).toEqual([]);
+    expect(events.filter((event) => event.startsWith("unregister:"))).toEqual([
+      "unregister:dependent",
+      "unregister:base",
+    ]);
+    await reconciler.dispose();
+    expect(events.filter((event) => event.startsWith("unregister:"))).toEqual([
+      "unregister:dependent",
+      "unregister:base",
+      "unregister:dependent",
+      "unregister:base",
+    ]);
+  });
+
   it("does not reload or rerun lifecycle hooks for an unchanged descriptor", async () => {
     const events: string[] = [];
     const alpha = descriptor("alpha", 1);
@@ -225,7 +398,7 @@ describe("ExtensionRuntimeReconciler", () => {
     expect(registrations.components.get("alpha:Panel")).toBe(PanelV2);
   });
 
-  it("rolls back earlier changes when a later extension fails to load", async () => {
+  it("keeps healthy updates when another extension fails to load", async () => {
     const events: string[] = [];
     const alphaV1 = descriptor("alpha", 1);
     const alphaV2 = descriptor("alpha", 2);
@@ -276,13 +449,16 @@ describe("ExtensionRuntimeReconciler", () => {
     });
 
     await reconciler.reconcile([alphaV1]);
-    await expect(reconciler.reconcile([alphaV2, broken])).rejects.toThrow("broken onLoad");
+    await expect(reconciler.reconcile([alphaV2, broken])).resolves.toBe(true);
+    expect(reconciler.getFailures()).toEqual([
+      expect.objectContaining({ extensionId: "broken", message: "broken onLoad" }),
+    ]);
 
-    expect(registrations.components.get("alpha:Panel")).toBe(PanelV1);
+    expect(registrations.components.get("alpha:Panel")).toBe(PanelV2);
     expect(registrations.components.has("broken:Panel")).toBe(false);
-    expect(alphaV1Load).toHaveBeenCalledTimes(2);
+    expect(alphaV1Load).toHaveBeenCalledTimes(1);
     expect(alphaV1Unload).toHaveBeenCalledTimes(1);
-    expect(alphaV2Unload).toHaveBeenCalledTimes(1);
+    expect(alphaV2Unload).not.toHaveBeenCalled();
     expect(brokenUnload).toHaveBeenCalledTimes(1);
   });
 
@@ -392,7 +568,10 @@ describe("ExtensionRuntimeReconciler", () => {
       registrations: registrations.adapter,
     });
 
-    await expect(reconciler.reconcile([broken])).rejects.toThrow("onLoad failed");
+    await expect(reconciler.reconcile([broken])).resolves.toBe(true);
+    expect(reconciler.getFailures()).toEqual([
+      expect.objectContaining({ extensionId: "broken", message: "onLoad failed" }),
+    ]);
 
     expect(onUnload).toHaveBeenCalledTimes(1);
     expect(events.indexOf("load:broken")).toBeLessThan(events.indexOf("unload:broken"));

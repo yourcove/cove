@@ -4,6 +4,13 @@ export interface ExtensionRuntimeBundleDescriptor {
   extensionId: ExtensionRuntimeOwner;
   version?: string;
   jsBundleUrl: string;
+  dependencies?: string[];
+}
+
+export interface ExtensionRuntimeFailure {
+  extensionId: ExtensionRuntimeOwner;
+  phase: "load" | "cleanup" | "dependency";
+  message: string;
 }
 
 export interface ExtensionRuntimeRegistration<TComponent = unknown, TActionHandler = unknown> {
@@ -25,6 +32,7 @@ export interface ExtensionRuntimeReconcilerOptions<TComponent = unknown, TAction
 
 export interface ExtensionRuntimeReconciler {
   reconcile(descriptors: ExtensionRuntimeBundleDescriptor[], options?: { isCurrent?: () => boolean }): Promise<boolean>;
+  getFailures(): ExtensionRuntimeFailure[];
   dispose(): Promise<void>;
 }
 
@@ -40,6 +48,27 @@ interface ActiveExtension<TComponent, TActionHandler> {
   cleanup: () => Promise<void>;
 }
 
+function unloadOrder<TComponent, TActionHandler>(
+  records: Map<ExtensionRuntimeOwner, ActiveExtension<TComponent, TActionHandler>>,
+) {
+  const byNormalizedId = new Map(
+    [...records.keys()].filter((id): id is string => typeof id === "string").map((id) => [id.toLowerCase(), id]),
+  );
+  const visited = new Set<ExtensionRuntimeOwner>();
+  const ordered: ExtensionRuntimeOwner[] = [];
+  const visit = (id: ExtensionRuntimeOwner) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    for (const dependency of records.get(id)?.descriptor.dependencies ?? []) {
+      const owner = byNormalizedId.get(dependency.toLowerCase());
+      if (owner !== undefined) visit(owner);
+    }
+    ordered.push(id);
+  };
+  for (const id of records.keys()) visit(id);
+  return ordered.reverse();
+}
+
 function bundleIdentity(descriptor: ExtensionRuntimeBundleDescriptor) {
   return `${descriptor.version ?? ""}\u0000${descriptor.jsBundleUrl}`;
 }
@@ -47,6 +76,8 @@ function bundleIdentity(descriptor: ExtensionRuntimeBundleDescriptor) {
 function formatOwner(owner: ExtensionRuntimeOwner) {
   return typeof owner === "symbol" ? (owner.description ?? "internal bundle") : owner;
 }
+
+class ExtensionCleanupError extends AggregateError {}
 
 function requireObject(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -116,7 +147,7 @@ function validateDescriptors(descriptors: ExtensionRuntimeBundleDescriptor[]) {
     if (byExtensionId.has(extensionId)) {
       throw new TypeError(`Duplicate extension bundle descriptor for '${owner}'`);
     }
-    byExtensionId.set(extensionId, { extensionId, version, jsBundleUrl });
+    byExtensionId.set(extensionId, { ...descriptor, extensionId, version, jsBundleUrl });
   }
 
   return byExtensionId;
@@ -143,6 +174,7 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
   options: ExtensionRuntimeReconcilerOptions<TComponent, TActionHandler>,
 ): ExtensionRuntimeReconciler {
   const active = new Map<ExtensionRuntimeOwner, ActiveExtension<TComponent, TActionHandler>>();
+  let failures: ExtensionRuntimeFailure[] = [];
   const staleReconciliation = Symbol("stale extension runtime reconciliation");
   let pending: Promise<unknown> = Promise.resolve();
 
@@ -176,7 +208,7 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
       try {
         await cleanup();
       } catch (cleanupError) {
-        throw new AggregateError(
+        throw new ExtensionCleanupError(
           [onLoadError, cleanupError],
           `Extension '${formatOwner(descriptor.extensionId)}' onLoad failed and rollback cleanup also failed`,
         );
@@ -193,6 +225,16 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
     enqueue(async () => {
       const isCurrent = reconcileOptions?.isCurrent ?? (() => true);
       const desired = validateDescriptors(descriptors);
+      const nextFailures = new Map<ExtensionRuntimeOwner, ExtensionRuntimeFailure>();
+      const fail = (extensionId: ExtensionRuntimeOwner, phase: ExtensionRuntimeFailure["phase"], error: unknown) => {
+        const message =
+          error instanceof AggregateError
+            ? error.errors.map((cause) => (cause instanceof Error ? cause.message : String(cause))).join("; ")
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        nextFailures.set(extensionId, { extensionId, phase, message });
+      };
       const staged = new Map<
         ExtensionRuntimeOwner,
         {
@@ -201,20 +243,24 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
         }
       >();
 
-      // Import and validate every changed bundle before touching the active runtime.
-      // This prevents a late import/shape failure from partially applying the set.
+      // Stage imports independently. One rejected bundle must not discard healthy imports.
       const stagedEntries = await Promise.all(
         [...desired.values()].map(async (descriptor) => {
           const previous = active.get(descriptor.extensionId);
           if (previous && bundleIdentity(previous.descriptor) === bundleIdentity(descriptor)) return null;
-          const moduleNamespace = await options.importBundle(descriptor.jsBundleUrl);
-          return [
-            descriptor.extensionId,
-            {
-              descriptor,
-              bundle: resolveBundle<TComponent, TActionHandler>(moduleNamespace),
-            },
-          ] as const;
+          try {
+            const moduleNamespace = await options.importBundle(descriptor.jsBundleUrl);
+            return [
+              descriptor.extensionId,
+              {
+                descriptor,
+                bundle: resolveBundle<TComponent, TActionHandler>(moduleNamespace),
+              },
+            ] as const;
+          } catch (error) {
+            fail(descriptor.extensionId, "load", error);
+            return null;
+          }
         }),
       );
       for (const entry of stagedEntries) {
@@ -222,14 +268,55 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
       }
       if (!isCurrent()) return false;
 
+      // Only dependencies with browser bundles participate here. The server already
+      // validates installed/backend dependencies. Order UI initialization by dependency.
+      const orderedIds: ExtensionRuntimeOwner[] = [];
+      const visiting = new Set<ExtensionRuntimeOwner>();
+      const visited = new Set<ExtensionRuntimeOwner>();
+      const byNormalizedId = new Map(
+        [...desired.keys()].filter((id): id is string => typeof id === "string").map((id) => [id.toLowerCase(), id]),
+      );
+      const dependenciesOf = (id: ExtensionRuntimeOwner) =>
+        (desired.get(id)?.dependencies ?? []).flatMap((dep) => {
+          const owner = byNormalizedId.get(dep.toLowerCase());
+          return owner === undefined ? [] : [owner];
+        });
+      const visit = (id: ExtensionRuntimeOwner) => {
+        if (visited.has(id)) return;
+        if (visiting.has(id)) {
+          fail(id, "dependency", "Extension UI dependencies contain a cycle.");
+          return;
+        }
+        visiting.add(id);
+        for (const dependency of dependenciesOf(id)) visit(dependency);
+        visiting.delete(id);
+        visited.add(id);
+        orderedIds.push(id);
+      };
+      for (const id of desired.keys()) visit(id);
+      for (const id of orderedIds) {
+        const blocked = dependenciesOf(id).find((dep) => nextFailures.has(dep));
+        if (blocked !== undefined) fail(id, "dependency", `Required extension '${blocked}' could not load its UI.`);
+      }
+
       const affectedIds = new Set<ExtensionRuntimeOwner>();
       for (const [extensionId, record] of active) {
         const next = desired.get(extensionId);
-        if (!next || bundleIdentity(record.descriptor) !== bundleIdentity(next)) {
+        if (!next || nextFailures.has(extensionId) || bundleIdentity(record.descriptor) !== bundleIdentity(next)) {
           affectedIds.add(extensionId);
         }
       }
       for (const extensionId of staged.keys()) affectedIds.add(extensionId);
+      // Dependents must release references while the old dependency is still
+      // available, then initialize against the replacement (even if unchanged).
+      for (const extensionId of orderedIds) {
+        if (!dependenciesOf(extensionId).some((dependency) => affectedIds.has(dependency))) continue;
+        affectedIds.add(extensionId);
+        const previous = active.get(extensionId);
+        if (previous && !staged.has(extensionId) && !nextFailures.has(extensionId)) {
+          staged.set(extensionId, { descriptor: desired.get(extensionId)!, bundle: previous.bundle });
+        }
+      }
       const previousRecords = new Map(
         [...affectedIds].flatMap((extensionId) => {
           const record = active.get(extensionId);
@@ -238,20 +325,51 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
       );
 
       try {
-        for (const extensionId of affectedIds) {
+        for (const extensionId of unloadOrder(previousRecords)) {
           if (!isCurrent()) throw staleReconciliation;
           const previous = active.get(extensionId);
-          if (previous) await remove(extensionId, previous);
+          if (previous) {
+            try {
+              await remove(extensionId, previous);
+            } catch (error) {
+              fail(extensionId, "cleanup", error);
+            }
+          }
         }
-        for (const { descriptor, bundle } of staged.values()) {
+        for (const extensionId of orderedIds) {
           if (!isCurrent()) throw staleReconciliation;
-          await activate(descriptor, bundle);
+          const blocked = dependenciesOf(extensionId).find((dep) => nextFailures.has(dep));
+          if (blocked !== undefined)
+            fail(extensionId, "dependency", `Required extension '${blocked}' could not load its UI.`);
+          if (nextFailures.has(extensionId)) {
+            const previous = active.get(extensionId);
+            if (previous) {
+              // An unchanged dependent may need withdrawing after its dependency's onLoad fails.
+              previousRecords.set(extensionId, previous);
+              affectedIds.add(extensionId);
+              try {
+                await remove(extensionId, previous);
+              } catch (error) {
+                fail(extensionId, "cleanup", error);
+              }
+            }
+            continue;
+          }
+          const entry = staged.get(extensionId);
+          if (entry) {
+            try {
+              await activate(entry.descriptor, entry.bundle);
+            } catch (error) {
+              fail(extensionId, error instanceof ExtensionCleanupError ? "cleanup" : "load", error);
+            }
+          }
         }
         if (!isCurrent()) throw staleReconciliation;
       } catch (reconcileError) {
         const rollbackErrors: unknown[] = [];
 
-        for (const extensionId of affectedIds) {
+        const rollbackRecords = new Map([...active].filter(([id]) => affectedIds.has(id)));
+        for (const extensionId of unloadOrder(rollbackRecords)) {
           const current = active.get(extensionId);
           if (!current) continue;
           try {
@@ -261,7 +379,8 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
           }
         }
 
-        for (const [extensionId, previous] of previousRecords) {
+        for (const extensionId of unloadOrder(previousRecords).reverse()) {
+          const previous = previousRecords.get(extensionId)!;
           try {
             await activate(previous.descriptor, previous.bundle);
           } catch (error) {
@@ -279,6 +398,7 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
         if (reconcileError === staleReconciliation) return false;
         throw reconcileError;
       }
+      failures = [...nextFailures.values()];
       return true;
     });
 
@@ -286,15 +406,19 @@ export function createExtensionRuntimeReconciler<TComponent = unknown, TActionHa
     enqueue(async () => {
       if (active.size === 0) return;
 
-      const records = [...active];
+      const records = new Map(active);
       active.clear();
-      const results = await Promise.allSettled(records.map(([, record]) => record.cleanup()));
-      const errors = results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason);
+      const errors: unknown[] = [];
+      for (const id of unloadOrder(records)) {
+        try {
+          await records.get(id)!.cleanup();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Multiple extension unload hooks failed");
     });
 
-  return { reconcile, dispose };
+  return { reconcile, dispose, getFailures: () => [...failures] };
 }

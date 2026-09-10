@@ -12,6 +12,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteRegistryProvider, useRouteRegistry } from "./router/RouteRegistry";
 import { AppConfigProvider, useAppConfig } from "./state/AppConfigContext";
 import { ExtensionLoaderProvider, useExtensions } from "./extensions/ExtensionLoader";
+import { ExtensionLoadNotice } from "./extensions/ExtensionLoadStatus";
 import { canAccessExtensionContribution } from "./extensions/extension-permissions";
 import { VideoQueueProvider } from "./state/VideoQueueContext";
 import { SetupWizardPage } from "./pages/SetupWizardPage";
@@ -220,6 +221,7 @@ export default function App() {
         <StartupGate>
           <AuthGate>
             <ExtensionLoaderProvider>
+              <ExtensionLoadNotice />
               <KeyboardShortcutProvider>
                 <AppFloatingUI />
                 <VideoQueueProvider>

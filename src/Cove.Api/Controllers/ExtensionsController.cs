@@ -56,7 +56,10 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                     extensionId,
                     version,
                     entry.Value.JsPath is { } jsPath ? BuildAssetUrl(extensionId, jsPath, version) : null,
-                    entry.Value.CssPath is { } cssPath ? BuildAssetUrl(extensionId, cssPath, version) : null);
+                    entry.Value.CssPath is { } cssPath ? BuildAssetUrl(extensionId, cssPath, version) : null)
+                {
+                    Dependencies = extensionManager.GetDeclaredDependencies(extensionId).Keys.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+                };
             })
             .ToList();
 
