@@ -14,6 +14,73 @@ namespace Cove.Tests;
 
 public class VideoMutationEventTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SplitUsesExplicitMetadataAndRetainsLegacyDefaults(bool explicitMetadata, bool populated)
+    {
+        var (db, principal) = CreateContext();
+        await using (db)
+        {
+            var source = new Video { Title = "Source", Code = "Old", Details = "Old details", Director = "Old director", Organized = true, IsVr = true };
+            var folder = new Folder { Path = "/library" };
+            var primary = new VideoFile { Basename = "primary.mp4", ParentFolder = folder, Video = source };
+            var file = new VideoFile { Basename = "secondary.mp4", ParentFolder = folder, Video = source };
+            source.PrimaryFile = primary;
+            db.AddRange(source, folder, primary, file);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            var sourceId = source.Id;
+            var fileId = file.Id;
+            var primaryId = primary.Id;
+            var bus = new EventBus();
+            var events = new List<EntityEvent>();
+            using var subscription = bus.Subscribe<EntityEvent>(events.Add);
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var controller = CreateController(db, principal, bus, cache);
+            var metadata = explicitMetadata ? (populated
+                ? new VideoSplitMetadataDto(Title: "New", Code: "New code", Details: "New details", Director: "New director", Date: "2024-03", Urls: ["https://example.com/scene"])
+                : new VideoSplitMetadataDto()) : null;
+
+            var result = await controller.SplitFile(sourceId, new VideoSplitFileDto(fileId, Metadata: metadata), TestContext.Current.CancellationToken);
+
+            Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(result);
+            var created = await db.Videos.Include(video => video.Urls).SingleAsync(video => video.Id != sourceId, TestContext.Current.CancellationToken);
+            Assert.Equal(explicitMetadata ? (populated ? "New" : null) : "Source", created.Title);
+            Assert.Equal(explicitMetadata ? (populated ? "New code" : null) : "Old", created.Code);
+            Assert.Equal(explicitMetadata ? (populated ? "New details" : null) : "Old details", created.Details);
+            Assert.Equal(explicitMetadata ? (populated ? "New director" : null) : "Old director", created.Director);
+            Assert.Equal(!explicitMetadata, created.Organized);
+            Assert.Equal(!explicitMetadata, created.IsVr);
+            Assert.Equal(fileId, created.PrimaryFileId);
+            Assert.Equal(created.Id, (await db.VideoFiles.SingleAsync(item => item.Id == fileId)).VideoId);
+            Assert.Equal(primaryId, (await db.Videos.SingleAsync(item => item.Id == sourceId)).PrimaryFileId);
+            Assert.Equal(populated ? 1 : 0, created.Urls.Count);
+            Assert.Equal(2, events.Count);
+        }
+    }
+
+    [Fact]
+    public async Task SplitRejectsPrimaryAndMissingFilesWithoutCreatingVideo()
+    {
+        var (db, principal) = CreateContext();
+        await using (db)
+        {
+            var source = new Video { Title = "Source" };
+            var primary = new VideoFile { Basename = "primary.mp4", ParentFolder = new Folder { Path = "/library" }, Video = source };
+            source.PrimaryFile = primary;
+            db.AddRange(source, primary);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            var sourceId = source.Id;
+            var primaryId = primary.Id;
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var controller = CreateController(db, principal, new EventBus(), cache);
+            Assert.IsType<Microsoft.AspNetCore.Mvc.ConflictObjectResult>(await controller.SplitFile(sourceId, new VideoSplitFileDto(primaryId, Metadata: new()), TestContext.Current.CancellationToken));
+            Assert.IsType<Microsoft.AspNetCore.Mvc.NotFoundObjectResult>(await controller.SplitFile(sourceId, new VideoSplitFileDto(int.MaxValue, Metadata: new()), TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.Videos.CountAsync());
+        }
+    }
+
     [Fact]
     public async Task AssignFilePublishesUpdatesForPreviousAndNewOwners()
     {

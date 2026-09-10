@@ -1,3 +1,4 @@
+import { VideoCreateModal } from "../components/VideoCreateModal";
 import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   faces,
@@ -1133,7 +1134,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     ) : activeTab === "filters" ? (
       <VideoFiltersTab filters={videoFilters} onChange={setVideoFilters} />
     ) : activeTab === "file-info" ? (
-      <FileInfoTab files={video.files} videoId={video.parentVideoId ?? video.id} primaryFileId={video.primaryFileId} canAlign={canWriteVideo && canReadFiles} canDeleteFiles={hasPermission("files.delete")} canDeleteFromDisk={canDeleteVideoFiles} onPlayFile={setAlternateFileId} onAlignmentDialogOpenChange={setAlignmentDialogOpen} onChanged={() => { setAlternateFileId(null); void queryClient.invalidateQueries({ queryKey: ["video", video.id] }); }} />
+      <FileInfoTab sourceVideo={video} onSplitCreated={(id) => onNavigate({ page: "video", id })} files={video.files} videoId={video.parentVideoId ?? video.id} primaryFileId={video.primaryFileId} canAlign={canWriteVideo && canReadFiles} canDeleteFiles={hasPermission("files.delete")} canDeleteFromDisk={canDeleteVideoFiles} onPlayFile={setAlternateFileId} onAlignmentDialogOpenChange={setAlignmentDialogOpen} onChanged={() => { setAlternateFileId(null); void queryClient.invalidateQueries({ queryKey: ["video", video.id] }); }} />
     ) : activeTab === "history" ? (
       <HistoryTab
         video={video}
@@ -1827,20 +1828,24 @@ export function DetailsTab({
 }
 
 // File Info Tab — show every underlying video file rather than only the first one.
-export function FileInfoTab({ files, videoId, primaryFileId, canAlign = false, canDeleteFiles = false, canDeleteFromDisk = false, onPlayFile, onAlignmentDialogOpenChange, onChanged }: { files: Video["files"]; videoId?: number; primaryFileId?: number | null; canAlign?: boolean; canDeleteFiles?: boolean; canDeleteFromDisk?: boolean; onPlayFile?: (fileId: number) => void; onAlignmentDialogOpenChange?: (open: boolean) => void; onChanged?: () => void }) {
+export function FileInfoTab({ sourceVideo, onSplitCreated, files, videoId, primaryFileId, canAlign = false, canDeleteFiles = false, canDeleteFromDisk = false, onPlayFile, onAlignmentDialogOpenChange, onChanged }: { sourceVideo?: Video; onSplitCreated?: (id: number) => void; files: Video["files"]; videoId?: number; primaryFileId?: number | null; canAlign?: boolean; canDeleteFiles?: boolean; canDeleteFromDisk?: boolean; onPlayFile?: (fileId: number) => void; onAlignmentDialogOpenChange?: (open: boolean) => void; onChanged?: () => void }) {
+  const [splittingFileId, setSplittingFileId] = useState<number | null>(null);
   const [aligningFileId, setAligningFileId] = useState<number | null>(null);
   useEffect(() => {
-    onAlignmentDialogOpenChange?.(aligningFileId != null);
+    onAlignmentDialogOpenChange?.(aligningFileId != null || splittingFileId != null);
     return () => onAlignmentDialogOpenChange?.(false);
-  }, [aligningFileId, onAlignmentDialogOpenChange]);
+  }, [aligningFileId, splittingFileId, onAlignmentDialogOpenChange]);
   const revealMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
   const moveMutation = useMutation({ mutationFn: ({ targetId, fileId }: { targetId: number; fileId: number }) => videos.assignFile(targetId, fileId), onSuccess: onChanged });
-  const splitMutation = useMutation({ mutationFn: ({ fileId, title }: { fileId: number; title?: string }) => videos.splitFile(videoId!, fileId, title), onSuccess: onChanged });
   const deleteMutation = useMutation({ mutationFn: ({ fileId, fromDisk }: { fileId: number; fromDisk: boolean }) => fileOps.delete(fileId, fromDisk), onSuccess: onChanged });
   const canReveal =
     typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   return (
     <div className="space-y-4 text-sm">
+      {splittingFileId != null && sourceVideo && videoId != null && <VideoCreateModal
+        open onClose={() => setSplittingFileId(null)} onCreated={id => { onChanged?.(); onSplitCreated?.(id); }}
+        split={{ source: sourceVideo, ownerId: videoId, fileId: splittingFileId, filename: files.find(file => file.id === splittingFileId)?.basename || "the selected file" }}
+      />}
       {aligningFileId != null && videoId != null && <VideoAlignmentDialog videoId={videoId} targetFileId={aligningFileId} onClose={() => setAligningFileId(null)} onApplied={onChanged ?? (() => {})} />}
       {files.map((file, index) => {
         const sectionLabel = file.basename || file.path.split(/[\\/]/).pop() || `File ${index + 1}`;
@@ -1880,8 +1885,7 @@ export function FileInfoTab({ files, videoId, primaryFileId, canAlign = false, c
                 if (Number.isInteger(targetId) && targetId > 0) moveMutation.mutate({ targetId, fileId: file.id });
               }}>Move to another video</button>}
               {file.id !== primaryFileId && canAlign && videoId != null && <button className="rounded border border-border px-2 py-1 text-xs hover:bg-surface" onClick={() => {
-                const title = window.prompt("Review the title for the new video:", sectionLabel);
-                if (title !== null) splitMutation.mutate({ fileId: file.id, title: title.trim() || undefined });
+                setSplittingFileId(file.id);
               }}>Split as separate video</button>}
               {file.id !== primaryFileId && canDeleteFiles && <button className="rounded border border-red-500/60 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10" onClick={() => {
                 if (!window.confirm("Delete this video file record?")) return;

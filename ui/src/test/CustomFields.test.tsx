@@ -55,6 +55,17 @@ function SaveHarness({ onSave }: { onSave: () => void }) {
 }
 
 describe("JSON custom fields", () => {
+  it("reports the edited key when explicitly applying null to an empty field", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onFieldChange = vi.fn();
+    renderWithDefinition(<CustomFieldsEditor value={{}} onChange={onChange} onFieldChange={onFieldChange} entityType="video" />);
+    await user.click(screen.getByRole("button", {name: "Add Structured Metadata JSON"}));
+    fireEvent.change(screen.getByRole("textbox", {name: "Structured Metadata JSON"}), {target: {value: "null"}});
+    await user.click(screen.getByRole("button", {name: "Apply JSON"}));
+    expect(onChange).toHaveBeenCalledWith({});
+    expect(onFieldChange).toHaveBeenCalledWith("structured_metadata");
+  });
   it("opens JSON editing on demand and commits structured JSON only when applied", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

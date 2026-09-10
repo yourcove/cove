@@ -619,8 +619,8 @@ export const videos = {
   rescan: (id: number) => request<{ jobId: string }>(`/videos/${id}/rescan`, { method: "POST" }),
   assignFile: (id: number, fileId: number) =>
     request<void>(`/videos/${id}/assign-file`, { method: "POST", body: JSON.stringify({ fileId }) }),
-  splitFile: (id: number, fileId: number, title?: string) =>
-    request<{ videoId: number }>(`/videos/${id}/split-file`, { method: "POST", body: JSON.stringify({ fileId, title }) }),
+  splitFile: (id: number, fileId: number, title?: string, metadata?: VideoCreate) =>
+    request<{ videoId: number }>(`/videos/${id}/split-file`, { method: "POST", body: JSON.stringify({ fileId, title, metadata }) }),
   streamUrl: (id: number, fileId?: number) => buildMediaUrl(`/stream/video/${id}`, undefined, undefined, { fileId }),
   screenshotUrl: (id: number, version?: string, seconds?: number) =>
     buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),

@@ -2266,7 +2266,14 @@ public record DeleteFilesDto(List<int> FileIds, bool DeleteFromDisk);
 public record FileSetFingerprintsDto(int FileId, List<FingerprintEntryDto> Fingerprints);
 public record FingerprintEntryDto(string Type, string Value);
 public record VideoAssignFileDto(int FileId);
-public record VideoSplitFileDto(int FileId, string? Title = null, string? Details = null, string? Director = null);
+public record VideoSplitMetadataDto(
+    string? Title = null, string? Code = null, string? Details = null, string? Director = null,
+    [param: PartialDate] string? Date = null, bool IsVr = false, int? StudioId = null,
+    List<string>? Urls = null, List<int>? TagIds = null, List<int>? PerformerIds = null,
+    List<int>? GalleryIds = null, Dictionary<string, object>? CustomFields = null);
+
+public record VideoSplitFileDto(int FileId, string? Title = null, string? Details = null, string? Director = null,
+    VideoSplitMetadataDto? Metadata = null);
 public record VideoSetPrimaryFileDto(
     int FileId,
     string Resolution = "direct",

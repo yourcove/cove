@@ -2030,6 +2030,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [HttpPost("{id:int}/split-file")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "Metadata.GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SplitFile(int id, [FromBody] VideoSplitFileDto dto, CancellationToken ct)
     {
         var sourceFound = false;
@@ -2071,8 +2072,29 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 VideoTags = source.VideoTags.Select(link => new VideoTag { TagId = link.TagId }).ToList(),
                 VideoPerformers = source.VideoPerformers.Select(link => new VideoPerformer { PerformerId = link.PerformerId }).ToList(),
             };
+            if (dto.Metadata is { } metadata)
+            {
+                var parsedDate = PartialDate.Parse(metadata.Date);
+                split.Title = metadata.Title;
+                split.Code = metadata.Code;
+                split.Details = metadata.Details;
+                split.Director = metadata.Director;
+                split.Date = parsedDate.Value;
+                split.DatePrecision = parsedDate.Precision;
+                split.Organized = false;
+                split.IsVr = metadata.IsVr;
+                split.StudioId = metadata.StudioId;
+                split.Urls = (metadata.Urls ?? []).Select(url => new VideoUrl { Url = url }).ToList();
+                split.VideoTags = (metadata.TagIds ?? []).Distinct().Select(tagId => new VideoTag { TagId = tagId }).ToList();
+                split.VideoPerformers = (metadata.PerformerIds ?? []).Distinct().Select(performerId => new VideoPerformer { PerformerId = performerId }).ToList();
+                split.VideoGalleries = (metadata.GalleryIds ?? []).Distinct().Select(galleryId => new VideoGallery { GalleryId = galleryId }).ToList();
+            }
             db.Videos.Add(split);
             await db.SaveChangesAsync(ct);
+            if (dto.Metadata?.CustomFields is { } fields)
+                await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, split.Id, fields, ct);
+            if (dto.Metadata?.TagIds is { Count: > 0 } tagIds && tagProvenanceService != null)
+                await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Video, split.Id, [], tagIds.Distinct().ToList(), cancellationToken: ct);
             file.VideoId = split.Id;
             split.PrimaryFileId = file.Id;
             await db.SaveChangesAsync(ct);

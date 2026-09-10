@@ -1,3 +1,4 @@
+import { VideoCreateModal } from "../components/VideoCreateModal";
 import { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, entityImages, videos } from "../api/client";
@@ -8,12 +9,10 @@ import type {
   FindFilter,
   Group,
   Video,
-  VideoCreate,
   VideoFilterCriteria,
   VideoListEntry,
 } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { IsoDateInput } from "../components/IsoDateInput";
 import { EntityCardGrid } from "../components/EntityCardGrid";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
@@ -28,7 +27,6 @@ import {
 } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import {
-  CustomFieldsEditor,
   formatDuration,
   formatFileSize,
   getResolutionLabel,
@@ -37,7 +35,6 @@ import {
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
-import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
 import {
   Film,
   Eye,
@@ -60,11 +57,9 @@ import { VideoCard } from "../components/EntityCards";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
 import { canReadEntity, canWriteEntity } from "../auth/visibility";
-import { StringListEditor } from "../components/StringListEditor";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { useAppConfig } from "../state/AppConfigContext";
-import { StudioSelector } from "../components/StudioSelector";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard, type WallMediaVideoControlsState } from "../components/WallMediaCard";
 import {
@@ -80,18 +75,9 @@ import {
 } from "../components/FeedCardFrame";
 import { NarrativeText } from "../components/NarrativeText";
 import { BookmarkButton } from "../components/BookmarkButton";
-import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
-import {
-  createFromUrlWithOptionalDownload,
-  mergeUrlLists,
-  NoDownloaderFoundError,
-  type UrlDownloadMode,
-} from "../utils/createFromUrlDownload";
-import { useFileBackedCreatePreferences } from "../hooks/useFileBackedCreatePreferences";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { RelatedEntityListRow } from "../components/RelatedEntityListView";
-import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { resolveQueryLoadState } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
@@ -1206,289 +1192,6 @@ export function VideosPage({ onNavigate }: Props) {
   );
 }
 
-function VideoCreateModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: (id: number) => void;
-}) {
-  const qc = useQueryClient();
-  const [title, setTitle] = useState("");
-  const [code, setCode] = useState("");
-  const [date, setDate] = useState("");
-  const [details, setDetails] = useState("");
-  const [director, setDirector] = useState("");
-  const [isVr, setIsVr] = useState(false);
-  const [urls, setUrls] = useState<string[]>([""]);
-  const [studioId, setStudioId] = useState<number | undefined>(undefined);
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
-  const [customFieldsValid, setCustomFieldsValid] = useState(true);
-  const [createAnother, setCreateAnother] = useState(false);
-  const [sourceMode, setSourceMode] = useState<CreateSourceMode>("metadata");
-  const [filePath, setFilePath] = useState("");
-  const [url, setUrl] = useState("");
-  const { urlDownloadMode, setUrlDownloadMode, scrapeMetadata, setScrapeMetadata } =
-    useFileBackedCreatePreferences("Video");
-  const [noDownloaderFound, setNoDownloaderFound] = useState(false);
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
-  const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>([]);
-  const [selectedGalleryIds, setSelectedGalleryIds] = useState<number[]>([]);
-
-  const resetForm = () => {
-    setTitle("");
-    setCode("");
-    setDate("");
-    setDetails("");
-    setDirector("");
-    setIsVr(false);
-    setUrls([""]);
-    setStudioId(undefined);
-    setCustomFields({});
-    setSourceMode("metadata");
-    setFilePath("");
-    setUrl("");
-    setNoDownloaderFound(false);
-    setSelectedTagIds([]);
-    setSelectedPerformerIds([]);
-    setSelectedGalleryIds([]);
-  };
-
-  const createMut = useMutation({
-    meta: { suppressGlobalError: true },
-    mutationFn: (data: VideoCreate) => videos.create(data),
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["videos"] });
-      resetForm();
-      if (createAnother) return;
-      onClose();
-      if (created?.id) onCreated(created.id);
-    },
-  });
-
-  const createFromFileMut = useMutation({
-    meta: { suppressGlobalError: true },
-    mutationFn: async ({ path, data }: { path: string; data: VideoCreate }) => {
-      const created = await videos.createFromFile({ filePath: path });
-      return created?.id ? videos.update(created.id, data) : created;
-    },
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["videos"] });
-      resetForm();
-      if (createAnother) return;
-      onClose();
-      if (created?.id) onCreated(created.id);
-    },
-  });
-
-  const createFromUrlMut = useMutation({
-    meta: { suppressGlobalError: true },
-    mutationFn: ({
-      requestedUrl,
-      data,
-      downloadMode,
-      scrapeMetadata,
-    }: {
-      requestedUrl: string;
-      data: VideoCreate;
-      downloadMode: UrlDownloadMode;
-      scrapeMetadata: boolean;
-    }) =>
-      createFromUrlWithOptionalDownload({
-        requestedUrl,
-        data,
-        entity: "Video",
-        downloadMode,
-        scrapeMetadata,
-        create: videos.create,
-      }),
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["videos"] });
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      resetForm();
-      if (createAnother) return;
-      onClose();
-      if (created?.id) onCreated(created.id);
-    },
-    onError: (err) => {
-      if (err instanceof NoDownloaderFoundError) setNoDownloaderFound(true);
-    },
-  });
-
-  const buildPayload = (extraUrls: string[] = []): VideoCreate => ({
-    title: title || undefined,
-    code: code || undefined,
-    date: date || undefined,
-    details: details || undefined,
-    director: director || undefined,
-    isVr,
-    studioId,
-    urls: mergeUrlLists(urls, extraUrls),
-    tagIds: selectedTagIds,
-    performerIds: selectedPerformerIds,
-    galleryIds: selectedGalleryIds,
-    customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
-  });
-
-  const handleSourceModeChange = (mode: CreateSourceMode) => {
-    setSourceMode(mode);
-    setNoDownloaderFound(false);
-  };
-
-  const handleUrlChange = (value: string) => {
-    setUrl(value);
-    setNoDownloaderFound(false);
-  };
-
-  const handleCreateWithoutDownload = () => {
-    const requestedUrl = url.trim();
-    if (requestedUrl) createMut.mutate(buildPayload([requestedUrl]));
-  };
-
-  const handleSave = () => {
-    if (sourceMode === "file") {
-      const trimmedPath = filePath.trim();
-      if (trimmedPath) createFromFileMut.mutate({ path: trimmedPath, data: buildPayload() });
-      return;
-    }
-
-    if (sourceMode === "url") {
-      const requestedUrl = url.trim();
-      if (requestedUrl)
-        createFromUrlMut.mutate({ requestedUrl, data: buildPayload(), downloadMode: urlDownloadMode, scrapeMetadata });
-      return;
-    }
-
-    createMut.mutate(buildPayload());
-  };
-
-  const pending = createMut.isPending || createFromFileMut.isPending || createFromUrlMut.isPending;
-  const error = (createMut.error ?? createFromFileMut.error ?? createFromUrlMut.error) as Error | null;
-
-  return (
-    <EditModal title="Create Video" open={open} onClose={onClose}>
-      <FileBackedCreateSource
-        mode={sourceMode}
-        onModeChange={handleSourceModeChange}
-        filePath={filePath}
-        onFilePathChange={setFilePath}
-        url={url}
-        onUrlChange={handleUrlChange}
-        urlDownloadMode={urlDownloadMode}
-        onUrlDownloadModeChange={setUrlDownloadMode}
-        scrapeMetadata={scrapeMetadata}
-        onScrapeMetadataChange={setScrapeMetadata}
-        noDownloaderFound={noDownloaderFound}
-        onCreateWithoutDownload={handleCreateWithoutDownload}
-        onDismissNoDownloader={() => setNoDownloaderFound(false)}
-        modes={["metadata", "file", "url"]}
-        filePlaceholder="C:\\Media\\video.mp4"
-        urlPlaceholder="https://example.com/video"
-      />
-
-      <>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Title">
-            <TextInput value={title} onChange={setTitle} placeholder="Video title" />
-          </Field>
-          <Field label="Date">
-            <IsoDateInput
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-            />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Studio Code">
-            <TextInput value={code} onChange={setCode} placeholder="Studio code" />
-          </Field>
-          <Field label="Director">
-            <TextInput value={director} onChange={setDirector} placeholder="Director" />
-          </Field>
-        </div>
-
-        <Field label="Details">
-          <TextArea value={details} onChange={setDetails} placeholder="Video description" rows={3} />
-        </Field>
-
-        <Field label="Studio">
-          <StudioSelector value={studioId} onChange={setStudioId} />
-        </Field>
-
-        <Field label="URLs">
-          <StringListEditor
-            values={urls}
-            onChange={setUrls}
-            placeholder="https://..."
-            addLabel="Add URL"
-            inputType="url"
-          />
-        </Field>
-
-        <div className="mb-2 flex flex-wrap items-center gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={isVr}
-              onChange={(e) => setIsVr(e.target.checked)}
-              className="rounded bg-card border-border"
-            />
-            VR
-          </label>
-        </div>
-
-        <Field label="Tags">
-          <EntityReferenceMultiSelector
-            entityType="tag"
-            values={selectedTagIds}
-            onChange={setSelectedTagIds}
-            placeholder="Search tags..."
-          />
-        </Field>
-
-        <Field label="Performers">
-          <EntityReferenceMultiSelector
-            entityType="performer"
-            values={selectedPerformerIds}
-            onChange={setSelectedPerformerIds}
-            placeholder="Search performers..."
-          />
-        </Field>
-
-        <Field label="Galleries">
-          <EntityReferenceMultiSelector
-            entityType="gallery"
-            values={selectedGalleryIds}
-            onChange={setSelectedGalleryIds}
-            placeholder="Search galleries..."
-          />
-        </Field>
-
-        <Field label="Custom Fields">
-          <CustomFieldsEditor
-            value={customFields}
-            onChange={setCustomFields}
-            onValidityChange={setCustomFieldsValid}
-            entityType="video"
-          />
-        </Field>
-
-        <CreateModalActions
-          loading={pending}
-          disabled={!customFieldsValid}
-          onCancel={onClose}
-          onSave={handleSave}
-          createAnother={createAnother}
-          onCreateAnotherChange={setCreateAnother}
-        />
-      </>
-    </EditModal>
-  );
-}
 
 function CompilationGroupCard({ group, onNavigate }: { group: Group; onNavigate: (r: any) => void }) {
   return (
