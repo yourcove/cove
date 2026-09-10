@@ -2468,6 +2468,72 @@ VALUES
                 Assert.Equal("Manual marker", segment.Title);
         }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportMedia_ReadsOnlyCurrentBatchFilesAndPreservesCrossBatchDuplicates(bool scenes)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var context = CreateContext();
+        var folder = new Folder { Path = "/batch-import" };
+        context.Folders.Add(folder);
+        await context.SaveChangesAsync(ct);
+        BaseFileEntity existing = scenes ? new VideoFile() : new ImageFile();
+        existing.ParentFolderId = folder.Id;
+        existing.Basename = "asset-2";
+        context.Add(existing);
+        await context.SaveChangesAsync(ct);
+        var existingId = existing.Id;
+        context.ChangeTracker.Clear();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(ct);
+        var reads = 0;
+        stash.CreateFunction<int, string, string>("checked_basename", (id, name) =>
+        {
+            Assert.True(id <= 601, "Importer read an unrelated file.");
+            reads++;
+            var saved = scenes ? context.Videos.Count() : context.Images.Count();
+            Assert.True(reads <= saved + 250, "Importer read beyond the current source batch before saving it.");
+            return name;
+        });
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE source_files(id INTEGER PRIMARY KEY, basename TEXT, parent_folder_id INTEGER, size INTEGER, mod_time TEXT, created_at TEXT);
+CREATE VIEW files AS SELECT id, checked_basename(id,basename) AS basename, parent_folder_id, size, mod_time, created_at FROM source_files;
+CREATE TABLE images(id INTEGER PRIMARY KEY,title TEXT,code TEXT,details TEXT,photographer TEXT,rating INTEGER,organized INTEGER,o_counter INTEGER,studio_id INTEGER,date TEXT,created_at TEXT,updated_at TEXT);
+CREATE TABLE images_files(image_id INTEGER,file_id INTEGER,[primary] INTEGER);
+CREATE TABLE image_files(file_id INTEGER,format TEXT,width INTEGER,height INTEGER);
+CREATE TABLE scenes(id INTEGER PRIMARY KEY,title TEXT,details TEXT,date TEXT,rating INTEGER,studio_id INTEGER,organized INTEGER,code TEXT,director TEXT,resume_time REAL,play_duration REAL,created_at TEXT,updated_at TEXT);
+CREATE TABLE scenes_files(scene_id INTEGER,file_id INTEGER,[primary] INTEGER);
+CREATE TABLE groups_scenes(scene_id INTEGER,group_id INTEGER,scene_index INTEGER);
+CREATE TABLE video_files(file_id INTEGER,duration REAL,video_codec TEXT,format TEXT,audio_codec TEXT,width INTEGER,height INTEGER,frame_rate REAL,bit_rate INTEGER);
+CREATE TABLE files_fingerprints(file_id INTEGER,type TEXT,fingerprint TEXT);
+WITH RECURSIVE n(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM n WHERE id<602)
+INSERT INTO source_files SELECT id,CASE WHEN id=501 THEN 'ASSET-1' ELSE 'asset-'||id END,1,1024,'2024-01-01','2024-01-01' FROM n;
+INSERT INTO images SELECT id,'image-'||id,NULL,NULL,NULL,80,0,1,NULL,NULL,'2024-01-01','2024-01-01' FROM source_files WHERE id<=601;
+INSERT INTO images_files SELECT id,id,1 FROM images;
+INSERT INTO image_files SELECT id,'jpeg',800,600 FROM images;
+INSERT INTO scenes SELECT id,'scene-'||id,NULL,NULL,80,NULL,0,NULL,NULL,0,0,'2024-01-01','2024-01-01' FROM images;
+INSERT INTO scenes_files SELECT id,id,1 FROM scenes;
+INSERT INTO video_files SELECT id,120,'h264','mp4','aac',1920,1080,30,1000 FROM scenes;
+INSERT INTO files_fingerprints SELECT id,'md5','fingerprint-'||id FROM scenes;
+");
+        var service = CreateService(context);
+        var folders = new Dictionary<int,int> { [1] = folder.Id };
+        if (scenes)
+            await InvokePrivateAsync(service, "ImportScenesAsync", stash, new Dictionary<string,string>(), folders,
+                new Dictionary<int,int>(), new Dictionary<int,int>(), new Dictionary<int,int>(), new Dictionary<int,int>(),
+                NullJobProgress.Instance, 0d, 1d, ct);
+        else
+            await InvokePrivateAsync(service, "ImportImagesAsync", stash, folders,
+                new Dictionary<int,int>(), new Dictionary<int,int>(), new Dictionary<int,int>(),
+                NullJobProgress.Instance, 0d, 1d, ct);
+        Assert.Equal(601, reads);
+        Assert.Equal(601, scenes ? await context.Videos.CountAsync(ct) : await context.Images.CountAsync(ct));
+        Assert.Equal(scenes ? 601 : 600, scenes ? await context.VideoFiles.CountAsync(ct) : await context.ImageFiles.CountAsync(ct));
+        Assert.Equal(601, await context.Ratings.CountAsync(ct));
+        Assert.True(await context.Set<BaseFileEntity>().AnyAsync(file => file.Id == existingId && file.Basename == "asset-2", ct));
+    }
+
     private static StashMigrationService CreateService(
         CoveContext context,
         IBlobService? blobService = null,
@@ -2483,7 +2549,10 @@ VALUES
             config,
             new NullJobService(),
             scopeFactory,
-            NullLogger<StashMigrationService>.Instance);
+            NullLogger<StashMigrationService>.Instance)
+        {
+            FileClaimsFactory = (_, comparer, _) => Task.FromResult<IStashFileClaims>(new TestFileClaims(comparer)),
+        };
     }
 
     private static async Task<object?> InvokePrivateAsync(object target, string methodName, params object?[] args)
@@ -2605,6 +2674,23 @@ VALUES
             modelBuilder.Entity<Group>().Ignore(group => group.CustomFields);
             modelBuilder.Entity<Face>().Ignore(face => face.CustomFields);
         }
+    }
+
+    private sealed class TestFileClaims(StringComparer comparer) : IStashFileClaims
+    {
+        private readonly HashSet<string> values = new(comparer);
+        public Task<bool> AddAsync(string value, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(values.Add(value));
+        }
+        public Task SeedAsync(IEnumerable<string> keys, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            values.UnionWith(keys);
+            return Task.CompletedTask;
+        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class NullJobService : IJobService
