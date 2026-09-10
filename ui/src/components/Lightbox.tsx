@@ -66,7 +66,8 @@ export function Lightbox({
 }: LightboxProps) {
   const [queuedImages, setQueuedImages] = useState(images);
   const [index, setIndex] = useState(initialIndex);
-  const [loading, setLoading] = useState(true);
+  const [displayed, setDisplayed] = useState<LightboxImage | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentSlideshowDelay, setCurrentSlideshowDelay] = useState(slideshowDelay);
   const [zoom, setZoom] = useState(1);
@@ -88,6 +89,12 @@ export function Lightbox({
 
   const count = queuedImages.length;
   const current = queuedImages[index];
+  const currentSrc = useRef<string | undefined>(current?.src);
+  currentSrc.current = open ? current?.src : undefined;
+  const loading = Boolean(current && displayed?.src !== current.src);
+  const failed = failedSrc === current?.src;
+  const visibleImages =
+    displayed && displayed.src !== current?.src ? [displayed, ...(current ? [current] : [])] : current ? [current] : [];
   const queryClient = useQueryClient();
   const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, {
     enabled: open && Boolean(current),
@@ -130,6 +137,15 @@ export function Lightbox({
     },
     [current],
   );
+
+  useEffect(() => {
+    if (!open) {
+      setDisplayed(null);
+      setFailedSrc(null);
+    }
+  }, [open]);
+
+  useEffect(() => setFailedSrc(null), [current?.src]);
 
   // Sync index when initialIndex or open changes
   useEffect(() => {
@@ -248,7 +264,6 @@ export function Lightbox({
   const goTo = useCallback(
     (next: number) => {
       setIndex(((next % count) + count) % count);
-      setLoading(true);
       resetView();
     },
     [count, resetView],
@@ -267,7 +282,6 @@ export function Lightbox({
       if (loaded.length === 0) return;
       setQueuedImages((currentImages) => [...loaded, ...currentImages]);
       setIndex(loaded.length - 1);
-      setLoading(true);
       resetView();
     } catch {
       // Keep the current image visible when an adjacent page cannot be loaded.
@@ -288,7 +302,6 @@ export function Lightbox({
       if (loaded.length === 0) return;
       setQueuedImages((currentImages) => [...currentImages, ...loaded]);
       setIndex(index + 1);
-      setLoading(true);
       resetView();
     } catch {
       // Keep the current image visible when an adjacent page cannot be loaded.
@@ -590,38 +603,67 @@ export function Lightbox({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        {loading && (
+        {loading && !failed && !displayed && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin" />
           </div>
         )}
-        <img
-          key={current?.id}
-          src={current?.src}
-          alt={current?.title ?? ""}
-          draggable={false}
-          onClick={(e) => {
-            // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
-            if (pointerMoved.current) return;
-            e.stopPropagation();
-            toggleZoom();
-          }}
-          onLoad={() => setLoading(false)}
-          className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out"
-          style={{
-            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-            cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
-            opacity: loading ? 0 : 1,
-          }}
-        />
+        {failed && (
+          <div role="alert" className="absolute z-10 rounded bg-black/80 p-3 text-white">
+            Unable to load image. Try another image.
+          </div>
+        )}
+        {visibleImages.map((image) => (
+          <img
+            key={image.src}
+            src={image.src}
+            alt={image.title ?? ""}
+            aria-hidden={image.src !== current?.src}
+            draggable={false}
+            onClick={(e) => {
+              // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
+              if (pointerMoved.current) return;
+              e.stopPropagation();
+              if (loading) return;
+              toggleZoom();
+            }}
+            onLoad={async (event) => {
+              const element = event.currentTarget;
+              try {
+                await element.decode?.();
+                // Ignore loads completed after another navigation or closing the viewer.
+                if (element.isConnected && currentSrc.current === image.src) {
+                  setDisplayed(image);
+                  setFailedSrc(null);
+                }
+              } catch {
+                if (element.isConnected && currentSrc.current === image.src) setFailedSrc(image.src);
+              }
+            }}
+            onError={() => {
+              if (currentSrc.current === image.src) setFailedSrc(image.src);
+            }}
+            className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out"
+            style={{
+              transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+              cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+              opacity: displayed?.src === image.src ? 1 : 0,
+              position: displayed?.src === image.src ? "relative" : "absolute",
+            }}
+          />
+        ))}
       </div>
 
       {current ? (
         <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 flex items-center gap-2 rounded-lg border border-white/15 bg-black/65 px-3 py-2 text-white shadow-lg backdrop-blur-sm">
-          <InteractiveRating value={rating} onChange={setRating} readOnly={!canEngage || ratingPending} />
+          <InteractiveRating
+            value={rating}
+            onChange={setRating}
+            readOnly={(loading && Boolean(displayed)) || !canEngage || ratingPending}
+          />
           <button
             type="button"
-            disabled={!canLike || likeMutation.isPending}
+            disabled={(loading && Boolean(displayed)) || !canLike || likeMutation.isPending}
             onClick={() => likeMutation.mutate(current.id)}
             className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Like image (${likeCount} likes)`}
