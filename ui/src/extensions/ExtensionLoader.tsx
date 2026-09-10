@@ -49,7 +49,11 @@ import type {
 } from "../api/types";
 import { ExtensionComponentRegistry, type ExtensionComponent } from "./ExtensionComponentRegistry";
 import { ExtensionComponentOverrideHost } from "./ExtensionComponentOverrideHost";
-import { createExtensionRuntimeReconciler, type ExtensionRuntimeOwner } from "./ExtensionRuntimeReconciler";
+import {
+  createExtensionRuntimeReconciler,
+  type ExtensionRuntimeOwner,
+  type ExtensionRuntimeFailure,
+} from "./ExtensionRuntimeReconciler";
 
 // ============================================================================
 // Icon resolver — maps manifest icon names to Lucide components
@@ -91,6 +95,8 @@ interface ExtensionState {
   manifest: ExtensionManifest | null;
   loaded: boolean;
   error?: string;
+  loadFailures: ExtensionRuntimeFailure[];
+  retryFailedExtensions: () => Promise<void>;
   /** Refetch and fully reconcile the extension manifest. Returns the applied manifest. */
   refreshManifest: () => Promise<ExtensionManifest | null>;
   activeThemeId: string | null;
@@ -142,6 +148,8 @@ interface ExtensionState {
 const ExtensionContext = createContext<ExtensionState>({
   manifest: null,
   loaded: false,
+  loadFailures: [],
+  retryFailedExtensions: async () => {},
   refreshManifest: async () => null,
   activeThemeId: null,
   setActiveTheme: () => {},
@@ -278,7 +286,14 @@ function readStoredStyleOptions(): Record<string, Record<string, string>> {
 function runtimeBundleDescriptors(manifest: ExtensionManifest) {
   const ownedBundles = (manifest.extensionBundles ?? []).flatMap((bundle) =>
     bundle.jsBundleUrl
-      ? [{ extensionId: bundle.extensionId, version: bundle.version, jsBundleUrl: bundle.jsBundleUrl }]
+      ? [
+          {
+            extensionId: bundle.extensionId,
+            version: bundle.version,
+            jsBundleUrl: bundle.jsBundleUrl,
+            dependencies: bundle.dependencies,
+          },
+        ]
       : [],
   );
 
@@ -290,6 +305,26 @@ function usesLegacyRuntimeBundle(manifest: ExtensionManifest) {
   return (
     !(manifest.extensionBundles ?? []).some((bundle) => Boolean(bundle.jsBundleUrl)) && Boolean(manifest.jsBundleUrl)
   );
+}
+
+// All owned contribution arrays use extensionId. Keep declarative-only extensions,
+// but withdraw every surface (including CSS) belonging to a failed browser bundle.
+function withoutFailedContributions(
+  manifest: ExtensionManifest,
+  failures: ExtensionRuntimeFailure[],
+): ExtensionManifest {
+  const failedOwners = new Set(failures.map((failure) => failure.extensionId));
+  const legacyFailed = failedOwners.has(LEGACY_BUNDLE_OWNER);
+  return Object.fromEntries(
+    Object.entries(manifest).map(([key, value]) => [
+      key,
+      Array.isArray(value)
+        ? value.filter((item) => !legacyFailed && !failedOwners.has(item.extensionId))
+        : (key === "jsBundleUrl" || key === "cssBundleUrl") && failures.length > 0
+          ? undefined
+          : value,
+    ]),
+  ) as unknown as ExtensionManifest;
 }
 
 function removeExtensionBundleStyles(runtimeOwnerId: string) {
@@ -350,6 +385,9 @@ export function ExtensionLoaderProvider({
   const [manifest, setManifest] = useState<ExtensionManifest | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [loadFailures, setLoadFailures] = useState<ExtensionRuntimeFailure[]>([]);
+  const sourceManifest = useRef<ExtensionManifest | null>(null);
+  const retryUrls = useRef(new Map<string, string>());
   const manifestRequestGeneration = useRef(0);
   const unmountDisposal = useRef<Promise<void> | null>(null);
   const legacyBundleActive = useRef(false);
@@ -362,7 +400,7 @@ export function ExtensionLoaderProvider({
   const runtimeReconciler = useMemo(
     () =>
       createExtensionRuntimeReconciler<ExtensionComponent, ExtensionActionHandler>({
-        importBundle,
+        importBundle: (url) => importBundle(retryUrls.current.get(url) ?? url),
         registrations: {
           register(extensionId, registration) {
             componentRegistry.register(extensionId, registration.components);
@@ -579,11 +617,15 @@ export function ExtensionLoaderProvider({
         isCurrent: () => requestGeneration === manifestRequestGeneration.current,
       });
       if (!reconciled || requestGeneration !== manifestRequestGeneration.current) return null;
-      legacyBundleActive.current = usesLegacyRuntimeBundle(nextManifest);
-      reconcileExtensionBundleStyles(nextManifest, runtimeOwnerId);
-      setManifest(nextManifest);
+      const failures = runtimeReconciler.getFailures();
+      const availableManifest = withoutFailedContributions(nextManifest, failures);
+      sourceManifest.current = nextManifest;
+      setLoadFailures(failures);
+      legacyBundleActive.current = usesLegacyRuntimeBundle(availableManifest);
+      reconcileExtensionBundleStyles(availableManifest, runtimeOwnerId);
+      setManifest(availableManifest);
       setError(undefined);
-      return nextManifest;
+      return availableManifest;
     },
     [runtimeOwnerId, runtimeReconciler],
   );
@@ -603,6 +645,8 @@ export function ExtensionLoaderProvider({
           legacyBundleActive.current = false;
           removeExtensionBundleStyles(runtimeOwnerId);
           setManifest(null);
+          sourceManifest.current = null;
+          setLoadFailures([]);
           setError(undefined);
           setLoaded(true);
         })
@@ -1010,6 +1054,20 @@ export function ExtensionLoaderProvider({
     }
   }, [applyManifest, troubleshootingMode]);
 
+  const retryFailedExtensions = useCallback(async () => {
+    if (!sourceManifest.current || troubleshootingMode) return;
+    const failedOwners = new Set(loadFailures.map((failure) => failure.extensionId));
+    for (const descriptor of runtimeBundleDescriptors(sourceManifest.current)) {
+      if (!failedOwners.has(descriptor.extensionId)) continue;
+      // Browsers cache rejected module imports. A fresh URL makes Retry actually
+      // fetch the repaired bundle while healthy modules keep their current identity.
+      const url = new URL(descriptor.jsBundleUrl, window.location.href);
+      url.searchParams.set("coveRetry", createRuntimeOwnerId());
+      retryUrls.current.set(descriptor.jsBundleUrl, url.href);
+    }
+    if (!(await refreshManifest())) throw new Error("Couldn’t refresh extension status.");
+  }, [loadFailures, refreshManifest, troubleshootingMode]);
+
   return (
     <ExtensionComponentRegistryContext.Provider value={componentRegistry}>
       <ExtensionContext.Provider
@@ -1018,6 +1076,8 @@ export function ExtensionLoaderProvider({
           loaded,
           refreshManifest,
           error,
+          loadFailures,
+          retryFailedExtensions,
           activeThemeId,
           setActiveTheme,
           availableThemes,

@@ -3523,6 +3523,7 @@ export interface Dashboard extends DashboardSummary {
 }
 
 export interface ExtensionUiBundle {
+  dependencies?: string[];
   extensionId: string;
   version: string;
   jsBundleUrl?: string;
@@ -3638,6 +3639,7 @@ export interface ExtensionFeatureDef {
 }
 
 export interface ExtensionThemeDef {
+  extensionId?: string;
   id: string;
   name: string;
   description?: string;
@@ -3650,12 +3652,14 @@ export interface ExtensionThemeDef {
 }
 
 export interface ExtensionComponentStyleDef {
+  extensionId?: string;
   id: string;
   name: string;
   description?: string;
 }
 
 export interface ExtensionLayoutStyleDef {
+  extensionId?: string;
   id: string;
   name: string;
   description?: string;

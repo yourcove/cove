@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import dynamicIconImports from "lucide-react/dynamicIconImports.mjs";
 import type { ExtensionManifest } from "../api/types";
 import { ExtensionLoaderProvider, useExtensions } from "../extensions/ExtensionLoader";
+import { ExtensionLoadFailureDetails, ExtensionLoadNotice } from "../extensions/ExtensionLoadStatus";
 import { ExtensionSlot, RouteRegistryProvider, useRouteRegistry } from "../router/RouteRegistry";
 
 const { getManifestMock } = vi.hoisted(() => ({
@@ -114,6 +115,14 @@ function RuntimeProbe() {
   return (
     <>
       <div data-testid="runtime-loaded">{String(runtime.loaded)}</div>
+      <ExtensionLoadNotice />
+      {runtime.loadFailures.map((failure) => (
+        <ExtensionLoadFailureDetails
+          key={String(failure.extensionId)}
+          failure={failure}
+          retry={runtime.retryFailedExtensions}
+        />
+      ))}
       <button type="button" onClick={() => void runtime.refreshManifest()}>
         Refresh extensions
       </button>
@@ -244,6 +253,111 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     await waitFor(() => expect(seenIcons.length).toBeGreaterThan(renderCount));
     expect(seenIcons.every((component) => component === firstIcon)).toBe(true);
     expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull();
+  });
+
+  it("keeps healthy contributions visible, reports a failed UI, and retries it with a fresh module URL", async () => {
+    const alphaBundle = {
+      extensionId: "ext.alpha",
+      version: "1",
+      jsBundleUrl: "/alpha.mjs?v=1",
+      cssBundleUrl: "/alpha.css",
+    };
+    const betaBundle = {
+      extensionId: "ext.beta",
+      version: "1",
+      jsBundleUrl: "/beta.mjs?v=1",
+      cssBundleUrl: "/beta.css",
+    };
+    const alpha = buildManifest(
+      alphaBundle,
+      { id: "alpha-component", componentName: "AlphaSlot" },
+      { id: "alpha-html", html: "Healthy HTML" },
+    );
+    const beta = buildManifest(
+      betaBundle,
+      { id: "beta-component", componentName: "BetaSlot" },
+      { id: "beta-html", html: "Failed HTML" },
+    );
+    const manifest = {
+      ...alpha,
+      extensionBundles: [alphaBundle, betaBundle],
+      themes: [
+        { id: "healthy-theme", name: "Healthy theme", extensionId: "ext.alpha" },
+        { id: "broken-theme", name: "Broken theme", extensionId: "ext.beta", cssUrl: "/broken-theme.css" },
+      ],
+      componentStyles: [{ id: "broken-style", name: "Broken style", extensionId: "ext.beta" }],
+      layoutStyles: [{ id: "broken-layout", name: "Broken layout", extensionId: "ext.beta" }],
+      settingsPanels: [{ id: "broken-settings", extensionId: "ext.beta" }],
+      actions: [{ id: "broken-action", extensionId: "ext.beta" }],
+      slots: [...alpha.slots, ...beta.slots],
+      pages: [
+        { extensionId: "ext.alpha", route: "healthy", label: "Healthy page", showInNav: true, navOrder: 1 },
+        { extensionId: "ext.beta", route: "broken", label: "Broken page", showInNav: true, navOrder: 2 },
+      ],
+    };
+    localStorage.setItem("cove-active-theme", "broken-theme");
+    getManifestMock.mockResolvedValue(manifest);
+    const healthyLoad = vi.fn();
+    const importer = vi.fn<BundleImporter>(async (url): Promise<{ default: ExtensionBundleModule }> => {
+      if (url === alphaBundle.jsBundleUrl)
+        return { default: { components: { AlphaSlot: () => <div>Healthy component</div> }, onLoad: healthyLoad } };
+      if (!url.includes("coveRetry="))
+        throw new SyntaxError("The requested module does not provide an export named 'MissingExport'");
+      return { default: { components: { BetaSlot: () => <div>Recovered component</div> } } };
+    });
+    function ContributionsProbe() {
+      const { manifest } = useExtensions();
+      const { routes } = useRouteRegistry();
+      return (
+        <>
+          <RuntimeProbe />
+          <div data-testid="available-pages">{manifest?.pages.map((page) => page.route).join(",")}</div>
+          <div data-testid="nav-pages">{routes.map((item) => item.page).join(",")}</div>
+          <div data-testid="appearance">
+            {JSON.stringify([
+              manifest?.themes,
+              manifest?.componentStyles,
+              manifest?.layoutStyles,
+              manifest?.settingsPanels,
+              manifest?.actions,
+            ])}
+          </div>
+        </>
+      );
+    }
+    render(
+      <RouteRegistryProvider>
+        <ExtensionLoaderProvider importBundle={importer}>
+          <ContributionsProbe />
+        </ExtensionLoaderProvider>
+      </RouteRegistryProvider>,
+    );
+    await screen.findByText("UI failed to load");
+    expect(screen.getByText("Healthy component")).toBeInTheDocument();
+    expect(screen.getByText("Healthy HTML")).toBeInTheDocument();
+    expect(screen.queryByText("Failed HTML")).not.toBeInTheDocument();
+    expect(screen.getByTestId("available-pages")).toHaveTextContent(/^healthy$/);
+    expect(screen.getByTestId("nav-pages")).not.toHaveTextContent("broken");
+    expect(screen.getByTestId("appearance")).not.toHaveTextContent("broken");
+    expect(screen.getByTestId("appearance")).toHaveTextContent("healthy-theme");
+    expect(document.querySelector('link[href="/broken-theme.css"]')).not.toBeInTheDocument();
+    expect(document.querySelector('link[data-extension-id="ext.alpha"]')).toBeInTheDocument();
+    expect(document.querySelector('link[data-extension-id="ext.beta"]')).not.toBeInTheDocument();
+    expect(screen.getByText(/requires a component unavailable/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View extension status" })).toHaveAttribute(
+      "href",
+      "/settings/extensions/installed",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss extension loading notice" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("UI failed to load")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed extensions" }));
+    await screen.findByText("Recovered component");
+    expect(screen.queryByText("UI failed to load")).not.toBeInTheDocument();
+    expect(screen.getByTestId("available-pages")).toHaveTextContent("healthy,broken");
+    expect(screen.getByTestId("nav-pages")).toHaveTextContent("broken");
+    expect(document.querySelector('link[data-extension-id="ext.beta"]')).toBeInTheDocument();
+    expect(healthyLoad).toHaveBeenCalledTimes(1);
   });
 
   it("loads per-extension bundle descriptors with the injected importer and resolves components by owner", async () => {

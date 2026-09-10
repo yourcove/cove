@@ -491,6 +491,42 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public void AggregatedManifest_stamps_theme_style_and_layout_owners()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new AppearanceExtension());
+        var manifest = manager.GetAggregatedManifest();
+        Assert.Equal("appearance", Assert.Single(manifest.Themes).ExtensionId);
+        Assert.Equal("appearance", Assert.Single(manifest.ComponentStyles).ExtensionId);
+        Assert.Equal("appearance", Assert.Single(manifest.LayoutStyles).ExtensionId);
+    }
+
+    private sealed class AppearanceExtension : CoveExtensionBase
+    {
+        public override string Id => "appearance";
+        public override string Name => "Appearance";
+        public override string Version => "1";
+        public override UIManifest GetUIManifest() => new()
+        {
+            Themes = [new UIThemeDefinition("theme", "Theme") { ExtensionId = "spoofed" }],
+            ComponentStyles = [new UIComponentStyleDef("style", "Style") { ExtensionId = "spoofed" }],
+            LayoutStyles = [new UILayoutStyleDef("layout", "Layout") { ExtensionId = "spoofed" }],
+        };
+    }
+
+    [Fact]
+    public void Ui_bundle_dependencies_preserve_the_original_constructor_abi()
+    {
+        Assert.NotNull(typeof(UIExtensionBundle).GetConstructor([typeof(string), typeof(string), typeof(string), typeof(string)]));
+        Assert.Empty(new UIExtensionBundle("extension", "1").Dependencies);
+    }
+
+    [Fact]
     public async Task GetManifest_DescribesEachExtensionBundleWithInstalledVersionAndVersionedAssets()
     {
         var root = Path.Combine(Path.GetTempPath(), $"cove-ui-bundles-{Guid.NewGuid():N}");
@@ -511,7 +547,8 @@ public class ExtensionBundleSupportTests
             "com.example.beta",
             "5.6.7",
             new DateTime(2026, 7, 11, 1, 2, 5, DateTimeKind.Utc),
-            new DateTime(2026, 7, 11, 1, 2, 6, DateTimeKind.Utc));
+            new DateTime(2026, 7, 11, 1, 2, 6, DateTimeKind.Utc),
+            new Dictionary<string, string> { [alpha.ExtensionId] = "*" });
 
         try
         {
@@ -536,6 +573,8 @@ public class ExtensionBundleSupportTests
                 descriptors.OrderBy(item => item.ExtensionId, StringComparer.Ordinal),
                 descriptor => AssertBundleDescriptor(descriptor, alpha),
                 descriptor => AssertBundleDescriptor(descriptor, beta));
+            Assert.Empty(descriptors.Single(item => item.ExtensionId == alpha.ExtensionId).Dependencies!);
+            Assert.Equal([alpha.ExtensionId], descriptors.Single(item => item.ExtensionId == beta.ExtensionId).Dependencies);
         }
         finally
         {
@@ -2087,7 +2126,8 @@ public class ExtensionBundleSupportTests
         string extensionId,
         string version,
         DateTime jsTimestamp,
-        DateTime cssTimestamp)
+        DateTime cssTimestamp,
+        Dictionary<string, string>? dependencies = null)
     {
         const string jsBundle = "ui/index.mjs";
         const string cssBundle = "ui/index.css";
@@ -2111,6 +2151,7 @@ public class ExtensionBundleSupportTests
                 Kind = "bundle",
                 JsBundle = jsBundle,
                 CssBundle = cssBundle,
+                Dependencies = dependencies ?? [],
             }));
 
         return new ExpectedBundleDescriptor(

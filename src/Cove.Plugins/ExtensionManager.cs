@@ -1793,9 +1793,9 @@ public class ExtensionManager : IExtensionContributionRuntime
             manifest.Features.AddRange(extManifest.Features.Select(feature => feature with { ExtensionId = ext.Id }));
             manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides.Select(componentOverride => componentOverride with { ExtensionId = ext.Id }));
             manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides.Select(selectorOverride => selectorOverride with { ExtensionId = ext.Id }));
-            manifest.Themes.AddRange(extManifest.Themes);
-            manifest.ComponentStyles.AddRange(extManifest.ComponentStyles);
-            manifest.LayoutStyles.AddRange(extManifest.LayoutStyles);
+            manifest.Themes.AddRange(extManifest.Themes.Select(theme => theme with { ExtensionId = ext.Id }));
+            manifest.ComponentStyles.AddRange(extManifest.ComponentStyles.Select(style => style with { ExtensionId = ext.Id }));
+            manifest.LayoutStyles.AddRange(extManifest.LayoutStyles.Select(layout => layout with { ExtensionId = ext.Id }));
             manifest.SettingsTabs.AddRange(extManifest.SettingsTabs.Select(tab => tab with { ExtensionId = ext.Id }));
             manifest.SettingsPanels.AddRange(extManifest.SettingsPanels.Select(panel => panel with { ExtensionId = ext.Id }));
             manifest.PageOverrides.AddRange(extManifest.PageOverrides.Select(pageOverride => pageOverride with { ExtensionId = ext.Id }));
@@ -3003,7 +3003,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    private IReadOnlyDictionary<string, string> GetDeclaredDependencies(string id)
+    public IReadOnlyDictionary<string, string> GetDeclaredDependencies(string id)
     {
         var dependencies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
