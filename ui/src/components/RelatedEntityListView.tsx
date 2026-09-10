@@ -1030,7 +1030,7 @@ function RelatedVideoWallCard({
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   onClick: (options?: MultiSelectToggleOptions) => void;
 }) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const title = video.title || file?.basename || `Video ${video.id}`;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
   const coverAlt = video.imagePath ? title : "";
@@ -1314,7 +1314,7 @@ function RelatedVideoFeedCard({
   soundEnabled: boolean;
   onPlaybackEligibilityChange?: (eligible: boolean) => void;
 }) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const title = video.title || file?.basename || `Video ${video.id}`;
   const coverAlt = video.imagePath ? title : "";
   const duration = getVideoDisplayDuration(video);
@@ -1717,7 +1717,7 @@ function RelatedVideoVerticalCard({
   onToggleSound: () => void;
   viewerHeight: number | null;
 }) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const title = video.title || file?.basename || `Video ${video.id}`;
   const duration = getVideoDisplayDuration(video);
   const { coverUrl, videoSrc, videoStatusSrc } = getVideoFeedMedia(video, feedVideoSource);

@@ -24,9 +24,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     private const double TightDetectionCropContext = 1.5;
 
     [HttpGet("video/{videoId:int}")]
-    public async Task<IActionResult> StreamVideo(int videoId, CancellationToken ct)
+    public async Task<IActionResult> StreamVideo(int videoId, CancellationToken ct, [FromQuery] int? fileId = null)
     {
-        var result = await streamService.GetVideoStream(videoId, ct);
+        var result = await streamService.GetVideoStream(videoId, ct, fileId);
         if (result == null) return NotFound();
 
         var (stream, contentType, fileSize) = result.Value;
@@ -301,9 +301,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     // ===== Transcoding / HLS =====
 
     [HttpGet("video/{videoId:int}/transcode")]
-    public async Task<IActionResult> TranscodeVideo(int videoId, [FromQuery] string? resolution, [FromQuery] double? start, CancellationToken ct)
+    public async Task<IActionResult> TranscodeVideo(int videoId, [FromQuery] string? resolution, [FromQuery] double? start, CancellationToken ct, [FromQuery] int? fileId = null)
     {
-        var filePath = await GetVideoFilePathAsync(videoId, ct);
+        var filePath = await GetVideoFilePathAsync(videoId, fileId, ct);
         if (filePath == null) return NotFound();
 
         var startSeconds = start.HasValue && double.IsFinite(start.Value) ? Math.Max(0, start.Value) : 0;
@@ -318,12 +318,13 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     }
 
     [HttpGet("video/{videoId:int}/hls/master.m3u8")]
-    public async Task<IActionResult> GetHlsMasterPlaylist(int videoId, CancellationToken ct)
+    public async Task<IActionResult> GetHlsMasterPlaylist(int videoId, CancellationToken ct, [FromQuery] int? fileId = null)
     {
         var sourceVideoId = await ResolveSourceVideoIdAsync(videoId, ct);
         if (!sourceVideoId.HasValue) return NotFound();
 
-        var file = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
+        var selectedFileId = fileId ?? await db.Videos.Where(v => v.Id == sourceVideoId.Value).Select(v => v.PrimaryFileId).SingleOrDefaultAsync(ct);
+        var file = await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == selectedFileId && f.VideoId == sourceVideoId.Value, ct);
         if (file == null) return NotFound();
 
         var resolutions = transcodeService.GetAvailableResolutions(file.Width, file.Height);
@@ -336,7 +337,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         {
             var bw = res switch { "240p" => 400000, "360p" => 800000, "480p" => 1200000, "720p" => 2500000, "1080p" => 5000000, "1440p" => 8000000, "4K" => 15000000, _ => 5000000 };
             lines.Add($"#EXT-X-STREAM-INF:BANDWIDTH={bw},RESOLUTION={GetResForLabel(res)},NAME=\"{res}\"");
-            lines.Add(AppendMediaAuthQuery($"/api/stream/video/{videoId}/hls/{res}.m3u8"));
+            lines.Add(AppendMediaAuthQuery(AppendFileQuery($"/api/stream/video/{videoId}/hls/{res}.m3u8", selectedFileId)));
         }
 
         Response.Headers["Cache-Control"] = "no-cache";
@@ -344,28 +345,30 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     }
 
     [HttpGet("video/{videoId:int}/hls/{profile}.m3u8")]
-    public async Task<IActionResult> GetHlsPlaylist(int videoId, string profile, CancellationToken ct)
+    public async Task<IActionResult> GetHlsPlaylist(int videoId, string profile, CancellationToken ct, [FromQuery] int? fileId = null)
     {
-        var filePath = await GetVideoFilePathAsync(videoId, ct);
-        if (filePath == null) return NotFound();
+        var selected = await GetVideoFileAsync(videoId, fileId, ct);
+        if (selected is null) return NotFound();
+        var filePath = FilesystemPaths.ToNativePath(selected.Path);
+        if (!System.IO.File.Exists(filePath)) return NotFound();
 
         var resolution = profile == "original" ? null : profile;
-        var manifest = await transcodeService.GenerateHlsManifestAsync(videoId, filePath, resolution, ct);
+        var cacheId = -selected.Id;
+        var manifest = await transcodeService.GenerateHlsManifestAsync(cacheId, filePath, resolution, ct);
         if (manifest == null) return StatusCode(503, "HLS generation failed — FFmpeg not found or error occurred");
 
-        manifest = RewriteHlsSegmentUrls(manifest, videoId, resolution ?? "original");
+        manifest = RewriteHlsSegmentUrls(manifest, videoId, resolution ?? "original", selected.Id);
 
         Response.Headers["Cache-Control"] = "no-cache";
         return Content(manifest, "application/vnd.apple.mpegurl");
     }
 
     [HttpGet("video/{videoId:int}/hls/segment/{segment}")]
-    public async Task<IActionResult> GetHlsSegment(int videoId, string segment, CancellationToken ct)
+    public async Task<IActionResult> GetHlsSegment(int videoId, string segment, CancellationToken ct, [FromQuery] int? fileId = null)
     {
-        if (!await db.Videos.AsNoTracking().AnyAsync(video => video.Id == videoId, ct))
-            return NotFound();
-
-        var stream = await transcodeService.GetHlsSegmentAsync(videoId, segment, ct);
+        var selected = await GetVideoFileAsync(videoId, fileId, ct);
+        if (selected is null) return NotFound();
+        var stream = await transcodeService.GetHlsSegmentAsync(-selected.Id, segment, ct);
         if (stream == null) return NotFound();
 
         Response.Headers["Cache-Control"] = "public, max-age=86400";
@@ -373,24 +376,21 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     }
 
     [HttpGet("video/{videoId:int}/resolutions")]
-    public async Task<IActionResult> GetAvailableResolutions(int videoId, CancellationToken ct)
+    public async Task<IActionResult> GetAvailableResolutions(int videoId, CancellationToken ct, [FromQuery] int? fileId = null)
     {
         var sourceVideoId = await ResolveSourceVideoIdAsync(videoId, ct);
         if (!sourceVideoId.HasValue) return NotFound();
 
-        var file = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
+        var selectedFileId = fileId ?? await db.Videos.Where(v => v.Id == sourceVideoId.Value).Select(v => v.PrimaryFileId).SingleOrDefaultAsync(ct);
+        var file = await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == selectedFileId && f.VideoId == sourceVideoId.Value, ct);
         if (file == null) return NotFound();
 
         return Ok(transcodeService.GetAvailableResolutions(file.Width, file.Height));
     }
 
-    private async Task<string?> GetVideoFilePathAsync(int videoId, CancellationToken ct)
+    private async Task<string?> GetVideoFilePathAsync(int videoId, int? fileId, CancellationToken ct)
     {
-        var sourceVideoId = await ResolveSourceVideoIdAsync(videoId, ct);
-        if (!sourceVideoId.HasValue) return null;
-
-        var videoFile = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
-
+        var videoFile = await GetVideoFileAsync(videoId, fileId, ct);
         if (videoFile == null) return null;
 
         var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
@@ -398,7 +398,15 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         return System.IO.File.Exists(filePath) ? filePath : null;
     }
 
-    private string RewriteHlsSegmentUrls(string manifest, int videoId, string profile)
+    private async Task<VideoFile?> GetVideoFileAsync(int videoId, int? fileId, CancellationToken ct)
+    {
+        var sourceVideoId = await ResolveSourceVideoIdAsync(videoId, ct);
+        if (!sourceVideoId.HasValue) return null;
+        var selectedFileId = fileId ?? await db.Videos.Where(v => v.Id == sourceVideoId.Value).Select(v => v.PrimaryFileId).SingleOrDefaultAsync(ct);
+        return await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == selectedFileId && f.VideoId == sourceVideoId.Value, ct);
+    }
+
+    private string RewriteHlsSegmentUrls(string manifest, int videoId, string profile, int? fileId)
     {
         var segmentPrefix = profile + "_";
         var apiPrefix = $"/api/stream/video/{videoId}/hls/segment/";
@@ -407,11 +415,14 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         {
             var line = lines[index].TrimEnd('\r');
             if (line.StartsWith(segmentPrefix, StringComparison.Ordinal))
-                lines[index] = AppendMediaAuthQuery(apiPrefix + line);
+                lines[index] = AppendMediaAuthQuery(AppendFileQuery(apiPrefix + line, fileId));
         }
 
         return string.Join("\n", lines);
     }
+
+    private static string AppendFileQuery(string url, int? fileId)
+        => fileId.HasValue ? url + (url.Contains('?') ? "&" : "?") + $"fileId={fileId.Value}" : url;
 
     private string AppendMediaAuthQuery(string url)
     {

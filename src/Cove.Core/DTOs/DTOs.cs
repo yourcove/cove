@@ -43,7 +43,8 @@ public record VideoDto(
     double? ClipEndSec = null,
     int ChildVideoCount = 0,
     string? ImagePath = null,
-    IReadOnlyList<string>? ImportWarnings = null);
+    IReadOnlyList<string>? ImportWarnings = null,
+    int? PrimaryFileId = null);
 
 public record VideoListEntryDto(string Kind, int Id, VideoDto? Video = null, GroupDto? Group = null);
 
@@ -2265,6 +2266,14 @@ public record DeleteFilesDto(List<int> FileIds, bool DeleteFromDisk);
 public record FileSetFingerprintsDto(int FileId, List<FingerprintEntryDto> Fingerprints);
 public record FingerprintEntryDto(string Type, string Value);
 public record VideoAssignFileDto(int FileId);
+public record VideoSplitFileDto(int FileId, string? Title = null, string? Details = null, string? Director = null);
+public record VideoSetPrimaryFileDto(
+    int FileId,
+    string Resolution = "direct",
+    List<Cove.Core.Services.AlignmentAnchor>? Anchors = null,
+    List<VideoTimedDependencyRef>? DeleteDependencies = null,
+    int? ExpectedPrimaryFileId = null);
+public record VideoTimedDependencyRef(string Kind, int Id);
 public record GallerySetCoverDto(int ImageId);
 public record EntityImageCoverSourceDto(int? ImageId = null, int? VideoId = null);
 

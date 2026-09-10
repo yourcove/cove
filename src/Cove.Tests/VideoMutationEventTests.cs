@@ -23,8 +23,10 @@ public class VideoMutationEventTests
             var previousOwner = new Video { Title = "Previous owner" };
             var newOwner = new Video { Title = "New owner" };
             var folder = new Folder { Path = "/library" };
+            var primaryFile = new VideoFile { Basename = "primary.mp4", ParentFolder = folder, Video = previousOwner };
             var file = new VideoFile { Basename = "video.mp4", ParentFolder = folder, Video = previousOwner };
-            db.AddRange(previousOwner, newOwner, folder, file);
+            previousOwner.PrimaryFile = primaryFile;
+            db.AddRange(previousOwner, newOwner, folder, primaryFile, file);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();

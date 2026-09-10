@@ -148,6 +148,14 @@ public partial class CoveContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<Video>()
+            .HasOne(video => video.PrimaryFile)
+            .WithMany()
+            .HasForeignKey(video => video.PrimaryFileId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Video>()
+            .Property(video => video.PrimaryFileId)
+            .IsConcurrencyToken();
 
         // Apply all configurations from this assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CoveContext).Assembly);
@@ -573,10 +581,25 @@ public partial class CoveContext : DbContext
                 CleanupEngagementRowsForDeletedEntities();
                 var derivedCountTargets = CollectDerivedCountTargets();
                 var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+                var newVideosWithoutPrimary = ChangeTracker.Entries<Video>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.PrimaryFileId == null)
+                    .Select(entry => entry.Entity).ToList();
+                var firstAttachments = ChangeTracker.Entries<VideoFile>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.VideoId.HasValue)
+                    .Select(entry => entry.Entity.VideoId!.Value).Distinct().ToArray();
+                if (firstAttachments.Length > 0)
+                {
+                    var existingIds = newVideosWithoutPrimary.Select(item => item.Id).ToArray();
+                    newVideosWithoutPrimary.AddRange(Videos.IgnoreQueryFilters().Where(video => firstAttachments.Contains(video.Id)
+                        && video.PrimaryFileId == null && !VideoFiles.Any(file => file.VideoId == video.Id) && !existingIds.Contains(video.Id)).ToList());
+                }
                 var result = SaveChangesWithNameConstraintTranslation();
                 AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
                 MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
+                AssignInitialPrimaryFiles(newVideosWithoutPrimary);
                 PersistDerivedCounts(derivedCountTargets);
+                if (ChangeTracker.HasChanges())
+                    base.SaveChanges();
                 return result;
             }
             finally
@@ -622,7 +645,19 @@ public partial class CoveContext : DbContext
                 await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
                 var derivedCountTargets = CollectDerivedCountTargets();
                 var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-                return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
+                var newVideosWithoutPrimary = ChangeTracker.Entries<Video>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.PrimaryFileId == null)
+                    .Select(entry => entry.Entity).ToList();
+                var firstAttachments = ChangeTracker.Entries<VideoFile>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.VideoId.HasValue)
+                    .Select(entry => entry.Entity.VideoId!.Value).Distinct().ToArray();
+                if (firstAttachments.Length > 0)
+                {
+                    var existingIds = newVideosWithoutPrimary.Select(item => item.Id).ToArray();
+                    newVideosWithoutPrimary.AddRange(await Videos.IgnoreQueryFilters().Where(video => firstAttachments.Contains(video.Id)
+                        && video.PrimaryFileId == null && !VideoFiles.Any(file => file.VideoId == video.Id) && !existingIds.Contains(video.Id)).ToListAsync(cancellationToken));
+                }
+                return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, newVideosWithoutPrimary, cancellationToken);
             }
             finally
             {
@@ -1367,13 +1402,36 @@ public partial class CoveContext : DbContext
         RatingHostType RatingHostType,
         int HostId);
 
-    private async Task<int> SaveChangesWithDerivedCountsAsync(DerivedCountTargets derivedCountTargets, PostSaveDerivedCountTargets postSaveDerivedCountTargets, CancellationToken cancellationToken)
+    private async Task<int> SaveChangesWithDerivedCountsAsync(DerivedCountTargets derivedCountTargets, PostSaveDerivedCountTargets postSaveDerivedCountTargets, IReadOnlyCollection<Video> newVideosWithoutPrimary, CancellationToken cancellationToken)
     {
         var result = await SaveChangesWithNameConstraintTranslationAsync(cancellationToken);
         AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
         MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
+        await AssignInitialPrimaryFilesAsync(newVideosWithoutPrimary, cancellationToken);
         await PersistDerivedCountsAsync(derivedCountTargets, cancellationToken);
+        if (ChangeTracker.HasChanges())
+            await base.SaveChangesAsync(cancellationToken);
         return result;
+    }
+
+    private void AssignInitialPrimaryFiles(IReadOnlyCollection<Video> videos)
+    {
+        if (videos.Count == 0) return;
+        var ids = videos.Select(video => video.Id).Where(id => id > 0).ToArray();
+        var firstFiles = VideoFiles.Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value))
+            .GroupBy(file => file.VideoId!.Value).Select(group => new { VideoId = group.Key, FileId = group.Min(file => file.Id) }).ToDictionary(item => item.VideoId, item => item.FileId);
+        foreach (var video in videos.Where(video => video.PrimaryFileId == null))
+            if (firstFiles.TryGetValue(video.Id, out var fileId)) video.PrimaryFileId = fileId;
+    }
+
+    private async Task AssignInitialPrimaryFilesAsync(IReadOnlyCollection<Video> videos, CancellationToken cancellationToken)
+    {
+        if (videos.Count == 0) return;
+        var ids = videos.Select(video => video.Id).Where(id => id > 0).ToArray();
+        var firstFiles = await VideoFiles.Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value))
+            .GroupBy(file => file.VideoId!.Value).Select(group => new { VideoId = group.Key, FileId = group.Min(file => file.Id) }).ToDictionaryAsync(item => item.VideoId, item => item.FileId, cancellationToken);
+        foreach (var video in videos.Where(video => video.PrimaryFileId == null))
+            if (firstFiles.TryGetValue(video.Id, out var fileId)) video.PrimaryFileId = fileId;
     }
 
     private int SaveChangesWithNameConstraintTranslation()

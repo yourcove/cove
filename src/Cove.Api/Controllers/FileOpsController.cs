@@ -8,6 +8,7 @@ using Cove.Core.Events;
 using Cove.Data;
 using Cove.Api.Services;
 using System.Runtime.InteropServices;
+using System.Data;
 
 namespace Cove.Api.Controllers;
 
@@ -128,33 +129,44 @@ public class FileOpsController(
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesDelete, ActionArgumentName = "dto", PropertyName = "FileIds")]
     public async Task<IActionResult> DeleteFiles([FromBody] DeleteFilesDto dto, CancellationToken ct)
     {
-        var files = await db.Set<BaseFileEntity>()
-            .Include(f => f.ParentFolder)
-            .Where(f => dto.FileIds.Contains(f.Id))
-            .ToListAsync(ct);
-
         var deletedCount = 0;
         var physicalPaths = new List<string>();
-        foreach (var file in files)
+        var deletedFiles = new List<BaseFileEntity>();
+        var conflict = false;
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            if (dto.DeleteFromDisk)
+            db.ChangeTracker.Clear();
+            physicalPaths.Clear();
+            deletedFiles.Clear();
+            deletedCount = 0;
+            conflict = false;
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var files = await db.Set<BaseFileEntity>().Include(f => f.ParentFolder).Where(f => dto.FileIds.Contains(f.Id)).ToListAsync(ct);
+            var requestedVideoFileIds = files.OfType<VideoFile>().Select(file => file.Id).ToArray();
+            if (requestedVideoFileIds.Length > 0 && await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.PrimaryFileId.HasValue && requestedVideoFileIds.Contains(video.PrimaryFileId.Value), ct))
             {
-                var storedPath = !string.IsNullOrWhiteSpace(file.Path)
-                    ? file.Path
-                    : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename);
-                physicalPaths.Add(storedPath);
+                conflict = true;
+                return;
             }
-
-            db.Set<BaseFileEntity>().Remove(file);
-            deletedCount++;
-        }
-
-        var deletionContext = new BulkDeletionExecutionContext();
-        deletionContext.StagePhysicalFiles(db, physicalPaths);
-        await db.SaveChangesAsync(ct);
+            foreach (var file in files)
+            {
+                if (dto.DeleteFromDisk)
+                    physicalPaths.Add(!string.IsNullOrWhiteSpace(file.Path) ? file.Path : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename));
+                db.Set<BaseFileEntity>().Remove(file);
+            }
+            var deletionContext = new BulkDeletionExecutionContext();
+            deletionContext.StagePhysicalFiles(db, physicalPaths);
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+            deletedCount = files.Count;
+            deletedFiles = files;
+        });
+        if (conflict) return Conflict("Set another file as primary before deleting the current primary file.");
         if (dto.DeleteFromDisk && physicalPaths.Count > 0)
             physicalFileDeletionRecoverySignal?.Notify();
-        PublishOwnerUpdates(files);
+        PublishOwnerUpdates(deletedFiles);
         logger.LogInformation(
             "Deleted {Count} file record(s); {DiskCount} physical deletion(s) were staged",
             deletedCount,

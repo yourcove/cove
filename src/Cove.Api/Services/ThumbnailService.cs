@@ -60,8 +60,10 @@ public class ThumbnailService(
     CoveConfiguration config,
     IZipFileReader zipFileReader,
     IBlobService blobService,
-    ILogger<ThumbnailService> logger) : IThumbnailService, IVideoAssetGenerator
+    ILogger<ThumbnailService> logger,
+    VideoGeneratedAssetCoordinator? generatedAssetCoordinator = null) : IThumbnailService, IVideoAssetGenerator
 {
+    private readonly VideoGeneratedAssetCoordinator _generatedAssetCoordinator = generatedAssetCoordinator ?? new();
     private string ThumbnailDir => Path.Combine(config.GeneratedPath, "screenshots");
     private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
     private string PreviewDir => Path.Combine(config.GeneratedPath, "previews");
@@ -961,6 +963,13 @@ public class ThumbnailService(
         int? sourceFileId,
         double? atSeconds,
         CancellationToken ct)
+        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoThumbnailUnlockedAsync(videoId, sourceFileId, atSeconds, ct), ct);
+
+    private async Task<bool> GenerateVideoThumbnailUnlockedAsync(
+        int videoId,
+        int? sourceFileId,
+        double? atSeconds,
+        CancellationToken ct)
     {
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(videoId, atSeconds.Value)
@@ -1123,6 +1132,15 @@ public class ThumbnailService(
         double? endSec,
         CancellationToken ct,
         bool overwrite = false)
+        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateSegmentAnimatedPreviewUnlockedAsync(videoId, sourceFileId, startSec, endSec, ct, overwrite), ct);
+
+    private async Task<bool> GenerateSegmentAnimatedPreviewUnlockedAsync(
+        int videoId,
+        int? sourceFileId,
+        double startSec,
+        double? endSec,
+        CancellationToken ct,
+        bool overwrite = false)
     {
         var previewPath = GetSegmentAnimatedPreviewPath(videoId, startSec);
         if (!overwrite && File.Exists(previewPath)) return true;
@@ -1202,6 +1220,13 @@ public class ThumbnailService(
         => GenerateVideoPreviewCoreAsync(videoId, sourceFileId, overwrite, ct);
 
     private async Task<bool> GenerateVideoPreviewCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
+        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoPreviewUnlockedAsync(videoId, sourceFileId, overwrite, ct), ct);
+
+    private async Task<bool> GenerateVideoPreviewUnlockedAsync(
         int videoId,
         int? sourceFileId,
         bool overwrite,
@@ -1456,10 +1481,10 @@ public class ThumbnailService(
         int? sourceFileId,
         bool overwrite,
         CancellationToken ct)
-        => RunWithSpriteGenerationLockAsync(
+        => _generatedAssetCoordinator.RunAsync(videoId, () => RunWithSpriteGenerationLockAsync(
             videoId,
             () => GenerateVideoSpriteLockedAsync(videoId, sourceFileId, overwrite, ct),
-            ct);
+            ct), ct);
 
     internal static async Task<T> RunWithSpriteGenerationLockAsync<T>(
         int videoId,
@@ -1855,16 +1880,17 @@ public class ThumbnailService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        var query = db.VideoFiles
+        var primaryFileId = await db.Videos
             .AsNoTracking()
-            .Where(f => f.VideoId == videoId);
-
-        if (sourceFileId.HasValue)
-            query = query.Where(f => f.Id == sourceFileId.Value);
-
-        var videoFile = await query
-            .OrderBy(f => f.Id)
-            .FirstOrDefaultAsync(ct);
+            .Where(video => video.Id == videoId)
+            .Select(video => video.PrimaryFileId)
+            .SingleOrDefaultAsync(ct);
+        if (sourceFileId.HasValue && sourceFileId != primaryFileId) return (null, 0);
+        var selectedFileId = sourceFileId ?? primaryFileId;
+        if (!selectedFileId.HasValue) return (null, 0);
+        var videoFile = await db.VideoFiles
+            .AsNoTracking()
+            .SingleOrDefaultAsync(file => file.VideoId == videoId && file.Id == selectedFileId.Value, ct);
 
         if (videoFile == null) return (null, 0);
 

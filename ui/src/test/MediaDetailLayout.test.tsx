@@ -33,6 +33,7 @@ describe("MediaDetailLayout", () => {
     expect(screen.getByRole("heading", { name: "Video Title" })).toBeInTheDocument();
     expect(screen.getByText("Player Surface")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /details/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Segments (3)" })).toBeInTheDocument();
     expect(screen.getByText("Body content")).toBeInTheDocument();
   });
 

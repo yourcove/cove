@@ -337,7 +337,7 @@ function MediaDetailLayoutRoot({
               key={tab.key}
               type="button"
               role="tab"
-              aria-label={tab.label}
+              aria-label={typeof tab.count === "number" ? `${tab.label} (${tab.count})` : tab.label}
               aria-selected={isActive}
               tabIndex={isActive ? 0 : -1}
               disabled={tab.disabled}

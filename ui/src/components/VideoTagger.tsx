@@ -633,7 +633,7 @@ export function VideoTagger({
   const getSearchQuery = useCallback(
     (video: Video): string => {
       if (queryOverrides[video.id] !== undefined) return queryOverrides[video.id];
-      const file = video.files[0];
+      const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
       const mode = taggerConfig.queryMode;
 
       // metadata mode, or auto mode when video has date+studio — build compound query
@@ -1248,7 +1248,7 @@ function TaggerVideoRow({
   onSelect,
   detailMode = false,
 }: TaggerVideoRowProps) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
   const handleRefreshFromRemote = async (endpoint: string, remoteId: string) => {
     setRefreshBusyEndpoint(endpoint);

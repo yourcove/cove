@@ -925,6 +925,7 @@ describe("FileInfoTab", () => {
     expect(screen.getByText("File 1 of 2")).toBeInTheDocument();
     expect(screen.getByText("File 2 of 2")).toBeInTheDocument();
   });
+
 });
 
 describe("DetailsTab performers", () => {

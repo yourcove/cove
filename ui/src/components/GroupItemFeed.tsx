@@ -425,7 +425,7 @@ function GroupVideoFeedMedia({
   const source = appConfig?.config?.ui.feedVideoSource === "video" ? "video" : "preview";
   const configuredStartPercent = appConfig?.config?.ui.feedVideoStartPercent ?? 0;
   const configuredMinimumDuration = appConfig?.config?.ui.feedVideoStartMinDuration ?? 0;
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const title = item.title || video.title || file?.basename || `Video ${video.id}`;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
   const isRange = item.kind === "videoRange" && item.startSec != null;
@@ -632,7 +632,7 @@ function getGroupFeedTitle(item: GroupItem, entity?: GroupFeedEntity) {
   if (!entity) return item.videoTitle || item.imageTitle || item.childGroupName || "Loading item…";
   switch (entity.type) {
     case "video":
-      return entity.value.title || entity.value.files[0]?.basename || `Video ${entity.value.id}`;
+      return entity.value.title || entity.value.files.find((file) => file.id === entity.value.primaryFileId)?.basename || `Video ${entity.value.id}`;
     case "image":
       return getImageDisplayTitle(entity.value);
     case "audio":

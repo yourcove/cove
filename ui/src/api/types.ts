@@ -16,6 +16,7 @@ export interface Video {
   tags: Tag[];
   performers: PerformerSummary[];
   files: VideoFile[];
+  primaryFileId?: number | null;
   groups: GroupSummary[];
   galleries: GallerySummary[];
   remoteIds: VideoRemoteId[];

@@ -198,6 +198,7 @@ export function VideoPlayer({
   resumeTime,
   seekTo: navigationSeekTo,
   videoId,
+  fileId,
   detections = [],
   segments = [],
   faces = [],
@@ -220,6 +221,7 @@ export function VideoPlayer({
   onNext,
   extensionSurface,
   interactionResetKey,
+  suspended = false,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -230,6 +232,7 @@ export function VideoPlayer({
   seekTo?: number;
   resumeTime?: number;
   videoId: number;
+  fileId?: number;
   detections?: Detection[];
   segments?: Segment[];
   faces?: FaceOverlayInfo[];
@@ -258,6 +261,7 @@ export function VideoPlayer({
   onNext?: () => void;
   extensionSurface?: MediaPlayerSurface;
   interactionResetKey?: unknown;
+  suspended?: boolean;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -331,7 +335,7 @@ export function VideoPlayer({
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const selectedQualityRef = useRef("Direct");
   const compatibilityRequired = prefersTranscodedVideoFormat(format) || !isBrowserCompatibleAudio(audioCodec);
-  const compatibilityIdentity = `${videoId}:${format?.trim().toLowerCase()}:${audioCodec?.trim().toLowerCase()}`;
+  const compatibilityIdentity = `${videoId}:${fileId ?? "primary"}:${format?.trim().toLowerCase()}:${audioCodec?.trim().toLowerCase()}`;
   const [compatibilityLookup, setCompatibilityLookup] = useState(() => ({
     identity: compatibilityIdentity,
     pending: compatibilityRequired,
@@ -888,9 +892,30 @@ export function VideoPlayer({
   const effectiveStreamUrl =
     selectedQuality === "Direct"
       ? streamUrl
-      : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
+      : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined, fileId);
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
+
+  const suspendedPlaybackRef = useRef<{ time: number; resume: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (suspended) {
+      suspendedPlaybackRef.current ??= { time: toAbsoluteTime(video.currentTime), resume: !video.paused };
+      video.pause();
+      sourceRef.current?.removeAttribute("src");
+      video.removeAttribute("src");
+      sourceGenerationRef.current += 1;
+      metadataHandledGenerationRef.current = null;
+      lastLoadedSourceRef.current = null;
+      video.load();
+      return;
+    }
+    const restore = suspendedPlaybackRef.current;
+    if (!restore) return;
+    suspendedPlaybackRef.current = null;
+    sourceRestoreRef.current = { time: restore.time, shouldPlay: restore.resume };
+  }, [suspended, toAbsoluteTime]);
 
   useLayoutEffect(() => {
     if (!compatibilityLookupPending || lastLoadedSourceRef.current === null) return;
@@ -1306,7 +1331,7 @@ export function VideoPlayer({
   useEffect(() => {
     let cancelled = false;
     videos
-      .getResolutions(videoId)
+      .getResolutions(videoId, fileId)
       .then((res) => {
         if (cancelled) return;
         const resolutions = res ?? [];
@@ -1339,7 +1364,7 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
     };
-  }, [audioCodec, format, videoId]);
+  }, [audioCodec, fileId, format, videoId]);
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -1638,7 +1663,7 @@ export function VideoPlayer({
   };
 
   useEffect(() => {
-    if (compatibilityLookupPending) return;
+    if (compatibilityLookupPending || suspended) return;
     const video = videoRef.current;
     if (!video) {
       return;
@@ -1752,6 +1777,7 @@ export function VideoPlayer({
     playerVideoStartMinDuration,
     playerVideoStartPercent,
     selectedQuality,
+    suspended,
     transcodeStartSec,
     videoId,
   ]);
@@ -1906,7 +1932,7 @@ export function VideoPlayer({
           const code = e.currentTarget.error?.code;
           // An intentional unload while compatibility lookup is pending may emit ABORTED. It is
           // not a playback failure and must not start media recovery for the previous resource.
-          if (compatibilityLookupPending) return;
+          if (compatibilityLookupPending || suspended) return;
           // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
           // server transcode. MEDIA_ERR_NETWORK (2) / MEDIA_ERR_ABORTED (1) are transient buffering
           // stalls — recover in place at the same position rather than reloading from 0.
@@ -2054,7 +2080,7 @@ export function VideoPlayer({
       >
         <source
           ref={sourceRef}
-          src={compatibilityLookupPending ? undefined : effectiveStreamUrl}
+          src={compatibilityLookupPending || suspended ? undefined : effectiveStreamUrl}
           type={effectiveSourceType}
         />
         {captions?.map((cap, idx) => (

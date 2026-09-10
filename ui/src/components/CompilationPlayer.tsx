@@ -143,7 +143,7 @@ export function CompilationPlayer({
     staleTime: 60_000,
   });
 
-  const currentFile = currentVideo?.files[0];
+  const currentFile = currentVideo?.files.find((file) => file.id === currentVideo.primaryFileId);
   const currentAudioFile = currentAudio?.files
     .slice()
     .sort((left, right) => right.duration - left.duration || left.id - right.id)[0];

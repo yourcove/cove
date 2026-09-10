@@ -16,6 +16,7 @@ public class Video : BaseEntity
     public int? ParentVideoId { get; set; }
     public double? ClipStartSec { get; set; }
     public double? ClipEndSec { get; set; }
+    public int? PrimaryFileId { get; set; }
 
     // Denormalized M2M id sets, GIN-indexed. Maintained from VideoTags/VideoPerformers
     // by CoveContext on save. Lets tag/performer combo filters use a single index-only
@@ -47,6 +48,7 @@ public class Video : BaseEntity
     public ICollection<Video> ChildVideos { get; set; } = [];
     public ICollection<VideoUrl> Urls { get; set; } = [];
     public ICollection<VideoFile> Files { get; set; } = [];
+    public VideoFile? PrimaryFile { get; set; }
     public ICollection<VideoTag> VideoTags { get; set; } = [];
     public ICollection<VideoPerformer> VideoPerformers { get; set; } = [];
     public ICollection<VideoGallery> VideoGalleries { get; set; } = [];

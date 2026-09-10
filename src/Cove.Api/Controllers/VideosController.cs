@@ -23,7 +23,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null, BulkDeletionJobService? bulkDeletionJobService = null, DuplicateSearchJobService? duplicateSearchJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null, BulkDeletionJobService? bulkDeletionJobService = null, DuplicateSearchJobService? duplicateSearchJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null, IAuthorizationService? authorizationService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -839,7 +839,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         s.ClipStartSec,
         s.ClipEndSec,
         s.ChildVideos.Count,
-        ImagePath: s.ImageBlobId != null ? EntityImageUrls.Video(ControllerContext.HttpContext, s.Id, s.UpdatedAt, 1280) : null
+        ImagePath: s.ImageBlobId != null ? EntityImageUrls.Video(ControllerContext.HttpContext, s.Id, s.UpdatedAt, 1280) : null,
+        PrimaryFileId: s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId
     );
 
     private VideoDto MapListToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null) => new(
@@ -875,7 +876,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         ClipStartSec: s.ClipStartSec,
         ClipEndSec: s.ClipEndSec,
         ChildVideoCount: s.ChildVideos.Count,
-        ImagePath: s.ImageBlobId != null ? EntityImageUrls.Video(ControllerContext.HttpContext, s.Id, s.UpdatedAt, 1280) : null
+        ImagePath: s.ImageBlobId != null ? EntityImageUrls.Video(ControllerContext.HttpContext, s.Id, s.UpdatedAt, 1280) : null,
+        PrimaryFileId: s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId
     );
 
     private static List<TagDto> GetEffectiveTags(Video video, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId)
@@ -906,8 +908,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)
-        => (video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>())
-            .OrderBy(file => file.Id);
+    {
+        var primaryFileId = video.ParentVideo?.PrimaryFileId ?? video.PrimaryFileId;
+        return (video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>())
+            .OrderByDescending(file => file.Id == primaryFileId)
+            .ThenBy(file => file.Id);
+    }
 
     private static List<VideoRemoteIdDto> NormalizeRemoteIds(IEnumerable<VideoRemoteIdDto> remoteIds)
         => remoteIds
@@ -941,9 +947,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 return SubVideoParentResolution.Fail("Parent video was not found.");
         }
 
-        var sourceDuration = parentVideo.Files.Count > 0
-            ? parentVideo.Files.Max(file => file.Duration)
-            : parentVideo.MaxDuration;
+        var sourceDuration = parentVideo.Files.SingleOrDefault(file => file.Id == parentVideo.PrimaryFileId)?.Duration ?? 0;
         if (sourceDuration <= 0)
             return SubVideoParentResolution.Fail("Parent video has no playable duration.");
 
@@ -1809,6 +1813,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
             targetFound = true;
             var sources = videos.Where(video => video.Id != target.Id).ToArray();
+            var replacementPrimaryFileId = target.PrimaryFileId
+                ?? sources.OrderBy(source => source.Id).Select(source => source.PrimaryFileId).FirstOrDefault(id => id.HasValue);
             var sourceIds = sources.Select(source => source.Id).ToArray();
             var ancestorId = target.ParentVideoId;
             var visitedAncestorIds = new HashSet<int> { target.Id };
@@ -1891,6 +1897,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 db.Videos.Remove(source);
             }
 
+            target.PrimaryFileId = replacementPrimaryFileId;
+
             await db.SaveChangesAsync(ct);
             if (transaction != null)
                 await transaction.CommitAsync(ct);
@@ -1963,7 +1971,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .FirstOrDefaultAsync(video => video.Id == id, ct);
         if (video == null) return NotFound();
 
-        var file = video.Files.FirstOrDefault();
+        var file = video.Files.SingleOrDefault(candidate => candidate.Id == video.PrimaryFileId);
         if (file == null) return BadRequest("Video has no files");
         var filePath = FilesystemPaths.ToNativePath(file.Path);
 
@@ -1982,20 +1990,101 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
     public async Task<IActionResult> AssignFile(int id, [FromBody] VideoAssignFileDto dto, CancellationToken ct)
     {
-        var video = await db.Videos.FindAsync([id], ct);
-        if (video == null) return NotFound("Video not found");
+        IActionResult result = Ok();
+        int? changedPreviousOwnerId = null;
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            result = Ok();
+            changedPreviousOwnerId = null;
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var video = await db.Videos.SingleOrDefaultAsync(item => item.Id == id, ct);
+            if (video is null) { result = NotFound("Video not found"); return; }
+            var file = await db.Set<VideoFile>().SingleOrDefaultAsync(item => item.Id == dto.FileId, ct);
+            if (file is null) { result = NotFound("File not found"); return; }
+            if (file.VideoId == id) return;
+            var previousOwnerId = file.VideoId;
+            if (previousOwnerId is int ownerId)
+            {
+                if (authorizationService is not null)
+                {
+                    var decision = await authorizationService.AuthorizeAsync(principalAccessor?.Current, Permissions.VideosWrite, EntityRef.Of(EntityKinds.Video, ownerId), ct);
+                    if (!decision.Allowed) { result = Forbid(); return; }
+                }
+                if (await db.Videos.IgnoreQueryFilters().AnyAsync(v => v.Id == ownerId && v.PrimaryFileId == file.Id, ct))
+                { result = Conflict("Set another file as primary before moving this file."); return; }
+            }
+            file.VideoId = id;
+            if (!video.PrimaryFileId.HasValue) video.PrimaryFileId = file.Id;
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+            changedPreviousOwnerId = previousOwnerId;
+        });
+        if (changedPreviousOwnerId is int previousId && previousId != id) PublishVideoEvent(EventType.VideoUpdated, previousId);
+        if (changedPreviousOwnerId.HasValue) PublishVideoEvent(EventType.VideoUpdated, id);
+        return result;
+    }
 
-        var file = await db.Set<VideoFile>().FirstOrDefaultAsync(f => f.Id == dto.FileId, ct);
-        if (file == null) return NotFound("File not found");
-        if (file.VideoId == id) return Ok();
-
-        var previousOwnerId = file.VideoId;
-        file.VideoId = id;
-        await db.SaveChangesAsync(ct);
-        if (previousOwnerId is int previousId && previousId != id)
-            PublishVideoEvent(EventType.VideoUpdated, previousId);
+    [HttpPost("{id:int}/split-file")]
+    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    public async Task<IActionResult> SplitFile(int id, [FromBody] VideoSplitFileDto dto, CancellationToken ct)
+    {
+        var sourceFound = false;
+        var fileFound = false;
+        var primarySelected = false;
+        int? splitVideoId = null;
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            sourceFound = false;
+            fileFound = false;
+            primarySelected = false;
+            splitVideoId = null;
+            db.ChangeTracker.Clear();
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var source = await db.Videos
+                .Include(video => video.VideoTags)
+                .Include(video => video.VideoPerformers)
+                .SingleOrDefaultAsync(video => video.Id == id, ct);
+            if (source is null) return;
+            sourceFound = true;
+            if (source.PrimaryFileId == dto.FileId) { primarySelected = true; return; }
+            var file = await db.VideoFiles.SingleOrDefaultAsync(candidate => candidate.Id == dto.FileId && candidate.VideoId == id, ct);
+            if (file is null) return;
+            fileFound = true;
+            var split = new Video
+            {
+                Title = dto.Title ?? source.Title,
+                Code = source.Code,
+                Details = dto.Details ?? source.Details,
+                Director = dto.Director ?? source.Director,
+                Date = source.Date,
+                DatePrecision = source.DatePrecision,
+                Organized = source.Organized,
+                IsVr = source.IsVr,
+                StudioId = source.StudioId,
+                VideoTags = source.VideoTags.Select(link => new VideoTag { TagId = link.TagId }).ToList(),
+                VideoPerformers = source.VideoPerformers.Select(link => new VideoPerformer { PerformerId = link.PerformerId }).ToList(),
+            };
+            db.Videos.Add(split);
+            await db.SaveChangesAsync(ct);
+            file.VideoId = split.Id;
+            split.PrimaryFileId = file.Id;
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+            splitVideoId = split.Id;
+        });
+        if (!sourceFound) return NotFound("Video not found");
+        if (primarySelected) return Conflict("Set another file as primary before splitting this file into a separate video.");
+        if (!fileFound || !splitVideoId.HasValue) return NotFound("File not found");
         PublishVideoEvent(EventType.VideoUpdated, id);
-        return Ok();
+        PublishVideoEvent(EventType.VideoCreated, splitVideoId.Value);
+        return Ok(new { videoId = splitVideoId.Value });
     }
 
     private void PublishVideoEvent(EventType type, int id)
