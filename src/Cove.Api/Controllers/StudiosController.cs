@@ -207,21 +207,8 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             if (dto.Details != null) s.Details = dto.Details;
             if (dto.Organized.HasValue) s.Organized = dto.Organized.Value;
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                s.StudioTags.Clear();
-                s.StudioTags = dto.TagIds.Select(tid => new StudioTag { TagId = tid, StudioId = s.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = s.StudioTags.Select(st => st.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    s.StudioTags.Add(new StudioTag { TagId = tid, StudioId = s.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                s.StudioTags = s.StudioTags.Where(st => !dto.TagIds.Contains(st.TagId)).ToList();
-            }
+            if (dto.TagIds != null && MetadataCollectionUpdater.ApplyBulkUpdate(s.StudioTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new StudioTag { TagId = tagId, StudioId = s.Id }))
+                MetadataCollectionUpdater.Touch(s);
         }
 
         await db.SaveChangesAsync(ct);

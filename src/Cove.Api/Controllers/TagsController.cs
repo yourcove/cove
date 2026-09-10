@@ -989,6 +989,8 @@ public class TagsController(
 
         foreach (var tag in tags)
         {
+            var relationshipsChanged = false;
+
             if (dto.Description != null) tag.Description = dto.Description;
             if (dto.Color != null) tag.Color = string.IsNullOrWhiteSpace(dto.Color) ? null : dto.Color.Trim();
             if (dto.ClearFields?.Contains("tagGroupId", StringComparer.OrdinalIgnoreCase) == true) tag.TagGroupId = null;
@@ -1002,49 +1004,18 @@ public class TagsController(
                 .Where(parentId => parentId != tag.Id)
                 .Distinct()
                 .ToList();
-            if (parentIds != null && dto.ParentMode == BulkUpdateMode.Set)
-            {
-                tag.ParentRelations.Clear();
-                tag.ParentRelations = parentIds
-                    .Select(parentId => new TagParent { ParentId = parentId, ChildId = tag.Id })
-                    .ToList();
-            }
-            else if (parentIds != null && dto.ParentMode == BulkUpdateMode.Add)
-            {
-                var existingParentIds = tag.ParentRelations.Select(relation => relation.ParentId).ToHashSet();
-                foreach (var parentId in parentIds.Where(parentId => !existingParentIds.Contains(parentId)))
-                    tag.ParentRelations.Add(new TagParent { ParentId = parentId, ChildId = tag.Id });
-            }
-            else if (parentIds != null && dto.ParentMode == BulkUpdateMode.Remove)
-            {
-                tag.ParentRelations = tag.ParentRelations
-                    .Where(relation => !parentIds.Contains(relation.ParentId))
-                    .ToList();
-            }
+            if (parentIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(tag.ParentRelations, parentIds, dto.ParentMode, relation => relation.ParentId, parentId => new TagParent { ParentId = parentId, ChildId = tag.Id });
 
             var childIds = dto.ChildIds?
                 .Where(childId => childId != tag.Id)
                 .Distinct()
                 .ToList();
-            if (childIds != null && dto.ChildMode == BulkUpdateMode.Set)
-            {
-                tag.ChildRelations.Clear();
-                tag.ChildRelations = childIds
-                    .Select(childId => new TagParent { ParentId = tag.Id, ChildId = childId })
-                    .ToList();
-            }
-            else if (childIds != null && dto.ChildMode == BulkUpdateMode.Add)
-            {
-                var existingChildIds = tag.ChildRelations.Select(relation => relation.ChildId).ToHashSet();
-                foreach (var childId in childIds.Where(childId => !existingChildIds.Contains(childId)))
-                    tag.ChildRelations.Add(new TagParent { ParentId = tag.Id, ChildId = childId });
-            }
-            else if (childIds != null && dto.ChildMode == BulkUpdateMode.Remove)
-            {
-                tag.ChildRelations = tag.ChildRelations
-                    .Where(relation => !childIds.Contains(relation.ChildId))
-                    .ToList();
-            }
+            if (childIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(tag.ChildRelations, childIds, dto.ChildMode, relation => relation.ChildId, childId => new TagParent { ParentId = tag.Id, ChildId = childId });
+
+            if (relationshipsChanged)
+                MetadataCollectionUpdater.Touch(tag);
         }
 
         await db.SaveChangesAsync(ct);

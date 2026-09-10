@@ -1,9 +1,47 @@
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 
 namespace Cove.Api.Helpers;
 
 internal static class MetadataCollectionUpdater
 {
+    public static bool ApplyBulkUpdate<TEntity, TKey>(
+        ICollection<TEntity> current,
+        IEnumerable<TKey> requested,
+        BulkUpdateMode mode,
+        Func<TEntity, TKey> keySelector,
+        Func<TKey, TEntity> factory,
+        IEqualityComparer<TKey>? comparer = null) where TKey : notnull
+    {
+        comparer ??= EqualityComparer<TKey>.Default;
+
+        if (mode == BulkUpdateMode.Set)
+            return ReplaceIfChanged(current, requested.Distinct(comparer), keySelector, factory, comparer);
+
+        if (mode == BulkUpdateMode.Add)
+        {
+            var existing = current.Select(keySelector).ToHashSet(comparer);
+            var changed = false;
+            foreach (var key in requested)
+            {
+                if (!existing.Add(key))
+                    continue;
+                current.Add(factory(key));
+                changed = true;
+            }
+            return changed;
+        }
+
+        if (mode != BulkUpdateMode.Remove)
+            return false;
+
+        var removeKeys = requested.ToHashSet(comparer);
+        var removed = current.Where(item => removeKeys.Contains(keySelector(item))).ToList();
+        foreach (var item in removed)
+            current.Remove(item);
+        return removed.Count > 0;
+    }
+
     public static bool ReplaceIfChanged<TEntity, TKey>(
         ICollection<TEntity> current,
         IEnumerable<TKey> requested,

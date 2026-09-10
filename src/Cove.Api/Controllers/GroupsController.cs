@@ -225,21 +225,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             if (dto.Director != null) g.Director = dto.Director;
             if (dto.Description != null) g.Synopsis = dto.Description;
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                g.GroupTags.Clear();
-                g.GroupTags = dto.TagIds.Select(tid => new GroupTag { TagId = tid, GroupId = g.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = g.GroupTags.Select(gt => gt.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    g.GroupTags.Add(new GroupTag { TagId = tid, GroupId = g.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                g.GroupTags = g.GroupTags.Where(gt => !dto.TagIds.Contains(gt.TagId)).ToList();
-            }
+            if (dto.TagIds != null && MetadataCollectionUpdater.ApplyBulkUpdate(g.GroupTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new GroupTag { TagId = tagId, GroupId = g.Id }))
+                MetadataCollectionUpdater.Touch(g);
         }
 
         await db.SaveChangesAsync(ct);

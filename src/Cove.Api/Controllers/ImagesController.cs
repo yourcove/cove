@@ -471,6 +471,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         foreach (var image in images)
         {
             var previousTagIds = dto.TagIds != null ? image.ImageTags.Select(imageTag => imageTag.TagId).ToArray() : [];
+            var relationshipsChanged = false;
 
             if (clearFields.Contains("studioId")) image.StudioId = null;
             if (clearFields.Contains("date")) image.Date = null;
@@ -484,21 +485,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             if (dto.Details != null) image.Details = dto.Details;
             if (dto.Photographer != null) image.Photographer = dto.Photographer;
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                image.ImageTags.Clear();
-                image.ImageTags = dto.TagIds.Select(tid => new ImageTag { TagId = tid, ImageId = image.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = image.ImageTags.Select(it => it.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    image.ImageTags.Add(new ImageTag { TagId = tid, ImageId = image.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                image.ImageTags = image.ImageTags.Where(it => !dto.TagIds.Contains(it.TagId)).ToList();
-            }
+            if (dto.TagIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(image.ImageTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new ImageTag { TagId = tagId, ImageId = image.Id });
 
             if (dto.TagIds != null && tagProvenanceService != null)
             {
@@ -510,37 +498,14 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
                     cancellationToken: ct);
             }
 
-            if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Set)
-            {
-                image.ImagePerformers.Clear();
-                image.ImagePerformers = dto.PerformerIds.Select(pid => new ImagePerformer { PerformerId = pid, ImageId = image.Id }).ToList();
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Add)
-            {
-                var existing = image.ImagePerformers.Select(ip => ip.PerformerId).ToHashSet();
-                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)))
-                    image.ImagePerformers.Add(new ImagePerformer { PerformerId = pid, ImageId = image.Id });
-            }
-            else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
-            {
-                image.ImagePerformers = image.ImagePerformers.Where(ip => !dto.PerformerIds.Contains(ip.PerformerId)).ToList();
-            }
+            if (dto.PerformerIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(image.ImagePerformers, dto.PerformerIds, dto.PerformerMode, item => item.PerformerId, performerId => new ImagePerformer { PerformerId = performerId, ImageId = image.Id });
 
-            if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Set)
-            {
-                image.ImageGalleries.Clear();
-                image.ImageGalleries = dto.GalleryIds.Select(gid => new ImageGallery { GalleryId = gid, ImageId = image.Id }).ToList();
-            }
-            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Add)
-            {
-                var existing = image.ImageGalleries.Select(ig => ig.GalleryId).ToHashSet();
-                foreach (var gid in dto.GalleryIds.Where(g => !existing.Contains(g)))
-                    image.ImageGalleries.Add(new ImageGallery { GalleryId = gid, ImageId = image.Id });
-            }
-            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Remove)
-            {
-                image.ImageGalleries = image.ImageGalleries.Where(ig => !dto.GalleryIds.Contains(ig.GalleryId)).ToList();
-            }
+            if (dto.GalleryIds != null)
+                relationshipsChanged |= MetadataCollectionUpdater.ApplyBulkUpdate(image.ImageGalleries, dto.GalleryIds, dto.GalleryMode, item => item.GalleryId, galleryId => new ImageGallery { GalleryId = galleryId, ImageId = image.Id });
+
+            if (relationshipsChanged)
+                MetadataCollectionUpdater.Touch(image);
         }
 
         await db.SaveChangesAsync(ct);

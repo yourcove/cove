@@ -866,21 +866,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                     p.Country = null;
             }
 
-            if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
-            {
-                p.PerformerTags.Clear();
-                p.PerformerTags = dto.TagIds.Select(tid => new PerformerTag { TagId = tid, PerformerId = p.Id }).ToList();
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Add)
-            {
-                var existing = p.PerformerTags.Select(pt => pt.TagId).ToHashSet();
-                foreach (var tid in dto.TagIds.Where(t => !existing.Contains(t)))
-                    p.PerformerTags.Add(new PerformerTag { TagId = tid, PerformerId = p.Id });
-            }
-            else if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Remove)
-            {
-                p.PerformerTags = p.PerformerTags.Where(pt => !dto.TagIds.Contains(pt.TagId)).ToList();
-            }
+            if (dto.TagIds != null && MetadataCollectionUpdater.ApplyBulkUpdate(p.PerformerTags, dto.TagIds, dto.TagMode, item => item.TagId, tagId => new PerformerTag { TagId = tagId, PerformerId = p.Id }))
+                MetadataCollectionUpdater.Touch(p);
         }
 
         await db.SaveChangesAsync(ct);
