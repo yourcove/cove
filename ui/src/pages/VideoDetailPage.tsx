@@ -57,6 +57,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MoveVideoFileDialog } from "../components/MoveVideoFileDialog";
 import { VideoAlignmentDialog } from "../components/VideoAlignmentDialog";
 import { NarrativeText } from "../components/NarrativeText";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
@@ -1829,19 +1830,20 @@ export function DetailsTab({
 
 // File Info Tab — show every underlying video file rather than only the first one.
 export function FileInfoTab({ sourceVideo, onSplitCreated, files, videoId, primaryFileId, canAlign = false, canDeleteFiles = false, canDeleteFromDisk = false, onPlayFile, onAlignmentDialogOpenChange, onChanged }: { sourceVideo?: Video; onSplitCreated?: (id: number) => void; files: Video["files"]; videoId?: number; primaryFileId?: number | null; canAlign?: boolean; canDeleteFiles?: boolean; canDeleteFromDisk?: boolean; onPlayFile?: (fileId: number) => void; onAlignmentDialogOpenChange?: (open: boolean) => void; onChanged?: () => void }) {
+  const [movingFile, setMovingFile] = useState<Video["files"][number] | null>(null);
   const [splittingFileId, setSplittingFileId] = useState<number | null>(null);
   const [aligningFileId, setAligningFileId] = useState<number | null>(null);
   useEffect(() => {
-    onAlignmentDialogOpenChange?.(aligningFileId != null || splittingFileId != null);
+    onAlignmentDialogOpenChange?.(aligningFileId != null || splittingFileId != null || movingFile != null);
     return () => onAlignmentDialogOpenChange?.(false);
-  }, [aligningFileId, splittingFileId, onAlignmentDialogOpenChange]);
+  }, [aligningFileId, splittingFileId, movingFile, onAlignmentDialogOpenChange]);
   const revealMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
-  const moveMutation = useMutation({ mutationFn: ({ targetId, fileId }: { targetId: number; fileId: number }) => videos.assignFile(targetId, fileId), onSuccess: onChanged });
   const deleteMutation = useMutation({ mutationFn: ({ fileId, fromDisk }: { fileId: number; fromDisk: boolean }) => fileOps.delete(fileId, fromDisk), onSuccess: onChanged });
   const canReveal =
     typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   return (
     <div className="space-y-4 text-sm">
+      {movingFile && videoId != null && <MoveVideoFileDialog file={movingFile} sourceVideoId={videoId} onClose={() => setMovingFile(null)} onMoved={onChanged} />}
       {splittingFileId != null && sourceVideo && videoId != null && <VideoCreateModal
         open onClose={() => setSplittingFileId(null)} onCreated={id => { onChanged?.(); onSplitCreated?.(id); }}
         split={{ source: sourceVideo, ownerId: videoId, fileId: splittingFileId, filename: files.find(file => file.id === splittingFileId)?.basename || "the selected file" }}
@@ -1880,9 +1882,7 @@ export function FileInfoTab({ sourceVideo, onSplitCreated, files, videoId, prima
               {file.id !== primaryFileId && canAlign && videoId != null && <button className="rounded border border-border px-2 py-1 text-xs hover:bg-surface" onClick={() => setAligningFileId(file.id)}>Set as primary</button>}
               {file.id !== primaryFileId && <button className="rounded border border-border px-2 py-1 text-xs hover:bg-surface" onClick={() => onPlayFile?.(file.id)}>Play this file</button>}
               {file.id !== primaryFileId && canAlign && videoId != null && <button className="rounded border border-border px-2 py-1 text-xs hover:bg-surface" onClick={() => {
-                const raw = window.prompt("Move this file to video ID:");
-                const targetId = Number(raw);
-                if (Number.isInteger(targetId) && targetId > 0) moveMutation.mutate({ targetId, fileId: file.id });
+                setMovingFile(file);
               }}>Move to another video</button>}
               {file.id !== primaryFileId && canAlign && videoId != null && <button className="rounded border border-border px-2 py-1 text-xs hover:bg-surface" onClick={() => {
                 setSplittingFileId(file.id);
