@@ -60,7 +60,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
     );
   }
 
-  const file = video.files?.[0];
+  const file = video.files?.find((candidate) => candidate.id === video.primaryFileId);
   const duration = file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
 

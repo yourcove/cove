@@ -12,6 +12,29 @@ namespace Cove.Tests;
 public class StreamServiceTests
 {
     [Fact]
+    public async Task ExistingVideoWithoutPrimary_DoesNotSilentlyFallBackOnLaterSave()
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new CoveContext(options);
+        var video = new Video { Title = "explicit primary" };
+        var file = new VideoFile { Basename = "source.mp4", ParentFolder = new Folder { Path = Path.GetTempPath() } };
+        video.Files.Add(file);
+        video.PrimaryFile = file;
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        video.PrimaryFile = null;
+        video.PrimaryFileId = null;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        video.Title = "changed later";
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(video.PrimaryFileId);
+    }
+
+    [Fact]
     public async Task GetVideoStream_OpensTheCanonicalStoredPathWithoutFolderNavigation()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-stream-source-{Guid.NewGuid():N}");
@@ -36,12 +59,14 @@ public class StreamServiceTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
                 var video = new Video { Title = "stream source" };
-                video.Files.Add(new VideoFile
+                var file = new VideoFile
                 {
                     Basename = Path.GetFileName(videoPath),
                     ParentFolder = new Folder { Path = tempRoot },
                     Format = "mp4",
-                });
+                };
+                video.Files.Add(file);
+                video.PrimaryFile = file;
                 db.Videos.Add(video);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 videoId = video.Id;

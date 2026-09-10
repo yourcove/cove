@@ -43,6 +43,13 @@ public sealed partial class CoveClient
             new FileBackedCreateDto(filePath),
             cancellationToken);
 
+    public async Task<int> SplitVideoFileAsync(int videoId, VideoSplitFileDto request, CancellationToken cancellationToken = default)
+    {
+        var result = await SendForExpectedStatusAsync<JsonElement>(HttpMethod.Post,
+            $"/api/videos/{videoId}/split-file", request, HttpStatusCode.OK, cancellationToken);
+        return result.GetProperty("videoId").GetInt32();
+    }
+
     public Task<VideoGenerationResult> GenerateVideoScreenshotAsync(
         int videoId,
         double? atSeconds,

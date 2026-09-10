@@ -63,10 +63,10 @@ public sealed class GenerateJobService(
 
     internal static VideoFile? SelectVideoFile(Video video, IReadOnlyList<string> filterPaths)
     {
-        var files = video.Files.OrderBy(file => file.Id);
-        return filterPaths.Count == 0
-            ? files.FirstOrDefault()
-            : files.FirstOrDefault(file => GeneratePathFilter.Contains(GeneratePathFilter.Resolve(file), filterPaths));
+        var primary = video.Files.SingleOrDefault(file => file.Id == video.PrimaryFileId);
+        return primary is not null && (filterPaths.Count == 0 || GeneratePathFilter.Contains(GeneratePathFilter.Resolve(primary), filterPaths))
+            ? primary
+            : null;
     }
 
     private async Task RunAsync(GenerateOptionsDto options, IJobProgress progress, CancellationToken ct)

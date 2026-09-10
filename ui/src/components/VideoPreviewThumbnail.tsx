@@ -74,7 +74,7 @@ export function VideoPreviewThumbnail({
   className?: string;
   children?: ReactNode;
 }) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const clipDuration =
     typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
       ? Math.max(0, video.clipEndSec - video.clipStartSec)

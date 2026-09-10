@@ -70,7 +70,9 @@ internal sealed class ScanVideoProcessor(
             existing.ModTime = stat.ModTime;
 
             if (targetVideo != null)
+            {
                 existing.VideoId = targetVideo.Id;
+            }
 
             // Re-probe when the bytes changed in place (re-encode/replacement) or when metadata was
             // never captured (e.g. FFprobe was unavailable on the initial scan).
@@ -150,7 +152,7 @@ internal sealed class ScanVideoProcessor(
             // file basename for display when Title is null.
             var video = new Video
             {
-                Files = [videoFile]
+                Files = [videoFile],
             };
 
             db.Videos.Add(video);
@@ -158,6 +160,8 @@ internal sealed class ScanVideoProcessor(
         else
         {
             db.VideoFiles.Add(videoFile);
+            if (!targetVideo.PrimaryFileId.HasValue)
+                targetVideo.PrimaryFile = videoFile;
         }
 
         await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir, videoProbeJson, moveIndex);

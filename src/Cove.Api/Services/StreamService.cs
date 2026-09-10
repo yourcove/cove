@@ -30,7 +30,10 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         [".rm"] = "application/vnd.rn-realmedia",
     };
 
-    public async Task<(Stream stream, string contentType, long? fileSize)?> GetVideoStream(int videoId, CancellationToken ct = default)
+    public Task<(Stream stream, string contentType, long? fileSize)?> GetVideoStream(int videoId, CancellationToken ct = default)
+        => GetVideoStream(videoId, ct, null);
+
+    public async Task<(Stream stream, string contentType, long? fileSize)?> GetVideoStream(int videoId, CancellationToken ct, int? fileId)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -38,7 +41,10 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var sourceVideoId = await ResolveSourceVideoIdAsync(db, videoId, ct);
         if (!sourceVideoId.HasValue) return null;
 
-        var videoFile = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
+        var primaryFileId = await db.Videos.Where(v => v.Id == sourceVideoId.Value).Select(v => v.PrimaryFileId).SingleOrDefaultAsync(ct);
+        var selectedFileId = fileId ?? primaryFileId;
+        if (!selectedFileId.HasValue) return null;
+        var videoFile = await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == selectedFileId && f.VideoId == sourceVideoId.Value, ct);
 
         if (videoFile == null) return null;
 

@@ -67,14 +67,17 @@ public class StreamControllerTests
         var folder = new Folder { Path = Path.GetTempPath() };
         context.AddRange(video, folder);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-        context.VideoFiles.Add(new VideoFile
+        var primaryFile = new VideoFile
         {
             VideoId = video.Id,
             ParentFolderId = folder.Id,
             Basename = "video.mp4",
             Width = 1920,
             Height = 1080,
-        });
+        };
+        context.VideoFiles.Add(primaryFile);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        video.PrimaryFileId = primaryFile.Id;
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateController(context, new FakeTranscodeService());
@@ -83,7 +86,7 @@ public class StreamControllerTests
         var result = await controller.GetHlsMasterPlaylist(video.Id, CancellationToken.None);
 
         var content = Assert.IsType<ContentResult>(result);
-        Assert.Contains($"/api/stream/video/{video.Id}/hls/720p.m3u8?access_token=access%20token&share_token=share%2Ftoken", content.Content);
+        Assert.Contains($"/api/stream/video/{video.Id}/hls/720p.m3u8?fileId={primaryFile.Id}&access_token=access%20token&share_token=share%2Ftoken", content.Content);
         Assert.DoesNotContain("ignored=", content.Content);
     }
 
@@ -106,14 +109,17 @@ public class StreamControllerTests
             var folder = new Folder { Path = tempDir };
             context.AddRange(video, folder);
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-            context.VideoFiles.Add(new VideoFile
+            var primaryFile = new VideoFile
             {
                 VideoId = video.Id,
                 ParentFolderId = folder.Id,
                 Basename = Path.GetFileName(videoPath),
                 Width = 1920,
                 Height = 1080,
-            });
+            };
+            context.VideoFiles.Add(primaryFile);
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+            video.PrimaryFileId = primaryFile.Id;
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var controller = CreateController(context, new FakeTranscodeService());
@@ -122,8 +128,8 @@ public class StreamControllerTests
             var result = await controller.GetHlsPlaylist(video.Id, "original", CancellationToken.None);
 
             var content = Assert.IsType<ContentResult>(result);
-            Assert.Contains($"/api/stream/video/{video.Id}/hls/segment/original_000.ts?access_token=access%20token&share_token=share%2Ftoken&share_password=p%40ss", content.Content);
-            Assert.Contains($"/api/stream/video/{video.Id}/hls/segment/original_001.ts?access_token=access%20token&share_token=share%2Ftoken&share_password=p%40ss", content.Content);
+            Assert.Contains($"/api/stream/video/{video.Id}/hls/segment/original_000.ts?fileId={primaryFile.Id}&access_token=access%20token&share_token=share%2Ftoken&share_password=p%40ss", content.Content);
+            Assert.Contains($"/api/stream/video/{video.Id}/hls/segment/original_001.ts?fileId={primaryFile.Id}&access_token=access%20token&share_token=share%2Ftoken&share_password=p%40ss", content.Content);
             Assert.Contains("#EXTINF:4,", content.Content);
             Assert.DoesNotContain("ignored=", content.Content);
         }

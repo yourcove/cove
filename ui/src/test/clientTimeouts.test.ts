@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { database, extensions, scrapeAttempts } from "../api/client";
+import { database, extensions, scrapeAttempts, videoAlignments } from "../api/client";
 import { resetServerAvailabilityForTests } from "../state/serverAvailability";
 
 function pendingJsonResponse() {
@@ -25,6 +25,19 @@ function pendingJsonResponse() {
 }
 
 describe("API client timeout policies", () => {
+  it("lets ad hoc alignment finish beyond 15 seconds and preserves cancellation", async () => {
+    vi.useFakeTimers();
+    const fetchRequest = pendingJsonResponse();
+    const controller = new AbortController();
+    const request = videoAlignments.analyze(1, 2, 3, controller.signal);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchRequest.signal?.aborted).toBe(false);
+    controller.abort();
+    expect(fetchRequest.signal?.aborted).toBe(true);
+    fetchRequest.finish();
+    await request;
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();

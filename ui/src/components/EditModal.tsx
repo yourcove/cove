@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import type { FieldProvenance } from "../api/types";
 import { FieldProvenanceHover } from "./FieldProvenanceHover";
 
@@ -12,6 +12,7 @@ interface Props {
 }
 
 export function EditModal({ title, open, onClose, children, maxWidthClassName = "sm:max-w-2xl" }: Props) {
+  const titleId = useId();
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
@@ -32,10 +33,15 @@ export function EditModal({ title, open, onClose, children, maxWidthClassName = 
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={`relative bg-surface sm:rounded-lg shadow-xl w-full ${maxWidthClassName} h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4`}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
-          <h2 className="text-lg font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
           <button onClick={onClose} className="text-secondary hover:text-foreground p-1">
             <X className="w-5 h-5" />
           </button>

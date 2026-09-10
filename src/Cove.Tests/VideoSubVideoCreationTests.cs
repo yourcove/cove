@@ -51,6 +51,12 @@ public class VideoSubVideoCreationTests
             ClipEndSec = 60,
             MaxDuration = 30,
         };
+        sourceVideo.Files.Add(new VideoFile
+        {
+            Basename = "source.mp4",
+            Duration = 120,
+            ParentFolder = new Folder { Path = "/library" },
+        });
 
         context.Videos.AddRange(sourceVideo, childVideo);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);

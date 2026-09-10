@@ -35,6 +35,8 @@ interface WallMediaCardProps extends HTMLAttributes<HTMLDivElement> {
   chromeless?: boolean;
   videoControls?: (state: WallMediaVideoControlsState) => ReactNode;
   onVideoPlayEligibilityChange?: (eligible: boolean) => void;
+  onVideoElementChange?: (element: HTMLVideoElement | null) => void;
+  autoPlayVideo?: boolean;
   playbackTracking?: PlaybackTrackingTarget;
   trackingEnabled?: boolean;
 }
@@ -63,6 +65,8 @@ export function WallMediaCard({
   chromeless = false,
   videoControls,
   onVideoPlayEligibilityChange,
+  onVideoElementChange,
+  autoPlayVideo = true,
   playbackTracking,
   trackingEnabled = true,
   className,
@@ -72,6 +76,20 @@ export function WallMediaCard({
   const appConfig = useOptionalAppConfig();
   const mediaRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const onVideoElementChangeRef = useRef(onVideoElementChange);
+  onVideoElementChangeRef.current = onVideoElementChange;
+  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
+    const previous = videoRef.current;
+    videoRef.current = element;
+    if (previous && previous !== element)
+      queueMicrotask(() => {
+        if (videoRef.current === previous) return;
+        previous.pause();
+        previous.removeAttribute("src");
+        previous.load();
+      });
+    onVideoElementChangeRef.current?.(element);
+  }, []);
   const [videoFailed, setVideoFailed] = useState(false);
   const [videoAvailable, setVideoAvailable] = useState(false);
   const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
@@ -218,7 +236,7 @@ export function WallMediaCard({
   const seekToStartTime = () => {
     const video = videoRef.current;
     if (!video || videoStartTimeSec <= 0 || !Number.isFinite(video.duration)) return;
-    if (video.duration > videoStartTimeSec + 1) {
+    if (video.duration > videoStartTimeSec) {
       video.currentTime = videoStartTimeSec;
     }
   };
@@ -315,6 +333,7 @@ export function WallMediaCard({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !useVideo || !videoSrc || !videoAvailable || videoFailed) return;
+    if (!autoPlayVideo) return;
 
     if (shouldPlayVideo) {
       const playResult = video.play();
@@ -324,7 +343,7 @@ export function WallMediaCard({
     } else {
       video.pause();
     }
-  }, [shouldPlayVideo, useVideo, videoSrc, videoAvailable, videoFailed]);
+  }, [autoPlayVideo, shouldPlayVideo, useVideo, videoSrc, videoAvailable, videoFailed]);
 
   useEffect(() => {
     if (!playbackTrackingTarget) {
@@ -365,14 +384,14 @@ export function WallMediaCard({
       >
         {useVideo && videoSrc && shouldLoadVideo && videoAvailable && !videoFailed ? (
           <video
-            ref={videoRef}
+            ref={setVideoRef}
             src={videoSrc}
             poster={imageSrc ?? undefined}
             className={`absolute inset-0 h-full w-full ${resolvedVideoClassName}`}
             muted={muted}
             playsInline
             loop
-            preload={shouldPlayVideo ? "auto" : "metadata"}
+            preload={autoPlayVideo && shouldPlayVideo ? "auto" : "metadata"}
             onLoadedMetadata={() => {
               seekToStartTime();
               syncVideoMetrics();

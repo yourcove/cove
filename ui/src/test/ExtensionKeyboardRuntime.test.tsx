@@ -1,3 +1,4 @@
+import { EditModal } from "../components/EditModal";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useMemo } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -169,6 +170,26 @@ describe("extension keyboard runtime", () => {
     );
     fireEvent.keyDown(screen.getByRole("button"), { key: "u" });
     expect(action).not.toHaveBeenCalled();
+  });
+
+  it("suppresses background shortcuts while a shared edit modal is open", () => {
+    const view = render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+        <EditModal open title="Split into a new scene" onClose={() => {}}>
+          <button>Prepopulate</button>
+        </EditModal>
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Prepopulate" }), { key: "r" });
+    expect(action).not.toHaveBeenCalled();
+    view.rerender(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
+    expect(action).toHaveBeenCalledOnce();
   });
 
   it("suppresses local extension actions behind extension-owned ARIA dialogs", () => {

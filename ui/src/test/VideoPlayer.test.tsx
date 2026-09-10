@@ -94,6 +94,67 @@ describe("VideoPlayer source lifecycle", () => {
     vi.useRealTimers();
   });
 
+  it("releases and restores its media source while suspended", () => {
+    const renderPlayer = (suspended: boolean) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={10}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        suspended={suspended}
+      />
+    );
+    const { container, rerender } = render(renderPlayer(false));
+    const video = container.querySelector("video") as HTMLVideoElement;
+    const source = container.querySelector("source") as HTMLSourceElement;
+    video.currentTime = 37;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    pauseMock.mockClear();
+    loadMock.mockClear();
+
+    rerender(renderPlayer(true));
+
+    expect(source).not.toHaveAttribute("src");
+    expect(pauseMock).toHaveBeenCalled();
+    expect(loadMock).toHaveBeenCalled();
+
+    loadMock.mockClear();
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?revision=2"
+        format="mp4"
+        duration={120}
+        resumeTime={10}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        suspended
+      />,
+    );
+    expect(source).not.toHaveAttribute("src");
+    expect(loadMock).not.toHaveBeenCalled();
+
+    playMock.mockClear();
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?revision=2"
+        format="mp4"
+        duration={120}
+        resumeTime={10}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    expect(source).toHaveAttribute("src", "/api/stream/video/1?revision=2");
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(37);
+    expect(playMock).toHaveBeenCalled();
+  });
+
   it("seeks to an explicit timestamp without playing when automatic resume is disabled", () => {
     mockUiConfig.alwaysResumeOnPlayback = false;
     const { container } = render(

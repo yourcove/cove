@@ -108,6 +108,7 @@ public sealed class StreamDeliveryApiTests(
         vttResponse.Content.Headers.ContentType?.MediaType.Should().Be("text/vtt");
         vttResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
+        var primaryFileId = (await AsUser().GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken)).PrimaryFileId!.Value;
         var propagatedQuery = $"access_token={Uri.EscapeDataString(AsUser().AccessToken)}";
         using var hlsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/master.m3u8?{propagatedQuery}&ignored=secret", TestContext.Current.CancellationToken);
         var playlist = await hlsResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
@@ -115,7 +116,7 @@ public sealed class StreamDeliveryApiTests(
         hlsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/vnd.apple.mpegurl");
         hlsResponse.Headers.CacheControl?.ToString().Should().Be("no-cache");
         playlist.Should().StartWith("#EXTM3U\n");
-        playlist.Should().Contain($"/api/stream/video/{video.Id}/hls/720p.m3u8?{propagatedQuery}");
+        playlist.Should().Contain($"/api/stream/video/{video.Id}/hls/720p.m3u8?fileId={primaryFileId}&{propagatedQuery}");
         playlist.Should().Contain("#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,NAME=\"720p\"");
         playlist.Should().NotContain("ignored=");
     }
@@ -140,10 +141,11 @@ public sealed class StreamDeliveryApiTests(
         await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12, cancellationToken: TestContext.Current.CancellationToken);
         var vttCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, vttFilename, "en", "vtt", TestContext.Current.CancellationToken);
         var srtCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, srtFilename, "es", "srt", TestContext.Current.CancellationToken);
+        var primaryFileId = (await AsUser().GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken)).PrimaryFileId!.Value;
         const string segment = "720p_0000.ts";
         var segmentBytes = "api-test-hls-segment"u8.ToArray();
         fileSystem.CreateGeneratedFile(
-            Path.Combine("transcodes", "hls", video.Id.ToString(CultureInfo.InvariantCulture), segment),
+            Path.Combine("transcodes", "hls", (-primaryFileId).ToString(CultureInfo.InvariantCulture), segment),
             segmentBytes);
 
         var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken))

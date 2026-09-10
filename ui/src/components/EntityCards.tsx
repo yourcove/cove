@@ -1304,7 +1304,7 @@ export function VideoCard({
   bookmarkInitiallySaved?: boolean;
 }) {
   const appConfig = useOptionalAppConfig();
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const clipDuration =
     typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
       ? Math.max(0, video.clipEndSec - video.clipStartSec)
@@ -1411,7 +1411,7 @@ interface VideoTileProps {
 }
 
 export function VideoTile({ video, onClick }: VideoTileProps) {
-  const file = video.files[0];
+  const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const clipDuration =
     typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
       ? Math.max(0, video.clipEndSec - video.clipStartSec)

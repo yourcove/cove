@@ -82,6 +82,7 @@ describe("WallMediaCard", () => {
 
     const { container } = render(
       <WallMediaCard title="Available preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" useVideo />,
+      { reactStrictMode: true },
     );
 
     await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
@@ -281,6 +282,48 @@ describe("WallMediaCard", () => {
     fireEvent.timeUpdate(video);
 
     expect(video.currentTime).toBe(12);
+  });
+
+  it("seeks to a bounded range that starts within the final second", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private readonly callback: IntersectionObserverCallback;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+        }
+
+        disconnect() {}
+      },
+    );
+
+    const { container } = render(
+      <WallMediaCard
+        title="Closing range"
+        imageSrc="/image.jpg"
+        videoSrc="/video.mp4"
+        useVideo
+        videoStartTimeSec={19.1}
+        videoEndTimeSec={19.4}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 20 });
+
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(19.1);
   });
 
   it("holds a zero-length range on its configured frame", async () => {

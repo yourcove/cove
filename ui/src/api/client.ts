@@ -1,4 +1,12 @@
 import type {
+  AlignmentState,
+  AlignmentAnalysis,
+  AlignmentReview,
+  AlignmentPreview,
+  AlignmentAssessment,
+  AlignmentAnchor,
+} from "./alignmentTypes";
+import type {
   MeResponse,
   GlobalSearchResponse,
   Video,
@@ -611,7 +619,12 @@ export const videos = {
   rescan: (id: number) => request<{ jobId: string }>(`/videos/${id}/rescan`, { method: "POST" }),
   assignFile: (id: number, fileId: number) =>
     request<void>(`/videos/${id}/assign-file`, { method: "POST", body: JSON.stringify({ fileId }) }),
-  streamUrl: (id: number) => buildMediaUrl(`/stream/video/${id}`),
+  splitFile: (id: number, fileId: number, title?: string, metadata?: VideoCreate) =>
+    request<{ videoId: number }>(`/videos/${id}/split-file`, {
+      method: "POST",
+      body: JSON.stringify({ fileId, title, metadata }),
+    }),
+  streamUrl: (id: number, fileId?: number) => buildMediaUrl(`/stream/video/${id}`, undefined, undefined, { fileId }),
   screenshotUrl: (id: number, version?: string, seconds?: number) =>
     buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
   segmentPreviewUrl: (id: number, seconds: number, version?: string) =>
@@ -619,10 +632,11 @@ export const videos = {
   previewUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview`),
   previewStatusUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview/status`),
   captionUrl: (videoId: number, captionId: number) => buildMediaUrl(`/stream/video/${videoId}/caption/${captionId}`),
-  transcodeUrl: (id: number, resolution?: string, start?: number) =>
-    buildMediaUrl(`/stream/video/${id}/transcode`, undefined, undefined, { resolution, start }),
+  transcodeUrl: (id: number, resolution?: string, start?: number, fileId?: number) =>
+    buildMediaUrl(`/stream/video/${id}/transcode`, undefined, undefined, { resolution, start, fileId }),
   hlsMasterUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/hls/master.m3u8`),
-  getResolutions: (id: number) => request<string[]>(`/stream/video/${id}/resolutions`),
+  getResolutions: (id: number, fileId?: number) =>
+    request<string[]>(`/stream/video/${id}/resolutions${fileId == null ? "" : `?fileId=${fileId}`}`),
   segments: {
     list: (videoId: number) => request<Segment[]>(`/videos/${videoId}/segments`),
     create: (videoId: number, data: SegmentCreate) =>
@@ -676,6 +690,8 @@ export const videos = {
 
 export const fileOps = {
   reveal: (fileId: number) => request<void>(`/files/${fileId}/reveal`, { method: "POST" }),
+  delete: (fileId: number, deleteFromDisk: boolean) =>
+    request<void>("/files/delete", { method: "POST", body: JSON.stringify({ fileIds: [fileId], deleteFromDisk }) }),
   revealFolder: (folderId: number) => request<void>(`/files/folders/${folderId}/reveal`, { method: "POST" }),
 };
 
@@ -2483,4 +2499,45 @@ export const shareLinksApi = {
   create: (req: { entityKind: string; entityIds: string[]; expiresAt?: string; password?: string }) =>
     request<ShareLinkIssuedRow>("/share-links", { method: "POST", body: JSON.stringify(req) }),
   revoke: (id: string) => request<void>(`/share-links/${id}`, { method: "DELETE" }),
+};
+
+export const videoAlignments = {
+  get: (id: number, signal?: AbortSignal) => request<AlignmentState>(`/videos/${id}/alignments`, { signal }),
+  assess: (id: number, targetFileId: number, signal?: AbortSignal) =>
+    request<AlignmentAssessment>(`/videos/${id}/alignments/assess`, {
+      method: "POST",
+      body: JSON.stringify({ sourceFileId: 0, targetFileId }),
+      signal,
+      timeoutMs: null,
+    }),
+  analyze: (id: number, sourceFileId: number, targetFileId: number, signal?: AbortSignal) =>
+    request<AlignmentAnalysis>(`/videos/${id}/alignments/analyze`, {
+      method: "POST",
+      body: JSON.stringify({ sourceFileId, targetFileId }),
+      signal,
+      timeoutMs: null,
+    }),
+  preview: (id: number, data: AlignmentReview, signal?: AbortSignal) =>
+    request<AlignmentPreview>(`/videos/${id}/alignments/preview`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal,
+      timeoutMs: null,
+    }),
+  apply: (
+    id: number,
+    data: {
+      fileId: number;
+      resolution: "direct" | "align" | "delete";
+      anchors?: AlignmentAnchor[];
+      deleteDependencies?: { kind: string; id: number }[];
+      expectedPrimaryFileId: number | null;
+    },
+    signal?: AbortSignal,
+  ) =>
+    request<{ primaryFileId: number; mapped?: number; deleted?: number }>(`/videos/${id}/alignments/apply`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal,
+    }),
 };

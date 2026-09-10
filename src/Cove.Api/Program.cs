@@ -295,6 +295,7 @@ try
 
     // Application services
     builder.Services.AddSingleton<ThumbnailService>();
+    builder.Services.AddSingleton<VideoGeneratedAssetCoordinator>();
     builder.Services.AddSingleton<IThumbnailService>(sp => sp.GetRequiredService<ThumbnailService>());
     builder.Services.AddSingleton<IVideoAssetGenerator>(sp => sp.GetRequiredService<ThumbnailService>());
     builder.Services.AddSingleton<IFingerprintService, FingerprintService>();
@@ -340,6 +341,7 @@ try
     builder.Services.AddScoped<BulkDeletionJobService>();
     builder.Services.AddScoped<DuplicateSearchJobService>();
     builder.Services.AddScoped<DuplicateSearchExecutionService>();
+    builder.Services.AddSingleton<VideoAlignmentExtractor>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();

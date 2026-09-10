@@ -143,16 +143,22 @@ public sealed class FileOpsApiTests(
         deletedUnknown.Deleted.Should().Be(0);
         AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken), recordOnly, recordOnly.Path);
 
+        Func<Task> deletePrimary = () => owner.DeleteFilesAsync(new DeleteFilesDto([recordOnly.File.Id], DeleteFromDisk: true));
+        await deletePrimary.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 409 (Conflict)*");
+        AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken), recordOnly, recordOnly.Path);
+        fileSystem.LibraryFileExists(recordOnly.Path).Should().BeTrue();
+
+        await owner.MergeVideosAsync(control.Video, TestContext.Current.CancellationToken, recordOnly.Video, physical.Video);
         var deletedRecordOnly = await owner.DeleteFilesAsync(new DeleteFilesDto(
             [recordOnly.File.Id, recordOnly.File.Id, int.MaxValue],
             DeleteFromDisk: false), TestContext.Current.CancellationToken);
         deletedRecordOnly.Deleted.Should().Be(1);
-        (await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
+        (await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken)).Files.Should().NotContain(file => file.Id == recordOnly.File.Id);
         fileSystem.LibraryFileExists(recordOnly.Path).Should().BeTrue();
 
         var deletedPhysical = await owner.DeleteFilesAsync(new DeleteFilesDto([physical.File.Id], DeleteFromDisk: true), TestContext.Current.CancellationToken);
         deletedPhysical.Deleted.Should().Be(1);
-        (await owner.GetVideoByIdAsync(physical.Video.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
+        (await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken)).Files.Should().NotContain(file => file.Id == physical.File.Id);
         await WaitForLibraryFileDeletionAsync(fileSystem, physical.Path, TestContext.Current.CancellationToken);
         fileSystem.LibraryFileExists(physical.Path).Should().BeFalse();
 

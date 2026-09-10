@@ -164,6 +164,8 @@ public class ThumbnailServiceTests
                 video.Files.Add(selectedFile);
                 db.Videos.Add(video);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                video.PrimaryFileId = selectedFile.Id;
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 videoId = video.Id;
                 selectedFileId = selectedFile.Id;
             }

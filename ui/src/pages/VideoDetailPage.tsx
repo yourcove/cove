@@ -1,3 +1,4 @@
+import { VideoCreateModal } from "../components/VideoCreateModal";
 import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   faces,
@@ -56,6 +57,8 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MoveVideoFileDialog } from "../components/MoveVideoFileDialog";
+import { VideoAlignmentDialog } from "../components/VideoAlignmentDialog";
 import { NarrativeText } from "../components/NarrativeText";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
@@ -346,6 +349,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const [showIdentify, setShowIdentify] = useState(false);
   const [showScrapeDialog, setShowScrapeDialog] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [alternateFileId, setAlternateFileId] = useState<number | null>(null);
+  const [alignmentDialogOpen, setAlignmentDialogOpen] = useState(false);
+  useEffect(() => setAlternateFileId(null), [id]);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "details");
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilterState>(EMPTY_SEGMENT_FILTER);
@@ -406,7 +412,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const videoLikeCount = videoEngagement?.likeCount ?? 0;
   const videoDerivedLikeCount = videoEngagement?.derivedLikeCount ?? 0;
   const videoPageVisitCount = videoEngagement?.pageVisitCount ?? 0;
-  const effectiveVideoResumeTime = normalizeStoredResumeTime(videoResumeTime, video?.files[0]?.duration);
+  const primaryFileForResume =
+    video?.primaryFileId === undefined
+      ? video?.files[0]
+      : video?.files.find((candidate) => candidate.id === video.primaryFileId);
+  const effectiveVideoResumeTime = normalizeStoredResumeTime(videoResumeTime, primaryFileForResume?.duration);
 
   useEffect(() => {
     const videoId = video?.id;
@@ -690,7 +700,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       { key: "filters", label: "Filters" },
       {
         key: "file-info",
-        label: `File Info${video?.files.length && video.files.length > 1 ? ` (${video.files.length})` : ""}`,
+        label: "File Info",
+        count: video?.files.length && video.files.length > 1 ? video.files.length : undefined,
       },
       { key: "history", label: "History" },
       ...videoExtTabs.map((t) => ({ key: `ext:${t.key}` as TabKey, label: t.label, manualContexts: t.manualContexts })),
@@ -825,11 +836,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
 
   if (!video) return <div className="text-center text-secondary py-16">Video not found</div>;
 
-  const file = video.files[0];
+  const file =
+    alternateFileId != null
+      ? video.files.find((candidate) => candidate.id === alternateFileId)
+      : video.primaryFileId === undefined
+        ? video.files[0]
+        : video.files.find((candidate) => candidate.id === video.primaryFileId);
   // Use video.id (the loaded record) rather than the route id so the stream URL stays consistent with
   // `file` during a keepPreviousData swap, where the route id is already the next video but the data
   // (and format) is still the previous one for a frame.
-  const streamUrl = videos.streamUrl(video.id);
+  const streamUrl = videos.streamUrl(video.id, alternateFileId ?? undefined);
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
 
   const studioImageUrl = video.studioId ? entityImages.studioImageUrl(video.studioId) : null;
@@ -1122,8 +1138,23 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       <VideoAudioSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
     ) : activeTab === "filters" ? (
       <VideoFiltersTab filters={videoFilters} onChange={setVideoFilters} />
-    ) : activeTab === "file-info" && video.files.length > 0 ? (
-      <FileInfoTab files={video.files} />
+    ) : activeTab === "file-info" ? (
+      <FileInfoTab
+        sourceVideo={video}
+        onSplitCreated={(id) => onNavigate({ page: "video", id })}
+        files={video.files}
+        videoId={video.parentVideoId ?? video.id}
+        primaryFileId={video.primaryFileId}
+        canAlign={canWriteVideo && canReadFiles}
+        canDeleteFiles={hasPermission("files.delete")}
+        canDeleteFromDisk={canDeleteVideoFiles}
+        onPlayFile={setAlternateFileId}
+        onAlignmentDialogOpenChange={setAlignmentDialogOpen}
+        onChanged={() => {
+          setAlternateFileId(null);
+          void queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+        }}
+      />
     ) : activeTab === "history" ? (
       <HistoryTab
         video={video}
@@ -1157,6 +1188,14 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const videoMedia = (
     <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
       <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
+        {alternateFileId != null && (
+          <div className="absolute z-20 flex w-full items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-black">
+            <span>Playing alternate file. Timed overlays are hidden because they use the primary timeline.</span>
+            <button className="rounded border border-black/30 px-2 py-1" onClick={() => setAlternateFileId(null)}>
+              Return to primary
+            </button>
+          </div>
+        )}
         {file ? (
           <VideoPlayer
             // Intentionally NOT keyed by id: the player stays mounted across queue advances so the
@@ -1165,21 +1204,22 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             // source-change effect calls video.load() (releasing the old stream); on unmount the cleanup
             // effect fully tears the connection down.
             streamUrl={streamUrl}
-            posterUrl={videos.screenshotUrl(video.id, video.updatedAt)}
+            posterUrl={alternateFileId == null ? videos.screenshotUrl(video.id, video.updatedAt) : undefined}
             format={file.format}
             duration={file.duration}
             audioCodec={file.audioCodec}
-            resumeTime={effectiveVideoResumeTime}
-            seekTo={initialSeekTo}
+            resumeTime={alternateFileId == null ? effectiveVideoResumeTime : undefined}
+            seekTo={alternateFileId == null ? initialSeekTo : undefined}
             clip={
-              video.parentVideoId != null
+              alternateFileId == null && video.parentVideoId != null
                 ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false }
                 : undefined
             }
             videoId={video.id}
+            fileId={alternateFileId ?? undefined}
             extensionSurface="detail"
-            detections={detections}
-            segments={segments}
+            detections={alternateFileId == null ? detections : []}
+            segments={alternateFileId == null ? segments : []}
             faces={videoFaces.map(({ face }) => face)}
             captions={file.captions}
             videoStyle={videoStyle}
@@ -1189,7 +1229,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             onTimeUpdate={setVideoTime}
             autostart={config?.ui.autostartVideo}
             showAbLoop={config?.ui.showAbLoopControls}
-            trackingEnabled={trackPlaybackActivity}
+            trackingEnabled={trackPlaybackActivity && alternateFileId == null}
+            suspended={alignmentDialogOpen}
             onEnded={() => {
               if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo();
             }}
@@ -1212,7 +1253,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
         )}
       </div>
-      {file && video.parentVideoId == null ? (
+      {file && video.parentVideoId == null && alternateFileId == null ? (
         <VideoScrubber
           videoId={video.id}
           duration={file.duration}
@@ -1809,13 +1850,79 @@ export function DetailsTab({
 }
 
 // File Info Tab — show every underlying video file rather than only the first one.
-export function FileInfoTab({ files }: { files: Video["files"] }) {
+export function FileInfoTab({
+  sourceVideo,
+  onSplitCreated,
+  files,
+  videoId,
+  primaryFileId,
+  canAlign = false,
+  canDeleteFiles = false,
+  canDeleteFromDisk = false,
+  onPlayFile,
+  onAlignmentDialogOpenChange,
+  onChanged,
+}: {
+  sourceVideo?: Video;
+  onSplitCreated?: (id: number) => void;
+  files: Video["files"];
+  videoId?: number;
+  primaryFileId?: number | null;
+  canAlign?: boolean;
+  canDeleteFiles?: boolean;
+  canDeleteFromDisk?: boolean;
+  onPlayFile?: (fileId: number) => void;
+  onAlignmentDialogOpenChange?: (open: boolean) => void;
+  onChanged?: () => void;
+}) {
+  const [movingFile, setMovingFile] = useState<Video["files"][number] | null>(null);
+  const [splittingFileId, setSplittingFileId] = useState<number | null>(null);
+  const [aligningFileId, setAligningFileId] = useState<number | null>(null);
+  useEffect(() => {
+    onAlignmentDialogOpenChange?.(aligningFileId != null || splittingFileId != null || movingFile != null);
+    return () => onAlignmentDialogOpenChange?.(false);
+  }, [aligningFileId, splittingFileId, movingFile, onAlignmentDialogOpenChange]);
   const revealMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
+  const deleteMutation = useMutation({
+    mutationFn: ({ fileId, fromDisk }: { fileId: number; fromDisk: boolean }) => fileOps.delete(fileId, fromDisk),
+    onSuccess: onChanged,
+  });
   const canReveal =
     typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
-
   return (
     <div className="space-y-4 text-sm">
+      {movingFile && videoId != null && (
+        <MoveVideoFileDialog
+          file={movingFile}
+          sourceVideoId={videoId}
+          onClose={() => setMovingFile(null)}
+          onMoved={onChanged}
+        />
+      )}
+      {splittingFileId != null && sourceVideo && videoId != null && (
+        <VideoCreateModal
+          open
+          onClose={() => setSplittingFileId(null)}
+          onCreated={(id) => {
+            onChanged?.();
+            onSplitCreated?.(id);
+          }}
+          split={{
+            source: sourceVideo,
+            ownerId: videoId,
+            fileId: splittingFileId,
+            filename: files.find((file) => file.id === splittingFileId)?.basename || "the selected file",
+          }}
+        />
+      )}
+      {aligningFileId != null && videoId != null && (
+        <VideoAlignmentDialog
+          videoId={videoId}
+          targetFileId={aligningFileId}
+          onClose={() => setAligningFileId(null)}
+          onApplied={onChanged ?? (() => {})}
+        />
+      )}
       {files.map((file, index) => {
         const sectionLabel = file.basename || file.path.split(/[\\/]/).pop() || `File ${index + 1}`;
 
@@ -1829,7 +1936,7 @@ export function FileInfoTab({ files }: { files: Video["files"] }) {
                 <div>
                   <h6 className="text-sm font-semibold text-foreground">{sectionLabel}</h6>
                   <p className="text-xs text-muted">
-                    File {index + 1} of {files.length}
+                    {file.id === primaryFileId ? "Primary file" : `File ${index + 1} of ${files.length}`}
                   </p>
                 </div>
                 {canReveal && file.id ? (
@@ -1844,6 +1951,57 @@ export function FileInfoTab({ files }: { files: Video["files"] }) {
                 ) : null}
               </div>
             )}
+
+            <div className="flex flex-wrap gap-2">
+              {file.id !== primaryFileId && canAlign && videoId != null && (
+                <button
+                  className="rounded border border-border px-2 py-1 text-xs hover:bg-surface"
+                  onClick={() => setAligningFileId(file.id)}
+                >
+                  Set as primary
+                </button>
+              )}
+              {file.id !== primaryFileId && (
+                <button
+                  className="rounded border border-border px-2 py-1 text-xs hover:bg-surface"
+                  onClick={() => onPlayFile?.(file.id)}
+                >
+                  Play this file
+                </button>
+              )}
+              {file.id !== primaryFileId && canAlign && videoId != null && (
+                <button
+                  className="rounded border border-border px-2 py-1 text-xs hover:bg-surface"
+                  onClick={() => {
+                    setMovingFile(file);
+                  }}
+                >
+                  Move to another video
+                </button>
+              )}
+              {file.id !== primaryFileId && canAlign && videoId != null && (
+                <button
+                  className="rounded border border-border px-2 py-1 text-xs hover:bg-surface"
+                  onClick={() => {
+                    setSplittingFileId(file.id);
+                  }}
+                >
+                  Split as separate video
+                </button>
+              )}
+              {file.id !== primaryFileId && canDeleteFiles && (
+                <button
+                  className="rounded border border-red-500/60 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                  onClick={() => {
+                    if (!window.confirm("Delete this video file record?")) return;
+                    const fromDisk = canDeleteFromDisk && window.confirm("Also delete the file from disk?");
+                    deleteMutation.mutate({ fileId: file.id, fromDisk });
+                  }}
+                >
+                  Delete video file
+                </button>
+              )}
+            </div>
 
             {files.length <= 1 && canReveal && file.id ? (
               <div className="flex justify-end">

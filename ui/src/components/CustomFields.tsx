@@ -72,11 +72,13 @@ export function CustomFieldsEditor({
   value,
   onChange,
   onValidityChange,
+  onFieldChange,
   entityType,
 }: {
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
   onValidityChange?: (isValid: boolean) => void;
+  onFieldChange?: (key: string) => void;
   entityType?: CustomFieldEntityType;
 }) {
   const definitionsQuery = useCustomFieldDefinitions(entityType, Boolean(entityType));
@@ -113,6 +115,7 @@ export function CustomFieldsEditor({
   useEffect(() => () => onValidityChange?.(true), [onValidityChange]);
 
   const updateConfiguredField = (definition: CustomFieldDefinition, rawValue: unknown) => {
+    onFieldChange?.(definition.key);
     const next = { ...value };
     const normalizedValue = normalizeConfiguredFieldValue(rawValue, definition);
     if (normalizedValue === undefined) {
