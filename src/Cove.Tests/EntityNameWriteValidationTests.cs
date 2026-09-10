@@ -8,6 +8,21 @@ namespace Cove.Tests;
 public sealed class EntityNameWriteValidationTests
 {
     [Fact]
+    public async Task AsyncValidationRejectsIdentitiesBeyondSeveralReadPages()
+    {
+        await using var db = CreateContext();
+        db.Performers.AddRange(Enumerable.Range(0, 600).Select(index => new Performer { Name = $"performer {index}" }));
+        db.Studios.AddRange(Enumerable.Range(0, 600).Select(index => new Studio { Name = $"studio {index}" }));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        db.Performers.Add(new Performer { Name = " PERFORMER 599 " });
+        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        db.ChangeTracker.Clear();
+        db.Studios.Add(new Studio { Name = " STUDIO 599 " });
+        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task PerformerWrites_TrimIdentityAndRejectMatchingNameDisambiguationPairs()
     {
         await using var db = CreateContext();

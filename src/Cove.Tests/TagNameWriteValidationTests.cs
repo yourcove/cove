@@ -9,6 +9,23 @@ namespace Cove.Tests;
 public sealed class TagNameWriteValidationTests
 {
     [Fact]
+    public async Task AsyncValidationRejectsCanonicalAndAliasConflictsBeyondSeveralReadPages()
+    {
+        await using var db = CreateContext();
+        db.Tags.AddRange(Enumerable.Range(0, 600).Select(index => new Tag
+        {
+            Name = $"tag {index}", Aliases = [new TagAlias { Alias = $"alias {index}" }],
+        }));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        db.Tags.Add(new Tag { Name = " TAG 599 " });
+        await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        db.ChangeTracker.Clear();
+        db.Tags.Add(new Tag { Name = " ALIAS 599 " });
+        await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task SaveChanges_NormalizesNewClaimsAndRemovesBlankAliases()
     {
         await using var db = CreateContext();

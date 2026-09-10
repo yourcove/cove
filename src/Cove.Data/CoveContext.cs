@@ -721,29 +721,34 @@ public partial class CoveContext : DbContext
         var excludedTagIds = CandidateAndDeletedTagIds(candidates);
         var excludedAliasIds = CandidateAndDeletedAliasIds(candidates);
         var deletedTagIds = DeletedIds<Tag>();
-        var existingTags = await Tags.IgnoreQueryFilters().AsNoTracking()
-            .Where(tag => !excludedTagIds.Contains(tag.Id))
-            .Select(tag => new { tag.Id, tag.Name })
-            .ToListAsync(cancellationToken);
-        var existingAliases = await Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
-            .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId))
-            .Select(alias => new { alias.Id, alias.TagId, alias.Alias })
-            .ToListAsync(cancellationToken);
-
-        ThrowForPersistedConflicts(candidates,
-            existingTags.Select(tag => new TagNameConflictTarget(
-                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
-                tag.Name,
-                false,
-                tag.Id))
-            .Concat(existingAliases
+        int? afterTagId = null;
+        while (true)
+        {
+            var tags = await Tags.IgnoreQueryFilters().AsNoTracking()
+                .Where(tag => !excludedTagIds.Contains(tag.Id) && (afterTagId == null || tag.Id > afterTagId))
+                .OrderBy(tag => tag.Id).Take(256)
+                .Select(tag => new { tag.Id, tag.Name }).ToListAsync(cancellationToken);
+            if (tags.Count == 0) break;
+            afterTagId = tags[^1].Id;
+            ThrowForPersistedConflicts(candidates, tags.Select(tag => new TagNameConflictTarget(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)), tag.Name, false, tag.Id)));
+        }
+        int? afterAliasId = null;
+        while (true)
+        {
+            var aliases = await Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
+                .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId)
+                    && (afterAliasId == null || alias.Id > afterAliasId))
+                .OrderBy(alias => alias.Id).Take(256)
+                .Select(alias => new { alias.Id, alias.TagId, alias.Alias }).ToListAsync(cancellationToken);
+            if (aliases.Count == 0) break;
+            afterAliasId = aliases[^1].Id;
+            ThrowForPersistedConflicts(candidates, aliases
                 .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
                 .Where(row => row.Normalized != null)
                 .Select(row => new TagNameConflictTarget(
-                    TagNameRules.NamespaceKey(row.Normalized!),
-                    row.Alias.Alias,
-                    true,
-                    row.Alias.TagId))));
+                    TagNameRules.NamespaceKey(row.Normalized!), row.Alias.Alias, true, row.Alias.TagId)));
+        }
     }
 
     private List<TagNameCandidate> NormalizeChangedTagNames(bool normalizeValues)
