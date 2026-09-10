@@ -205,6 +205,7 @@ export default defineConfig({
           label: 'Developer',
           items: [
             { link: '/docs/developer/', label: 'Developer overview' },
+            { link: '/docs/developer/design-guidelines/', label: 'Design principles and guidelines' },
             {
               label: 'Develop Cove locally',
               items: [

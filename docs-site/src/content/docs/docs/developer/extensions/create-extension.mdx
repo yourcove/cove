@@ -238,4 +238,4 @@ Run `dotnet publish` again instead of copying only your extension DLL. Private d
 
 **Install from ZIP** and **Install from URL** reject the package when the running Cove version is lower than `minCoveVersion`; registry installation also filters or rejects incompatible versions. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract. A package copied directly into the extension directory can report the mismatch during startup validation yet still initialize in the current host, so manual placement is not a compatibility bypass or a supported verification result.
 
-Once this minimal package works, add a frontend contribution only when the feature needs one. See [UI extension points](../ui-extension-points/) for bundle and component registration.
+Once this minimal package works, add a frontend contribution only when the feature needs one. Use [Cove design principles and guidelines](../../design-guidelines/) to choose a familiar entry point and plan how users reach advanced capabilities. See [UI extension points](../ui-extension-points/) for bundle and component registration.

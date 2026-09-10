@@ -5,6 +5,8 @@ description: Keep main releasable while managing development versions, database 
 
 Cove treats every commit on `main` as a possible build and release boundary. This policy explains what that means for pull requests, versions, database migrations, and extensions that adopt an unreleased host feature.
 
+For user-facing changes, use [Cove design principles and guidelines](../../design-guidelines/) when planning the default workflow, advanced capabilities, state changes, and recovery.
+
 ## Treat main as releasable
 
 A merged change can appear in a development build immediately and can be included in a production release without a separate stabilization commit. A pull request should therefore leave Cove in a state that the author and reviewers are prepared to ship.

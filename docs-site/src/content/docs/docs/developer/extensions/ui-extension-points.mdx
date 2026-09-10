@@ -7,6 +7,8 @@ A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contr
 
 This page describes the UI contributions Cove currently renders. The [general extension-point catalog](../extension-points/) covers backend and provider capabilities.
 
+Use [Cove design principles and guidelines](../../design-guidelines/) to decide where a workflow belongs and how to expose its capabilities before selecting a contribution below.
+
 ## Runtime contract
 
 Set `JsBundle` in `extension.json` when a contribution references a React component or frontend handler, and set `CssBundle` when custom styles are needed. Put the React components named by page, tab, slot, settings, and override contributions in the default export's `components` map. Contribution ids and keys should be stable across releases because Cove uses them for registration, routing, preferences, and ordering.

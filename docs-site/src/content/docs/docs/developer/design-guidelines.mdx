@@ -1,0 +1,151 @@
+---
+title: Cove design principles and guidelines
+description: Design native features and extensions with simple starting points, discoverable depth, and efficient repeated use.
+---
+
+Cove should let you get something useful done with little preparation, then give you more control as your needs become more precise. Design native features and extensions around the same promise: a clear starting point, discoverable depth, and efficient repeated use.
+
+These guidelines explain how to make those decisions. They set the intended direction for new work, using existing Cove interactions as examples. An example illustrates a particular strength; it does not make every detail of that screen a standard. Apply the principles to the task you are designing, and explain a departure when it serves that task better.
+
+## Make the first useful action obvious
+
+Start with what the user wants to accomplish. Identify the smallest useful result and the information genuinely needed to reach it. Give that path a clear entry point, sensible defaults, and a visible outcome. A person should not have to understand all of a feature's capabilities before using any of them.
+
+Cove's list search accepts the thing someone remembers: text associated with the content they want. They can begin without choosing a field, operator, or relationship. More exact criteria remain available when the results need refinement.
+
+Simplicity is about the effort needed to understand and complete a task. A screen with one vague button can be harder to use than a screen with several clearly labeled choices. Likewise, hiding a frequently used action in a menu can reduce visual clutter while increasing repeated work. Give the primary task visual priority, keep useful context nearby, and move secondary choices only when that improves the task.
+
+Avoid requiring setup decisions whose defaults already produce a useful result. When setup is necessary, explain what is missing and provide a direct route to it. Do not present a configuration form as the first experience simply because those settings exist in the implementation.
+
+## Reveal power as the task needs it
+
+Progressive disclosure means introducing additional choices where they become relevant. It should help a user discover the next step while preserving the work already done. Prefer extending a familiar interaction over introducing a separate system that must be learned from scratch.
+
+In Cove's filter workspace, selecting a criterion reveals its editor. Once there are at least two conditions to combine, **Combine Filters** becomes available. A user can then express how those conditions relate. The extra control answers a question that now exists in their task.
+
+Use the same approach elsewhere: expose the common operation first, then reveal scope, precision, or composition alongside the thing being controlled. Give less obvious controls meaningful labels and contextual help. A shortcut can accelerate a visible action; it should not be the only way to discover or perform it.
+
+Avoid a global beginner/expert choice as the default way to organize complexity. Someone may be experienced at browsing and unfamiliar with a new extension. Also avoid burying every useful refinement under an undifferentiated **Advanced** section. Group options by the decisions they support. A focused advanced section is appropriate when its contents have a clear purpose and are rarely needed.
+
+## Learn from search
+
+Search demonstrates how a familiar starting point can support increasingly precise questions. The following are available paths, not steps every user must complete. Someone who already knows the required filter should be able to go directly to it.
+
+| User need | Cove interaction | Design lesson |
+| --- | --- | --- |
+| Find something remembered | Enter text in a content list, or use global search when the content type is uncertain. | Accept the information the user already has. |
+| Narrow by a known category | Select tags and include or exclude them. | Offer explicit selection when text is too broad. |
+| Specify properties | Add criteria such as duration, rating, or date. | Reveal an editor suited to each kind of value. |
+| Specify properties of a related performer | Add **Related Performers** and configure its conditions. | Keep the relationship scope explicit. |
+| Combine separate requirements | Use **Combine Filters**, group operators, and relationship match assignment. | Let users compose existing pieces instead of inventing a new query language. |
+| Return to the same question | Save the filter or set a personal page default. | Turn work already done into a reusable starting point. |
+
+### Keep different kinds of matching distinct
+
+A powerful query becomes understandable when the interface explains what each rule applies to. In Cove, these are separate decisions:
+
+- Conditions inside one **Related Performers** condition must match the same performer.
+- The relationship mode asks for at least one matching performer, every performer to match, or no performer to match.
+- A group's **All**, **Any**, **Just One**, or **None** operator combines its direct conditions and subgroups. **Just One** means exactly one direct child matches; it is not a performer count.
+- Where distinct assignment is available, **Use a different performer for each** controls whether separate related-performer conditions can share a match.
+
+For example, find videos with one performer aged 20–40 and another aged 30–49. Put the two related-performer conditions in an **All** group, each using **At least one matching performer**. With **May reuse a performer**, a single performer aged 35 can satisfy both conditions. With **Use a different performer for each**, the video needs separate performers assigned to the two requirements. Having two performers in total is insufficient if only one can satisfy either requirement.
+
+This is the central lesson for complex features: preserve the distinctions that matter to the result, and explain them in the user's terms. Removing those distinctions would make the interface less capable. Showing every distinction before it is relevant would make the starting point harder to understand.
+
+Use [Search and filters](../../user/library/search-and-filters/) for the user journey, [Related Performers](../../user/library/search-and-filters/related-performers/) for relationship filtering, and [Combine filters](../../user/library/search-and-filters/combine/) for the detailed composition procedures.
+
+## Make state and consequences understandable
+
+A user needs to know what is currently true, what they are editing, and what an action will change. Cove's applied-filter summaries expose the active query and allow individual conditions to be edited or removed. The filter dialog keeps edits separate until **Apply**, with **Cancel** available to leave the applied query unchanged.
+
+Choose an interaction boundary that fits the operation. Immediate feedback suits reversible exploration such as text search. An explicit commit suits a collection of edits that should take effect together. Label the action by its consequence, and keep the boundary consistent within the workflow. Distinguish saving a reusable configuration from applying it to the current task.
+
+State the scope before an operation: the current item, selected items, all matching results, or the entire library. Do not make users infer scope from where a button happens to sit. For consequential changes, show the affected scope and a useful preview when available. Reserve confirmation for decisions that benefit from reconsideration; routine navigation and reversible exploration should remain fluid.
+
+### Design the states around the operation
+
+Loading, empty, invalid, and failed states belong in the initial design. The following are expectations for new work, not a claim that every existing screen already implements them:
+
+| State | What the user needs |
+| --- | --- |
+| Loading or refreshing | A clear indication of pending work, without mistaking an unfinished query for an empty result. Preserve useful existing context where possible. |
+| Nothing configured | The missing prerequisite and a direct next step. |
+| No matches | An explanation that the current query found nothing, with access to the active criteria and ways to change them. |
+| Invalid input | A nearby explanation of what to correct, while keeping the entered values. |
+| Background work | A distinction between queued, running, and completed work, with progress and cancellation when supported. |
+| Partial or complete failure | What succeeded, what failed, and the recovery available. Preserve selections and inputs where useful; offer retry only when its effects are understood. |
+| Missing access or capability | An accurate explanation of the unavailable action. Never silently broaden a query or report success for skipped work. |
+
+Hash The Cove provides a useful configuration example: when no algorithm is enabled, its settings explain that running the operation will process no files. Apply that clarity to other operations rather than leaving users to discover an ineffective configuration after execution.
+
+Avoid success messages that mean only that a request was accepted. Explain background work as queued until it has actually completed. Put technical diagnostics behind a useful explanation unless the technical detail is itself necessary to act.
+
+## Make repeated work efficient
+
+A useful default should be available immediately, and people doing the same task repeatedly should be able to reduce effort. Cove's saved filters preserve a query and supported view options; personal page defaults let a frequently used view become the starting point. A saved filter reevaluates its rules against the current library rather than freezing today's result list.
+
+Prefer reuse of existing work over a separate configuration exercise. Offer named reuse when a task produces something worth keeping, bulk actions when the same operation applies to a selection, and discoverable keyboard controls for repeated navigation or editing. Keep the selection scope explicit, especially when paging or filtering changes the visible items.
+
+Preserve the context that lets someone continue: search, filters, sort, position, and selection where appropriate. Moving between a list and an item should not force the user to reconstruct the task. Clearly distinguish personal preferences from configuration that affects other users or the server.
+
+Do not add a preference for every implementation choice. Add one when different legitimate workflows need different behavior, and provide a sensible default and a way back. See [Use saved filters](../../user/library/search-and-filters/saved/) for an existing model of reuse and personal defaults.
+
+## Make extensions feel part of Cove
+
+An extension should use the same interaction language as a native feature. Choose its entry point from where the user already has the context to act. A feature does not need a top-level navigation item merely because it is packaged separately.
+
+| Task | Preferred starting point |
+| --- | --- |
+| Run an operation on an item or selection | An entity action or bulk action. |
+| Show additional information about an item | A detail tab or a nearby slot. |
+| Refine an existing list | A contributed filter or sort. |
+| Work with the current playback position or frame | A player action and focused tool. |
+| Configure ongoing behavior | A settings contribution with searchable task-oriented labels. |
+| Carry out a sustained workflow with its own navigation and state | A dedicated page using shared list or detail building blocks. |
+
+Complete the Cove uses familiar list, search, filter, and paging controls for its missing-video catalog. Segment Studio likewise reuses list controls as the entry to a specialized workflow. Animated Tag Previews opens a focused editor from the existing player, where the source video and timing context are already available. These illustrate both dedicated workspaces and smaller additions fitting into Cove.
+
+Prefer supported additive contributions before replacing an existing page. Reuse the public components from `@cove/runtime/components`, including list and detail layouts, selectors, fields, and dialogs. Follow host preferences where those components expose them. Shared rendering does not remove the extension's responsibility for data loading, validation, permissions, and failure handling.
+
+Plan what users experience when the extension is unavailable. Animated Tag Previews documents static-image fallback and preservation of generated media when disabled. For new extensions, preserve user work where possible and make unavailable capabilities explicit. For example, an unavailable saved-filter criterion must not silently turn a precise query into a broader one.
+
+Consult [UI extension points](../extensions/ui-extension-points/) to check that a contribution is supported, [Frontend runtime API](../extensions/frontend-runtime/) for public components and imports, and [Extension permissions](../extensions/permissions/) for access requirements. Keep API details in those references instead of copying internal host markup or creating a parallel component library.
+
+## Maintain visual and interaction consistency
+
+Use hierarchy to make the task readable: a clear page purpose, related controls grouped together, one visually prominent next action where the workflow has one, and quieter secondary information. Cove's filter workspace gives the selected criterion its own editor; its composition view uses grouping and readable conditions to expose relationships. Carry forward that purposeful hierarchy rather than copying every dimension of a particular screen.
+
+Use host theme variables for surfaces, text, borders, and emphasis, and shared components for established interactions. Cove supports appearance preferences, so hard-coded colors copied from one dark-theme screenshot are not a visual standard. Compact layouts can serve frequent work, but density must leave labels readable and controls usable.
+
+Accessibility belongs in these decisions from the start. Provide meaningful accessible names, visible focus, logical keyboard order, and keyboard alternatives to drag or hover interactions. Return focus to an appropriate control when a dialog closes. Communicate state through text or structure as well as color. Respect motion preferences; Animated Tag Previews' documented static behavior under reduced motion is an example of preserving the task while adapting its presentation.
+
+On narrow screens, preserve the primary action and access to refinements. Reflow or use a focused view when a complex editor needs space. Do not solve overflow by simply removing capabilities. Verify the actual workflow with long labels, populated states, keyboard input, and both light and dark appearances.
+
+These guidelines establish interaction and visual consistency without prescribing a new spacing scale, typography system, or component specification. Use the current public building blocks and assess whether the result supports the task.
+
+## Review a proposed feature
+
+Use a short design brief before choosing controls. The same brief applies to a native addition, an extension action, or a dedicated workspace.
+
+| Brief | What to record |
+| --- | --- |
+| User task | Who needs the feature, what they are trying to accomplish, and what a useful result looks like. |
+| Default path | The entry point, required input, defaults, and first useful outcome. |
+| Advanced path | What additional precision or scale is needed, where it becomes discoverable, and how existing work is retained. |
+| State changes | Scope, immediate versus committed edits, persistence, and feedback. |
+| Recovery | Empty, invalid, failed, interrupted, and unavailable states, including preservation of user work. |
+| Cove patterns | Existing surfaces, components, preferences, and conventions to reuse; reasons for any departure. |
+
+Walk through the brief with a first-time user and someone repeating the task. For a small native addition, confirm that the default action is understandable without configuration. For a complex query, confirm that the user can explain the scope of each condition and the resulting matches. For an extension with an immediate action and advanced settings, confirm that the action is available in context and that settings are discoverable without being a prerequisite unnecessarily.
+
+Before accepting the design, check:
+
+- Can someone reach the first useful result without understanding the whole feature?
+- Can they discover and use additional power without losing their work?
+- Can they explain the current state, action scope, and effect of committing or canceling?
+- Can they recover from failure and repeat the task efficiently?
+- Does the workflow remain usable with keyboard input, narrow screens, and appearance or motion preferences?
+- Does it reuse Cove's interaction patterns, with a task-based reason for any departure?
+
+Verify the implemented path and its relevant failure states in the running application. A familiar-looking screen is only successful when its behavior is equally understandable.
