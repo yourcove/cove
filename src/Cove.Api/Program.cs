@@ -593,6 +593,13 @@ try
 
     var app = builder.Build();
 
+    IFileProvider? frontendFiles = null;
+    if (!isTestHarness)
+    {
+        frontendFiles = Cove.Api.FrontendAssets.ResolveProvider();
+        Cove.Api.FrontendAssets.UseBuildEndpoint(app, frontendFiles);
+    }
+
     // Middleware pipeline
     // UseSerilogRequestLogging removed â€” adds 3-5ms per request overhead
     app.UseMiddleware<Cove.Api.Middleware.OperationLogContextMiddleware>();
@@ -804,32 +811,7 @@ try
 
     if (!isTestHarness)
     {
-        // Serve SPA static files (production)
-        // When running as a single-file executable, wwwroot is embedded as managed resources.
-        // Fall back to the embedded file provider when the physical wwwroot folder is absent.
-        var webRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        IFileProvider? spaFileProvider = null;
-        if (Directory.Exists(webRootPath))
-        {
-            app.UseDefaultFiles();
-            app.UseStaticFiles();
-        }
-        else
-        {
-            spaFileProvider = new ManifestEmbeddedFileProvider(
-                typeof(Program).Assembly, "wwwroot");
-            app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = spaFileProvider });
-            app.UseStaticFiles(new StaticFileOptions { FileProvider = spaFileProvider });
-        }
-
-        if (spaFileProvider != null)
-        {
-            app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = spaFileProvider });
-        }
-        else
-        {
-            app.MapFallbackToFile("index.html");
-        }
+        Cove.Api.FrontendAssets.UseSpa(app, frontendFiles!);
     }
 
     var port = coveConfig.GetValue<int?>("Port") ?? 5073;

@@ -38,6 +38,11 @@
   </ItemGroup>
 
   <!-- For development / dotnet run: copy wwwroot to output directory -->
+  <Target Name="RequireFrontendBuildManifest" BeforeTargets="PrepareForPublish">
+    <Error Condition="!Exists('wwwroot/index.html') or !Exists('wwwroot/frontend-build.json')"
+           Text="Build the UI before publishing Cove. The frontend assets must include frontend-build.json from the same UI build." />
+  </Target>
+
   <Target Name="CopyWwwrootToBin" AfterTargets="Build" Condition="'$(PublishSingleFile)' != 'true'">
     <ItemGroup>
       <WwwrootFiles Include="wwwroot\**" />
