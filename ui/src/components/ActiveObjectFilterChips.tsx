@@ -15,7 +15,7 @@ import {
 } from "./Rating";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
-import { CountryLabel } from "./Country";
+import { CountryLabel, useSortedCountryValues } from "./Country";
 import {
   FILTER_EXPRESSION_OPERATOR_PRESENTATION,
   getFilterExpressionPresentationChildren,
@@ -445,13 +445,17 @@ function RatingFilterChipDisplay({
 }
 
 function CountryFilterChipDisplay({ value, fallback }: { value: unknown; fallback: string }) {
-  if (!value || typeof value !== "object") return <span title={fallback}>{fallback}</span>;
-  const criterion = value as { value?: unknown; values?: string[]; modifier?: string };
+  const criterion =
+    value && typeof value === "object"
+      ? (value as { value?: unknown; values?: string[]; modifier?: string })
+      : undefined;
+  const sortedCountries = useSortedCountryValues(criterion?.values ?? []);
+  if (!criterion) return <span title={fallback}>{fallback}</span>;
   if ((criterion.modifier === "INCLUDES" || criterion.modifier === "EXCLUDES") && criterion.values?.length)
     return (
       <span className="inline-flex flex-wrap items-center gap-1">
         <span>{CHIP_MODIFIER_LABELS[criterion.modifier]}</span>
-        {criterion.values.map((country, index) => (
+        {sortedCountries.map((country, index) => (
           <span key={country}>
             {index > 0 ? ", " : ""}
             <CountryLabel value={country} />
