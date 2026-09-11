@@ -2167,6 +2167,193 @@ public class ScanServiceTests
         }
     }
 
+    [Fact]
+    public async Task StartScan_FolderGalleriesDeduplicateImagesWithinEachFolderAndRemainIdempotent()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-folder-gallery-{Guid.NewGuid():N}");
+        var firstFolderPath = Path.Combine(tempRoot, "first");
+        var secondFolderPath = Path.Combine(tempRoot, "second");
+        Directory.CreateDirectory(firstFolderPath);
+        Directory.CreateDirectory(secondFolderPath);
+
+        try
+        {
+            var firstPath = Path.Combine(firstFolderPath, "first.jpg");
+            var duplicatePath = Path.Combine(firstFolderPath, "duplicate.jpg");
+            var distinctPath = Path.Combine(firstFolderPath, "distinct.jpg");
+            var secondFolderPathname = Path.Combine(secondFolderPath, "shared.jpg");
+            await File.WriteAllBytesAsync(firstPath, [1], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(duplicatePath, [2], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(distinctPath, [3], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(secondFolderPathname, [4], TestContext.Current.CancellationToken);
+
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.CreateGalleriesFromFolders = true;
+
+            int firstFolderId;
+            int secondFolderId;
+            int sharedImageId;
+            int distinctImageId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var firstFolder = new Folder { Path = NormalizeStoredFolderPath(firstFolderPath) };
+                var secondFolder = new Folder { Path = NormalizeStoredFolderPath(secondFolderPath) };
+                var sharedImage = new Cove.Core.Entities.Image();
+                sharedImage.Files.Add(CreateStoredImageFile(firstPath, firstFolder));
+                sharedImage.Files.Add(CreateStoredImageFile(duplicatePath, firstFolder));
+                sharedImage.Files.Add(CreateStoredImageFile(secondFolderPathname, secondFolder));
+                var distinctImage = new Cove.Core.Entities.Image();
+                distinctImage.Files.Add(CreateStoredImageFile(distinctPath, firstFolder));
+                db.Images.AddRange(sharedImage, distinctImage);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                firstFolderId = firstFolder.Id;
+                secondFolderId = secondFolder.Id;
+                sharedImageId = sharedImage.Id;
+                distinctImageId = distinctImage.Id;
+            }
+
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var galleries = await verificationDb.Galleries
+                .Include(gallery => gallery.ImageGalleries)
+                .OrderBy(gallery => gallery.FolderId)
+                .ToListAsync(TestContext.Current.CancellationToken);
+            var files = await verificationDb.ImageFiles.ToListAsync(TestContext.Current.CancellationToken);
+
+            var firstGallery = Assert.Single(galleries, gallery => gallery.FolderId == firstFolderId);
+            var secondGallery = Assert.Single(galleries, gallery => gallery.FolderId == secondFolderId);
+            Assert.All(galleries, gallery => Assert.Null(gallery.Title));
+            Assert.Equal(
+                new[] { sharedImageId, distinctImageId }.OrderBy(id => id).ToArray(),
+                firstGallery.ImageGalleries.Select(link => link.ImageId).OrderBy(id => id).ToArray());
+            Assert.Equal([sharedImageId], secondGallery.ImageGalleries.Select(link => link.ImageId).ToArray());
+            Assert.All(galleries, gallery => Assert.Equal(
+                gallery.ImageGalleries.Count,
+                gallery.ImageGalleries.Select(link => link.ImageId).Distinct().Count()));
+            Assert.Equal(
+                ["duplicate.jpg", "first.jpg", "shared.jpg"],
+                files.Where(file => file.ImageId == sharedImageId).Select(file => file.Basename).OrderBy(name => name).ToArray());
+            Assert.Equal(
+                ["distinct.jpg"],
+                files.Where(file => file.ImageId == distinctImageId).Select(file => file.Basename).ToArray());
+            Assert.Equal(3, await verificationDb.Set<ImageGallery>().CountAsync(TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_SelectedForceGalleryHonorsFolderGalleryEligibilityRules()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-folder-gallery-eligibility-{Guid.NewGuid():N}");
+        var forcedPath = Path.Combine(tempRoot, "forced");
+        var suppressedPath = Path.Combine(tempRoot, "suppressed");
+        var ordinaryPath = Path.Combine(tempRoot, "ordinary");
+        var existingPath = Path.Combine(tempRoot, "existing");
+        var zipBackedPath = Path.Combine(tempRoot, "zip-backed");
+        var unattachedPath = Path.Combine(tempRoot, "unattached");
+        foreach (var path in new[] { forcedPath, suppressedPath, ordinaryPath, existingPath, zipBackedPath, unattachedPath })
+            Directory.CreateDirectory(path);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(forcedPath, ".forcegallery"), string.Empty, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(suppressedPath, ".forcegallery"), string.Empty, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(suppressedPath, ".nogallery"), string.Empty, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(existingPath, ".forcegallery"), string.Empty, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(zipBackedPath, ".forcegallery"), string.Empty, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(unattachedPath, ".forcegallery"), string.Empty, TestContext.Current.CancellationToken);
+
+            var forcedImagePath = await WriteTestImageFileAsync(forcedPath, "forced.jpg", 1);
+            var suppressedImagePath = await WriteTestImageFileAsync(suppressedPath, "suppressed.jpg", 2);
+            var ordinaryImagePath = await WriteTestImageFileAsync(ordinaryPath, "ordinary.jpg", 3);
+            var existingImagePath = await WriteTestImageFileAsync(existingPath, "existing.jpg", 4);
+            var zipBackedImagePath = await WriteTestImageFileAsync(zipBackedPath, "zip-backed.jpg", 5);
+            var unattachedImagePath = await WriteTestImageFileAsync(unattachedPath, "unattached.jpg", 6);
+
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+
+            int forcedFolderId;
+            int existingFolderId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var forcedFolder = new Folder { Path = NormalizeStoredFolderPath(forcedPath) };
+                var suppressedFolder = new Folder { Path = NormalizeStoredFolderPath(suppressedPath) };
+                var ordinaryFolder = new Folder { Path = NormalizeStoredFolderPath(ordinaryPath) };
+                var existingFolder = new Folder { Path = NormalizeStoredFolderPath(existingPath) };
+                var zipBackedFolder = new Folder { Path = NormalizeStoredFolderPath(zipBackedPath) };
+                var unattachedFolder = new Folder { Path = NormalizeStoredFolderPath(unattachedPath) };
+                db.Images.AddRange(
+                    CreateStoredImage(forcedImagePath, forcedFolder),
+                    CreateStoredImage(suppressedImagePath, suppressedFolder),
+                    CreateStoredImage(ordinaryImagePath, ordinaryFolder),
+                    CreateStoredImage(existingImagePath, existingFolder));
+                var zipBackedImage = CreateStoredImage(zipBackedImagePath, zipBackedFolder);
+                zipBackedImage.Files.Single().ZipFileId = 1;
+                db.Images.Add(zipBackedImage);
+                db.ImageFiles.Add(CreateStoredImageFile(unattachedImagePath, unattachedFolder));
+                db.Galleries.Add(new Gallery { Folder = existingFolder, Title = "Existing" });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                forcedFolderId = forcedFolder.Id;
+                existingFolderId = existingFolder.Id;
+            }
+
+            environment.Service.StartScan(new ScanOperationOptions { Paths = [forcedPath] });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var galleries = await verificationDb.Galleries
+                .Include(gallery => gallery.ImageGalleries)
+                .ToListAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, galleries.Count);
+            Assert.Single(galleries, gallery => gallery.FolderId == existingFolderId && gallery.Title == "Existing");
+            var forcedGallery = Assert.Single(galleries, gallery => gallery.FolderId == forcedFolderId);
+            Assert.Null(forcedGallery.Title);
+            Assert.Single(forcedGallery.ImageGalleries);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static async Task<string> WriteTestImageFileAsync(string folderPath, string basename, byte value)
+    {
+        var path = Path.Combine(folderPath, basename);
+        await File.WriteAllBytesAsync(path, [value], TestContext.Current.CancellationToken);
+        return path;
+    }
+
+    private static Cove.Core.Entities.Image CreateStoredImage(string path, Folder folder)
+    {
+        var image = new Cove.Core.Entities.Image();
+        image.Files.Add(CreateStoredImageFile(path, folder));
+        return image;
+    }
+
+    private static ImageFile CreateStoredImageFile(string path, Folder folder)
+    {
+        var info = new FileInfo(path);
+        return new ImageFile
+        {
+            Basename = info.Name,
+            ParentFolder = folder,
+            Size = info.Length,
+            ModTime = ScanPath.NormalizeFileModTime(info.LastWriteTimeUtc),
+            Format = "jpg",
+            Width = 1,
+            Height = 1,
+        };
+    }
+
     private static byte[] CreateAsfHeaderWithFileProperties(ulong declaredFileSize)
     {
         var bytes = new byte[134];

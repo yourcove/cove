@@ -702,6 +702,7 @@ internal sealed class ScanJobRunner(
         foreach (var group in imagesByFolder)
         {
             if (!folders.TryGetValue(group.FolderId, out var folder)) continue;
+            var uniqueImageIds = group.ImageIds.Distinct().ToList();
 
             // Intentionally leave Title null on scan. Storing the folder name as the title makes it
             // impossible to filter for galleries that have no real title; the UI falls back to the
@@ -711,14 +712,14 @@ internal sealed class ScanJobRunner(
                 FolderId = folder.Id,
             };
 
-            foreach (var imageId in group.ImageIds)
+            foreach (var imageId in uniqueImageIds)
             {
                 gallery.ImageGalleries.Add(new ImageGallery { ImageId = imageId, Gallery = gallery });
             }
 
             db.Galleries.Add(gallery);
             createdGalleries.Add(gallery);
-            TraceFolderGalleryCreated(folder.Path, group.ImageIds.Count);
+            TraceFolderGalleryCreated(folder.Path, uniqueImageIds.Count);
         }
 
         await db.SaveChangesAsync(ct);
