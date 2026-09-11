@@ -119,6 +119,7 @@ import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { trackInteraction } from "../utils/interactionTracking";
 import { formatDateTime } from "../utils/dateFormat";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailability } from "../components/VisualSimilarityPanel";
 import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailability } from "../components/AudioSimilarityPanel";
@@ -1431,7 +1432,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       <FaceSplitDialog
         open={splitFace != null}
         faceId={splitFace?.id ?? null}
-        faceTitle={splitFace ? splitFace.label?.trim() || splitFace.performerName || `Face #${splitFace.id}` : ""}
+        faceTitle={splitFace ? faceDisplayName(splitFace) : ""}
         hostType="video"
         hostId={Number(id)}
         onClose={() => setSplitFace(null)}
@@ -1747,7 +1748,7 @@ export function DetailsTab({
           <h6 className="mb-2 text-sm text-muted">Faces in this video</h6>
           <div className="flex flex-wrap gap-2">
             {videoFaces.map(({ face, detectionCount, trackCount = 0 }) => {
-              const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
+              const title = faceDisplayName(face);
               const isMarking = markingFaceId === face.id;
               // Only offer the split where there is something to split: the face has to have been
               // detected as more than one separate run in this video.

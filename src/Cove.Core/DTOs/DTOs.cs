@@ -2194,6 +2194,8 @@ public record ReorderSubGroupsDto(List<int> SubGroupIds);
 // ===== BATCH/BULK DTOs =====
 public record BatchDeleteDto(List<int> Ids, bool DeleteFiles = false, bool DeleteGenerated = false);
 
+// The duplicate-search records below describe the original single-deletion workflow. The review workflow's
+// contracts live in Cove.Api; these remain only so already-compiled extensions that reference them still load.
 public sealed record DuplicateSearchRequestDto(
     string MatchType = "fingerprint",
     int Distance = 8,

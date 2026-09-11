@@ -43,7 +43,12 @@ export function PaginationControls({
       </button>
       {getPageNumbers(page, totalPages).map((pageNumber, index) =>
         pageNumber === -1 ? (
-          <span key={`ellipsis-${index}`} aria-hidden="true" className="px-1 text-muted text-xs">
+          // Same footprint as a page button, so swapping a number for an ellipsis never shifts the arrows.
+          <span
+            key={`ellipsis-${index}`}
+            aria-hidden="true"
+            className="inline-flex h-10 min-w-10 items-center justify-center text-xs text-muted sm:h-7 sm:min-w-[28px]"
+          >
             …
           </span>
         ) : (
@@ -53,7 +58,7 @@ export function PaginationControls({
             aria-label={`Page ${pageNumber}`}
             aria-current={pageNumber === page ? "page" : undefined}
             onClick={() => goTo(pageNumber)}
-            className={`h-10 min-w-10 rounded text-sm font-medium sm:h-7 sm:min-w-[28px] sm:text-xs ${
+            className={`h-10 min-w-10 rounded text-sm font-medium tabular-nums sm:h-7 sm:min-w-[28px] sm:text-xs ${
               pageNumber === page ? "bg-accent text-white" : "text-secondary hover:bg-card hover:text-foreground"
             }`}
           >
@@ -118,12 +123,14 @@ export function PaginationControls({
   );
 }
 
+/**
+ * Page slots to render, with -1 for an ellipsis. Once the pager overflows it always renders exactly seven
+ * slots: a varying count moved the next/last buttons on every click, so repeatedly clicking "next" could
+ * land on "last" instead.
+ */
 function getPageNumbers(current: number, total: number): number[] {
   if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
-  const pages: number[] = [1];
-  if (current > 3) pages.push(-1);
-  for (let page = Math.max(2, current - 1); page <= Math.min(total - 1, current + 1); page += 1) pages.push(page);
-  if (current < total - 2) pages.push(-1);
-  pages.push(total);
-  return pages;
+  if (current <= 4) return [1, 2, 3, 4, 5, -1, total];
+  if (current >= total - 3) return [1, -1, total - 4, total - 3, total - 2, total - 1, total];
+  return [1, -1, current - 1, current, current + 1, -1, total];
 }

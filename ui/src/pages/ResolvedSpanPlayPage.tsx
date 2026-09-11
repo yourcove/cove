@@ -25,6 +25,7 @@ import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
@@ -219,7 +220,7 @@ function ResolvedSpanPlayerCard({
     faceIds.forEach((faceId, index) => {
       const face = faceQueries[index]?.data;
       if (face) {
-        map.set(faceId, face.label?.trim() || face.performerName?.trim() || `Face #${faceId}`);
+        map.set(faceId, faceDisplayName(face));
       }
     });
     return map;

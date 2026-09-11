@@ -1,6 +1,7 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.WebSockets;
 using System.Text;
+using Cove.Api.Services;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
@@ -42,7 +43,7 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         var user = session.Client;
 
         var started = await user.StartDuplicateSearchAsync(
-            new DuplicateSearchRequestDto("title", Distance: 0),
+            new DuplicateSearchStartRequest("title", Distance: 0),
             TestContext.Current.CancellationToken);
         (await user.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
         var initialPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
@@ -59,7 +60,7 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         await user.UpdateDuplicateSearchGroupDecisionAsync(
             started.SearchId,
             initialGroup.Id,
-            new DuplicateSearchGroupDecisionDto([newlyKeptId]),
+            new DuplicateKeeperDecisionRequest([newlyKeptId]),
             TestContext.Current.CancellationToken);
 
         await owner.UpdateVideoAsync(initiallyKeptId, new { tagIds = Array.Empty<int>() }, TestContext.Current.CancellationToken);
@@ -70,7 +71,7 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
     }
 
     [Fact]
-    public async Task GivenHiddenUnwantedDuplicate_WhenDeletionRuns_ThenOnlyVisibleUnwantedVideosAreDeleted()
+    public async Task GivenHiddenUnwantedDuplicate_WhenGroupIsResolved_ThenOnlyVisibleUnwantedVideosAreDeleted()
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
@@ -97,7 +98,7 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         var user = session.Client;
 
         var started = await user.StartDuplicateSearchAsync(
-            new DuplicateSearchRequestDto("title", Distance: 0),
+            new DuplicateSearchStartRequest("title", Distance: 0),
             TestContext.Current.CancellationToken);
         (await user.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
         var initialPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
@@ -113,12 +114,13 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         restrictedPage.Items.Single(candidate => candidate.Id == group.Id).Videos.Select(video => video.Id)
             .Should().BeEquivalentTo([keeperId, visibleUnwantedId]);
 
-        var deletion = await user.DeleteUnkeptDuplicateVideosAsync(
+        (await user.GetDuplicateSearchAsync(started.SearchId, TestContext.Current.CancellationToken)).RemovableVideoCount.Should().Be(1);
+        var resolution = await user.ResolveDuplicateGroupsAsync(
             started.SearchId,
-            new DuplicateSearchDeleteRequestDto(),
+            new DuplicateResolveRequest([group.Id]),
             TestContext.Current.CancellationToken);
-        deletion.ItemCount.Should().Be(1);
-        (await user.WaitForTerminalJobAsync(deletion.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        resolution.QueuedGroupCount.Should().Be(1);
+        (await user.WaitForTerminalJobAsync(resolution.JobId!, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
 
         var visibleRead = () => owner.GetVideoByIdAsync(visibleUnwantedId);
         await visibleRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");

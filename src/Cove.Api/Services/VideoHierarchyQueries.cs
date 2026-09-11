@@ -1,3 +1,4 @@
+using Cove.Core.Entities;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -46,6 +47,30 @@ internal static class VideoHierarchyQueries
         }
 
         return [.. result];
+    }
+
+    /// <summary>
+    /// Clears the primary-file pointer of tracked videos that are about to be removed together with their
+    /// files, saving that inside the caller's transaction. A video and its primary file reference each
+    /// other, so EF cannot order both deletes within a single SaveChanges.
+    /// </summary>
+    public static async Task ReleasePrimaryFilesBeforeDeletionAsync(
+        CoveContext db,
+        IEnumerable<Video> videos,
+        CancellationToken ct)
+    {
+        var released = false;
+        foreach (var video in videos)
+        {
+            if (!video.PrimaryFileId.HasValue)
+                continue;
+            video.PrimaryFileId = null;
+            video.PrimaryFile = null;
+            released = true;
+        }
+
+        if (released)
+            await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
