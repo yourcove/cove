@@ -991,7 +991,8 @@ public class PostgresManagerService : IHostedService
             ["shared_buffers"] = "128MB",
             ["log_destination"] = "'stderr'",
             ["logging_collector"] = "off",
-            ["dynamic_library_path"] = QuotePostgresSettingValue(ToPostgresConfigPath(PgLibDir)),
+            // Keep standard PostgreSQL modules (such as plpgsql) available alongside Cove extensions.
+            ["dynamic_library_path"] = QuotePostgresSettingValue(string.Join(Path.PathSeparator, new[] { ToPostgresConfigPath(PgLibDir), "$libdir" })),
             ["extension_control_path"] = QuotePostgresSettingValue(string.Join(Path.PathSeparator, new[] { ToPostgresConfigPath(PgShareDir), "$system" })),
         };
 

@@ -56,10 +56,15 @@ async function ready() {
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error('Cove exited before becoming ready.');
     if (output.includes('Managed PostgreSQL is ready')) {
+      let webReady = false;
       try {
         const response = await fetch('http://127.0.0.1:55073/', { signal: AbortSignal.timeout(2000) });
-        if (response.ok && (await response.text()).includes('<html')) return;
+        webReady = response.ok && (await response.text()).includes('<html');
       } catch { /* The web host starts after database initialization. */ }
+      if (webReady) {
+        sql("LOAD 'plpgsql'; DO $$ BEGIN ASSERT 2 + 2 = 4; END $$;");
+        return;
+      }
     }
     await delay(1000);
   }
@@ -114,7 +119,7 @@ try {
   if (sql('SELECT value FROM cove_startup_smoke') !== '32')
     throw new Error('Database contents did not survive restart.');
   await stop();
-  console.log('macOS smoke passed: client-only link recovery, managed download, initialization, pgvector, web UI, shutdown, and persistent restart.');
+  console.log('macOS smoke passed: client-only link recovery, managed download, initialization, pgvector, PL/pgSQL, web UI, shutdown, and persistent restart.');
 } catch (error) {
   console.error(output);
   console.error(`Smoke data and logs retained at ${root}`);
