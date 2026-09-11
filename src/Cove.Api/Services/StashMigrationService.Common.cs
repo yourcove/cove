@@ -36,12 +36,12 @@ public partial class StashMigrationService
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct)) > 0;
     }
 
-    private static async Task<Dictionary<int, List<string>>> ReadUrlsAsync(SqliteConnection conn, string table, string fkCol, CancellationToken ct)
+    private static async Task<Dictionary<int, List<string>>> ReadUrlsAsync(SqliteConnection conn, string table, string fkCol, CancellationToken ct, string? ownerFilter = null)
     {
         var result = new Dictionary<int, List<string>>();
         if (!await TableExistsAsync(conn, table, ct)) return result;
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT \"{fkCol}\", url FROM \"{table}\" ORDER BY \"{fkCol}\", position";
+        cmd.CommandText = $"SELECT \"{fkCol}\", url FROM \"{table}\" {(ownerFilter == null ? "" : $"WHERE \"{fkCol}\" IN ({ownerFilter})")} ORDER BY \"{fkCol}\", position";
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {
@@ -68,12 +68,12 @@ public partial class StashMigrationService
         return result;
     }
 
-    private static async Task<Dictionary<int, List<int>>> ReadJunctionAsync(SqliteConnection conn, string table, string fkA, string fkB, CancellationToken ct)
+    private static async Task<Dictionary<int, List<int>>> ReadJunctionAsync(SqliteConnection conn, string table, string fkA, string fkB, CancellationToken ct, string? ownerFilter = null)
     {
         var result = new Dictionary<int, List<int>>();
         if (!await TableExistsAsync(conn, table, ct)) return result;
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT \"{fkA}\", \"{fkB}\" FROM \"{table}\"";
+        cmd.CommandText = $"SELECT \"{fkA}\", \"{fkB}\" FROM \"{table}\" {(ownerFilter == null ? "" : $"WHERE \"{fkA}\" IN ({ownerFilter})")}";
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {
@@ -85,12 +85,12 @@ public partial class StashMigrationService
         return result;
     }
 
-    private static async Task<Dictionary<int, List<DateTime>>> ReadDatesAsync(SqliteConnection conn, string table, string fkCol, string dateCol, CancellationToken ct)
+    private static async Task<Dictionary<int, List<DateTime>>> ReadDatesAsync(SqliteConnection conn, string table, string fkCol, string dateCol, CancellationToken ct, string? ownerFilter = null)
     {
         var result = new Dictionary<int, List<DateTime>>();
         if (!await TableExistsAsync(conn, table, ct)) return result;
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT \"{fkCol}\", \"{dateCol}\" FROM \"{table}\"";
+        cmd.CommandText = $"SELECT \"{fkCol}\", \"{dateCol}\" FROM \"{table}\" {(ownerFilter == null ? "" : $"WHERE \"{fkCol}\" IN ({ownerFilter})")}";
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {

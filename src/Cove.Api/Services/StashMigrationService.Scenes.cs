@@ -28,6 +28,39 @@ public partial class StashMigrationService
         double endProgress,
         CancellationToken ct)
     {
+        var count = 0;
+        var ids = new Dictionary<int, int>();
+        var generated = new Dictionary<int, SceneGeneratedData>();
+        var total = await CountAsync(conn, "scenes", ct);
+        await using var claims = await FileClaimsFactory(_db, StringComparer.Ordinal, ct);
+        await SeedImportFileClaimsAsync(claims, ct);
+        progress.Report(startProgress, "Importing scenes...");
+        await foreach (var sourceIds in ReadSourceBatchesAsync(conn, "scenes", ct))
+        {
+            var batch = await ImportScenesBatchAsync(conn, blobMap, folderIdMap, studioIdMap, tagIdMap,
+                performerIdMap, groupIdMap, progress, startProgress, endProgress, ct, sourceIds, claims);
+            count += batch.count;
+            foreach (var pair in batch.sceneIdMap) ids[pair.Key] = pair.Value;
+            foreach (var pair in batch.generatedMap) generated[pair.Key] = pair.Value;
+            ReportPhase(progress, startProgress, endProgress, count, total, $"Importing scenes ({count}/{total})");
+        }
+        await ImportSceneCaptionBatchesAsync(conn, folderIdMap, ct);
+        return (count, ids, generated);
+    }
+
+    private async Task<(int count, Dictionary<int, int> sceneIdMap, Dictionary<int, SceneGeneratedData> generatedMap)> ImportScenesBatchAsync(
+        SqliteConnection conn,
+        Dictionary<string, string> blobMap,
+        Dictionary<int, int> folderIdMap,
+        Dictionary<int, int> studioIdMap,
+        Dictionary<int, int> tagIdMap,
+        Dictionary<int, int> performerIdMap,
+        Dictionary<int, int> groupIdMap,
+        IJobProgress progress,
+        double startProgress,
+        double endProgress,
+        CancellationToken ct, string sourceIds, IStashFileClaims claims)
+    {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var sceneRows = new List<(int Id, string? Title, string? Details, string? Date, int? Rating,
             int? StudioId, bool Organized, string? Code, string? Director,
@@ -40,7 +73,7 @@ public partial class StashMigrationService
             var coverBlobExpr = hasSceneCoverBlob ? "cover_blob" : "NULL";
             var lastPlayedAtExpr = hasSceneLastPlayedAt ? "last_played_at" : "NULL";
             cmd.CommandText = $@"SELECT id, title, details, {PartialDateSql("date", hasDatePrecision)} AS date, rating, studio_id, organized, code, director,
-                resume_time, play_duration, created_at, updated_at, {coverBlobExpr} AS cover_blob, {lastPlayedAtExpr} AS last_played_at FROM scenes";
+                resume_time, play_duration, created_at, updated_at, {coverBlobExpr} AS cover_blob, {lastPlayedAtExpr} AS last_played_at FROM scenes WHERE id IN ({sourceIds}) ORDER BY id";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 sceneRows.Add((r.GetInt32(0), ReadStringNull(r, 1), ReadStringNull(r, 2), ReadStringNull(r, 3),
@@ -49,12 +82,12 @@ public partial class StashMigrationService
                     ReadStringNull(r, 13), ReadStringNull(r, 14)));
         }
 
-        var sceneTagMap = await ReadJunctionAsync(conn, "scenes_tags", "scene_id", "tag_id", ct);
-        var scenePerformerMap = await ReadJunctionAsync(conn, "performers_scenes", "scene_id", "performer_id", ct);
+        var sceneTagMap = await ReadJunctionAsync(conn, "scenes_tags", "scene_id", "tag_id", ct, sourceIds);
+        var scenePerformerMap = await ReadJunctionAsync(conn, "performers_scenes", "scene_id", "performer_id", ct, sourceIds);
         var sceneGroupMap = new Dictionary<int, List<(int GroupId, int Index)>>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT scene_id, group_id, scene_index FROM groups_scenes";
+            cmd.CommandText = $"SELECT scene_id, group_id, scene_index FROM groups_scenes WHERE scene_id IN ({sourceIds})";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
@@ -65,15 +98,15 @@ public partial class StashMigrationService
                 list.Add((gId, idx));
             }
         }
-        var sceneUrls = await ReadUrlsAsync(conn, "scene_urls", "scene_id", ct);
-        var sceneODates = await ReadDatesAsync(conn, "scenes_o_dates", "scene_id", "o_date", ct);
-        var sceneViewDates = await ReadDatesAsync(conn, "scenes_view_dates", "scene_id", "view_date", ct);
+        var sceneUrls = await ReadUrlsAsync(conn, "scene_urls", "scene_id", ct, sourceIds);
+        var sceneODates = await ReadDatesAsync(conn, "scenes_o_dates", "scene_id", "o_date", ct, sourceIds);
+        var sceneViewDates = await ReadDatesAsync(conn, "scenes_view_dates", "scene_id", "view_date", ct, sourceIds);
 
         var sceneStashIds = new Dictionary<int, List<(string Ep, string Rid)>>();
         if (await TableExistsAsync(conn, "scene_stash_ids", ct))
         {
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT scene_id, endpoint, stash_id FROM scene_stash_ids";
+            cmd.CommandText = $"SELECT scene_id, endpoint, stash_id FROM scene_stash_ids WHERE scene_id IN ({sourceIds})";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
@@ -89,7 +122,7 @@ public partial class StashMigrationService
         await using (var cmd = conn.CreateCommand())
         {
             var primaryExpr = hasScenePrimaryColumn ? "[primary]" : "0";
-            cmd.CommandText = $"SELECT scene_id, file_id, {primaryExpr} AS [primary] FROM scenes_files ORDER BY scene_id, [primary] DESC, file_id";
+            cmd.CommandText = $"SELECT scene_id, file_id, {primaryExpr} AS [primary] FROM scenes_files WHERE scene_id IN ({sourceIds}) ORDER BY scene_id, [primary] DESC, file_id";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
@@ -106,7 +139,7 @@ public partial class StashMigrationService
         var fileData = new Dictionary<int, (string Basename, int FolderId, long Size, DateTime ModTime, DateTime CreatedAt)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, basename, parent_folder_id, size, mod_time, created_at FROM files";
+            cmd.CommandText = $"SELECT id, basename, parent_folder_id, size, mod_time, created_at FROM files WHERE id IN (SELECT file_id FROM scenes_files WHERE scene_id IN ({sourceIds}))";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 fileData[r.GetInt32(0)] = (r.GetString(1), r.GetInt32(2), r.GetInt64(3),
@@ -116,7 +149,7 @@ public partial class StashMigrationService
         var videoData = new Dictionary<int, (double Duration, string VideoCodec, string Format, string AudioCodec, int Width, int Height, double FrameRate, long BitRate)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate FROM video_files";
+            cmd.CommandText = $"SELECT file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate FROM video_files WHERE file_id IN (SELECT file_id FROM scenes_files WHERE scene_id IN ({sourceIds}))";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 videoData[r.GetInt32(0)] = (r.GetDouble(1), r.GetString(2), r.GetString(3), r.GetString(4),
@@ -126,7 +159,7 @@ public partial class StashMigrationService
         var fingerprints = new Dictionary<int, List<(string Type, string Value)>>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT file_id, type, fingerprint FROM files_fingerprints";
+            cmd.CommandText = $"SELECT file_id, type, fingerprint FROM files_fingerprints WHERE file_id IN (SELECT file_id FROM scenes_files WHERE scene_id IN ({sourceIds}))";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
@@ -139,27 +172,13 @@ public partial class StashMigrationService
             }
         }
 
-        var captions = new Dictionary<int, List<(string LanguageCode, string Filename, string CaptionType)>>();
-        if (await TableExistsAsync(conn, "video_captions", ct))
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT file_id, language_code, filename, caption_type FROM video_captions";
-            await using var r = await cmd.ExecuteReaderAsync(ct);
-            while (await r.ReadAsync(ct))
-            {
-                var fileId = r.GetInt32(0);
-                if (!captions.TryGetValue(fileId, out var list)) captions[fileId] = list = [];
-                list.Add((r.GetString(1), r.GetString(2), r.GetString(3)));
-            }
-        }
-
         var count = 0;
         var skippedFailedScenes = 0;
         var idMap = new Dictionary<int, int>();
         const int SceneBatchSize = 250;
         var pendingBatch = new List<(int StashId, Scene Entity)>(SceneBatchSize);
         _logger.LogDebug("Preparing to import {Total} scenes", sceneRows.Count);
-        progress.Report(startProgress, "Importing scenes...");
+
         _logger.LogDebug(
             "[StashTiming] phase=scenes checkpoint=loaded rows={Rows} files={Files} videos={Videos} fingerprints={FingerprintOwners} tagOwners={TagOwners} performerOwners={PerformerOwners} groupOwners={GroupOwners} elapsedMs={ElapsedMilliseconds:F0}",
             sceneRows.Count,
@@ -223,19 +242,6 @@ public partial class StashMigrationService
         // Guard the unique (ParentFolderId, Basename) index: if two scene files resolve to the same
         // folder+basename (e.g. genuine duplicates), skip the second instead of letting SaveChanges
         // throw and abort the entire import. Keys are compared case-sensitively to match the index.
-        var candidateParentFolderIds = fileData.Values
-            .Where(file => folderIdMap.ContainsKey(file.FolderId))
-            .Select(file => folderIdMap[file.FolderId])
-            .Distinct()
-            .ToList();
-        var existingFileKeys = new HashSet<string>(
-            await _db.Set<BaseFileEntity>()
-                .AsNoTracking()
-                .Where(file => candidateParentFolderIds.Contains(file.ParentFolderId))
-                .Select(file => GetImportedBaseFileKey(file.ParentFolderId, file.Basename))
-                .ToListAsync(ct),
-            StringComparer.Ordinal);
-        var seenFileKeys = new HashSet<string>(StringComparer.Ordinal);
         var skippedDuplicateFiles = 0;
 
         foreach (var row in sceneRows)
@@ -294,7 +300,7 @@ public partial class StashMigrationService
                 if (!folderIdMap.TryGetValue(fd.FolderId, out var coveFolderId)) continue;
 
                 var fileKey = GetImportedBaseFileKey(coveFolderId, fd.Basename);
-                if (existingFileKeys.Contains(fileKey) || !seenFileKeys.Add(fileKey))
+                if (!await claims.AddAsync(fileKey, ct))
                 {
                     skippedDuplicateFiles++;
                     TraceSkippedDuplicateFile(_logger, "scene", fd.Basename, coveFolderId);
@@ -341,7 +347,7 @@ public partial class StashMigrationService
             {
                 await SaveSceneBatchAsync();
                 _db.ChangeTracker.Clear();
-                ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
+
                 _logger.LogDebug("Imported {Count}/{Total} scenes", count, sceneRows.Count);
                 _logger.LogDebug(
                     "[StashTiming] phase=scenes checkpoint=batch imported={Imported} total={Total} elapsedMs={ElapsedMilliseconds:F0}",
@@ -355,9 +361,8 @@ public partial class StashMigrationService
         {
             await SaveSceneBatchAsync();
             _db.ChangeTracker.Clear();
-            ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
+
         }
-        await ImportVideoCaptionsAsync(captions, fileData, folderIdMap, ct);
         await AddImportedOverallRatingsAsync(
             sceneRows.Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
             idMap,
@@ -406,6 +411,39 @@ public partial class StashMigrationService
         }
 
         return (count, idMap, generatedMap);
+    }
+
+    private async Task ImportSceneCaptionBatchesAsync(SqliteConnection conn, Dictionary<int, int> folderIdMap, CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "video_captions", ct)) return;
+        int? after = null;
+        while (true)
+        {
+            using var command = conn.CreateCommand();
+            command.CommandText = $"SELECT DISTINCT file_id FROM video_captions {(after.HasValue ? "WHERE file_id > $after" : "")} ORDER BY file_id LIMIT 250";
+            command.Parameters.AddWithValue("$after", (object?)after ?? DBNull.Value);
+            var ids = new List<int>(250);
+            using (var reader = await command.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct)) ids.Add(reader.GetInt32(0));
+            if (ids.Count == 0) return;
+            after = ids[^1];
+            var sourceIds = string.Join(",", ids.Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            var captions = new Dictionary<int, List<(string LanguageCode, string Filename, string CaptionType)>>();
+            command.CommandText = $"SELECT file_id, language_code, filename, caption_type FROM video_captions WHERE file_id IN ({sourceIds})";
+            using (var reader = await command.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct))
+                {
+                    var id = reader.GetInt32(0);
+                    if (!captions.TryGetValue(id, out var rows)) captions[id] = rows = [];
+                    rows.Add((reader.GetString(1), reader.GetString(2), reader.GetString(3)));
+                }
+            var files = new Dictionary<int, (string Basename, int FolderId, long Size, DateTime ModTime, DateTime CreatedAt)>();
+            command.CommandText = $"SELECT id, basename, parent_folder_id, size, mod_time, created_at FROM files WHERE id IN ({sourceIds})";
+            using (var reader = await command.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct))
+                    files[reader.GetInt32(0)] = (reader.GetString(1), reader.GetInt32(2), reader.GetInt64(3), ParseDateTime(reader.GetString(4)), ParseDateTime(reader.GetString(5)));
+            await ImportVideoCaptionsAsync(captions, files, folderIdMap, ct);
+        }
     }
 
     private async Task<int> ImportVideoCaptionsAsync(

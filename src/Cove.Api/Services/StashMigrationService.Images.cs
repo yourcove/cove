@@ -18,21 +18,48 @@ public partial class StashMigrationService
         double endProgress,
         CancellationToken ct)
     {
+        var result = new Dictionary<int, int>();
+        if (!await TableExistsAsync(conn, "images", ct)) return result;
+        var total = await CountAsync(conn, "images", ct);
+        await using var claims = await FileClaimsFactory(_db, StringComparer.OrdinalIgnoreCase, ct);
+        await SeedImportFileClaimsAsync(claims, ct);
+        progress.Report(startProgress, "Importing images...");
+        await foreach (var sourceIds in ReadSourceBatchesAsync(conn, "images", ct))
+        {
+            var batch = await ImportImagesBatchAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap,
+                progress, startProgress, endProgress, ct, sourceIds, claims);
+            foreach (var pair in batch) result[pair.Key] = pair.Value;
+            ReportPhase(progress, startProgress, endProgress, result.Count, total, $"Importing images ({result.Count}/{total})");
+        }
+        return result;
+    }
+
+    private async Task<Dictionary<int, int>> ImportImagesBatchAsync(
+        SqliteConnection conn,
+        Dictionary<int, int> folderIdMap,
+        Dictionary<int, int> studioIdMap,
+        Dictionary<int, int> tagIdMap,
+        Dictionary<int, int> performerIdMap,
+        IJobProgress progress,
+        double startProgress,
+        double endProgress,
+        CancellationToken ct, string sourceIds, IStashFileClaims claims)
+    {
         if (!await TableExistsAsync(conn, "images", ct))
             return new Dictionary<int, int>();
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var total = await CountAsync(conn, "images", ct);
+        var total = sourceIds.Count(character => character == ',') + 1;
         _logger.LogDebug("Preparing to import {Total} images", total);
 
-        var imageTagMap = await ReadJunctionAsync(conn, "images_tags", "image_id", "tag_id", ct);
-        var imagePerformerMap = await ReadJunctionAsync(conn, "performers_images", "image_id", "performer_id", ct);
-        var imageUrls = await ReadUrlsAsync(conn, "image_urls", "image_id", ct);
+        var imageTagMap = await ReadJunctionAsync(conn, "images_tags", "image_id", "tag_id", ct, sourceIds);
+        var imagePerformerMap = await ReadJunctionAsync(conn, "performers_images", "image_id", "performer_id", ct, sourceIds);
+        var imageUrls = await ReadUrlsAsync(conn, "image_urls", "image_id", ct, sourceIds);
 
         var imageToFiles = new Dictionary<int, List<int>>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT image_id, file_id, [primary] FROM images_files ORDER BY image_id, [primary] DESC, file_id";
+            cmd.CommandText = $"SELECT image_id, file_id, [primary] FROM images_files WHERE image_id IN ({sourceIds}) ORDER BY image_id, [primary] DESC, file_id";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
@@ -46,7 +73,7 @@ public partial class StashMigrationService
         var imageFileData = new Dictionary<int, (string Format, int Width, int Height)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT file_id, format, width, height FROM image_files";
+            cmd.CommandText = $"SELECT file_id, format, width, height FROM image_files WHERE file_id IN (SELECT file_id FROM images_files WHERE image_id IN ({sourceIds}))";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 imageFileData[r.GetInt32(0)] = (ReadStringNull(r, 1) ?? string.Empty, ReadIntNull(r, 2) ?? 0, ReadIntNull(r, 3) ?? 0);
@@ -55,7 +82,7 @@ public partial class StashMigrationService
         var fileData = new Dictionary<int, (string Basename, int FolderId, long Size, DateTime ModTime, DateTime CreatedAt)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, basename, parent_folder_id, size, mod_time, created_at FROM files";
+            cmd.CommandText = $"SELECT id, basename, parent_folder_id, size, mod_time, created_at FROM files WHERE id IN (SELECT file_id FROM images_files WHERE image_id IN ({sourceIds}))";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 fileData[r.GetInt32(0)] = (r.GetString(1), r.GetInt32(2), r.GetInt64(3),
@@ -69,7 +96,7 @@ public partial class StashMigrationService
         {
             var legacyLikeCounterColumn = "o" + "_counter";
             var hasDatePrecision = await ColumnExistsAsync(conn, "images", "date_precision", ct);
-            cmd.CommandText = $"SELECT id, title, code, details, photographer, rating, organized, {legacyLikeCounterColumn}, studio_id, {PartialDateSql("date", hasDatePrecision)} AS date, created_at, updated_at FROM images";
+            cmd.CommandText = $"SELECT id, title, code, details, photographer, rating, organized, {legacyLikeCounterColumn}, studio_id, {PartialDateSql("date", hasDatePrecision)} AS date, created_at, updated_at FROM images WHERE id IN ({sourceIds}) ORDER BY id";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 imageRows.Add((r.GetInt32(0), ReadStringNull(r, 1), ReadStringNull(r, 2), ReadStringNull(r, 3),
@@ -78,21 +105,9 @@ public partial class StashMigrationService
         }
 
         var idMap = new Dictionary<int, int>(imageRows.Count);
-        var candidateParentFolderIds = fileData.Values
-            .Where(file => folderIdMap.ContainsKey(file.FolderId))
-            .Select(file => folderIdMap[file.FolderId])
-            .Distinct()
-            .ToList();
-        var existingFileKeys = new HashSet<string>(
-            await _db.Set<BaseFileEntity>()
-                .AsNoTracking()
-                .Where(file => candidateParentFolderIds.Contains(file.ParentFolderId))
-                .Select(file => GetImportedBaseFileKey(file.ParentFolderId, file.Basename))
-                .ToListAsync(ct),
-            StringComparer.OrdinalIgnoreCase);
         var skippedDuplicateFiles = 0;
         const int BatchSize = 500;
-        progress.Report(startProgress, "Importing images...");
+
         _logger.LogDebug(
             "[StashTiming] phase=images checkpoint=loaded rows={Rows} files={Files} imageFiles={ImageFiles} tagOwners={TagOwners} performerOwners={PerformerOwners} urlOwners={UrlOwners} elapsedMs={ElapsedMilliseconds:F0}",
             imageRows.Count,
@@ -147,7 +162,7 @@ public partial class StashMigrationService
                             continue;
 
                         var fileKey = GetImportedBaseFileKey(coveFolderId, fd.Basename);
-                        if (!existingFileKeys.Add(fileKey))
+                        if (!await claims.AddAsync(fileKey, ct))
                         {
                             skippedDuplicateFiles++;
                             TraceSkippedDuplicateFile(_logger, "image", fd.Basename, coveFolderId);
@@ -183,7 +198,7 @@ public partial class StashMigrationService
                 idMap[stashId] = entity.Id;
 
             _db.ChangeTracker.Clear();
-            ReportPhase(progress, startProgress, endProgress, idMap.Count, imageRows.Count, $"Importing images ({idMap.Count}/{imageRows.Count})");
+
 
             _logger.LogDebug("Imported {Count}/{Total} images", Math.Min(i + BatchSize, imageRows.Count), imageRows.Count);
             _logger.LogDebug(
