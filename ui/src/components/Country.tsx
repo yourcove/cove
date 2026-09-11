@@ -24,6 +24,27 @@ function localizedCountryName(option: PerformerCountryOption, language: string) 
   }
 }
 
+function countryCollator(language: string) {
+  try {
+    return new Intl.Collator([language, "en"]);
+  } catch {
+    return new Intl.Collator("en");
+  }
+}
+
+export function useSortedCountryValues(values: string[]) {
+  const { data = [] } = useCountryOptions();
+  const language = useOptionalAppConfig()?.config?.interface?.language || "en-US";
+  return useMemo(() => {
+    const collator = countryCollator(language);
+    const displayName = (value: string) => {
+      const option = data.find((item) => item.value.localeCompare(value, undefined, { sensitivity: "accent" }) === 0);
+      return option ? localizedCountryName(option, language) : value;
+    };
+    return [...values].sort((left, right) => collator.compare(displayName(left), displayName(right)));
+  }, [data, language, values]);
+}
+
 export function countryFlag(code?: string | null) {
   if (!code || !/^[A-Z]{2}$/.test(code)) return "";
   return String.fromCodePoint(...[...code].map((character) => 0x1f1e6 + character.charCodeAt(0) - 65));
@@ -94,10 +115,10 @@ export function CountrySelect({
   const displayValue = query || (selected ? localizedCountryName(selected, language) : value);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filtered = useMemo(() => {
-    const sorted = [...data].sort((left, right) => {
-      if (left.isCustom !== right.isCustom) return left.isCustom ? 1 : -1;
-      return localizedCountryName(left, language).localeCompare(localizedCountryName(right, language));
-    });
+    const collator = countryCollator(language);
+    const sorted = [...data].sort((left, right) =>
+      collator.compare(localizedCountryName(left, language), localizedCountryName(right, language)),
+    );
     if (!normalizedQuery) return sorted;
     return sorted.filter(
       (option) =>

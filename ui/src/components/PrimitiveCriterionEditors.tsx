@@ -15,7 +15,7 @@ import type {
 } from "../api/types";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { IsoDateInput } from "./IsoDateInput";
-import { CountryLabel, CountrySelect } from "./Country";
+import { CountryLabel, CountrySelect, useSortedCountryValues } from "./Country";
 import { LibraryFolderTree } from "./LibraryFolderTree";
 import {
   convertFromRatingFormat,
@@ -376,6 +376,7 @@ export function CountryEditor({
   const useSelector = modifier === "EQUALS" || modifier === "NOT_EQUALS";
   const isList = modifier === "INCLUDES" || modifier === "EXCLUDES";
   const countries = value?.values ?? (value?.value ? [value.value] : []);
+  const sortedCountries = useSortedCountryValues(countries);
   const updateCountries = (values: string[], nextModifier = modifier) =>
     onChange({ value: "", values, modifier: nextModifier });
 
@@ -396,7 +397,7 @@ export function CountryEditor({
           {isList ? (
             <div className="space-y-2">
               <div className="flex flex-wrap gap-2">
-                {countries.map((country) => (
+                {sortedCountries.map((country) => (
                   <button
                     key={country}
                     type="button"

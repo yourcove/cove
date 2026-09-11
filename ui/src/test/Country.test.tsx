@@ -6,12 +6,18 @@ import type { CountryCriterion } from "../api/types";
 import { CountryEditor } from "../components/PrimitiveCriterionEditors";
 import { isCriterionValueValid } from "../components/filterCriterionState";
 import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
-import { formatFilterChipValue } from "../components/ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, formatFilterChipValue } from "../components/ActiveObjectFilterChips";
 import { describeFilterExpressionCondition } from "../components/filterExpressionExplanation";
 import { defaultRatingSystemOptions } from "../components/Rating";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { performers } from "../api/client";
 import { CountryFlag, CountryLabel, CountrySelect, countryFlag } from "../components/Country";
+
+const appConfigMock = vi.hoisted(() => ({ language: "en-US" }));
+
+vi.mock("../state/AppConfigContext", () => ({
+  useOptionalAppConfig: () => ({ config: { interface: { language: appConfigMock.language }, ui: {} } }),
+}));
 
 const options = [
   { value: "CA", code: "CA", name: "Canada", performerCount: 12, isCustom: false },
@@ -27,6 +33,7 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
+  appConfigMock.language = "en-US";
   vi.spyOn(performers, "countries").mockResolvedValue(options);
   document.documentElement.lang = "en-US";
 });
@@ -98,6 +105,56 @@ describe("Country", () => {
     expect(canada).not.toHaveTextContent("12");
   });
 
+  it("sorts catalog and custom countries together by readable name", async () => {
+    renderWithQueryClient(<CountrySelect onChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show countries" }));
+    const countryNames = (await screen.findAllByRole("option")).map((option) => option.textContent?.trim());
+
+    expect(countryNames).toEqual([
+      "Atlantis",
+      `${countryFlag("CA")}Canada`,
+      `${countryFlag("GQ")}Equatorial Guinea`,
+      `${countryFlag("GN")}Guinea`,
+      `${countryFlag("US")}United States`,
+    ]);
+  });
+
+  it("sorts localized country names with the configured language", async () => {
+    appConfigMock.language = "sv-SE";
+    vi.spyOn(performers, "countries").mockResolvedValue([
+      { value: "AX", code: "AX", name: "Åland Islands", performerCount: 0, isCustom: false },
+      { value: "AL", code: "AL", name: "Albania", performerCount: 0, isCustom: false },
+      { value: "ZW", code: "ZW", name: "Zimbabwe", performerCount: 0, isCustom: false },
+    ]);
+    renderWithQueryClient(<CountrySelect onChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show countries" }));
+    const countryNames = (await screen.findAllByRole("option")).map((option) => option.textContent?.trim());
+
+    expect(countryNames).toEqual([
+      `${countryFlag("AL")}Albanien`,
+      `${countryFlag("ZW")}Zimbabwe`,
+      `${countryFlag("AX")}Åland`,
+    ]);
+  });
+
+  it("falls back to English sorting for an invalid configured language", async () => {
+    appConfigMock.language = "x";
+    renderWithQueryClient(<CountrySelect onChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show countries" }));
+    const countryNames = (await screen.findAllByRole("option")).map((option) => option.textContent?.trim());
+
+    expect(countryNames).toEqual([
+      "Atlantis",
+      `${countryFlag("CA")}Canada`,
+      `${countryFlag("GQ")}Equatorial Guinea`,
+      `${countryFlag("GN")}Guinea`,
+      `${countryFlag("US")}United States`,
+    ]);
+  });
+
   it("allows an unmatched custom value", async () => {
     const onChange = vi.fn();
     renderWithQueryClient(<CountrySelect onChange={onChange} />);
@@ -133,8 +190,8 @@ describe("Country", () => {
   });
 });
 
-function CountryFilterHarness() {
-  const [value, setValue] = useState<CountryCriterion>({ value: "", modifier: "INCLUDES" });
+function CountryFilterHarness({ initialValues = [] }: { initialValues?: string[] }) {
+  const [value, setValue] = useState<CountryCriterion>({ value: "", values: initialValues, modifier: "INCLUDES" });
   return (
     <>
       <CountryEditor
@@ -146,6 +203,39 @@ function CountryFilterHarness() {
     </>
   );
 }
+
+it("sorts selected countries alphabetically in the filter editor", async () => {
+  vi.spyOn(performers, "countries").mockResolvedValue([
+    { value: "FI", code: "FI", name: "Finland", performerCount: 1, isCustom: false },
+    { value: "SE", code: "SE", name: "Sweden", performerCount: 1, isCustom: false },
+  ]);
+  renderWithQueryClient(<CountryFilterHarness initialValues={["SE", "FI"]} />);
+
+  await screen.findByText("Finland");
+  expect(screen.getAllByRole("button", { name: /^Remove (?:FI|SE)$/ }).map((button) => button.ariaLabel)).toEqual([
+    "Remove FI",
+    "Remove SE",
+  ]);
+});
+
+it("sorts selected countries alphabetically in applied filter chips", async () => {
+  vi.spyOn(performers, "countries").mockResolvedValue([
+    { value: "FI", code: "FI", name: "Finland", performerCount: 1, isCustom: false },
+    { value: "SE", code: "SE", name: "Sweden", performerCount: 1, isCustom: false },
+  ]);
+  renderWithQueryClient(
+    <ActiveObjectFilterChips
+      criteriaDefinitions={PERFORMER_CRITERIA}
+      objectFilter={{ countryCriterion: { value: "", values: ["SE", "FI"], modifier: "INCLUDES" } }}
+      onRemove={vi.fn()}
+      onEdit={vi.fn()}
+    />,
+  );
+
+  await screen.findByText("Finland");
+  const chipText = screen.getByRole("button", { name: "Edit filter: Country" }).textContent ?? "";
+  expect(chipText.indexOf("Finland")).toBeLessThan(chipText.indexOf("Sweden"));
+});
 
 it("adds, deduplicates, removes and switches multiple country selections", async () => {
   renderWithQueryClient(<CountryFilterHarness />);
