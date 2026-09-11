@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
 import type { FindFilter, Group, GroupCreate, GroupFilterCriteria, PaginatedResponse } from "../api/types";
@@ -183,6 +183,7 @@ export function GroupsPage({ onNavigate }: Props) {
     <>
       <GroupCreateModal
         open={showCreate}
+        initialName={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "group", id })}
       />
@@ -327,10 +328,12 @@ export function GroupsPage({ onNavigate }: Props) {
 /* â”€â”€ Group Create Modal â”€â”€ */
 function GroupCreateModal({
   open,
+  initialName = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialName?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -358,6 +361,10 @@ function GroupCreateModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [parentGroupIds, setParentGroupIds] = useState<number[]>([]);
   const [createAnother, setCreateAnother] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
+  }, [initialName, open]);
 
   const resetForm = () => {
     setForm({

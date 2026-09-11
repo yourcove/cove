@@ -146,6 +146,7 @@ export function AudiosPage({ onNavigate }: Props) {
       {showCreate ? (
         <AudioCreateModal
           open={showCreate}
+          initialTitle={filter.q}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => onNavigate({ page: "audio", id })}
         />
@@ -269,12 +270,14 @@ export function AudiosPage({ onNavigate }: Props) {
   );
 }
 
-function AudioCreateModal({
+export function AudioCreateModal({
   open,
+  initialTitle = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialTitle?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -291,7 +294,7 @@ function AudioCreateModal({
     matches: DownloaderMatch[];
     autoApplyMetadata: boolean;
   } | null>(null);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(() => initialTitle.trim());
   const [code, setCode] = useState("");
   const [date, setDate] = useState("");
   const [details, setDetails] = useState("");

@@ -54,13 +54,14 @@ const source = {
   galleries: [{ id: 6 }],
   customFields: { one: "original", two: "other" },
 } as Video;
-function mount(split = true) {
+function mount(split = true, initialTitle?: string) {
   const close = vi.fn(),
     created = vi.fn();
   const result = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}>
       <VideoCreateModal
         open
+        initialTitle={initialTitle}
         onClose={close}
         onCreated={created}
         split={split ? { source, ownerId: 1, fileId: 2, filename: "secondary.mp4" } : undefined}
@@ -71,6 +72,11 @@ function mount(split = true) {
 }
 describe("video creation and splitting", () => {
   beforeEach(() => vi.resetAllMocks());
+  it("prefills and trims the title for regular video creation", () => {
+    mount(false, "  New video  ");
+
+    expect(screen.getByPlaceholderText("Video title")).toHaveValue("New video");
+  });
   it("starts blank and cancellation sends no mutation", () => {
     const { close } = mount();
     expect(screen.getByPlaceholderText("Video title")).toHaveValue("");

@@ -340,6 +340,7 @@ export function ImagesPage({ onNavigate }: Props) {
         {showCreate ? (
           <ImageCreateModal
             open={showCreate}
+            initialTitle={filter.q}
             onClose={() => setShowCreate(false)}
             onCreated={(id) => onNavigate({ page: "image", id })}
           />

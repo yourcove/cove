@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { studios } from "../api/client";
 import type { EntityEngagement, Studio, StudioCreate, StudioFilterCriteria } from "../api/types";
@@ -97,6 +97,7 @@ export function StudiosPage({ onNavigate }: Props) {
     <>
       <StudioCreateModal
         open={showCreate}
+        initialName={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "studio", id })}
       />
@@ -274,10 +275,12 @@ function StudioListTable({
 /* ── Studio Create Modal ── */
 export function StudioCreateModal({
   open,
+  initialName = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialName?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -290,6 +293,10 @@ export function StudioCreateModal({
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
+  }, [initialName, open]);
 
   const resetForm = () => {
     setForm({ name: "", details: "" });

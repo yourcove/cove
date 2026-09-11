@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { tags, tagGroups } from "../api/client";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
@@ -143,6 +143,7 @@ export function TagsPage({ onNavigate }: Props) {
     <>
       <TagCreateModal
         open={showCreate}
+        initialName={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "tag", id })}
       />
@@ -331,10 +332,12 @@ function TagGroupManagerDialog({ open, onClose }: { open: boolean; onClose: () =
 /* ── Tag Create Modal ── */
 export function TagCreateModal({
   open,
+  initialName = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialName?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -353,6 +356,11 @@ export function TagCreateModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
   const { data: groups = [] } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
+
+  useEffect(() => {
+    if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
+  }, [initialName, open]);
+
   const resetForm = () => {
     setForm({
       name: "",
