@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { performers } from "../api/client";
 import type {
@@ -130,6 +130,7 @@ export function PerformersPage({ onNavigate }: Props) {
     <>
       <PerformerCreateModal
         open={showCreate}
+        initialName={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "performer", id })}
       />
@@ -408,10 +409,12 @@ const SELECT_CLASS =
 
 export function PerformerCreateModal({
   open,
+  initialName = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialName?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -432,6 +435,10 @@ export function PerformerCreateModal({
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
+
+  useEffect(() => {
+    if (open) setName(initialName.trim());
+  }, [initialName, open]);
 
   const resetForm = () => {
     setName("");

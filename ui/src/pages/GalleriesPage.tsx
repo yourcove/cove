@@ -204,6 +204,7 @@ export function GalleriesPage({ onNavigate }: Props) {
     <>
       <GalleryCreateModal
         open={showCreate}
+        initialTitle={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "gallery", id })}
       />
@@ -535,10 +536,12 @@ function GalleryListTable({
 /* ── Gallery Create Modal ── */
 function GalleryCreateModal({
   open,
+  initialTitle = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialTitle?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -553,6 +556,10 @@ function GalleryCreateModal({
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm((current) => ({ ...current, title: initialTitle.trim() }));
+  }, [initialTitle, open]);
 
   const resetForm = () => {
     setForm({ title: "", code: "", date: "", details: "", photographer: "" });

@@ -124,6 +124,7 @@ export function TextsPage({ onNavigate }: Props) {
       {showCreate ? (
         <TextCreateModal
           open={showCreate}
+          initialTitle={filter.q}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => onNavigate({ page: "text", id })}
         />
@@ -237,12 +238,14 @@ export function TextsPage({ onNavigate }: Props) {
   );
 }
 
-function TextCreateModal({
+export function TextCreateModal({
   open,
+  initialTitle = "",
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialTitle?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -259,7 +262,7 @@ function TextCreateModal({
     matches: DownloaderMatch[];
     autoApplyMetadata: boolean;
   } | null>(null);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(() => initialTitle.trim());
   const [code, setCode] = useState("");
   const [date, setDate] = useState("");
   const [details, setDetails] = useState("");

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { videos } from "../api/client";
 import type { Video, VideoCreate } from "../api/types";
@@ -18,12 +18,14 @@ import {
 import { CustomFieldsEditor } from "../components/shared";
 export function VideoCreateModal({
   open,
+  initialTitle = "",
   onClose,
   onCreated,
   split,
 }: {
   split?: { source: Video; ownerId: number; fileId: number; filename: string };
   open: boolean;
+  initialTitle?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
@@ -48,6 +50,10 @@ export function VideoCreateModal({
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>([]);
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (open && !split) setTitle(initialTitle.trim());
+  }, [initialTitle, open, split]);
 
   const touched = useRef(new Set<string>());
   const touchedCustomFields = useRef(new Set<string>());

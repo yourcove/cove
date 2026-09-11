@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { images, system } from "../api/client";
 import type { DownloaderMatch, Image, ImageCreate, VideoGroupInput } from "../api/types";
@@ -32,6 +32,7 @@ interface ImageEditProps {
 
 interface ImageCreateProps {
   open: boolean;
+  initialTitle?: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }
@@ -603,7 +604,7 @@ export function ImageEditModal({ image, open, onClose }: ImageEditProps) {
   );
 }
 
-export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps) {
+export function ImageCreateModal({ open, initialTitle = "", onClose, onCreated }: ImageCreateProps) {
   const queryClient = useQueryClient();
   const [createAnother, setCreateAnother] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
@@ -619,10 +620,15 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
     matches: DownloaderMatch[];
     autoApplyMetadata: boolean;
   } | null>(null);
+  const [initialState, setInitialState] = useState<ImageFormState>(() => ({
+    ...EMPTY_FORM_STATE,
+    title: initialTitle.trim(),
+  }));
 
   const handleCreated = (created: Image) => {
     queryClient.invalidateQueries({ queryKey: ["images"] });
     if (createAnother) {
+      setInitialState(EMPTY_FORM_STATE);
       setResetSignal((value) => value + 1);
       setFilePath("");
       setUrl("");
@@ -767,7 +773,7 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
         title="Create Image"
         open={open}
         onClose={onClose}
-        initialState={EMPTY_FORM_STATE}
+        initialState={initialState}
         onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) =>
           mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })
         }

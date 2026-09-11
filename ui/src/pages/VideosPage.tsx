@@ -810,6 +810,7 @@ export function VideosPage({ onNavigate }: Props) {
     <>
       <VideoCreateModal
         open={showCreate}
+        initialTitle={filter.q}
         onClose={() => setShowCreate(false)}
         onCreated={(id) => onNavigate({ page: "video", id })}
       />
