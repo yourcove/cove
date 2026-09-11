@@ -69,8 +69,9 @@ public class PostgresManagerService : IHostedService
         // 1. On Linux/macOS, check if a system postgres is already available in PATH
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            var systemPgCtl = await FindSystemPgCtlAsync(ct);
-            if (systemPgCtl != null && !File.Exists(Exe("pg_ctl")))
+            await ValidateLinkedSystemPostgresAsync(ct);
+            var systemPgCtl = File.Exists(Exe("pg_ctl")) ? null : await FindSystemPgCtlAsync(ct);
+            if (systemPgCtl != null)
             {
                 _logger.LogDebug("Found system PostgreSQL at {Path} — symlinking to managed bin dir", systemPgCtl);
                 LinkSystemPostgresBinDir(systemPgCtl);
@@ -313,11 +314,73 @@ public class PostgresManagerService : IHostedService
             return stdout.Contains($"PostgreSQL) {PgMajor}.", StringComparison.Ordinal)
                 || stdout.Contains($"PostgreSQL {PgMajor}.", StringComparison.Ordinal);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Could not inspect PostgreSQL version at {Path}", pgCtlPath);
             return false;
         }
+    }
+
+    private static string ResolveExecutablePath(string path)
+        => new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? Path.GetFullPath(path);
+
+    // Client-only packages can ship pg_ctl and initdb without the postgres server.
+    // Resolve executable links first so a shared PATH directory cannot mix installations.
+    private async Task<string?> ResolveSystemPgCtlAsync(string candidate, CancellationToken ct)
+    {
+        try
+        {
+            if (!File.Exists(candidate))
+                return null;
+            var pgCtl = ResolveExecutablePath(candidate);
+            var bin = Path.GetDirectoryName(pgCtl)!;
+            foreach (var name in new[] { "postgres", "initdb", "pg_isready", "psql", "createdb" })
+            {
+                if (!File.Exists(Path.Combine(bin, name)))
+                {
+                    _logger.LogDebug("Ignoring incomplete system PostgreSQL at {BinDir}: missing {Tool}", bin, name);
+                    return null;
+                }
+            }
+
+            var initDb = ResolveExecutablePath(Path.Combine(bin, "initdb"));
+            if (!string.Equals(Path.GetDirectoryName(initDb), bin, StringComparison.Ordinal))
+                return null;
+            if (!await IsPostgresMajorAsync(pgCtl, ct)
+                || !await IsPostgresMajorAsync(Path.Combine(bin, "postgres"), ct)
+                || !await IsPostgresMajorAsync(initDb, ct))
+                return null;
+            return pgCtl;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not inspect system PostgreSQL installation at {Path}", candidate);
+            return null;
+        }
+    }
+
+    private async Task ValidateLinkedSystemPostgresAsync(CancellationToken ct)
+    {
+        var linkedBin = new DirectoryInfo(BinDir);
+        if (linkedBin.LinkTarget == null)
+            return;
+
+        var resolved = await ResolveSystemPgCtlAsync(Exe("pg_ctl"), ct);
+        if (resolved != null)
+        {
+            // Older Cove versions could link a shared directory such as Homebrew's bin.
+            _binDirOverride = Path.GetDirectoryName(resolved);
+            return;
+        }
+
+        if (File.Exists(Path.Combine(DataDir, "PG_VERSION")))
+            throw new InvalidOperationException(
+                "The linked system PostgreSQL installation is incomplete or has an incompatible version. " +
+                $"Restore a complete PostgreSQL {PgMajor} server installation before restarting Cove. Existing database files have not been changed.");
+
+        _logger.LogWarning("Discarding an incomplete system PostgreSQL bin link before first initialization; its target is unchanged");
+        // Delete only this directory symlink, never its target or any database files.
+        linkedBin.Delete();
     }
 
     /// <summary>Find a system pg_ctl for the exact PostgreSQL major Cove manages.</summary>
@@ -338,8 +401,9 @@ public class PostgresManagerService : IHostedService
 
         foreach (var candidate in DistinctPaths(candidates).Where(File.Exists))
         {
-            if (await IsPostgresMajorAsync(candidate, ct))
-                return candidate;
+            var resolved = await ResolveSystemPgCtlAsync(candidate, ct);
+            if (resolved != null)
+                return resolved;
         }
 
         return null;
@@ -799,19 +863,96 @@ public class PostgresManagerService : IHostedService
 
     // ─── Init / Start / Stop helpers ────────────────────────────────
 
+    // pgvector may create share/extension even when bootstrap data lives elsewhere.
+    // Resolve from the selected installation, and require the actual bootstrap file.
+    private async Task<string> ResolveBootstrapShareDirAsync(CancellationToken ct)
+    {
+        string? configuredShare = null;
+        try
+        {
+            configuredShare = await PgConfigPathAsync("--sharedir", ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not query PostgreSQL bootstrap directory; checking portable locations");
+        }
+
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(configuredShare) && Path.IsPathFullyQualified(configuredShare))
+            candidates.Add(configuredShare);
+        candidates.Add(PgShareDir);
+        candidates.Add(Path.Combine(PgShareDir, "postgresql"));
+        var paths = DistinctPaths(candidates);
+        var match = paths.FirstOrDefault(path => File.Exists(Path.Combine(path, "postgres.bki")));
+        if (match != null)
+            return match;
+
+        throw new InvalidOperationException(
+            $"PostgreSQL bootstrap file postgres.bki was not found. Searched: {string.Join(", ", paths)}. " +
+            "Repair the PostgreSQL installation used by Cove and retry. Existing database files have not been changed.");
+    }
+
+    private async Task<int> RunInitDbAsync(ProcessStartInfo psi, string logFile, CancellationToken ct)
+    {
+        await using var log = new StreamWriter(logFile, append: false);
+        using var logLock = new SemaphoreSlim(1, 1);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {psi.FileName}");
+
+        async Task CopyOutputAsync(StreamReader reader)
+        {
+            while (await reader.ReadLineAsync(ct) is { } line)
+            {
+                await logLock.WaitAsync(ct);
+                try
+                {
+                    await log.WriteLineAsync(line.AsMemory(), ct);
+                }
+                finally
+                {
+                    logLock.Release();
+                }
+                _logger.LogInformation("initdb: {Output}", line);
+            }
+        }
+
+        var stdout = CopyOutputAsync(proc.StandardOutput);
+        var stderr = CopyOutputAsync(proc.StandardError);
+        try
+        {
+            await Task.WhenAll(stdout, stderr, proc.WaitForExitAsync(ct));
+            return proc.ExitCode;
+        }
+        finally
+        {
+            if (!proc.HasExited)
+            {
+                proc.Kill(entireProcessTree: true);
+                await proc.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+    }
+
     private async Task InitDbAsync(CancellationToken ct)
     {
+        var bootstrapDir = await ResolveBootstrapShareDirAsync(ct);
         Directory.CreateDirectory(DataDir);
-        var initDbArgs = $"-D \"{DataDir}\" -U postgres --encoding=UTF8 --locale=C --auth=trust";
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Directory.Exists(PgShareDir))
-            initDbArgs += $" -L \"{PgShareDir}\"";
+        var initLogFile = Path.Combine(CoveDir, "pg-initdb.log");
+        var psi = new ProcessStartInfo
+        {
+            FileName = Exe("initdb"),
+            WorkingDirectory = BinDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[] { "-D", DataDir, "-U", "postgres", "--encoding=UTF8", "--locale=C", "--auth=trust", "-L", bootstrapDir })
+            psi.ArgumentList.Add(argument);
+        ApplyPostgresProcessEnvironment(psi);
 
-        var exitCode = await RunAsync(Exe("initdb"),
-            initDbArgs,
-            BinDir, ct);
-
+        var exitCode = await RunInitDbAsync(psi, initLogFile, ct);
         if (exitCode != 0)
-            throw new InvalidOperationException($"initdb failed (exit code {exitCode}). Check {LogFile}");
+            throw new InvalidOperationException($"initdb failed (exit code {exitCode}). Check {initLogFile}");
 
         // Write pg_hba.conf — local-only trust auth
         await File.WriteAllTextAsync(Path.Combine(DataDir, "pg_hba.conf"),
@@ -1068,11 +1209,11 @@ public class PostgresManagerService : IHostedService
         ApplyPostgresProcessEnvironment(psi);
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {exe}");
-        var stdout = await proc.StandardOutput.ReadToEndAsync(ct);
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
         var stderrTask = proc.StandardError.ReadToEndAsync(ct);
         await proc.WaitForExitAsync(ct);
-        await stderrTask;
-        return (proc.ExitCode, stdout);
+        await Task.WhenAll(stdoutTask, stderrTask);
+        return (proc.ExitCode, await stdoutTask);
     }
 
     private async Task<string> ResolveManagedPgLibDirAsync(CancellationToken ct)
