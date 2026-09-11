@@ -42,6 +42,20 @@ If macOS prevents the downloaded executable from opening, first confirm that the
 
 The manager gives every instance its own home directory, database, configuration, generated assets, backups, and logs. It displays the home path for each instance. Use the manager to start and stop the instance instead of launching `Cove` separately.
 
+## Use a custom data directory
+
+For a directly launched Cove server, set `COVE_HOME` before starting it:
+
+```bash
+COVE_HOME="/absolute/path/cove-data" ./Cove
+```
+
+Choose a writable directory and use the same setting on every launch. Cove stores its configuration, managed PostgreSQL installation and database, logs, and default generated assets there. Existing data is not moved automatically; changing the home directory starts a separate instance unless you first move the existing data while Cove is stopped. Explicitly configured storage and backup paths continue to use their configured locations.
+
+This example launches Cove directly. For an instance managed by Cove Instance Manager, use that instance's home path instead of starting a second copy of Cove against the same data.
+
+If PostgreSQL initialization fails, inspect `pg-initdb.log` in the managed PostgreSQL root (normally your Cove home directory). `pg.log` records the later PostgreSQL server startup and may not exist when initialization fails.
+
 ## Verify the native installation
 
 Keep Cove Instance Manager open and confirm that **Default** remains **Running**. If the instance stops during first startup, open its logs from the manager and follow [startup troubleshooting](../../troubleshooting/#startup-or-browser-problems).
