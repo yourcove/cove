@@ -410,6 +410,7 @@ public sealed class BulkEntityDeletionService(
                 if (!videos.Any(video => video.Id == id))
                     return false;
                 await AuthorizeVideoDeletionScopeAsync(authorizationPrincipal, scopeIds, ct);
+                await VideoHierarchyQueries.ReleasePrimaryFilesBeforeDeletionAsync(db, videos, ct);
                 var videoIds = videos.Select(video => video.Id).ToArray();
                 var descendantIds = scopeIds.Where(videoId => videoId != id).ToArray();
                 var physicalPaths = deleteFiles

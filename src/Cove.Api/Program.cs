@@ -341,6 +341,8 @@ try
     builder.Services.AddScoped<BulkDeletionJobService>();
     builder.Services.AddScoped<DuplicateSearchJobService>();
     builder.Services.AddScoped<DuplicateSearchExecutionService>();
+    builder.Services.AddScoped<DuplicateResolutionService>();
+    builder.Services.AddScoped<DuplicateVideoMetadataMerger>();
     builder.Services.AddSingleton<VideoAlignmentExtractor>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();

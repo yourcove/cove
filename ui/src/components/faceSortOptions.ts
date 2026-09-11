@@ -4,7 +4,7 @@ export const FACE_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "created", label: "Created At" },
   { value: "label", label: "Label" },
   { value: "performer_name", label: "Performer Name" },
-  { value: "primary_source_key", label: "Source" },
+  { value: "primary_source_key", label: "Source Key" },
   { value: "detection_count", label: "Detection Count" },
   { value: "appearance_count", label: "Appearance Count" },
   { value: "frame_sample_count", label: "Frame Sample Count" },

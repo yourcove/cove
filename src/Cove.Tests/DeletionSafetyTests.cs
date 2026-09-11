@@ -470,6 +470,44 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    public async Task VideoDeletionRemovesVideosTogetherWithTheirPrimaryFiles()
+    {
+        await using var db = CreateContext();
+        var folder = new Folder { Path = "/library" };
+        var root = new Video { Title = "Parent", Files = [new VideoFile { ParentFolder = folder, Basename = "parent.mp4" }] };
+        var child = new Video { Title = "Child", ParentVideo = root, Files = [new VideoFile { ParentFolder = folder, Basename = "child.mp4" }] };
+        var unrelated = new Video { Title = "Unrelated", Files = [new VideoFile { ParentFolder = folder, Basename = "unrelated.mp4" }] };
+        db.AddRange(root, child, unrelated);
+        await db.SaveChangesAsync();
+        Assert.NotNull(root.PrimaryFileId);
+        Assert.NotNull(child.PrimaryFileId);
+        db.ChangeTracker.Clear();
+
+        var customFields = new CustomFieldService(db);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            new EventBus());
+
+        Assert.True(await service.DeleteAsync(
+            BulkDeletionEntityKind.Video,
+            root.Id,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: false,
+            CancellationToken.None));
+
+        var remaining = Assert.Single(await db.Videos.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(unrelated.Id, remaining.Id);
+        Assert.Equal(["unrelated.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync());
+    }
+
+    [Fact]
     public async Task VideoDeletionCompletesPostCommitWorkAfterAnAmbiguousCommit()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

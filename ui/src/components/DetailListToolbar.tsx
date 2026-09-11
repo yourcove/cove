@@ -23,6 +23,7 @@ import {
   useEntityCardSize,
 } from "../hooks/useEntityCardSize";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
+import { useRegisterKeyboardActions, type KeyboardActionRegistration } from "../keyboard/KeyboardShortcutProvider";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
@@ -223,6 +224,24 @@ export function DetailListToolbar({
       surface: "list",
     },
   );
+  // Embedded lists page with the same keys as the top-level list pages. Registrations sharing an action id
+  // never conflict: if two lists are ever mounted together, the most recently mounted one handles the key.
+  const pagingKeyboardEnabled = showPagingControls && !infinitePageSize && totalPages > 1;
+  const pagingKeyboardActions = useMemo<KeyboardActionRegistration[]>(() => {
+    const goToPage = (nextPage: number) => {
+      const target = Math.max(1, Math.min(totalPages, nextPage));
+      if (target !== clampedPage) onFilterChange({ ...filter, page: target });
+    };
+    return [
+      { id: "list.page.previous", action: () => goToPage(clampedPage - 1) },
+      { id: "list.page.next", action: () => goToPage(clampedPage + 1) },
+      { id: "list.page.back10", action: () => goToPage(clampedPage - 10) },
+      { id: "list.page.forward10", action: () => goToPage(clampedPage + 10) },
+      { id: "list.page.first", action: () => goToPage(1) },
+      { id: "list.page.last", action: () => goToPage(totalPages) },
+    ].map((registration) => ({ ...registration, surface: "list" as const, enabled: pagingKeyboardEnabled }));
+  }, [clampedPage, filter, onFilterChange, pagingKeyboardEnabled, totalPages]);
+  useRegisterKeyboardActions(pagingKeyboardActions);
   const sortedSortOptions = useMemo(
     () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
     [sortOptions],

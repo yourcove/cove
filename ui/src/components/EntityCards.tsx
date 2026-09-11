@@ -3366,7 +3366,16 @@ function FaceAppearancesPopoverContent({ faceId, hostType }: { faceId: number; h
   );
 }
 
-export function FaceAppearanceTile({ appearance, onClick }: { appearance: FaceAppearance; onClick: () => void }) {
+export function FaceAppearanceTile({
+  appearance,
+  onClick,
+  children,
+}: {
+  appearance: FaceAppearance;
+  onClick: () => void;
+  /** Optional actions rendered below the card, e.g. correcting a face that is not really in this host. */
+  children?: React.ReactNode;
+}) {
   const hostLabel = appearance.title || `${appearance.hostType === "image" ? "Image" : "Video"} #${appearance.hostId}`;
   const Icon = appearance.hostType === "image" ? ImagesIcon : Film;
 
@@ -3424,7 +3433,9 @@ export function FaceAppearanceTile({ appearance, onClick }: { appearance: FaceAp
           <CountPill icon={<Layers className="w-3.5 h-3.5" />} count={appearance.segmentCount} title="Segments" />
         </>
       }
-    />
+    >
+      {children}
+    </EntityTileFrame>
   );
 }
 

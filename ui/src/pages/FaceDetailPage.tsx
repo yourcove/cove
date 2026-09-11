@@ -10,13 +10,16 @@ import {
   MoreVertical,
   Pencil,
   Save,
+  Scissors,
   Search,
   Sparkles,
   Trash2,
   UserPlus,
+  UserX,
 } from "lucide-react";
 import { faces, performers } from "../api/client";
 import type {
+  BoolCriterion,
   Face,
   FaceAppearance,
   FaceDeleteImpact,
@@ -25,6 +28,7 @@ import type {
   FindFilter,
   PaginatedResponse,
   Performer,
+  StringCriterion,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
@@ -35,6 +39,10 @@ import { DetailListPagination, DetailListToolbar } from "../components/DetailLis
 import { ListLoadError } from "../components/ListLoadError";
 import { ListQueryState } from "../components/ListQueryState";
 import { FaceSuggestionsPanel } from "../components/FaceSuggestionsPanel";
+import { FaceSplitDialog } from "../components/FaceSplitDialog";
+import { FACE_PATH_CRITERION, FACE_PATH_MODIFIERS } from "../components/faceFilterCriteria";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
+import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
 import { buildFaceCarouselSampleImageUrls, buildFaceHeroImageUrls } from "../components/faceComparisonImages";
 import { faceDisplayName } from "../utils/faceDisplay";
@@ -86,6 +94,26 @@ const SIMILAR_SORT_OPTIONS = [
   { value: "label", label: "Name" },
 ];
 
+const SIMILAR_FACE_CRITERIA: CriterionDefinition[] = [
+  { id: "linked", label: "Linked", type: "bool", filterKey: "linkedCriterion" },
+  FACE_PATH_CRITERION,
+];
+
+/** The similar-faces endpoint takes flat params; keep only the criteria it understands. */
+function readSimilarFaceFilters(objectFilter: Record<string, unknown>) {
+  const linked = objectFilter.linkedCriterion as Partial<BoolCriterion> | undefined;
+  const path = objectFilter.pathCriterion as Partial<StringCriterion> | undefined;
+  const pathValue = typeof path?.value === "string" ? path.value.trim() : "";
+  return {
+    linked: typeof linked?.value === "boolean" ? linked.value : undefined,
+    path: pathValue || undefined,
+    pathModifier:
+      pathValue && path?.modifier && FACE_PATH_MODIFIERS.includes(path.modifier) ? path.modifier : undefined,
+  };
+}
+
+type FaceAppearanceHost = Pick<FaceAppearance, "hostType" | "hostId" | "title">;
+
 function readSuggestionPerformerId(value: number | FaceSuggestion) {
   return typeof value === "number" ? value : value.performerId;
 }
@@ -123,6 +151,8 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     sort: "distance",
     direction: "asc",
   });
+  const [similarObjectFilter, setSimilarObjectFilter] = useState<Record<string, unknown>>({});
+  const similarFaceFilters = useMemo(() => readSimilarFaceFilters(similarObjectFilter), [similarObjectFilter]);
   const [appearanceZoomLevel, setAppearanceZoomLevel] = useState(0);
   const [similarZoomLevel, setSimilarZoomLevel] = useState(0);
   const [appearanceDisplayMode, setAppearanceDisplayMode] = useState<"grid" | "list">("grid");
@@ -150,7 +180,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     infiniteQuery: similarInfiniteQuery,
     loadMore: loadMoreSimilar,
   } = useDetailListQuery<FaceSimilar>({
-    queryKey: ["face", id, "similar"],
+    queryKey: ["face", id, "similar", similarFaceFilters],
     filter: similarFilter,
     queryFn: (nextFilter) =>
       faces.similar(id, {
@@ -158,6 +188,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         sort: nextFilter.sort,
         direction: nextFilter.direction,
         seed: nextFilter.seed,
+        ...similarFaceFilters,
         page: nextFilter.page ?? 1,
         perPage: nextFilter.perPage ?? 18,
         k: 250,
@@ -350,6 +381,46 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       }
     },
   });
+
+  // Similar faces are usually the same person, so offer to link them straight to this face's performer
+  // instead of opening each one and accepting its own suggestion.
+  const linkSimilarMutation = useMutation({
+    mutationFn: ({ faceId, performerId }: { faceId: number; performerId: number }) =>
+      faces.link(faceId, { performerId }),
+    onSuccess: (_updated, { faceId, performerId }) => {
+      queryClient.invalidateQueries({ queryKey: ["face", id, "similar"] });
+      queryClient.invalidateQueries({ queryKey: ["face", faceId] });
+      queryClient.invalidateQueries({ queryKey: ["faces"] });
+      queryClient.invalidateQueries({ queryKey: ["performer", performerId] });
+    },
+  });
+
+  // Correcting a cluster that swallowed someone else's appearances. Both actions re-home occurrences
+  // onto other faces, so refresh every face query (this one's counts, appearances and similar list).
+  const { canEditOccurrences } = useFaceCapabilities(canWriteFace);
+  const canCorrectAppearances = canWriteFace && canEditOccurrences;
+  const [splitAppearance, setSplitAppearance] = useState<FaceAppearanceHost | null>(null);
+  const refreshAfterAppearanceEdit = (hostType: FaceAppearance["hostType"]) => {
+    queryClient.invalidateQueries({ queryKey: ["face"] });
+    queryClient.invalidateQueries({ queryKey: ["faces"] });
+    queryClient.invalidateQueries({ queryKey: [hostType] });
+  };
+  const markNotPresentMutation = useMutation({
+    mutationFn: (host: FaceAppearanceHost) =>
+      faces.markNotPresent(id, { hostType: host.hostType, hostId: host.hostId }),
+    onSuccess: (_result, host) => refreshAfterAppearanceEdit(host.hostType),
+  });
+  const confirmMarkNotPresent = (host: FaceAppearanceHost) => {
+    const hostNoun = host.hostType === "image" ? "image" : "video";
+    const hostTitle = host.title || `${hostNoun} #${host.hostId}`;
+    if (
+      window.confirm(
+        `Mark "${face ? faceDisplayName(face) : `Face #${id}`}" as NOT present in "${hostTitle}"?\n\nIts occurrences there (and in other ${hostNoun}s that match them) will be split off into the correct face.`,
+      )
+    ) {
+      markNotPresentMutation.mutate(host);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => faces.delete(id),
@@ -682,6 +753,9 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             appearances={faceAppearancesPage.items}
             displayMode={appearanceDisplayMode}
             onNavigate={onNavigate}
+            onSplit={canCorrectAppearances ? setSplitAppearance : undefined}
+            onMarkNotPresent={canCorrectAppearances ? confirmMarkNotPresent : undefined}
+            markingNotPresent={markNotPresentMutation.isPending ? markNotPresentMutation.variables : undefined}
             zoomLevel={appearanceZoomLevel}
             infinitePageSize={appearancesInfinitePageSize}
             hasNextPage={appearancesInfiniteQuery.hasNextPage}
@@ -720,6 +794,9 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             onFilterChange={setSimilarFilter}
             totalCount={similarFacesPage.totalCount}
             sortOptions={SIMILAR_SORT_OPTIONS}
+            criteriaDefinitions={SIMILAR_FACE_CRITERIA}
+            objectFilter={similarObjectFilter}
+            onObjectFilterChange={setSimilarObjectFilter}
             zoomLevel={similarZoomLevel}
             onZoomChange={setSimilarZoomLevel}
             cardSizeEntityType="faces"
@@ -741,7 +818,9 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
         empty={
           <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-            No similar faces are available for this cluster yet.
+            {similarFaceFilters.linked !== undefined || similarFaceFilters.path
+              ? "No similar faces match the current filters."
+              : "No similar faces are available for this cluster yet."}
           </div>
         }
       >
@@ -751,6 +830,16 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             displayMode={similarDisplayMode}
             onNavigate={onNavigate}
             canReadPerformers={canReadPerformers}
+            linkTarget={
+              canWriteFace && face.performerId
+                ? {
+                    performerId: face.performerId,
+                    performerName: face.performerName || `Performer #${face.performerId}`,
+                  }
+                : undefined
+            }
+            onLink={(faceId, performerId) => linkSimilarMutation.mutate({ faceId, performerId })}
+            linkingFaceId={linkSimilarMutation.isPending ? linkSimilarMutation.variables?.faceId : undefined}
             zoomLevel={similarZoomLevel}
             infinitePageSize={similarInfinitePageSize}
             hasNextPage={similarInfiniteQuery.hasNextPage}
@@ -905,6 +994,12 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
               className="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-accent"
             />
           </label>
+          {face.performerId ? (
+            <p className="text-xs text-secondary">
+              While linked, this face is shown as {face.performerName || `Performer #${face.performerId}`}. The title is
+              only displayed for unlinked faces, so it may still hold an earlier automatic match.
+            </p>
+          ) : null}
           <div className="flex justify-end">
             <button
               type="button"
@@ -1013,6 +1108,17 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           setIsDeleteDialogOpen(false);
           deleteMutation.mutate();
         }}
+      />
+
+      <FaceSplitDialog
+        open={splitAppearance != null}
+        faceId={splitAppearance ? id : null}
+        faceTitle={title}
+        hostType={splitAppearance?.hostType ?? "video"}
+        hostId={splitAppearance?.hostId ?? 0}
+        onClose={() => setSplitAppearance(null)}
+        onSplit={() => refreshAfterAppearanceEdit(splitAppearance?.hostType ?? "video")}
+        onMarkNotPresent={splitAppearance ? () => confirmMarkNotPresent(splitAppearance) : undefined}
       />
 
       <FaceCompareDialog
@@ -1141,6 +1247,9 @@ function FaceAppearancesGrid({
   appearances,
   displayMode,
   onNavigate,
+  onSplit,
+  onMarkNotPresent,
+  markingNotPresent,
   zoomLevel,
   infinitePageSize,
   hasNextPage,
@@ -1150,6 +1259,9 @@ function FaceAppearancesGrid({
   appearances: FaceAppearanceListItem[];
   displayMode: "grid" | "list";
   onNavigate: (r: any) => void;
+  onSplit?: (host: FaceAppearanceHost) => void;
+  onMarkNotPresent?: (host: FaceAppearanceHost) => void;
+  markingNotPresent?: FaceAppearanceHost;
   zoomLevel: number;
   infinitePageSize: boolean;
   hasNextPage?: boolean;
@@ -1161,29 +1273,39 @@ function FaceAppearancesGrid({
       <div className="overflow-hidden rounded-lg border border-border bg-card/60">
         <div className="divide-y divide-border/70">
           {appearances.map((appearance) => (
-            <button
+            <div
               key={appearance.appearanceId}
-              type="button"
-              onClick={() => onNavigate({ page: appearance.hostType, id: appearance.hostId })}
-              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-card-hover"
+              className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-card-hover"
             >
-              <div className="h-12 w-16 shrink-0 overflow-hidden rounded bg-surface">
-                {appearance.thumbnailUrl ? (
-                  <img src={appearance.thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                ) : null}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-accent">
-                  {appearance.title || `${appearance.hostType} #${appearance.hostId}`}
+              <button
+                type="button"
+                onClick={() => onNavigate({ page: appearance.hostType, id: appearance.hostId })}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              >
+                <div className="h-12 w-16 shrink-0 overflow-hidden rounded bg-surface">
+                  {appearance.thumbnailUrl ? (
+                    <img src={appearance.thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : null}
                 </div>
-                <div className="mt-0.5 truncate text-xs text-muted">
-                  {appearance.hostType} · {appearance.frameSampleCount} samples ·{" "}
-                  {appearance.topConfidence != null
-                    ? `${Math.round(appearance.topConfidence * 100)}%`
-                    : "No confidence"}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-accent">
+                    {appearance.title || `${appearance.hostType} #${appearance.hostId}`}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-muted">
+                    {appearance.hostType} · {appearance.frameSampleCount} samples ·{" "}
+                    {appearance.topConfidence != null
+                      ? `${Math.round(appearance.topConfidence * 100)}%`
+                      : "No confidence"}
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+              <AppearanceCorrectionActions
+                appearance={appearance}
+                onSplit={onSplit}
+                onMarkNotPresent={onMarkNotPresent}
+                markingNotPresent={markingNotPresent}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -1207,10 +1329,87 @@ function FaceAppearancesGrid({
         <FaceAppearanceTile
           appearance={appearance}
           onClick={() => onNavigate({ page: appearance.hostType, id: appearance.hostId })}
-        />
+        >
+          {onSplit || onMarkNotPresent ? (
+            <AppearanceCorrectionActions
+              appearance={appearance}
+              onSplit={onSplit}
+              onMarkNotPresent={onMarkNotPresent}
+              markingNotPresent={markingNotPresent}
+              className="justify-center"
+            />
+          ) : null}
+        </FaceAppearanceTile>
       )}
     />
   );
+}
+
+/**
+ * Fixes for a cluster that picked up someone else in one video or image, offered where the wrong
+ * appearance is noticed rather than only from that host's own page.
+ */
+function AppearanceCorrectionActions({
+  appearance,
+  onSplit,
+  onMarkNotPresent,
+  markingNotPresent,
+  className = "",
+}: {
+  appearance: FaceAppearance;
+  onSplit?: (host: FaceAppearanceHost) => void;
+  onMarkNotPresent?: (host: FaceAppearanceHost) => void;
+  markingNotPresent?: FaceAppearanceHost;
+  className?: string;
+}) {
+  if (!onSplit && !onMarkNotPresent) return null;
+
+  const hostNoun = appearance.hostType === "image" ? "image" : "video";
+  const isMarking =
+    markingNotPresent?.hostType === appearance.hostType && markingNotPresent.hostId === appearance.hostId;
+  const buttonClassName =
+    "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+
+  return (
+    <div className={`flex shrink-0 flex-wrap items-center gap-1.5 ${className}`}>
+      {onSplit ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSplit(appearance);
+          }}
+          title={`Separate a different person out of this face in this ${hostNoun}`}
+          className={`${buttonClassName} hover:border-accent hover:text-accent`}
+        >
+          <Scissors className="h-3.5 w-3.5" />
+          Separate
+        </button>
+      ) : null}
+      {onMarkNotPresent ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onMarkNotPresent(appearance);
+          }}
+          disabled={markingNotPresent != null}
+          title={`This face is not actually in this ${hostNoun}`}
+          className={`${buttonClassName} hover:border-red-400/60 hover:text-red-300`}
+        >
+          <UserX className="h-3.5 w-3.5" />
+          {isMarking ? "Removing..." : "Not present"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+interface SimilarFaceLinkTarget {
+  performerId: number;
+  performerName: string;
 }
 
 function SimilarFacesView({
@@ -1218,6 +1417,9 @@ function SimilarFacesView({
   displayMode,
   onNavigate,
   canReadPerformers,
+  linkTarget,
+  onLink,
+  linkingFaceId,
   zoomLevel,
   infinitePageSize,
   hasNextPage,
@@ -1228,6 +1430,10 @@ function SimilarFacesView({
   displayMode: "grid" | "list";
   onNavigate: (r: any) => void;
   canReadPerformers: boolean;
+  /** The performer linked to the face being viewed; unlinked similar faces can be linked to it in one click. */
+  linkTarget?: SimilarFaceLinkTarget;
+  onLink: (faceId: number, performerId: number) => void;
+  linkingFaceId?: number;
   zoomLevel: number;
   infinitePageSize: boolean;
   hasNextPage?: boolean;
@@ -1239,35 +1445,46 @@ function SimilarFacesView({
       <div className="overflow-hidden rounded-lg border border-border bg-card/60">
         <div className="divide-y divide-border/70">
           {faceItems.map((face) => {
-            const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
+            const title = faceDisplayName(face);
             return (
-              <button
+              <div
                 key={face.id}
-                type="button"
-                onClick={() => onNavigate({ page: "face", id: face.id })}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-card-hover"
+                className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-card-hover"
               >
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-surface">
-                  {face.coverImageUrl ? (
-                    <img src={face.coverImageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-muted">
-                      <Fingerprint className="h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-accent">{title}</div>
-                  <div className="mt-0.5 truncate text-xs text-muted">
-                    Distance {face.distance.toFixed(3)} · {face.appearanceCount} appearances
+                <button
+                  type="button"
+                  onClick={() => onNavigate({ page: "face", id: face.id })}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-surface">
+                    {face.coverImageUrl ? (
+                      <img src={face.coverImageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-muted">
+                        <Fingerprint className="h-4 w-4" />
+                      </div>
+                    )}
                   </div>
-                </div>
-                {face.performerId ? (
-                  <span className={`shrink-0 text-xs ${canReadPerformers ? "text-accent" : "text-muted"}`}>
-                    {face.performerName || `Performer #${face.performerId}`}
-                  </span>
-                ) : null}
-              </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-accent">{title}</div>
+                    <div className="mt-0.5 truncate text-xs text-muted">
+                      Distance {face.distance.toFixed(3)} · {face.appearanceCount} appearances
+                    </div>
+                  </div>
+                  {face.performerId ? (
+                    <span className={`shrink-0 text-xs ${canReadPerformers ? "text-accent" : "text-muted"}`}>
+                      {face.performerName || `Performer #${face.performerId}`}
+                    </span>
+                  ) : null}
+                </button>
+                <LinkSimilarFaceButton
+                  face={face}
+                  linkTarget={linkTarget}
+                  onLink={onLink}
+                  linkingFaceId={linkingFaceId}
+                  className="max-w-[14rem] shrink-0"
+                />
+              </div>
             );
           })}
         </div>
@@ -1289,7 +1506,15 @@ function SimilarFacesView({
       isFetchingNextPage={isFetchingNextPage}
       loadMore={loadMore}
       renderItem={(candidate) => (
-        <SimilarFaceTile face={candidate} onNavigate={onNavigate} canReadPerformers={canReadPerformers} />
+        <SimilarFaceTile face={candidate} onNavigate={onNavigate} canReadPerformers={canReadPerformers}>
+          <LinkSimilarFaceButton
+            face={candidate}
+            linkTarget={linkTarget}
+            onLink={onLink}
+            linkingFaceId={linkingFaceId}
+            className="mt-2 w-full"
+          />
+        </SimilarFaceTile>
       )}
     />
   );
@@ -1304,14 +1529,55 @@ function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+/**
+ * Links an unlinked similar face to the performer of the face being viewed. Green rather than the accent
+ * blue of the Faces list's link button, which links a face to its own top suggestion instead.
+ */
+function LinkSimilarFaceButton({
+  face,
+  linkTarget,
+  onLink,
+  linkingFaceId,
+  className = "",
+}: {
+  face: FaceSimilar;
+  linkTarget?: SimilarFaceLinkTarget;
+  onLink: (faceId: number, performerId: number) => void;
+  linkingFaceId?: number;
+  className?: string;
+}) {
+  if (!linkTarget || face.performerId) return null;
+
+  const isLinking = linkingFaceId === face.id;
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onLink(face.id, linkTarget.performerId);
+      }}
+      disabled={linkingFaceId != null}
+      title={`Link this face to ${linkTarget.performerName}, the performer linked to the face you are viewing`}
+      aria-label={`Link to ${linkTarget.performerName}`}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+    >
+      <Link2 className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{isLinking ? "Linking..." : `Link to ${linkTarget.performerName}`}</span>
+    </button>
+  );
+}
+
 function SimilarFaceTile({
   face,
   onNavigate,
   canReadPerformers,
+  children,
 }: {
   face: FaceSimilar;
   onNavigate: (r: any) => void;
   canReadPerformers: boolean;
+  children?: React.ReactNode;
 }) {
   return (
     <FaceTile face={face} onClick={() => onNavigate({ page: "face", id: face.id })}>
@@ -1327,6 +1593,7 @@ function SimilarFaceTile({
             {face.performerName || `Performer #${face.performerId}`}
           </button>
         ) : null}
+        {children}
       </div>
     </FaceTile>
   );

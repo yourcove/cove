@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 
@@ -102,7 +103,7 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
     {
         var started = await StartDuplicateSearchAsync(
-            new DuplicateSearchRequestDto(matchType, distance),
+            new DuplicateSearchStartRequest(matchType, distance),
             cancellationToken);
         var job = await WaitForTerminalJobAsync(started.JobId, cancellationToken);
         if (job.Status != JobStatus.Completed)
@@ -110,7 +111,7 @@ public sealed partial class CoveClient
 
         var groups = new List<IReadOnlyList<VideoDto>>();
         var pageNumber = 1;
-        DuplicateSearchGroupPageDto page;
+        DuplicateGroupPage page;
         do
         {
             page = await GetDuplicateSearchGroupsAsync(
@@ -120,44 +121,60 @@ public sealed partial class CoveClient
                 cancellationToken: cancellationToken);
             groups.AddRange(page.Items.Select(group => group.Videos));
         }
-        while (page.HasMore);
+        while (page.Page * page.PerPage < page.TotalCount);
         return groups;
     }
 
-    public Task<DuplicateSearchStartDto> StartDuplicateSearchAsync(
-        DuplicateSearchRequestDto request,
+    public Task<DuplicateSearchStarted> StartDuplicateSearchAsync(
+        DuplicateSearchStartRequest request,
         CancellationToken cancellationToken = default)
-        => SendForExpectedStatusAsync<DuplicateSearchStartDto>(
+        => SendForExpectedStatusAsync<DuplicateSearchStarted>(
             HttpMethod.Post,
             "/api/videos/duplicate-searches",
             request,
             HttpStatusCode.Accepted,
             cancellationToken);
 
-    public Task<DuplicateSearchInfoDto> GetDuplicateSearchAsync(
+    public Task<List<DuplicateSearchListItem>> ListDuplicateSearchesAsync(CancellationToken cancellationToken = default)
+        => SendAsync<List<DuplicateSearchListItem>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/videos/duplicate-searches?limit=50"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DuplicateSearchSummary> GetDuplicateSearchAsync(
         Guid searchId,
         CancellationToken cancellationToken = default)
-        => SendAsync<DuplicateSearchInfoDto>(
+        => SendAsync<DuplicateSearchSummary>(
             HttpMethod.Get,
             WithCacheNonce($"/api/videos/duplicate-searches/{searchId}"),
             payload: null,
             cancellationToken);
 
-    public Task<DuplicateSearchGroupPageDto> GetDuplicateSearchGroupsAsync(
+    public Task DeleteDuplicateSearchAsync(Guid searchId, CancellationToken cancellationToken = default)
+        => AssertResponseAsync(
+            HttpMethod.Delete,
+            $"/api/videos/duplicate-searches/{searchId}",
+            HttpStatusCode.NoContent,
+            payload: null,
+            cancellationToken);
+
+    public Task<DuplicateGroupPage> GetDuplicateSearchGroupsAsync(
         Guid searchId,
         int page = 1,
         int perPage = 10,
+        string status = "unresolved",
         CancellationToken cancellationToken = default)
-        => SendAsync<DuplicateSearchGroupPageDto>(
+        => SendAsync<DuplicateGroupPage>(
             HttpMethod.Get,
-            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}/groups?page={page}&perPage={perPage}"),
+            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}/groups?page={page}&perPage={perPage}&status={Uri.EscapeDataString(status)}"),
             payload: null,
             cancellationToken);
 
     public Task UpdateDuplicateSearchGroupDecisionAsync(
         Guid searchId,
         int groupId,
-        DuplicateSearchGroupDecisionDto request,
+        DuplicateKeeperDecisionRequest request,
         CancellationToken cancellationToken = default)
         => SendForNoContentAsync(
             HttpMethod.Patch,
@@ -165,15 +182,41 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
-    public Task<BulkDeletionJobStartResponse> DeleteUnkeptDuplicateVideosAsync(
+    public Task<DuplicateAutoSelectResult> AutoSelectDuplicateKeepersAsync(
         Guid searchId,
-        DuplicateSearchDeleteRequestDto request,
+        DuplicateAutoSelectRequest request,
         CancellationToken cancellationToken = default)
-        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+        => SendAsync<DuplicateAutoSelectResult>(
             HttpMethod.Post,
-            $"/api/videos/duplicate-searches/{searchId}/delete-unkept",
+            $"/api/videos/duplicate-searches/{searchId}/auto-select",
+            request,
+            cancellationToken);
+
+    public Task<DuplicateResolveResult> ResolveDuplicateGroupsAsync(
+        Guid searchId,
+        DuplicateResolveRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<DuplicateResolveResult>(
+            HttpMethod.Post,
+            $"/api/videos/duplicate-searches/{searchId}/resolve",
             request,
             HttpStatusCode.Accepted,
+            cancellationToken);
+
+    public Task IgnoreDuplicateGroupAsync(Guid searchId, int groupId, CancellationToken cancellationToken = default)
+        => AssertResponseAsync(
+            HttpMethod.Post,
+            $"/api/videos/duplicate-searches/{searchId}/groups/{groupId}/ignore",
+            HttpStatusCode.NoContent,
+            payload: null,
+            cancellationToken);
+
+    public Task RestoreDuplicateGroupAsync(Guid searchId, int groupId, CancellationToken cancellationToken = default)
+        => AssertResponseAsync(
+            HttpMethod.Delete,
+            $"/api/videos/duplicate-searches/{searchId}/groups/{groupId}/ignore",
+            HttpStatusCode.NoContent,
+            payload: null,
             cancellationToken);
 
     public Task<PaginatedResponse<VideoListEntryDto>> GetVideosWithCompilationsAsync(

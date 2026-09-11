@@ -10,6 +10,12 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- The Duplicate Finder has been rebuilt around reviewing and resolving duplicates quickly and safely. Search by visual similarity with accuracy presets, identical files, titles, or scene IDs, limited to or excluding library folders and ignoring short clips. Settings are remembered, searches show live progress, and recent searches can be resumed where you left off.
+- Duplicate keeper rules pick the best copy in every group by resolution, duration, bitrate, frame rate, preferred codec, file size, metadata, watch history, organized state, preferred folder, or date added. Each group records why its keeper was chosen, and the rules can be re-applied to all groups at any time.
+- Duplicate groups line copies up side by side with hover previews, highlighted best values, and visual-distance and length hints. A compare view adds a draggable slider, synchronized playback with an offset for trimmed copies, and aligned frame strips. Groups can be filtered, sorted by space to free, paged, quick-viewed without leaving the page, and reviewed with keyboard shortcuts.
+- Resolve one duplicate group or all of them while you keep reviewing; resolution runs in the background. Tags, performers, galleries, groups, links, remote IDs, ratings, favorites, play counts, and markers can be merged into the kept copy before the others are removed, optionally with their files.
+- Groups marked as not duplicates are remembered, so later searches never group those videos together again.
+
 ## [1.4.1] - 2026-09-07
 
 Restored compatibility for existing extensions and improved extension-owned infinite scrolling.

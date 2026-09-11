@@ -108,6 +108,7 @@ import {
   hasAnyPermission,
 } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
@@ -1080,7 +1081,7 @@ function PerformerFaceSimilarityPanel({
                 onClick={() => onNavigate({ page: "face", id: face.id })}
                 className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground transition-colors hover:border-accent"
               >
-                {face.label?.trim() || `Face #${face.id}`}
+                {faceDisplayName(face)}
               </button>
             ))}
             {linkedFaces.length > visibleLinkedFaces.length ? (
