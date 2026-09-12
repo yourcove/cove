@@ -270,7 +270,14 @@ export function FilterDialog({
 
   type NavigatorItem =
     | { kind: "criterion"; id: string; label: string; active: boolean; pinned: boolean; criterion: CriterionDefinition }
-    | { kind: "custom"; id: string; label: string; active: boolean; pinned: false; section: FilterDialogCustomSection };
+    | {
+        kind: "custom";
+        id: string;
+        label: string;
+        active: boolean;
+        pinned: boolean;
+        section: FilterDialogCustomSection;
+      };
 
   const navigatorGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -297,7 +304,7 @@ export function FilterDialog({
         id: section.id,
         label: section.label,
         active: section.isActive(editFilter[section.filterKey]),
-        pinned: false,
+        pinned: pinnedIds.has(section.id),
         section,
       }));
     const items = [...customItems, ...criterionItems];
@@ -337,7 +344,7 @@ export function FilterDialog({
         id: section.id,
         label: section.label,
         active: section.isActive(editFilter[section.filterKey]),
-        pinned: false as const,
+        pinned: pinnedIds.has(section.id),
         section,
       };
     }
@@ -2049,7 +2056,7 @@ export function FilterDialog({
                               onFocus={() => setNavigatorFocusId(item.id)}
                               onKeyDown={(event) => {
                                 const index = visibleNavigatorItems.findIndex((candidate) => candidate.id === item.id);
-                                if (event.key === "ArrowRight" && item.kind === "criterion" && supported) {
+                                if (event.key === "ArrowRight" && supported) {
                                   event.preventDefault();
                                   pinButtonRefs.current.get(item.id)?.focus();
                                   return;
@@ -2093,7 +2100,7 @@ export function FilterDialog({
                                 Active filter
                               </span>
                             ) : null}
-                            {item.kind === "criterion" && supported ? (
+                            {supported ? (
                               <button
                                 ref={(element) => {
                                   if (element) pinButtonRefs.current.set(item.id, element);
