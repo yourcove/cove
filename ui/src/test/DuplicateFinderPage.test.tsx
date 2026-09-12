@@ -230,4 +230,10 @@ describe("duplicate comparison model", () => {
     expect(rowTones(resolution, [big, small], new Map()).tones).toEqual(["best", "worse"]);
     expect(rowTones(resolution, [big, big], new Map())).toEqual({ tones: ["same", "same"], allSame: true });
   });
+
+  it("renders added dates in Cove's ISO date format", () => {
+    const added = COMPARISON_ROWS.find((row) => row.key === "added")!;
+
+    expect(added.render(group.videos[0], undefined)).toBe("2026-08-25");
+  });
 });
