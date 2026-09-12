@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -73,6 +75,19 @@ public sealed class DuplicateSearchJobTests
             CancellationToken.None);
 
         Assert.Equal(DuplicateSearchJobService.MaximumPHashDistance, (await db.DuplicateSearches.SingleAsync()).Distance);
+    }
+
+    [Fact]
+    public void ScopePathNormalizationRejectsAnOversizedAggregate()
+    {
+        var paths = Enumerable.Range(0, 257)
+            .Select(index => $"/{index:D3}" + new string('x', DuplicateSearchMemoryBudget.MaximumFieldCharacters - 4))
+            .ToArray();
+
+        var error = Assert.Throws<InvalidOperationException>(() => DuplicateSearchJobService.NormalizeScopePaths(paths));
+
+        Assert.Contains("scope paths", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("total limit", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -430,13 +445,273 @@ public sealed class DuplicateSearchJobTests
         Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToArrayAsync());
     }
 
-    internal static CoveContext CreateContext()
+    [Theory]
+    [InlineData("title")]
+    [InlineData("remoteId")]
+    [InlineData("fingerprint")]
+    [InlineData("phash")]
+    public async Task ExecutionRejectsOversizedMetadataAndRecordsFailure(string matchType)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
+        var ct = TestContext.Current.CancellationToken;
+        var commands = new CandidateCommandCapture();
+        await using var db = CreateContext(commands);
+        var value = new string('a', DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1000);
+        var video = new Video { Title = matchType == "title" ? value : "candidate" };
+        if (matchType == "remoteId") video.RemoteIds.Add(new VideoRemoteId { Endpoint = "endpoint", RemoteId = value });
+        if (matchType is "fingerprint" or "phash")
+        {
+            var folder = new Folder { Path = "/duplicate-memory" };
+            db.Folders.Add(folder);
+            await db.SaveChangesAsync(ct);
+            video.Files.Add(new VideoFile { ParentFolderId = folder.Id, Basename = "candidate.mp4", Fingerprints = [new FileFingerprint { Type = matchType == "phash" ? "phash" : "md5", Value = value }] });
+        }
+        var search = new DuplicateSearch { MatchType = matchType, ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.AddRange(video, search);
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        var service = new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration());
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExecuteAsync(search.Id, null, new SilentProgress(), ct));
+        Assert.Contains("character field limit", error.Message);
+        Assert.Contains(commands.Commands, sql => sql.Contains("substr(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT"));
+        db.ChangeTracker.Clear();
+        var saved = await db.DuplicateSearches.SingleAsync(ct);
+        Assert.Equal(DuplicateSearchStatus.Failed, saved.Status);
+        Assert.Contains("character field limit", saved.Error);
+        Assert.Empty(await db.DuplicateSearchGroups.ToListAsync(ct));
+    }
+
+    [Fact]
+    public async Task ExplicitCandidateLimitStopsEnqueueBeforeRetainingOversizedSelection()
+    {
+        await using var db = CreateContext();
+        var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
+        var ids = Enumerable.Range(1, DuplicateSearchMemoryBudget.MaximumVideos + 1).ToArray();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(null, null, new DuplicateSearchStartRequest("title", 0, 0), ids, TestContext.Current.CancellationToken));
+        Assert.Empty(await db.DuplicateSearches.ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal([1], DuplicateSearchMemoryBudget.NormalizeIds(Enumerable.Repeat(1, ids.Length)));
+    }
+
+    [Fact]
+    public async Task ScopedCandidateLoadingStreamsFilesAndPreservesPathDurationAndMetadataOnlyRules()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = CreateContext();
+        var includedFolder = new Folder { Path = "/library/keep" };
+        var excludedFolder = new Folder { Path = "/library/trash" };
+        db.Folders.AddRange(includedFolder, excludedFolder);
+        await db.SaveChangesAsync(ct);
+        var included = new Video
+        {
+            Title = "included",
+            MaxDuration = 60,
+            Files =
+            [
+                new VideoFile { ParentFolderId = includedFolder.Id, Basename = "included.mp4", Duration = 60 },
+                new VideoFile { ParentFolderId = excludedFolder.Id, Basename = "also-excluded.mp4", Duration = 60 },
+            ],
+        };
+        var excluded = new Video
+        {
+            Title = "excluded",
+            MaxDuration = 60,
+            Files = [new VideoFile { ParentFolderId = excludedFolder.Id, Basename = "excluded.mp4", Duration = 60 }],
+        };
+        var tooShort = new Video
+        {
+            Title = "short",
+            MaxDuration = 10,
+            Files = [new VideoFile { ParentFolderId = includedFolder.Id, Basename = "short.mp4", Duration = 10 }],
+        };
+        var metadataOnly = new Video { Title = "metadata only", MaxDuration = 60 };
+        db.Videos.AddRange(included, excluded, tooShort, metadataOnly);
+        await db.SaveChangesAsync(ct);
+
+        var scoped = new DuplicateSearch
+        {
+            MatchType = "title",
+            IncludePaths = ["/library"],
+            ExcludePaths = ["/library/trash"],
+            MinimumDuration = 30,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        };
+        db.DuplicateSearches.Add(scoped);
+        await db.SaveChangesAsync(ct);
+        var service = new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration());
+        await service.ExecuteAsync(scoped.Id, null, new SilentProgress(), ct);
+        db.ChangeTracker.Clear();
+        Assert.Equal(1, (await db.DuplicateSearches.SingleAsync(search => search.Id == scoped.Id, ct)).CandidateCount);
+
+        var unscoped = new DuplicateSearch { MatchType = "title", ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.DuplicateSearches.Add(unscoped);
+        await db.SaveChangesAsync(ct);
+        await service.ExecuteAsync(unscoped.Id, null, new SilentProgress(), ct);
+        db.ChangeTracker.Clear();
+        Assert.Equal(4, (await db.DuplicateSearches.SingleAsync(search => search.Id == unscoped.Id, ct)).CandidateCount);
+    }
+
+    [Fact]
+    public async Task KeeperFactsStreamFilesAndRejectOversizedRetainedPaths()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = CreateContext();
+        var folder = new Folder { Path = "/library/keeper" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(ct);
+        var files = Enumerable.Range(0, 300)
+            .Select(index => new VideoFile
+            {
+                ParentFolderId = folder.Id,
+                Basename = $"candidate-{index:D3}.mp4",
+                Width = index + 1,
+                Height = 2,
+                Size = 10,
+                VideoCodec = index == 0 ? "hvc1" : "h264",
+            })
+            .ToArray();
+        var video = new Video { Title = "keeper facts", Files = files };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(ct);
+        video.PrimaryFileId = files[0].Id;
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+
+        var facts = Assert.Single(await DuplicateKeeperRules.LoadFactsAsync(db, [video.Id], [new("resolution"), new("path", ["keeper"])], ct)).Value;
+        Assert.Equal(600, facts.Pixels);
+        Assert.Equal(3_000, facts.TotalSize);
+        Assert.Equal("hevc", facts.Codec);
+        Assert.EndsWith("candidate-000.mp4", facts.Path, StringComparison.Ordinal);
+
+        var oversizedFolder = new Folder { Path = "/" + new string('x', DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) };
+        db.Folders.Add(oversizedFolder);
+        await db.SaveChangesAsync(ct);
+        var oversized = new Video
+        {
+            Title = "oversized keeper path",
+            Files = [new VideoFile { ParentFolderId = oversizedFolder.Id, Basename = "candidate.mp4", Width = 1, Height = 1 }],
+        };
+        db.Videos.Add(oversized);
+        await db.SaveChangesAsync(ct);
+        oversized.PrimaryFileId = oversized.Files.Single().Id;
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DuplicateKeeperRules.LoadFactsAsync(db, [oversized.Id], [new("path", ["keeper"])], ct));
+        Assert.Contains("character field limit", error.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CandidateBudgetRejectsRowsBeforeAnUnboundedGroupingOrVisualIndex(bool visual)
+    {
+        var budget = new DuplicateSearchMemoryBudget();
+        var admitted = 0;
+        var error = Assert.Throws<InvalidOperationException>((Action)(() =>
+        {
+            while (true) { budget.Reserve(32, 32, visual); admitted++; }
+        }));
+        Assert.Contains("candidate memory budget", error.Message);
+        Assert.InRange(admitted, 1, DuplicateSearchMemoryBudget.MaximumRows);
+        if (visual) Assert.True(admitted < DuplicateSearchMemoryBudget.MaximumRows);
+    }
+
+    [Fact]
+    public void CandidateBudgetAlsoChargesIgnoredPairsAndStreamedGroupingNodes()
+    {
+        var budget = new DuplicateSearchMemoryBudget();
+        var reservedPairs = (DuplicateSearchMemoryBudget.MaximumEstimatedBytes - 64) / 64;
+        for (long index = 0; index < reservedPairs; index++)
+            budget.ReserveIgnoredPair();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DuplicateSearchExecutionService.GroupBuckets([[1, 2, 3, 4]], new HashSet<(int, int)>(), budget));
+        Assert.Contains("candidate memory budget", error.Message);
+    }
+
+    [Theory]
+    [InlineData("title")]
+    [InlineData("remoteId")]
+    [InlineData("fingerprint")]
+    public async Task ExactMatchesCrossPagesAndCandidateChunksWithoutExpandingScope(string matchType)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var commands = new CandidateCommandCapture();
+        await using var db = CreateContext(commands);
+        var folder = new Folder { Path = "/duplicate-pages" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(ct);
+        var videos = Enumerable.Range(0, 4002).Select(index =>
+        {
+            var key = index is 0 or 4001 ? "shared" : $"unique-{index}";
+            var video = new Video { Title = key };
+            if (matchType == "remoteId") video.RemoteIds.Add(new VideoRemoteId { Endpoint = "endpoint", RemoteId = key });
+            if (matchType == "fingerprint") video.Files.Add(new VideoFile { ParentFolderId = folder.Id, Basename = $"{index}.mp4", Fingerprints = [new FileFingerprint { Type = "md5", Value = key }] });
+            return video;
+        }).ToArray();
+        db.Videos.AddRange(videos);
+        await db.SaveChangesAsync(ct);
+        var ids = videos.Select(video => video.Id).ToArray();
+        db.ChangeTracker.Clear();
+        foreach (var includeLast in new[] { true, false })
+        {
+            var search = new DuplicateSearch { MatchType = matchType, ExpiresAt = DateTime.UtcNow.AddDays(1) };
+            db.DuplicateSearches.Add(search);
+            await db.SaveChangesAsync(ct);
+            await new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration())
+                .ExecuteAsync(search.Id, includeLast ? ids : ids[..^1], new SilentProgress(), ct);
+            var groups = await db.DuplicateSearchGroups.Where(group => group.SearchId == search.Id).Include(group => group.Items).ToArrayAsync(ct);
+            if (includeLast) Assert.Equal(new[] { ids[0], ids[^1] }, Assert.Single(groups).Items.Select(item => item.VideoId).Order().ToArray());
+            else Assert.Empty(groups);
+            Assert.Equal(DuplicateSearchStatus.Completed, (await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id, ct)).Status);
+        }
+        Assert.Contains(commands.Commands, sql => sql.Contains("substr(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT") && sql.Contains(" > @"));
+    }
+
+    [Fact]
+    public async Task CancellationDuringCandidateLoadingPersistsCancelledStatus()
+    {
+        await using var db = CreateContext();
+        using var cancellation = new CancellationTokenSource();
+        db.Videos.Add(new Video { Title = "cancellation candidate" });
+        var search = new DuplicateSearch { MatchType = "title", ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.DuplicateSearches.Add(search);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration())
+            .ExecuteAsync(search.Id, null, new CancelLoadingProgress(cancellation), cancellation.Token));
+        Assert.Equal(DuplicateSearchStatus.Cancelled, (await db.DuplicateSearches.AsNoTracking().SingleAsync(TestContext.Current.CancellationToken)).Status);
+    }
+
+    private sealed class CancelLoadingProgress(CancellationTokenSource cancellation) : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null)
+        {
+            if (subTask == "Comparing video titles") cancellation.Cancel();
+        }
+    }
+
+    private sealed class CandidateCommandCapture : DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = [];
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("LIMIT")) Commands.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class SilentProgress : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null) { }
+    }
+
+    internal static CoveContext CreateContext() => CreateContext(null);
+
+    private static CoveContext CreateContext(DbCommandInterceptor? interceptor)
+    {
+        var builder = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite("Data Source=:memory:")
-            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .Options;
-        var context = new CoveContext(options);
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>();
+        if (interceptor is not null) builder.AddInterceptors(interceptor);
+        var context = new CoveContext(builder.Options);
         context.Database.OpenConnection();
         context.Database.EnsureCreated();
         return context;

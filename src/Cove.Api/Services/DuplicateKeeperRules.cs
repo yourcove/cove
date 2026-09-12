@@ -88,6 +88,9 @@ internal static class DuplicateKeeperRules
                 values = (rule!.Values ?? [])
                     .Select(value => value?.Trim() ?? string.Empty)
                     .Where(value => value.Length > 0)
+                    .Select(value => value.Length <= DuplicateSearchMemoryBudget.MaximumFieldCharacters
+                        ? value
+                        : throw new InvalidOperationException($"Duplicate search metadata exceeds the {DuplicateSearchMemoryBudget.MaximumFieldCharacters:N0}-character field limit. Shorten the affected metadata and try again."))
                     .Select(value => type == "codec" ? NormalizeCodec(value) : value)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(MaximumRuleValues)
@@ -199,6 +202,14 @@ internal static class DuplicateKeeperRules
         IReadOnlyCollection<int> videoIds,
         IReadOnlyList<DuplicateKeeperRule> rules,
         CancellationToken ct)
+        => await LoadFactsAsync(db, videoIds, rules, new DuplicateSearchMemoryBudget(), ct);
+
+    internal static async Task<Dictionary<int, DuplicateKeeperFacts>> LoadFactsAsync(
+        CoveContext db,
+        IReadOnlyCollection<int> videoIds,
+        IReadOnlyList<DuplicateKeeperRule> rules,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
     {
         var result = new Dictionary<int, DuplicateKeeperFacts>();
         var needsMetadata = rules.Any(rule => rule.Type == "metadata");
@@ -219,12 +230,28 @@ internal static class DuplicateKeeperRules
                     video.PrimaryFileId,
                 })
                 .ToListAsync(ct);
-            var filesByVideoId = (await db.VideoFiles
-                    .AsNoTracking()
-                    .Where(file => file.VideoId.HasValue && chunk.Contains(file.VideoId.Value))
-                    .Select(file => new { file.Id, VideoId = file.VideoId!.Value, file.Width, file.Height, file.VideoCodec, file.Path, file.Size })
-                    .ToListAsync(ct))
-                .ToLookup(file => file.VideoId);
+            var filesByVideoId = rows.ToDictionary(row => row.Id, row => new KeeperFileAccumulator(row.PrimaryFileId));
+            var fileQuery = db.VideoFiles
+                .AsNoTracking()
+                .Where(file => file.VideoId.HasValue && chunk.Contains(file.VideoId.Value))
+                .OrderBy(file => file.Id)
+                .Select(file => new
+                {
+                    file.Id,
+                    VideoId = file.VideoId!.Value,
+                    file.Width,
+                    file.Height,
+                    VideoCodec = file.VideoCodec != null && file.VideoCodec.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
+                        ? file.VideoCodec.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                        : file.VideoCodec,
+                    Path = file.Path.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
+                        ? file.Path.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                        : file.Path,
+                    file.Size,
+                })
+                .AsAsyncEnumerable();
+            await foreach (var file in fileQuery.WithCancellation(ct))
+                filesByVideoId[file.VideoId].Add(file.Id, file.Width, file.Height, file.VideoCodec, file.Path, file.Size);
 
             var metadata = needsMetadata
                 ? await db.Videos
@@ -277,20 +304,19 @@ internal static class DuplicateKeeperRules
 
             foreach (var row in rows)
             {
-                var files = filesByVideoId[row.Id].ToArray();
-                var primary = files
-                    .OrderByDescending(file => file.Id == row.PrimaryFileId)
-                    .ThenByDescending(file => (long)file.Width * file.Height)
-                    .FirstOrDefault();
+                var files = filesByVideoId[row.Id];
+                var codec = NormalizeCodec(files.Codec);
+                var path = (files.Path ?? string.Empty).Replace('\\', '/');
+                memoryBudget.ReserveKeeperFact(codec.Length + path.Length, Math.Max(codec.Length, path.Length));
                 result[row.Id] = new DuplicateKeeperFacts(
                     row.Id,
-                    files.Select(file => (long)file.Width * file.Height).DefaultIfEmpty(0).Max(),
+                    files.MaximumPixels,
                     row.MaxBitRate,
                     row.MaxFrameRate,
                     row.MaxDuration,
-                    files.Sum(file => file.Size),
-                    NormalizeCodec(primary?.VideoCodec),
-                    (primary?.Path ?? string.Empty).Replace('\\', '/'),
+                    files.TotalSize,
+                    codec,
+                    path,
                     metadata.GetValueOrDefault(row.Id),
                     engagement.GetValueOrDefault(row.Id),
                     row.Organized,
@@ -298,5 +324,33 @@ internal static class DuplicateKeeperRules
             }
         }
         return result;
+    }
+
+    private sealed class KeeperFileAccumulator(int? primaryFileId)
+    {
+        private bool hasSelection;
+        private bool selectionIsPrimary;
+        private long selectionPixels;
+
+        public long MaximumPixels { get; private set; }
+        public long TotalSize { get; private set; }
+        public string? Codec { get; private set; }
+        public string? Path { get; private set; }
+
+        public void Add(int id, int width, int height, string? codec, string path, long size)
+        {
+            var pixels = (long)width * height;
+            MaximumPixels = Math.Max(MaximumPixels, pixels);
+            TotalSize += size;
+            var isPrimary = id == primaryFileId;
+            if (!hasSelection || (isPrimary && !selectionIsPrimary) || (isPrimary == selectionIsPrimary && pixels > selectionPixels))
+            {
+                hasSelection = true;
+                selectionIsPrimary = isPrimary;
+                selectionPixels = pixels;
+                Codec = codec;
+                Path = path;
+            }
+        }
     }
 }
