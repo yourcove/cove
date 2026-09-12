@@ -83,8 +83,12 @@ public sealed class DuplicateIgnoredPairConfiguration : IEntityTypeConfiguration
     public void Configure(EntityTypeBuilder<DuplicateIgnoredPair> builder)
     {
         builder.ToTable("duplicate_ignored_pairs", table =>
-            table.HasCheckConstraint("CK_duplicate_ignored_pairs_ordered", "\"LowVideoId\" < \"HighVideoId\""));
+        {
+            table.HasCheckConstraint("CK_duplicate_ignored_pairs_ordered", "\"LowVideoId\" < \"HighVideoId\"");
+            table.HasCheckConstraint("CK_duplicate_ignored_pairs_decision_count", "\"DecisionCount\" > 0");
+        });
         builder.HasKey(pair => new { pair.LowVideoId, pair.HighVideoId });
+        builder.Property(pair => pair.DecisionCount).HasDefaultValue(1);
         builder.HasIndex(pair => pair.HighVideoId);
         builder.HasOne(pair => pair.LowVideo)
             .WithMany()

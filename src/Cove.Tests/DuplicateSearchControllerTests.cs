@@ -257,6 +257,73 @@ public sealed class DuplicateSearchControllerTests
     }
 
     [Fact]
+    public async Task RestoringAnOverlappingGroupPreservesEarlierIgnoredPairs()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = connection;
+        await using var __ = db;
+        var (firstSearch, firstGroups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            [[(true, "a"), (false, "b")]],
+            ownerKey: "user:1");
+        var third = new Video { Title = "Video c" };
+        db.Videos.Add(third);
+        var secondSearch = new DuplicateSearch
+        {
+            OwnerKey = "user:1",
+            Status = DuplicateSearchStatus.Completed,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            Groups =
+            [
+                new DuplicateSearchGroup
+                {
+                    Position = 0,
+                    Items =
+                    [
+                        new DuplicateSearchItem { VideoId = videos["a"].Id, Keep = true },
+                        new DuplicateSearchItem { VideoId = videos["b"].Id },
+                        new DuplicateSearchItem { Video = third },
+                    ],
+                },
+            ],
+        };
+        db.DuplicateSearches.Add(secondSearch);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        Assert.IsType<NoContentResult>(await controller.IgnoreDuplicateGroup(firstSearch.Id, firstGroups[0].Id, CancellationToken.None));
+        var originalPrincipal = principalAccessor.Current;
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "duplicate-search-owner",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.VideosWrite },
+            Roles = new HashSet<string>(),
+        });
+        try
+        {
+            Assert.IsType<NoContentResult>(await controller.IgnoreDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
+            Assert.Equal(2, (await db.DuplicateIgnoredPairs.IgnoreQueryFilters().SingleAsync(pair =>
+                pair.LowVideoId == videos["a"].Id && pair.HighVideoId == videos["b"].Id)).DecisionCount);
+            Assert.IsType<NoContentResult>(await controller.RestoreIgnoredDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
+            Assert.IsType<NoContentResult>(await controller.RestoreIgnoredDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
+        }
+        finally
+        {
+            principalAccessor.Set(originalPrincipal);
+        }
+        db.ChangeTracker.Clear();
+
+        var remaining = await db.DuplicateIgnoredPairs.SingleAsync();
+        Assert.Equal((videos["a"].Id, videos["b"].Id, 1), (remaining.LowVideoId, remaining.HighVideoId, remaining.DecisionCount));
+        Assert.Equal(DuplicateGroupStatus.Ignored, (await db.DuplicateSearchGroups.SingleAsync(group => group.Id == firstGroups[0].Id)).Status);
+    }
+
+    [Fact]
     public async Task AutoSelectAppliesRulesButKeepsManualChoicesUnlessAskedToOverwrite()
     {
         var principalAccessor = CreatePrincipalAccessor();
