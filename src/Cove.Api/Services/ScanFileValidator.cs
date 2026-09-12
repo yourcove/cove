@@ -539,7 +539,16 @@ public sealed class ScanFileValidator(
             if (boxes >= MaxIsoBmffTopLevelBoxes)
                 return $"the ISO media container has more than {MaxIsoBmffTopLevelBoxes:N0} top-level boxes";
             if (length - offset < 8)
+            {
+                var tailLength = (int)(length - offset);
+                stream.Position = offset;
+                await stream.ReadExactlyAsync(header.AsMemory(0, tailLength), ct);
+                // Some otherwise valid writers align the completed container with a few zero bytes.
+                // FFprobe still validates the streams after this structural preflight.
+                if (boxes > 0 && header.AsSpan(0, tailLength).IndexOfAnyExcept((byte)0) < 0)
+                    return null;
                 return "the ISO media container ends in a partial box header";
+            }
 
             stream.Position = offset;
             await stream.ReadExactlyAsync(header.AsMemory(0, 8), ct);
