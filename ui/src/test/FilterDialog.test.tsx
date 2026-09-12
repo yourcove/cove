@@ -54,6 +54,23 @@ function startRootSubgroupCreation() {
 }
 
 describe("FilterDialog", () => {
+  it("applies a relative expression from the date input without resolving it", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+        preselectCriterion="date"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "-7d" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/ }));
+    expect(onApply).toHaveBeenCalledWith({ dateCriterion: { value: "-7d", modifier: "EQUALS" } });
+  });
+
   it("retains and edits a saved list of performer countries", async () => {
     const onApply = vi.fn();
     const user = userEvent.setup();
@@ -2342,13 +2359,7 @@ describe("FilterDialog", () => {
     const onApply = vi.fn();
 
     renderWithQueryClient(
-      <FilterDialog
-        open
-        onClose={vi.fn()}
-        criteria={TAG_CRITERIA}
-        activeFilter={{}}
-        onApply={onApply}
-      />,
+      <FilterDialog open onClose={vi.fn()} criteria={TAG_CRITERIA} activeFilter={{}} onApply={onApply} />,
     );
 
     fireEvent.click(screen.getByText("Tag Group"));

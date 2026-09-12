@@ -245,7 +245,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
             return BadRequest(new { message = expressionError });
         var cacheKey = $"videos_find_{JsonSerializer.Serialize(req)}";
-        if (memoryCache.TryGetValue(cacheKey, out PaginatedResponse<VideoDto>? cachedResult) && cachedResult != null)
+        var canCache = !RelativeDateFilterJson.ContainsRelativeRule(req);
+        if (canCache && memoryCache.TryGetValue(cacheKey, out PaginatedResponse<VideoDto>? cachedResult) && cachedResult != null)
         {
             return Ok(cachedResult);
         }
@@ -259,7 +260,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var dtos = items.Select(video => MapListToDto(video, GetCustomFields(customFieldValues, video.Id), engagement.GetValueOrDefault(video.Id), HasUserScopedEngagement, effectiveTags)).ToList();
         var result = new PaginatedResponse<VideoDto>(dtos, totalCount, findFilter.Page, findFilter.PerPage);
 
-        memoryCache.Set(cacheKey, result, TimeSpan.FromSeconds(1));
+        if (canCache) memoryCache.Set(cacheKey, result, TimeSpan.FromSeconds(1));
         return Ok(result);
     }
 

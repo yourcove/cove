@@ -89,6 +89,19 @@
         {
           "type": "paragraph",
           "text": "Equals, Includes, and Regex compare identifier values without regard to letter case. Their inverse operators also include records with no matching remote ID. With Any metadata service, Is Null and Not Null check whether a record has any remote ID; with a selected service, they are scoped to that service. Remote ID Count always checks the total number of remote IDs."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Relative date filters"
+        },
+        {
+          "type": "paragraph",
+          "text": "Built-in date and timestamp filters accept rolling offsets in the existing date input. Start with - for the past or + for the future, then use d for days, w for weeks, m for months, or y for years. Timestamp filters also accept h for hours. Use 0d for today in a date filter or now in a timestamp filter."
+        },
+        {
+          "type": "paragraph",
+          "text": "You can combine units under one leading sign in largest-to-smallest order: -1y3m means one year and three months ago, while -1d6h means one day and six hours ago in a timestamp filter. To find items created in the past six hours, choose Created At, choose Later Than, and enter -6h. For a rolling range, choose Between and use offsets for both bounds, such as -1y3m and 0d. Cove recalculates the dates whenever the filter runs and accepts the bounds in either order."
         }
       ]
     },

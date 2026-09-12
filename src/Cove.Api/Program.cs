@@ -484,6 +484,7 @@ try
     {
         options.Filters.Add<Cove.Api.Middleware.EntityEventFilter>();
         options.Filters.Add<Cove.Api.Middleware.AuthExceptionFilter>();
+        options.Filters.Add<Cove.Api.Middleware.RelativeDateFilter>();
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
         options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();

@@ -14,7 +14,7 @@
       "blocks": [
         {
           "type": "paragraph",
-          "text": "A saved filter stores the current search, filter conditions, and supported view options for one type of list. It reevaluates those rules against the current library each time you apply it."
+          "text": "A saved filter stores the current search, filter conditions, and supported view options for one type of list. It reevaluates those rules against the current library each time you apply it. Relative date offsets such as -1y3m remain relative, so the saved result window moves forward with time."
         },
         {
           "type": "image",

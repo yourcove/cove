@@ -97,6 +97,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         [FromQuery] string? sorts = null,
         CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         page = Math.Max(1, page);
         perPage = Math.Clamp(perPage, 1, 250);
         var sortClauses = SortClause.Parse(sorts);
@@ -140,6 +141,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     [HttpPost("find")]
     public async Task<ActionResult<PaginatedResponse<TextDocumentDto>>> FindPost([FromBody] FilteredQueryRequest<TextDocumentFilter> req, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var findFilter = req.FindFilter ?? new FindFilter();
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
@@ -198,6 +200,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     [HttpPost("aggregate")]
     public async Task<ActionResult<TextAggregate>> Aggregate([FromBody] FilteredQueryRequest<TextDocumentFilter> req, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var findFilter = req.FindFilter ?? new FindFilter();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))

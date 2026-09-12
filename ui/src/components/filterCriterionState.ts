@@ -13,6 +13,7 @@ import type {
 import { FILTER_EXPRESSION_STATE_KEY, type EditableFilterExpression } from "../utils/filterExpressionTree";
 import { getRelatedCriteria } from "./filterCriteriaCatalogs";
 import { MAX_DISTINCT_RELATED_CONDITIONS, type CriterionDefinition } from "./filterCriteriaTypes";
+import { isValidRelativeDate, looksLikeRelativeDate } from "../utils/relativeDate";
 
 export const NULL_VALUE_MODIFIERS = new Set<CriterionModifier>(["IS_NULL", "NOT_NULL"]);
 const RANGE_VALUE_MODIFIERS = new Set<CriterionModifier>(["BETWEEN", "NOT_BETWEEN"]);
@@ -58,6 +59,19 @@ function hasFingerprintCriterionValue(criterion: { modifier?: CriterionModifier;
   }
 
   return hasStringCriterionValue(criterion);
+}
+
+function hasDateCriterionValue(
+  value: { modifier?: CriterionModifier; value?: string; value2?: string },
+  criterion: CriterionDefinition,
+) {
+  if (!hasStringCriterionValue(value)) return false;
+  const allowRelative = !criterion.customFieldKey && !criterion.filterKey.startsWith("extension-filter:");
+  const isValidBound = (bound?: string) =>
+    !bound ||
+    !looksLikeRelativeDate(bound) ||
+    (allowRelative && isValidRelativeDate(bound, criterion.type === "timestamp"));
+  return isValidBound(value.value) && isValidBound(value.value2);
 }
 
 function isTagDurationClauseValid(clause: TagDurationClause | undefined) {
@@ -109,8 +123,6 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
     case "path":
     case "remoteId":
     case "hash":
-    case "date":
-    case "timestamp":
     case "enum":
       return criterion.type === "remoteId"
         ? Boolean(
@@ -123,6 +135,12 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
         : criterion.type === "hash"
           ? hasFingerprintCriterionValue(value as { modifier?: CriterionModifier; value?: string; type?: string })
           : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
+    case "date":
+    case "timestamp":
+      return hasDateCriterionValue(
+        value as { modifier?: CriterionModifier; value?: string; value2?: string },
+        criterion,
+      );
     case "number":
     case "duration":
     case "careerLength":

@@ -1208,6 +1208,7 @@ public static class FilterHelpers
     public static IQueryable<T> ApplyDate<T>(IQueryable<T> query, DateCriterion? criterion, Expression<Func<T, DateOnly?>> selector)
     {
         if (criterion == null) return query;
+        criterion = RelativeDateEvaluation.Resolve(criterion);
 
         var param = selector.Parameters[0];
         var body = selector.Body;
@@ -1222,7 +1223,9 @@ public static class FilterHelpers
             return query.Where(Expression.Lambda<Func<T, bool>>(hasValue, param));
 
         if (!DateOnly.TryParse(criterion.Value, out var d1)) return query;
-        DateOnly.TryParse(criterion.Value2, out var d2);
+        var d2 = DateOnly.TryParse(criterion.Value2, out var parsedD2) ? parsedD2 : d1;
+        var lower = d1 <= d2 ? d1 : d2;
+        var upper = d1 <= d2 ? d2 : d1;
 
         return criterion.Modifier switch
         {
@@ -1237,13 +1240,13 @@ public static class FilterHelpers
             CriterionModifier.Between => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.AndAlso(hasValue,
                     Expression.AndAlso(
-                        Expression.GreaterThanOrEqual(value, Expression.Constant(d1)),
-                        Expression.LessThanOrEqual(value, Expression.Constant(d2)))), param)),
+                        Expression.GreaterThanOrEqual(value, Expression.Constant(lower)),
+                        Expression.LessThanOrEqual(value, Expression.Constant(upper)))), param)),
             CriterionModifier.NotBetween => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.AndAlso(hasValue,
                     Expression.OrElse(
-                        Expression.LessThan(value, Expression.Constant(d1)),
-                        Expression.GreaterThan(value, Expression.Constant(d2)))), param)),
+                        Expression.LessThan(value, Expression.Constant(lower)),
+                        Expression.GreaterThan(value, Expression.Constant(upper)))), param)),
             _ => query,
         };
     }
@@ -1252,10 +1255,13 @@ public static class FilterHelpers
     public static IQueryable<T> ApplyTimestamp<T>(IQueryable<T> query, TimestampCriterion? criterion, Expression<Func<T, DateTime>> selector)
     {
         if (criterion == null) return query;
+        criterion = RelativeDateEvaluation.Resolve(criterion);
         if (criterion.Modifier == CriterionModifier.IsNull) return query.Where(_ => false);
         if (criterion.Modifier == CriterionModifier.NotNull) return query;
         if (!TryParseTimestamp(criterion.Value, out var ts1)) return query;
         var ts2 = TryParseTimestamp(criterion.Value2, out var parsedTs2) ? parsedTs2 : ts1;
+        var lower = ts1 <= ts2 ? ts1 : ts2;
+        var upper = ts1 <= ts2 ? ts2 : ts1;
 
         var param = selector.Parameters[0];
         var body = selector.Body;
@@ -1272,12 +1278,12 @@ public static class FilterHelpers
                 Expression.LessThan(body, Expression.Constant(ts1)), param)),
             CriterionModifier.Between => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.AndAlso(
-                    Expression.GreaterThanOrEqual(body, Expression.Constant(ts1)),
-                    Expression.LessThanOrEqual(body, Expression.Constant(ts2))), param)),
+                    Expression.GreaterThanOrEqual(body, Expression.Constant(lower)),
+                    Expression.LessThanOrEqual(body, Expression.Constant(upper))), param)),
             CriterionModifier.NotBetween => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.OrElse(
-                    Expression.LessThan(body, Expression.Constant(ts1)),
-                    Expression.GreaterThan(body, Expression.Constant(ts2))), param)),
+                    Expression.LessThan(body, Expression.Constant(lower)),
+                    Expression.GreaterThan(body, Expression.Constant(upper))), param)),
             _ => query,
         };
     }
@@ -1286,6 +1292,7 @@ public static class FilterHelpers
     public static IQueryable<T> ApplyNullableTimestamp<T>(IQueryable<T> query, TimestampCriterion? criterion, Expression<Func<T, DateTime?>> selector)
     {
         if (criterion == null) return query;
+        criterion = RelativeDateEvaluation.Resolve(criterion);
 
         var param = selector.Parameters[0];
         var body = selector.Body;
@@ -1298,6 +1305,8 @@ public static class FilterHelpers
 
         if (!TryParseTimestamp(criterion.Value, out var ts1)) return query;
         var ts2 = TryParseTimestamp(criterion.Value2, out var parsedTs2) ? parsedTs2 : ts1;
+        var lower = ts1 <= ts2 ? ts1 : ts2;
+        var upper = ts1 <= ts2 ? ts2 : ts1;
         var value = Expression.Property(body, "Value");
 
         return criterion.Modifier switch
@@ -1313,13 +1322,13 @@ public static class FilterHelpers
             CriterionModifier.Between => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.AndAlso(hasValue,
                     Expression.AndAlso(
-                        Expression.GreaterThanOrEqual(value, Expression.Constant(ts1)),
-                        Expression.LessThanOrEqual(value, Expression.Constant(ts2)))), param)),
+                        Expression.GreaterThanOrEqual(value, Expression.Constant(lower)),
+                        Expression.LessThanOrEqual(value, Expression.Constant(upper)))), param)),
             CriterionModifier.NotBetween => query.Where(Expression.Lambda<Func<T, bool>>(
                 Expression.AndAlso(hasValue,
                     Expression.OrElse(
-                        Expression.LessThan(value, Expression.Constant(ts1)),
-                        Expression.GreaterThan(value, Expression.Constant(ts2)))), param)),
+                        Expression.LessThan(value, Expression.Constant(lower)),
+                        Expression.GreaterThan(value, Expression.Constant(upper)))), param)),
             _ => query,
         };
     }

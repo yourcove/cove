@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using System.Linq.Expressions;
 using System.Text.RegularExpressions;
 using Cove.Core.Auth;
@@ -75,6 +76,9 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromQuery] bool includeAggregate = false,
         CancellationToken cancellationToken = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
+        (createdAt, createdAt2) = ResolveRelativeTimestamp(createdAt, createdAt2);
+        (updatedAt, updatedAt2) = ResolveRelativeTimestamp(updatedAt, updatedAt2);
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
         var sortKey = NormalizeSort(sort);
@@ -502,7 +506,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         };
     }
 
-    private static IQueryable<TRow> ApplyDateTimeCriterion<TRow>(
+    internal static IQueryable<TRow> ApplyDateTimeCriterion<TRow>(
         IQueryable<TRow> query,
         DateTime value,
         string? value2,
@@ -599,9 +603,9 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, selector.Parameters[0]));
     }
 
-    private static bool TryParseDateTime(string? value, out DateTime parsed)
+    internal static bool TryParseDateTime(string? value, out DateTime parsed)
     {
-        if (DateTime.TryParse(value, out parsed))
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out parsed))
         {
             if (parsed.Kind == DateTimeKind.Unspecified)
                 parsed = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
@@ -696,6 +700,8 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromBody] SegmentSpanSearchRequestDto request,
         CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
+        request = ResolveRelativeTimestamps(request);
         request = await ExpandSpanTagFiltersAsync(request, ct);
         var page = Math.Max(1, request.Page ?? 1);
         var perPage = Math.Clamp(request.PerPage ?? 24, 1, 100);
@@ -774,13 +780,19 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromBody] SegmentSpanSearchRequestDto request,
         CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
+        var hasRelativeDates = RelativeDateEvaluation.IsRelativeExpression(request.CreatedAt)
+            || RelativeDateEvaluation.IsRelativeExpression(request.CreatedAt2)
+            || RelativeDateEvaluation.IsRelativeExpression(request.UpdatedAt)
+            || RelativeDateEvaluation.IsRelativeExpression(request.UpdatedAt2);
+        request = ResolveRelativeTimestamps(request);
         request = await ExpandSpanTagFiltersAsync(request, ct);
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
         var version = await GetSegmentsVersionAsync(ct);
         var cacheKey = $"spans-count:{version}:{BuildSpanCountKey(request)}";
-        var canCache = request.VideoTagIds is not { Length: > 0 };
+        var canCache = request.VideoTagIds is not { Length: > 0 } && !hasRelativeDates;
         if (canCache && memoryCache.TryGetValue<SegmentSpanCountResponseDto>(cacheKey, out var cachedAggregate))
             return Ok(cachedAggregate);
 
@@ -950,6 +962,22 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             request.EndSec, request.EndSec2, request.EndSecModifier,
             request.CreatedAt, request.CreatedAt2, request.CreatedAtModifier,
             request.UpdatedAt, request.UpdatedAt2, request.UpdatedAtModifier);
+    }
+
+    private static SegmentSpanSearchRequestDto ResolveRelativeTimestamps(SegmentSpanSearchRequestDto request)
+    {
+        var created = ResolveRelativeTimestamp(request.CreatedAt, request.CreatedAt2);
+        var updated = ResolveRelativeTimestamp(request.UpdatedAt, request.UpdatedAt2);
+        return request with { CreatedAt = created.Value, CreatedAt2 = created.Value2, UpdatedAt = updated.Value, UpdatedAt2 = updated.Value2 };
+    }
+
+    internal static (string? Value, string? Value2) ResolveRelativeTimestamp(string? value, string? value2)
+    {
+        var criterion = RelativeDateEvaluation.Resolve(new TimestampCriterion
+        {
+            Value = value ?? "", Value2 = value2,
+        });
+        return (criterion.Value, criterion.Value2);
     }
 
     private static bool IsVideoLevelSort(string? sort)

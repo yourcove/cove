@@ -1,8 +1,12 @@
 import { useEffect, useRef, type ChangeEventHandler, type InputHTMLAttributes } from "react";
 import { CalendarDays } from "lucide-react";
+import { isValidRelativeDate, looksLikeRelativeDate } from "../utils/relativeDate";
+
+export { isValidRelativeDate } from "../utils/relativeDate";
 
 type IsoDateInputProps = InputHTMLAttributes<HTMLInputElement> & {
   pickerType?: "date" | "datetime-local";
+  allowRelative?: boolean;
 };
 
 export function isValidPartialIsoDate(value: string): boolean {
@@ -23,6 +27,7 @@ export function isValidPartialIsoDate(value: string): boolean {
 
 export function IsoDateInput({
   pickerType = "date",
+  allowRelative = false,
   className = "",
   value,
   onChange,
@@ -34,21 +39,25 @@ export function IsoDateInput({
 }: IsoDateInputProps) {
   const pickerRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLInputElement>(null);
-  const placeholder = pickerType === "date" ? "yyyy-MM-dd" : "yyyy-MM-ddTHH:mm";
-  const partialDateMessage = "Use YYYY, YYYY-MM, or YYYY-MM-DD.";
+  const absolutePlaceholder = pickerType === "date" ? "yyyy-MM-dd" : "yyyy-MM-ddTHH:mm";
+  const allowHours = pickerType === "datetime-local";
+  const placeholder = allowRelative ? `${absolutePlaceholder} or ${allowHours ? "-6h" : "-1y3m"}` : absolutePlaceholder;
+  const presentLabel = pickerType === "date" ? "today" : "now";
+  const dateMessage = allowRelative
+    ? `Use YYYY, YYYY-MM, YYYY-MM-DD, or an offset such as -7d, -1y3m, or ${allowHours ? "-6h" : "+2w"}; combine y, m, w, d${allowHours ? ", and h" : ""} from largest to smallest. Use 0d for ${presentLabel}.`
+    : "Use YYYY, YYYY-MM, or YYYY-MM-DD.";
+  const isValidValue = (candidate: string) => {
+    if (looksLikeRelativeDate(candidate)) return allowRelative && isValidRelativeDate(candidate, allowHours);
+    return pickerType !== "date" || isValidPartialIsoDate(candidate);
+  };
 
   useEffect(() => {
-    if (pickerType === "date" && textRef.current) {
-      textRef.current.setCustomValidity(
-        typeof value !== "string" || isValidPartialIsoDate(value) ? "" : partialDateMessage,
-      );
-    }
-  }, [pickerType, value]);
+    if (textRef.current)
+      textRef.current.setCustomValidity(typeof value !== "string" || isValidValue(value) ? "" : dateMessage);
+  }, [allowRelative, pickerType, value]);
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
-    if (pickerType === "date") {
-      event.currentTarget.setCustomValidity(isValidPartialIsoDate(event.currentTarget.value) ? "" : partialDateMessage);
-    }
+    event.currentTarget.setCustomValidity(isValidValue(event.currentTarget.value) ? "" : dateMessage);
     onChange?.(event);
   };
 
@@ -66,13 +75,13 @@ export function IsoDateInput({
         ref={textRef}
         {...props}
         type="text"
-        inputMode="numeric"
+        inputMode={allowRelative ? "text" : "numeric"}
         placeholder={placeholder}
         value={value}
         onChange={handleChange}
         disabled={disabled}
         className={`${className} w-full pr-10`.trim()}
-        title={pickerType === "date" ? partialDateMessage : props.title}
+        title={allowRelative || pickerType === "date" ? dateMessage : props.title}
       />
       <button
         type="button"

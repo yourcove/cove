@@ -292,12 +292,7 @@ describe("filter criteria definitions", () => {
     ]);
     expect(tagCriteriaById.get("performerCount")?.auxiliaryToggleKey).toBe("performerCountIncludesChildren");
     expect(tagCriteriaById.get("children")?.label).toBe("Sub-Tags");
-    expect(tagCriteriaById.get("tagGroup")?.modifiers).toEqual([
-      "INCLUDES",
-      "EXCLUDES",
-      "IS_NULL",
-      "NOT_NULL",
-    ]);
+    expect(tagCriteriaById.get("tagGroup")?.modifiers).toEqual(["INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"]);
     expect(tagCriteriaById.get("imageCount")?.auxiliaryToggleKey).toBe("imageCountIncludesChildren");
     expect(tagCriteriaById.get("galleryCount")?.auxiliaryToggleKey).toBe("galleryCountIncludesChildren");
     expect(tagCriteriaById.get("studioCount")?.auxiliaryToggleKey).toBe("studioCountIncludesChildren");

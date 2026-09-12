@@ -789,10 +789,12 @@ export function DateEditor({
   value,
   onChange,
   modifiers,
+  allowRelative = true,
 }: {
   value?: DateCriterion;
   onChange: (v: unknown) => void;
   modifiers: CriterionModifier[];
+  allowRelative?: boolean;
 }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
@@ -806,24 +808,34 @@ export function DateEditor({
         onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })}
       />
       {!isNull && (
-        <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
-          <LabeledControl label={isBetween ? "Minimum" : "Value"}>
-            <IsoDateInput
-              aria-label={isBetween ? "Minimum" : "Value"}
-              value={value?.value ?? ""}
-              onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
-              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
-            />
-          </LabeledControl>
-          {isBetween && (
-            <LabeledControl label="Maximum">
+        <div className="space-y-2">
+          <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}>
               <IsoDateInput
-                aria-label="Maximum"
-                value={value?.value2 ?? ""}
-                onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
+                allowRelative={allowRelative}
+                aria-label={isBetween ? "Minimum" : "Value"}
+                value={value?.value ?? ""}
+                onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
                 className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
               />
             </LabeledControl>
+            {isBetween && (
+              <LabeledControl label="Maximum">
+                <IsoDateInput
+                  allowRelative={allowRelative}
+                  aria-label="Maximum"
+                  value={value?.value2 ?? ""}
+                  onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+                />
+              </LabeledControl>
+            )}
+          </div>
+          {allowRelative && (
+            <p className="text-sm text-muted-foreground">
+              Use an exact date or an offset such as -7d, -1y3m, or +2w. Combine y, m, w, and d from largest to
+              smallest; use 0d for today.
+            </p>
           )}
         </div>
       )}
@@ -846,10 +858,12 @@ export function TimestampEditor({
   value,
   onChange,
   modifiers,
+  allowRelative = true,
 }: {
   value?: TimestampCriterion;
   onChange: (v: unknown) => void;
   modifiers: CriterionModifier[];
+  allowRelative?: boolean;
 }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
@@ -873,26 +887,36 @@ export function TimestampEditor({
         }}
       />
       {!isNull && (
-        <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
-          <LabeledControl label={isBetween ? "Minimum" : "Value"}>
-            <IsoDateInput
-              aria-label={isBetween ? "Minimum" : "Value"}
-              pickerType="datetime-local"
-              value={value?.value ?? ensureTimestampValue(value?.value)}
-              onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
-              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
-            />
-          </LabeledControl>
-          {isBetween && (
-            <LabeledControl label="Maximum">
+        <div className="space-y-2">
+          <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}>
               <IsoDateInput
-                aria-label="Maximum"
+                allowRelative={allowRelative}
+                aria-label={isBetween ? "Minimum" : "Value"}
                 pickerType="datetime-local"
-                value={value?.value2 ?? ensureTimestampValue(value?.value2)}
-                onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
+                value={value?.value ?? ensureTimestampValue(value?.value)}
+                onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
                 className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
               />
             </LabeledControl>
+            {isBetween && (
+              <LabeledControl label="Maximum">
+                <IsoDateInput
+                  allowRelative={allowRelative}
+                  aria-label="Maximum"
+                  pickerType="datetime-local"
+                  value={value?.value2 ?? ensureTimestampValue(value?.value2)}
+                  onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+                />
+              </LabeledControl>
+            )}
+          </div>
+          {allowRelative && (
+            <p className="text-sm text-muted-foreground">
+              Use an exact date and time or an offset such as -6h, -1d6h, or -1y3m. Combine y, m, w, d, and h from
+              largest to smallest; use 0d for now.
+            </p>
           )}
         </div>
       )}

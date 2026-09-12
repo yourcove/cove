@@ -166,10 +166,22 @@ export function CriterionEditor({
         />
       );
     case "date":
-      return <DateEditor value={value as DateCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+      return (
+        <DateEditor
+          allowRelative={!criterion.customFieldKey && !criterion.filterKey.startsWith("extension-filter:")}
+          value={value as DateCriterion | undefined}
+          onChange={onChange}
+          modifiers={modifiers}
+        />
+      );
     case "timestamp":
       return (
-        <TimestampEditor value={value as TimestampCriterion | undefined} onChange={onChange} modifiers={modifiers} />
+        <TimestampEditor
+          allowRelative={!criterion.customFieldKey && !criterion.filterKey.startsWith("extension-filter:")}
+          value={value as TimestampCriterion | undefined}
+          onChange={onChange}
+          modifiers={modifiers}
+        />
       );
     case "multiId":
       return (

@@ -5,6 +5,7 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data.Repositories;
 
 namespace Cove.Api.Controllers;
 
@@ -59,6 +60,8 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         if (await HasDuplicateName(filterMode, name, null, ct))
             return Conflict(new { message = "A saved filter with this name already exists." });
 
+        if (!filterMode.StartsWith("ext:", StringComparison.Ordinal)) RelativeDateFilterJson.Validate(dto.ObjectFilter);
+
         var filter = new SavedFilter
         {
             Name = name, Mode = filterMode, UserId = CurrentUserId,
@@ -85,6 +88,8 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
             return BadRequest(new { message = "A saved filter name is required." });
         if (await HasDuplicateName(mode, name, id, ct))
             return Conflict(new { message = "A saved filter with this name already exists." });
+
+        if (!mode.StartsWith("ext:", StringComparison.Ordinal)) RelativeDateFilterJson.Validate(dto.ObjectFilter ?? filter.ObjectFilter);
 
         filter.Name = name;
         filter.Mode = mode;

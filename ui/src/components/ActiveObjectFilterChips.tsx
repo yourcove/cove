@@ -24,6 +24,7 @@ import {
   sortFilterExpressionChildrenForDisplay,
 } from "../utils/filterExpressionPresentation";
 import { repairRelatedScopes } from "../utils/filterExpressionTree";
+import { parseRelativeDateExpression, type RelativeDateExpression } from "../utils/relativeDate";
 
 export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mode";
 
@@ -125,6 +126,53 @@ function getMultiEnumOptionValues(
 function formatCareerLength(value: unknown): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return formatChipScalar(value);
   return `${value} ${value === 1 ? "year" : "years"}`;
+}
+
+function readRelativeDateChipValue(value: unknown, allowHours = true): RelativeDateExpression | undefined {
+  if (typeof value !== "string") return undefined;
+  return parseRelativeDateExpression(value, allowHours);
+}
+
+function formatRelativeDateChipValue(value: unknown, dateOnly: boolean): string | undefined {
+  const relative = readRelativeDateChipValue(value, !dateOnly);
+  if (!relative) return undefined;
+  const nonzeroParts = relative.parts.filter((part) => part.amount !== 0);
+  if (nonzeroParts.length === 0) return dateOnly ? "today" : "now";
+
+  const duration = nonzeroParts
+    .map(({ amount, unit }) => {
+      const label =
+        unit === "y" ? "year" : unit === "m" ? "month" : unit === "w" ? "week" : unit === "d" ? "day" : "hour";
+      return `${amount} ${label}${amount === 1 ? "" : "s"}`;
+    })
+    .join(" ");
+  return relative.sign === "-" ? `${duration} ago` : `${duration} from now`;
+}
+
+function formatCompactRelativeDateRange(value: unknown, value2: unknown, dateOnly: boolean): string | undefined {
+  const first = readRelativeDateChipValue(value, !dateOnly);
+  const second = readRelativeDateChipValue(value2, !dateOnly);
+  if (!first || !second || first.parts.length !== 1 || second.parts.length !== 1) return undefined;
+  const firstPart = first.parts[0];
+  const secondPart = second.parts[0];
+  if (first.sign !== second.sign || firstPart.unit !== secondPart.unit) return undefined;
+  if (firstPart.amount === 0 || secondPart.amount === 0) return undefined;
+
+  const lowerAmount = Math.min(firstPart.amount, secondPart.amount);
+  const upperAmount = Math.max(firstPart.amount, secondPart.amount);
+  const plural = firstPart.amount === 1 && secondPart.amount === 1 ? "" : "s";
+  const suffix = first.sign === "-" ? "ago" : "from now";
+  const unit =
+    firstPart.unit === "y"
+      ? "year"
+      : firstPart.unit === "m"
+        ? "month"
+        : firstPart.unit === "w"
+          ? "week"
+          : firstPart.unit === "d"
+            ? "day"
+            : "hour";
+  return `${lowerAmount} and ${upperAmount} ${unit}${plural} ${suffix}`;
 }
 
 function formatMetadataServiceLabel(endpoint: string, metadataServers: MetadataServer[]): string {
@@ -319,6 +367,32 @@ export function formatFilterChipValue(
   }
 
   if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL") return modifier;
+  const supportsRelativeDates =
+    (def?.type === "date" || def?.type === "timestamp") &&
+    !def.customFieldKey &&
+    !def.filterKey.startsWith("extension-filter:");
+  if (supportsRelativeDates) {
+    const valueText = formatRelativeDateChipValue(criterion.value, def.type === "date");
+    const value2Text = formatRelativeDateChipValue(criterion.value2, def.type === "date");
+    const isRange = criterion.modifier === "BETWEEN" || criterion.modifier === "NOT_BETWEEN";
+    if (valueText || (isRange && value2Text)) {
+      const first = valueText ?? formatChipScalar(criterion.value);
+      const second = value2Text ?? formatChipScalar(criterion.value2);
+      if (isRange) {
+        const compactRange = formatCompactRelativeDateRange(criterion.value, criterion.value2, def.type === "date");
+        return `${modifier} ${compactRange ?? `${first} and ${second}`}`.trim();
+      }
+      const relativeModifier =
+        criterion.modifier === "GREATER_THAN"
+          ? "Later than"
+          : criterion.modifier === "LESS_THAN"
+            ? "Earlier than"
+            : criterion.modifier === "NOT_EQUALS"
+              ? "Not"
+              : "";
+      return `${relativeModifier} ${first}`.trim();
+    }
+  }
   const formatValue =
     def?.type === "duration"
       ? formatHumanDuration

@@ -47,7 +47,15 @@ export { registerManualContext, useManualContext } from "./ManualContext";
 export type { TutorialOpenRequest } from "./ManualContext";
 
 // ─── Entity Cards & Popovers ─────────────────────────────────────────────
-export { PopoverButton, VideoCardPopovers, PerformerTile, VideoCard, VideoTile, ImageTile, TagTile } from "./EntityCards";
+export {
+  PopoverButton,
+  VideoCardPopovers,
+  PerformerTile,
+  VideoCard,
+  VideoTile,
+  ImageTile,
+  TagTile,
+} from "./EntityCards";
 export { EntityReferenceSelector, EntityReferenceMultiSelector, EntityReferenceValue } from "./EntityReferenceSelector";
 export type { EntityReferenceOption, EntityReferenceType } from "./EntityReferenceSelector";
 

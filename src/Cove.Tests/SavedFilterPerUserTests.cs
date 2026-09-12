@@ -2,6 +2,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Cove.Tests;
@@ -16,6 +17,46 @@ public class SavedFilterPerUserTests
         => new(repo, new FakePrincipalAccessor(userId));
 
     private static SavedFilterCreateDto CreateDto(string name) => new("videos", name, null, null, null);
+
+    [Theory]
+    [InlineData("ext:com.example:view", "{\"dateCriterion\":{\"relative\":true}}")]
+    [InlineData("videos", "{\"extension-filter:example:date\":{\"relative\":true}}")]
+    [InlineData("videos", "{\"customFieldCriteria\":[{\"value\":{\"relative\":true}}]}")]
+    public async Task RelativeValidationPreservesExtensionAndCustomPayloads(string mode, string json)
+    {
+        var controller = ControllerFor(7, new FakeSavedFilterRepo());
+        var result = await controller.Create(new SavedFilterCreateDto(mode, "extension filter", null, json, null), TestContext.Current.CancellationToken);
+        var created = Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
+        Assert.Equal(json, created.ObjectFilter);
+        var updated = await controller.Update(created.Id, new SavedFilterUpdateDto(null, null, null, json, null), TestContext.Current.CancellationToken);
+        Assert.Equal(json, Assert.IsType<SavedFilterDto>(Assert.IsType<OkObjectResult>(updated.Result).Value).ObjectFilter);
+    }
+
+    [Fact]
+    public async Task RelativeRulesSurviveCreateUpdateAndReload()
+    {
+        var repo = new FakeSavedFilterRepo();
+        var controller = ControllerFor(7, repo);
+        const string past = """{"dateCriterion":{"modifier":"GREATER_THAN","value":"-7d"}}""";
+        var result = await controller.Create(new SavedFilterCreateDto("videos", "relative", null, past, null), TestContext.Current.CancellationToken);
+        var created = Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
+        Assert.Equal(past, created.ObjectFilter);
+        var next = past.Replace("-7d", "+1m");
+        await controller.Update(created.Id, new SavedFilterUpdateDto(null, null, null, next, null), TestContext.Current.CancellationToken);
+        var loaded = Assert.IsType<SavedFilterDto>(Assert.IsType<OkObjectResult>((await controller.GetById(created.Id, TestContext.Current.CancellationToken)).Result).Value);
+        Assert.Equal(next, loaded.ObjectFilter);
+    }
+
+    [Fact]
+    public async Task SwitchingToBuiltInModeValidatesRetainedObjectFilter()
+    {
+        var controller = ControllerFor(7, new FakeSavedFilterRepo());
+        const string invalid = """{"dateCriterion":{"modifier":"GREATER_THAN","value":"+1h"}}""";
+        var result = await controller.Create(new SavedFilterCreateDto("ext:com.example:view", "extension filter", null, invalid, null), TestContext.Current.CancellationToken);
+        var created = Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
+
+        await Assert.ThrowsAsync<RelativeDateFilterException>(() => controller.Update(created.Id, new SavedFilterUpdateDto("videos", null, null, null, null), TestContext.Current.CancellationToken));
+    }
 
     [Fact]
     public async Task Create_stamps_the_current_user()
