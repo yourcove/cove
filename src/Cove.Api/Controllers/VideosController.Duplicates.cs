@@ -559,23 +559,33 @@ public partial class VideosController
         return await executionStrategy.ExecuteAsync(async () =>
         {
             db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             var claimed = await db.DuplicateSearchGroups
                 .Where(group => group.SearchId == searchId
                     && group.Id == groupId
-                    && (group.Status == DuplicateGroupStatus.Unresolved || group.Status == DuplicateGroupStatus.Failed || group.Status == DuplicateGroupStatus.Ignored))
+                    && (group.Status == DuplicateGroupStatus.Unresolved || group.Status == DuplicateGroupStatus.Failed))
                 .ExecuteUpdateAsync(update => update
                     .SetProperty(group => group.Status, DuplicateGroupStatus.Ignored)
                     .SetProperty(group => group.Error, (string?)null), ct);
             if (claimed == 0)
             {
+                var current = await db.DuplicateSearchGroups
+                    .AsNoTracking()
+                    .Where(group => group.SearchId == searchId && group.Id == groupId)
+                    .Select(group => new { group.Status })
+                    .SingleOrDefaultAsync(ct);
                 await transaction.CommitAsync(ct);
-                return await db.DuplicateSearchGroups.AnyAsync(group => group.SearchId == searchId && group.Id == groupId, ct)
-                    ? Conflict(new { message = "This group is already being resolved." })
-                    : (IActionResult)NotFound();
+                if (current is null)
+                    return (IActionResult)NotFound();
+                return current.Status == DuplicateGroupStatus.Ignored
+                    ? NoContent()
+                    : Conflict(new { message = "This group is already being resolved." });
             }
 
+            // The decision belongs to the persisted group, so later authorization-scope changes must not
+            // change which pairs this group contributes or restores.
             var memberIds = await db.DuplicateSearchItems
+                .IgnoreQueryFilters()
                 .Where(item => item.GroupId == groupId)
                 .Select(item => item.VideoId)
                 .OrderBy(id => id)
@@ -587,13 +597,15 @@ public partial class VideosController
             var existing = (await db.DuplicateIgnoredPairs
                     .IgnoreQueryFilters()
                     .Where(pair => lows.Contains(pair.LowVideoId) && memberIds.Contains(pair.HighVideoId))
-                    .Select(pair => new { pair.LowVideoId, pair.HighVideoId })
                     .ToListAsync(ct))
-                .Select(pair => (pair.LowVideoId, pair.HighVideoId))
-                .ToHashSet();
-            db.DuplicateIgnoredPairs.AddRange(pairs
-                .Where(pair => !existing.Contains((pair.Low, pair.High)))
-                .Select(pair => new DuplicateIgnoredPair { LowVideoId = pair.Low, HighVideoId = pair.High }));
+                .ToDictionary(pair => (pair.LowVideoId, pair.HighVideoId));
+            foreach (var pair in pairs)
+            {
+                if (existing.TryGetValue((pair.Low, pair.High), out var ignored))
+                    ignored.DecisionCount++;
+                else
+                    db.DuplicateIgnoredPairs.Add(new DuplicateIgnoredPair { LowVideoId = pair.Low, HighVideoId = pair.High });
+            }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return NoContent();
@@ -612,26 +624,43 @@ public partial class VideosController
         return await executionStrategy.ExecuteAsync(async () =>
         {
             db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             var restored = await db.DuplicateSearchGroups
                 .Where(group => group.SearchId == searchId
                     && group.Id == groupId
-                    && (group.Status == DuplicateGroupStatus.Ignored || group.Status == DuplicateGroupStatus.Unresolved))
+                    && group.Status == DuplicateGroupStatus.Ignored)
                 .ExecuteUpdateAsync(update => update.SetProperty(group => group.Status, DuplicateGroupStatus.Unresolved), ct);
             if (restored == 0)
             {
+                var current = await db.DuplicateSearchGroups
+                    .AsNoTracking()
+                    .Where(group => group.SearchId == searchId && group.Id == groupId)
+                    .Select(group => new { group.Status })
+                    .SingleOrDefaultAsync(ct);
                 await transaction.CommitAsync(ct);
-                return await db.DuplicateSearchGroups.AnyAsync(group => group.SearchId == searchId && group.Id == groupId, ct)
-                    ? Conflict(new { message = "Only groups marked as not duplicates can be restored." })
-                    : (IActionResult)NotFound();
+                if (current is null)
+                    return (IActionResult)NotFound();
+                return current.Status == DuplicateGroupStatus.Unresolved
+                    ? NoContent()
+                    : Conflict(new { message = "Only groups marked as not duplicates can be restored." });
             }
             var memberIds = await db.DuplicateSearchItems
+                .IgnoreQueryFilters()
                 .Where(item => item.GroupId == groupId)
                 .Select(item => item.VideoId)
                 .ToArrayAsync(ct);
-            await db.DuplicateIgnoredPairs
+            var ignoredPairs = await db.DuplicateIgnoredPairs
+                .IgnoreQueryFilters()
                 .Where(pair => memberIds.Contains(pair.LowVideoId) && memberIds.Contains(pair.HighVideoId))
-                .ExecuteDeleteAsync(ct);
+                .ToListAsync(ct);
+            foreach (var pair in ignoredPairs)
+            {
+                if (pair.DecisionCount == 1)
+                    db.DuplicateIgnoredPairs.Remove(pair);
+                else
+                    pair.DecisionCount--;
+            }
+            await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return NoContent();
         });

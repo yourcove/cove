@@ -110,6 +110,8 @@ public sealed class DuplicateIgnoredPair
 {
     public int LowVideoId { get; set; }
     public int HighVideoId { get; set; }
+    /// <summary>Number of independent group decisions that currently preserve this pair.</summary>
+    public int DecisionCount { get; set; } = 1;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public Video? LowVideo { get; set; }
     public Video? HighVideo { get; set; }
