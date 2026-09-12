@@ -925,6 +925,44 @@ describe("FileInfoTab", () => {
     expect(screen.getByText("File 1 of 2")).toBeInTheDocument();
     expect(screen.getByText("File 2 of 2")).toBeInTheDocument();
   });
+
+  it("links pHash fingerprints to an exact video filter isolated from saved list defaults", () => {
+    const onNavigate = vi.fn();
+    renderWithQueryClient(
+      <FileInfoTab
+        files={
+          [
+            {
+              ...videoFile,
+              fingerprints: [
+                { type: "phash", value: "abc123" },
+                { type: "oshash", value: "def456" },
+              ],
+            },
+          ] as any
+        }
+        onNavigate={onNavigate}
+      />,
+    );
+
+    const pHashLink = screen.getByRole("link", { name: "abc123" });
+    expect(pHashLink).toHaveAttribute(
+      "href",
+      "/videos?q=&page=1&filters=%7B%22fingerprintCriterion%22%3A%7B%22type%22%3A%22phash%22%2C%22value%22%3A%22abc123%22%2C%22modifier%22%3A%22EQUALS%22%7D%7D",
+    );
+    expect(pHashLink.className).toContain("focus-visible:ring-2");
+    expect(screen.queryByRole("link", { name: "def456" })).not.toBeInTheDocument();
+
+    fireEvent.click(pHashLink);
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listFilter: { q: "", page: 1 },
+      listObjectFilter: {
+        fingerprintCriterion: { type: "phash", value: "abc123", modifier: "EQUALS" },
+      },
+    });
+  });
 });
 
 describe("DetailsTab performers", () => {

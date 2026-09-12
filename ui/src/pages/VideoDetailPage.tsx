@@ -73,7 +73,9 @@ import type {
   Segment,
   TagApplication,
   TagProvenance,
+  VideoFilterCriteria,
 } from "../api/types";
+import type { Route } from "../router/location";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
@@ -147,6 +149,22 @@ function directorVideosLinkProps(
 ) {
   const route = directorVideosRoute(director);
   return createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+}
+
+function phashVideosRoute(value: string) {
+  const listObjectFilter = {
+    fingerprintCriterion: { type: "phash", value, modifier: "EQUALS" },
+  } satisfies VideoFilterCriteria;
+  return {
+    page: "videos",
+    listFilter: { q: "", page: 1 },
+    listObjectFilter,
+  } satisfies Route;
+}
+
+function phashVideosLinkProps(value: string, onNavigate?: (route: ReturnType<typeof phashVideosRoute>) => void) {
+  const route = phashVideosRoute(value);
+  return createRouteLinkProps<HTMLAnchorElement>(route, onNavigate ? () => onNavigate(route) : undefined);
 }
 
 const GenerateDialog = lazy(() =>
@@ -1149,6 +1167,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         canDeleteFiles={hasPermission("files.delete")}
         canDeleteFromDisk={canDeleteVideoFiles}
         onPlayFile={setAlternateFileId}
+        onNavigate={onNavigate}
         onAlignmentDialogOpenChange={setAlignmentDialogOpen}
         onChanged={() => {
           setAlternateFileId(null);
@@ -1860,6 +1879,7 @@ export function FileInfoTab({
   canDeleteFiles = false,
   canDeleteFromDisk = false,
   onPlayFile,
+  onNavigate,
   onAlignmentDialogOpenChange,
   onChanged,
 }: {
@@ -1872,6 +1892,7 @@ export function FileInfoTab({
   canDeleteFiles?: boolean;
   canDeleteFromDisk?: boolean;
   onPlayFile?: (fileId: number) => void;
+  onNavigate?: (route: ReturnType<typeof phashVideosRoute>) => void;
   onAlignmentDialogOpenChange?: (open: boolean) => void;
   onChanged?: () => void;
 }) {
@@ -2048,10 +2069,21 @@ export function FileInfoTab({
               <div>
                 <h6 className="text-sm text-muted mb-1 font-medium">Fingerprints</h6>
                 <dl className="grid gap-y-1" style={{ gridTemplateColumns: "auto 1fr" }}>
-                  {file.fingerprints.map((fp: any) => (
+                  {file.fingerprints.map((fp) => (
                     <Fragment key={`${file.id ?? index}-${fp.type}`}>
                       <dt className="text-muted text-xs pr-3">{fp.type}</dt>
-                      <dd className="text-foreground font-mono text-xs break-all">{fp.value}</dd>
+                      <dd className="text-foreground font-mono text-xs break-all">
+                        {fp.type === "phash" ? (
+                          <a
+                            {...phashVideosLinkProps(fp.value, onNavigate)}
+                            className="rounded-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            {fp.value}
+                          </a>
+                        ) : (
+                          fp.value
+                        )}
+                      </dd>
                     </Fragment>
                   ))}
                 </dl>
