@@ -9,7 +9,7 @@ import type {
   Video,
   VideoFile,
 } from "../../api/types";
-import { formatDuration, formatFileSize, getResolutionLabel } from "../shared";
+import { formatDate, formatDuration, formatFileSize, getResolutionLabel } from "../shared";
 
 export const MATCH_METHODS: Array<{
   value: DuplicateMatchType;
@@ -393,7 +393,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
     key: "added",
     label: "Added",
     section: "library",
-    render: (video) => new Date(video.createdAt).toLocaleDateString(),
+    render: (video) => formatDate(video.createdAt),
   },
 ];
 
