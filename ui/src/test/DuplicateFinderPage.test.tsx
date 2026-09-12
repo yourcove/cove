@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuplicateSearchGroup, DuplicateSearchInfo, Video } from "../api/types";
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateDuplicateSearchDecision: vi.fn(),
   resolveDuplicateGroups: vi.fn(),
   ignoreDuplicateGroup: vi.fn(),
+  registerKeyboardActions: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -42,6 +43,11 @@ vi.mock("../components/VideoPreviewThumbnail", () => ({
 }));
 
 vi.mock("../components/QuickViewDialog", () => ({ QuickViewDialog: () => null }));
+
+vi.mock("../keyboard/KeyboardShortcutProvider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../keyboard/KeyboardShortcutProvider")>()),
+  useRegisterKeyboardActions: mocks.registerKeyboardActions,
+}));
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ hasPermission: () => true }),
@@ -122,6 +128,14 @@ const group: DuplicateSearchGroup = {
   removedVideoCount: 0,
   removedBytes: 0,
   reclaimableBytes: 120_000_000,
+};
+
+const nextGroup: DuplicateSearchGroup = {
+  ...group,
+  id: 8,
+  position: 1,
+  videos: [video(3, 1920, 1080, "h264", 6_000_000), video(4, 1280, 720, "h264", 3_000_000)],
+  keepVideoIds: [3],
 };
 
 const storage = new Map<string, string>();
@@ -214,6 +228,101 @@ describe("DuplicateFinderPage", () => {
       }),
     );
     expect(JSON.parse(window.localStorage.getItem("cove.duplicates.resolution.v2")!).confirmEachGroup).toBe(false);
+  });
+
+  it("scrolls the next group below the sticky navigation and duplicate controls after resolving", async () => {
+    mocks.getDuplicateSearchGroups.mockResolvedValue({
+      items: [group, nextGroup],
+      totalCount: 2,
+      page: 1,
+      perPage: 10,
+    });
+    const navbar = document.createElement("nav");
+    navbar.className = "cove-navbar";
+    document.body.append(navbar);
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(200);
+    let computedStyle: ReturnType<typeof vi.spyOn> | undefined;
+
+    try {
+      window.history.replaceState({}, "", "/duplicates?search=saved-search");
+      renderPage();
+
+      const firstArticle = (await screen.findByText("Group 1")).closest("article")!;
+      const nextArticle = screen.getByText("Group 2").closest("article")!;
+      const controls = screen.getByPlaceholderText(/Filter by title/).parentElement!.parentElement!.parentElement!;
+      expect(controls).toHaveClass("md:sticky", "md:top-12");
+      nextArticle.scrollIntoView = vi.fn();
+      vi.spyOn(navbar, "getBoundingClientRect").mockReturnValue({ height: 48 } as DOMRect);
+      vi.spyOn(controls, "getBoundingClientRect").mockReturnValue({ height: 112 } as DOMRect);
+      vi.spyOn(nextArticle, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+
+      fireEvent.click(within(firstArticle).getByRole("button", { name: /Merge & remove 1/ }));
+      const dialog = await screen.findByRole("dialog");
+      const confirm = within(dialog).getByRole("button", { name: /Merge & remove 1 copy/ });
+      const realGetComputedStyle = window.getComputedStyle;
+      computedStyle = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudoElement) => {
+        const style = realGetComputedStyle(element, pseudoElement);
+        if (element === controls) Object.defineProperty(style, "position", { configurable: true, value: "sticky" });
+        return style;
+      });
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 524, behavior: "smooth" }));
+      expect(nextArticle.scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      computedStyle?.mockRestore();
+      scrollY.mockRestore();
+      scrollTo.mockRestore();
+      navbar.remove();
+    }
+  });
+
+  it("offsets keyboard navigation only for the navbar when the duplicate controls are not sticky", async () => {
+    mocks.getDuplicateSearchGroups.mockResolvedValue({
+      items: [group, nextGroup],
+      totalCount: 2,
+      page: 1,
+      perPage: 10,
+    });
+    const navbar = document.createElement("nav");
+    navbar.className = "cove-navbar";
+    document.body.append(navbar);
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(200);
+    let computedStyle: ReturnType<typeof vi.spyOn> | undefined;
+
+    try {
+      window.history.replaceState({}, "", "/duplicates?search=saved-search");
+      renderPage();
+
+      const nextArticle = (await screen.findByText("Group 2")).closest("article")!;
+      const controls = screen.getByPlaceholderText(/Filter by title/).parentElement!.parentElement!.parentElement!;
+      vi.spyOn(navbar, "getBoundingClientRect").mockReturnValue({ height: 48 } as DOMRect);
+      vi.spyOn(controls, "getBoundingClientRect").mockReturnValue({ height: 112 } as DOMRect);
+      vi.spyOn(nextArticle, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+      const realGetComputedStyle = window.getComputedStyle;
+      computedStyle = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudoElement) => {
+        const style = realGetComputedStyle(element, pseudoElement);
+        if (element === controls) Object.defineProperty(style, "position", { configurable: true, value: "static" });
+        return style;
+      });
+      const registrations = [...mocks.registerKeyboardActions.mock.calls]
+        .reverse()
+        .map(([value]) => value)
+        .find((value) => value.some((entry: { id: string }) => entry.id === "duplicates.group.next"));
+      const moveNext = registrations!.find((entry: { id: string }) => entry.id === "duplicates.group.next")!;
+
+      act(() => moveNext.action({}));
+
+      expect(scrollTo).toHaveBeenCalledWith({ top: 636, behavior: "smooth" });
+      expect(nextArticle).toHaveClass("ring-1");
+    } finally {
+      computedStyle?.mockRestore();
+      scrollY.mockRestore();
+      scrollTo.mockRestore();
+      navbar.remove();
+    }
   });
 });
 
