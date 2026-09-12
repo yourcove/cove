@@ -46,6 +46,20 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    public void ScopePathNormalizationRetainsEveryDistinctPath()
+    {
+        var paths = Enumerable.Range(1, 125)
+            .Select(index => $"/library/folder-{index}")
+            .Append(" /library/folder-1/ ")
+            .ToArray();
+
+        var normalized = DuplicateSearchJobService.NormalizeScopePaths(paths);
+
+        Assert.Equal(125, normalized.Length);
+        Assert.Equal("/library/folder-125", normalized[^1]);
+    }
+
+    [Fact]
     public async Task StartClampsPathologicalPHashDistance()
     {
         await using var db = CreateContext();

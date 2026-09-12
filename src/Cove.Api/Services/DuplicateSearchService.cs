@@ -16,7 +16,6 @@ public sealed class DuplicateSearchJobService(
     IServiceScopeFactory scopeFactory)
 {
     internal const int MaximumPHashDistance = 16;
-    internal const int MaximumScopePaths = 100;
     internal static readonly TimeSpan ResultRetention = TimeSpan.FromDays(7);
 
     public async Task<DuplicateSearchStarted> StartAsync(
@@ -122,7 +121,6 @@ public sealed class DuplicateSearchJobService(
             .Select(path => (path ?? string.Empty).Trim().Replace('\\', '/').TrimEnd('/'))
             .Where(path => path.Length > 0)
             .Distinct(FilesystemPaths.PathComparer)
-            .Take(MaximumScopePaths)
             .ToArray();
 
     internal static bool IsAtOrBelow(string candidatePath, string folder)
