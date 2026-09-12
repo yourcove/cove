@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { GroupDetailPage } from "../pages/GroupDetailPage";
+import { GroupDetailPage, matchesTimestampCriterion } from "../pages/GroupDetailPage";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 
 const { mockGroups, mockVideos, mockGoBack } = vi.hoisted(() => ({
@@ -269,6 +269,15 @@ describe("GroupDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("excludes undated items from not-between timestamp filters", () => {
+    const criterion = { modifier: "NOT_BETWEEN", value: "-7d", value2: "0d" } as const;
+    const reference = new Date("2026-09-12T12:00:00Z");
+
+    expect(matchesTimestampCriterion(undefined, criterion, reference)).toBe(false);
+    expect(matchesTimestampCriterion("invalid", criterion, reference)).toBe(false);
+    expect(matchesTimestampCriterion("2026-08-01T12:00:00Z", criterion, reference)).toBe(true);
   });
 
   it("shows a retryable load error and recovers", async () => {

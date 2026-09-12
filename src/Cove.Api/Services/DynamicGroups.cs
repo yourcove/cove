@@ -532,6 +532,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
     public async Task<DynamicGroupResolveResult> ResolveAsync(Group group, DynamicGroupResolveContext context, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = ParseQuery(group.QueryJson);
         var entityConfigs = GetEntityConfigs(query, group);
         if (entityConfigs.Count == 0)
@@ -578,6 +579,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
     public async Task<IReadOnlyDictionary<GroupItemKind, int>> CountByKindAsync(Group group, DynamicGroupResolveContext context, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = ParseQuery(group.QueryJson);
         var entityConfigs = GetEntityConfigs(query, group);
         var result = new Dictionary<GroupItemKind, int>();

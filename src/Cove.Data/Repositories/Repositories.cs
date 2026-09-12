@@ -323,6 +323,7 @@ public class PerformerRepository : IPerformerRepository
         CancellationToken ct = default,
         FilterExpression<PerformerFilter>? expression = null)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
@@ -705,6 +706,7 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
@@ -957,6 +959,7 @@ public class TagRepository : ITagRepository
 
     public async Task<(IReadOnlyList<Tag> Items, int TotalCount)> FindAsync(TagFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedParents = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.ParentsCriterion))
         {
@@ -1533,6 +1536,7 @@ public class StudioRepository : IStudioRepository
 
     public async Task<(IReadOnlyList<Studio> Items, int TotalCount)> FindAsync(StudioFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
@@ -1738,6 +1742,7 @@ public class GalleryRepository : IGalleryRepository
 
     private async Task<IQueryable<Gallery>> BuildFilteredQueryAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
@@ -1900,6 +1905,7 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<GalleryAggregate> AggregateAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
         return await query
             .GroupBy(_ => 1)
@@ -1912,6 +1918,7 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         var totalCount = await query.CountAsync(ct);
@@ -2492,6 +2499,7 @@ public class ImageRepository : IImageRepository
 
     private async Task<IQueryable<Image>> BuildFilteredQueryAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
@@ -2525,6 +2533,7 @@ public class ImageRepository : IImageRepository
 
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         var perPage = findFilter?.PerPage ?? 25;
@@ -2583,6 +2592,7 @@ public class ImageRepository : IImageRepository
 
     public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         return await query.AsNoTracking()
@@ -3068,6 +3078,7 @@ public class GroupRepository : IGroupRepository
 
     public async Task<(IReadOnlyList<Group> Items, int TotalCount)> FindAsync(GroupFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {

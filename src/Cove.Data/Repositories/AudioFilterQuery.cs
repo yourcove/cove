@@ -15,6 +15,7 @@ public static class AudioFilterQuery
         CancellationToken ct = default,
         FilterExpression<AudioFilter>? expression = null)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {

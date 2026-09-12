@@ -114,6 +114,7 @@ import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor"
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
+import { parseDateFilterValue } from "../utils/relativeDate";
 import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 interface Props {
@@ -1410,6 +1411,7 @@ function pageMixedGroupItems(
   engagementData?: GroupItemEngagementMap,
   pathCaseSensitive = true,
 ) {
+  const dateReference = new Date();
   const query = filter.q?.trim().toLowerCase();
   const searchedItems = query
     ? items.filter((item) => {
@@ -1429,7 +1431,7 @@ function pageMixedGroupItems(
       })
     : items;
   const filteredItems = searchedItems.filter((item) =>
-    matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData, pathCaseSensitive),
+    matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData, pathCaseSensitive, dateReference),
   );
   const sortedItems = sortMixedGroupItems(
     filteredItems,
@@ -2001,6 +2003,7 @@ function matchesGroupItemObjectFilter(
   hostData?: HydratedGroupItemMap,
   engagementData?: GroupItemEngagementMap,
   pathCaseSensitive = true,
+  dateReference = new Date(),
 ) {
   if (Object.keys(objectFilter).length === 0) return true;
 
@@ -2018,7 +2021,7 @@ function matchesGroupItemObjectFilter(
       pathCaseSensitive,
     ) &&
     matchesStringCollectionCriterion(metadata.urls, objectFilter.urlCriterion as StringCriterion | undefined) &&
-    matchesDateCriterion(metadata.date, objectFilter.dateCriterion as DateCriterion | undefined) &&
+    matchesDateCriterion(metadata.date, objectFilter.dateCriterion as DateCriterion | undefined, dateReference) &&
     matchesMultiIdCriterion(metadata.performerIds, objectFilter.performersCriterion as MultiIdCriterion | undefined) &&
     matchesMultiIdCriterion(metadata.tagIds, objectFilter.tagsCriterion as MultiIdCriterion | undefined) &&
     matchesMultiIdCriterion(metadata.studioIds, objectFilter.studiosCriterion as MultiIdCriterion | undefined) &&
@@ -2035,9 +2038,21 @@ function matchesGroupItemObjectFilter(
     matchesStringCriterion(metadata.sourceKey, objectFilter.sourceKeyCriterion as StringCriterion | undefined) &&
     matchesStringCriterion(metadata.segmentKind, objectFilter.segmentKindCriterion as StringCriterion | undefined) &&
     matchesNumberCriterion(metadata.confidence, objectFilter.confidenceCriterion as IntCriterion | undefined) &&
-    matchesTimestampCriterion(metadata.addedAt, objectFilter.addedAtCriterion as TimestampCriterion | undefined) &&
-    matchesTimestampCriterion(metadata.createdAt, objectFilter.createdAtCriterion as TimestampCriterion | undefined) &&
-    matchesTimestampCriterion(metadata.updatedAt, objectFilter.updatedAtCriterion as TimestampCriterion | undefined)
+    matchesTimestampCriterion(
+      metadata.addedAt,
+      objectFilter.addedAtCriterion as TimestampCriterion | undefined,
+      dateReference,
+    ) &&
+    matchesTimestampCriterion(
+      metadata.createdAt,
+      objectFilter.createdAtCriterion as TimestampCriterion | undefined,
+      dateReference,
+    ) &&
+    matchesTimestampCriterion(
+      metadata.updatedAt,
+      objectFilter.updatedAtCriterion as TimestampCriterion | undefined,
+      dateReference,
+    )
   );
 }
 
@@ -2148,9 +2163,9 @@ function matchesNumberCriterion(value: number | undefined, criterion?: IntCriter
   }
 }
 
-function matchesDateCriterion(value: string | undefined, criterion?: DateCriterion) {
+function matchesDateCriterion(value: string | undefined, criterion: DateCriterion | undefined, dateReference: Date) {
   if (!criterion) return true;
-  return matchesTimestampCriterion(value, criterion);
+  return matchesTimestampCriterion(value, criterion, dateReference, true);
 }
 
 function matchesMultiIdCriterion(values: number[], criterion?: MultiIdCriterion) {
@@ -3240,11 +3255,16 @@ function formatDurationValue(value: number) {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function matchesTimestampCriterion(value: string | undefined, criterion?: TimestampCriterion) {
+export function matchesTimestampCriterion(
+  value: string | undefined,
+  criterion: TimestampCriterion | undefined,
+  dateReference: Date,
+  dateOnly = false,
+) {
   if (!criterion) return true;
   const timestamp = value ? Date.parse(value) : Number.NaN;
-  const expected = criterion.value ? Date.parse(criterion.value) : Number.NaN;
-  const expected2 = criterion.value2 ? Date.parse(criterion.value2) : Number.NaN;
+  const expected = parseDateFilterValue(criterion.value, dateReference, dateOnly);
+  const expected2 = parseDateFilterValue(criterion.value2, dateReference, dateOnly);
   const modifier = criterion.modifier ?? "EQUALS";
 
   switch (modifier) {
@@ -3268,11 +3288,10 @@ function matchesTimestampCriterion(value: string | undefined, criterion?: Timest
       );
     case "NOT_BETWEEN":
       return (
-        !Number.isFinite(timestamp) ||
-        !Number.isFinite(expected) ||
-        !Number.isFinite(expected2) ||
-        timestamp < Math.min(expected, expected2) ||
-        timestamp > Math.max(expected, expected2)
+        Number.isFinite(timestamp) &&
+        Number.isFinite(expected) &&
+        Number.isFinite(expected2) &&
+        (timestamp < Math.min(expected, expected2) || timestamp > Math.max(expected, expected2))
       );
     default:
       return timestamp === expected;

@@ -11,6 +11,27 @@ Saved state can include the entity type, filter tree, search input, sorts, displ
 
 Results are evaluated against current library data. A saved filter can therefore return different records later even though its definition did not change.
 
+## Relative dates
+
+Built-in date and timestamp filters accept relative values directly in the date input. Start with `-` for a date in the past or `+` for a date in the future, then give a whole number and a unit: `d` for days, `w` for weeks, `m` for months, or `y` for years. Timestamp filters also accept `h` for hours. Combine units from largest to smallest under one sign, so `-1y3m` means one year and three months ago and `-1d6h` means one day and six hours ago. Repeated units, mixed signs, and out-of-order forms are invalid. Use `0d` for the current UTC date in a date filter or the current UTC instant in a timestamp filter, so `-7d` and `0d` form a convenient rolling seven-day range.
+
+Each relative value is recalculated whenever the filter runs, including when a saved filter is loaded. API-backed filters resolve it on the server; group-item filters resolve it in the browser. Date-only fields use the current UTC date as their starting point. Timestamp fields use the current UTC instant. Months and years follow calendar arithmetic, so `-1m` from March 31 resolves to the last valid day in February.
+
+Choose the comparison in the usual way. For a rolling range, choose **Between** and enter a relative value in each bound, such as `-1m` and `+7d`. Exact and relative bounds can also be mixed. Cove resolves and orders the bounds before comparing them, so entering the later value first produces the same results. Both bounds are inclusive; empty dates do not match. An open page does not refresh merely because time passes, so run the filter again to update its results. Relative values are not available for custom fields or extension-defined criteria.
+
+For example, an API query can use this object filter:
+
+```json
+{
+  "createdAtCriterion": {
+    "modifier": "greaterThan",
+    "value": "-7d"
+  }
+}
+```
+
+Saved UI filter JSON uses the equivalent modifier `GREATER_THAN`. The relative expression remains unchanged in saved state and is resolved only while a query runs.
+
 ## Ownership and defaults
 
 Saved filters are per-user. Legacy or authentication-disabled rows can be unowned, but a signed-in user's saved filters are not shared library collections. A saved filter may be selected as a preferred view, while remembered interface state and extension contributions can also affect what is displayed. The durable contract is the stored query, not a particular initial page size or sort.

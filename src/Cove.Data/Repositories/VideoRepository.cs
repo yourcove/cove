@@ -88,6 +88,7 @@ public class VideoRepository : IVideoRepository
         CancellationToken ct = default,
         FilterExpression<VideoFilter>? expression = null)
     {
+        using var relativeDates = RelativeDateEvaluation.Begin();
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         var hasRelatedFilter = filter?.PerformerFilterCriterion != null
             || FilterExpressionQuery.Contains(expression, leaf => leaf.PerformerFilterCriterion != null);
@@ -362,33 +363,7 @@ public class VideoRepository : IVideoRepository
 
             query = ApplyAudioCodecCriterion(query, filter.AudioCodecCriterion);
 
-            if (filter.DateCriterion != null)
-            {
-                var crit = filter.DateCriterion;
-                // Null checks carry no date value, so they must be handled before parsing.
-                if (crit.Modifier == CriterionModifier.IsNull)
-                {
-                    query = query.Where(s => s.Date == null);
-                }
-                else if (crit.Modifier == CriterionModifier.NotNull)
-                {
-                    query = query.Where(s => s.Date != null);
-                }
-                else if (DateOnly.TryParse(crit.Value, out var d1))
-                {
-                    DateOnly.TryParse(crit.Value2, out var d2);
-                    query = crit.Modifier switch
-                    {
-                        CriterionModifier.Equals => query.Where(s => s.Date == d1),
-                        CriterionModifier.NotEquals => query.Where(s => s.Date != d1),
-                        CriterionModifier.GreaterThan => query.Where(s => s.Date > d1),
-                        CriterionModifier.LessThan => query.Where(s => s.Date < d1),
-                        CriterionModifier.Between => query.Where(s => s.Date >= d1 && s.Date <= d2),
-                        CriterionModifier.NotBetween => query.Where(s => s.Date < d1 || s.Date > d2),
-                        _ => query,
-                    };
-                }
-            }
+            query = FilterHelpers.ApplyDate(query, filter.DateCriterion, video => video.Date);
 
             if (filter.PerformerFavoriteCriterion != null)
                 query = filter.PerformerFavoriteCriterion.Value
