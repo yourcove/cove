@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,9 +16,11 @@ using Pgvector;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260911141852_AddDuplicateReviewWorkflow")]
+    partial class AddDuplicateReviewWorkflow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1347,19 +1350,12 @@ namespace Cove.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("DecisionCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
                     b.HasKey("LowVideoId", "HighVideoId");
 
                     b.HasIndex("HighVideoId");
 
                     b.ToTable("duplicate_ignored_pairs", null, t =>
                         {
-                            t.HasCheckConstraint("CK_duplicate_ignored_pairs_decision_count", "\"DecisionCount\" > 0");
-
                             t.HasCheckConstraint("CK_duplicate_ignored_pairs_ordered", "\"LowVideoId\" < \"HighVideoId\"");
                         });
                 });

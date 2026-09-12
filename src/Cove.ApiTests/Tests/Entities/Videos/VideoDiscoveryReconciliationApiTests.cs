@@ -1,5 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
+using Cove.Api.Services;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
@@ -133,11 +134,16 @@ public sealed class VideoDiscoveryReconciliationApiTests(
 
     [Fact]
     [CoversEndpoint("POST", "/api/videos/duplicate-searches")]
+    [CoversEndpoint("GET", "/api/videos/duplicate-searches")]
     [CoversEndpoint("GET", "/api/videos/duplicate-searches/{searchid:guid}")]
+    [CoversEndpoint("DELETE", "/api/videos/duplicate-searches/{searchid:guid}")]
     [CoversEndpoint("GET", "/api/videos/duplicate-searches/{searchid:guid}/groups")]
     [CoversEndpoint("PATCH", "/api/videos/duplicate-searches/{searchid:guid}/groups/{groupid:int}")]
-    [CoversEndpoint("POST", "/api/videos/duplicate-searches/{searchid:guid}/delete-unkept")]
-    public async Task GivenDuplicateSearch_WhenKeeperChangesAndDeletionRuns_ThenResultsAndSelectionsPersist()
+    [CoversEndpoint("POST", "/api/videos/duplicate-searches/{searchid:guid}/auto-select")]
+    [CoversEndpoint("POST", "/api/videos/duplicate-searches/{searchid:guid}/resolve")]
+    [CoversEndpoint("POST", "/api/videos/duplicate-searches/{searchid:guid}/groups/{groupid:int}/ignore")]
+    [CoversEndpoint("DELETE", "/api/videos/duplicate-searches/{searchid:guid}/groups/{groupid:int}/ignore")]
+    public async Task GivenDuplicateSearch_WhenKeeperChangesAndGroupIsResolved_ThenResultsAndSelectionsPersist()
     {
         var owner = AsUser();
         var title = $"Durable duplicate {Guid.NewGuid():N}";
@@ -148,8 +154,8 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         var restrictedTag = await owner.CreateTagAsync($"Owner-scoped duplicate search {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var restrictedRole = await owner.CreateRoleAsync(new CreateRoleRequest(
             restrictedRoleName,
-            "Can run and delete owned duplicate searches without reading other owners' jobs.",
-            [Permissions.VideosRead, Permissions.VideosDelete, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
+            "Can manage owned duplicate searches without reading other owners' jobs.",
+            [Permissions.VideosRead, Permissions.VideosWrite, Permissions.VideosDelete, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             restrictedRole.Id,
             EntityKinds.Video,
@@ -167,7 +173,7 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         var restricted = restrictedSession.Client;
 
         var started = await owner.StartDuplicateSearchAsync(
-            new DuplicateSearchRequestDto("title", Distance: 0),
+            new DuplicateSearchStartRequest("title", Distance: 0),
             TestContext.Current.CancellationToken);
         (await owner.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
 
@@ -185,17 +191,17 @@ public sealed class VideoDiscoveryReconciliationApiTests(
             HttpMethod.Patch,
             $"/api/videos/duplicate-searches/{started.SearchId}/groups/{group.Id}",
             global::System.Net.HttpStatusCode.NotFound,
-            new DuplicateSearchGroupDecisionDto([keeper.Id]),
+            new DuplicateKeeperDecisionRequest([keeper.Id]),
             TestContext.Current.CancellationToken);
         await restricted.AssertResponseAsync(
             HttpMethod.Post,
-            $"/api/videos/duplicate-searches/{started.SearchId}/delete-unkept",
+            $"/api/videos/duplicate-searches/{started.SearchId}/resolve",
             global::System.Net.HttpStatusCode.NotFound,
-            new DuplicateSearchDeleteRequestDto(),
+            new DuplicateResolveRequest(null),
             TestContext.Current.CancellationToken);
 
         var restrictedStarted = await restricted.StartDuplicateSearchAsync(
-            new DuplicateSearchRequestDto("title", Distance: 0),
+            new DuplicateSearchStartRequest("title", Distance: 0),
             TestContext.Current.CancellationToken);
         (await restricted.WaitForTerminalJobAsync(restrictedStarted.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
         (await restricted.GetDuplicateSearchAsync(restrictedStarted.SearchId, TestContext.Current.CancellationToken)).Status.Should().Be("completed");
@@ -205,8 +211,15 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         await restricted.UpdateDuplicateSearchGroupDecisionAsync(
             restrictedStarted.SearchId,
             restrictedGroup.Id,
-            new DuplicateSearchGroupDecisionDto([keeper.Id]),
+            new DuplicateKeeperDecisionRequest([keeper.Id]),
             TestContext.Current.CancellationToken);
+        await restricted.IgnoreDuplicateGroupAsync(restrictedStarted.SearchId, restrictedGroup.Id, TestContext.Current.CancellationToken);
+        (await restricted.GetDuplicateSearchGroupsAsync(restrictedStarted.SearchId, perPage: 20, status: "ignored", cancellationToken: TestContext.Current.CancellationToken))
+            .Items.Should().ContainSingle(candidate => candidate.Id == restrictedGroup.Id);
+        await restricted.RestoreDuplicateGroupAsync(restrictedStarted.SearchId, restrictedGroup.Id, TestContext.Current.CancellationToken);
+        (await restricted.ListDuplicateSearchesAsync(TestContext.Current.CancellationToken))
+            .Select(item => item.Id).Should().Contain(restrictedStarted.SearchId).And.NotContain(started.SearchId);
+        await restricted.DeleteDuplicateSearchAsync(restrictedStarted.SearchId, TestContext.Current.CancellationToken);
         var restrictedHistory = await restricted.GetJobHistoryAsync(TestContext.Current.CancellationToken);
         restrictedHistory.Should().ContainSingle(job => job.Id == restrictedStarted.JobId);
         restrictedHistory.Should().NotContain(job => job.Id == started.JobId);
@@ -214,16 +227,28 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         await owner.UpdateDuplicateSearchGroupDecisionAsync(
             started.SearchId,
             group.Id,
-            new DuplicateSearchGroupDecisionDto([keeper.Id]),
+            new DuplicateKeeperDecisionRequest([keeper.Id]),
             TestContext.Current.CancellationToken);
         var updatedPage = await owner.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
         updatedPage.Items.Single(candidate => candidate.Id == group.Id).KeepVideoIds.Should().Equal(keeper.Id);
 
-        var deletion = await owner.DeleteUnkeptDuplicateVideosAsync(
+        var autoSelected = await owner.AutoSelectDuplicateKeepersAsync(
             started.SearchId,
-            new DuplicateSearchDeleteRequestDto(),
+            new DuplicateAutoSelectRequest([new DuplicateKeeperRule("date-newest")]),
             TestContext.Current.CancellationToken);
-        (await owner.WaitForTerminalJobAsync(deletion.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        autoSelected.UpdatedGroupCount.Should().Be(0, "a keeper chosen by hand is not replaced unless asked");
+
+        var resolution = await owner.ResolveDuplicateGroupsAsync(
+            started.SearchId,
+            new DuplicateResolveRequest([group.Id], DuplicateResolutionService.MergeAction),
+            TestContext.Current.CancellationToken);
+        resolution.QueuedGroupCount.Should().Be(1);
+        (await owner.WaitForTerminalJobAsync(resolution.JobId!, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var resolvedPage = await owner.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, status: "resolved", cancellationToken: TestContext.Current.CancellationToken);
+        var resolvedGroup = resolvedPage.Items.Should().ContainSingle(candidate => candidate.Id == group.Id).Which;
+        resolvedGroup.RemovedVideoCount.Should().Be(1);
+        resolvedGroup.Videos.Select(video => video.Id).Should().Equal(keeper.Id);
+        (await owner.GetDuplicateSearchAsync(started.SearchId, TestContext.Current.CancellationToken)).Counts.Resolved.Should().BeGreaterThanOrEqualTo(1);
 
         var removedRead = () => owner.GetVideoByIdAsync(removed.Id);
         await removedRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");

@@ -802,11 +802,40 @@ export interface BulkDeletionJobStart {
 }
 
 export type DuplicateSearchStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type DuplicateMatchType = "fingerprint" | "phash" | "title" | "remoteId";
+export type DuplicateGroupStatus = "unresolved" | "queued" | "processing" | "resolved" | "ignored" | "failed";
+export type DuplicateGroupFilter = "unresolved" | "queued" | "resolved" | "ignored" | "failed" | "all";
+export type DuplicateGroupSort = "position" | "reclaimable" | "largest" | "members" | "recent";
+export type DuplicateResolutionAction = "remove" | "merge";
+
+export type DuplicateKeeperRuleType =
+  | "resolution"
+  | "bitrate"
+  | "framerate"
+  | "duration"
+  | "size-largest"
+  | "size-smallest"
+  | "codec"
+  | "metadata"
+  | "engagement"
+  | "organized"
+  | "date-oldest"
+  | "date-newest"
+  | "path";
+
+export interface DuplicateKeeperRule {
+  type: DuplicateKeeperRuleType;
+  values?: string[];
+}
 
 export interface DuplicateSearchRequest {
-  matchType: "fingerprint" | "phash" | "title" | "remoteId";
+  matchType: DuplicateMatchType;
   distance?: number;
   durationDiff?: number | null;
+  includePaths?: string[];
+  excludePaths?: string[];
+  minimumDuration?: number;
+  keeperRules?: DuplicateKeeperRule[];
 }
 
 export interface DuplicateSearchStart {
@@ -815,32 +844,69 @@ export interface DuplicateSearchStart {
   candidateCount: number;
 }
 
+export interface DuplicateGroupCounts {
+  unresolved: number;
+  queued: number;
+  resolved: number;
+  ignored: number;
+  failed: number;
+}
+
 export interface DuplicateSearchInfo {
   id: string;
   jobId?: string | null;
-  matchType: string;
+  matchType: DuplicateMatchType;
   distance: number;
   durationDiff: number;
+  includePaths: string[];
+  excludePaths: string[];
+  minimumDuration: number;
+  keeperRules: DuplicateKeeperRule[];
   status: DuplicateSearchStatus;
   error?: string | null;
   candidateCount: number;
   groupCount: number;
   videoCount: number;
-  unkeptVideoCount: number;
-  unkeptFileCount: number;
-  unkeptBytes: number;
-  deletionJobId?: string | null;
+  counts: DuplicateGroupCounts;
+  reclaimableBytes: number;
+  removableVideoCount: number;
+  removedBytes: number;
+  removedVideoCount: number;
+  resolutionJobId?: string | null;
   createdAt: string;
   startedAt?: string | null;
   completedAt?: string | null;
   expiresAt: string;
 }
 
+export interface DuplicateSearchListItem {
+  id: string;
+  matchType: DuplicateMatchType;
+  distance: number;
+  status: DuplicateSearchStatus;
+  groupCount: number;
+  videoCount: number;
+  unresolvedCount: number;
+  scoped: boolean;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
 export interface DuplicateSearchGroup {
   id: number;
   position: number;
+  status: DuplicateGroupStatus;
   videos: Video[];
   keepVideoIds: number[];
+  decisionSource?: "auto" | "manual" | null;
+  decisionRule?: DuplicateKeeperRuleType | "tiebreak" | null;
+  resolutionAction?: DuplicateResolutionAction | null;
+  deleteFiles: boolean;
+  error?: string | null;
+  resolvedAt?: string | null;
+  removedVideoCount: number;
+  removedBytes: number;
+  reclaimableBytes: number;
 }
 
 export interface DuplicateSearchGroupPage {
@@ -848,7 +914,32 @@ export interface DuplicateSearchGroupPage {
   totalCount: number;
   page: number;
   perPage: number;
-  hasMore: boolean;
+}
+
+export interface DuplicateGroupQuery {
+  page: number;
+  perPage: number;
+  status?: DuplicateGroupFilter;
+  sort?: DuplicateGroupSort;
+  q?: string;
+  ids?: number[];
+}
+
+export interface DuplicateResolveRequest {
+  groupIds: number[] | null;
+  action: DuplicateResolutionAction;
+  deleteFiles: boolean;
+  deleteGenerated: boolean;
+}
+
+export interface DuplicateResolveResult {
+  queuedGroupCount: number;
+  jobId?: string | null;
+}
+
+export interface DuplicateAutoSelectResult {
+  updatedGroupCount: number;
+  changedGroupCount: number;
 }
 
 export type GroupKind = "static" | "dynamic";

@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
 using Cove.Core.Auth;
-using Cove.Core.DTOs;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -16,23 +16,28 @@ public sealed class DuplicateSearchJobService(
     IServiceScopeFactory scopeFactory)
 {
     internal const int MaximumPHashDistance = 16;
-    private static readonly TimeSpan ResultRetention = TimeSpan.FromDays(7);
+    internal const int MaximumScopePathCharacters = 1_048_576;
+    internal static readonly TimeSpan ResultRetention = TimeSpan.FromDays(7);
 
-    public async Task<DuplicateSearchStartDto> StartAsync(
+    public async Task<DuplicateSearchStarted> StartAsync(
         JobOwner? owner,
         CovePrincipal? principal,
-        DuplicateSearchRequestDto request,
+        DuplicateSearchStartRequest request,
         IReadOnlyCollection<int>? candidateVideoIds,
         CancellationToken ct)
     {
-        var ids = candidateVideoIds?.Where(id => id > 0).Distinct().ToArray();
+        var ids = candidateVideoIds is null ? null : DuplicateSearchMemoryBudget.NormalizeIds(candidateVideoIds);
         var matchType = NormalizeMatchType(request.MatchType);
         var search = new DuplicateSearch
         {
             OwnerKey = owner?.Key,
             MatchType = matchType,
             Distance = Math.Clamp(request.Distance, 0, MaximumPHashDistance),
-            DurationDifference = Math.Max(0, request.DurationDiff ?? 10),
+            DurationDifference = Math.Clamp(request.DurationDiff ?? 5, 0, 3_600),
+            IncludePaths = NormalizeScopePaths(request.IncludePaths),
+            ExcludePaths = NormalizeScopePaths(request.ExcludePaths),
+            MinimumDuration = Math.Clamp(request.MinimumDuration, 0, 86_400),
+            KeeperRulesJson = DuplicateKeeperRules.Serialize(DuplicateKeeperRules.Normalize(request.KeeperRules)),
             CandidateCount = ids?.Length ?? 0,
             Status = DuplicateSearchStatus.Pending,
             ExpiresAt = DateTime.UtcNow.Add(ResultRetention),
@@ -51,7 +56,7 @@ public sealed class DuplicateSearchJobService(
         // The job is already observable at this point. Persist its durable link even if the request
         // disconnects after receiving the enqueue side effect.
         await db.SaveChangesAsync(CancellationToken.None);
-        return new DuplicateSearchStartDto(search.Id, jobId, search.CandidateCount);
+        return new DuplicateSearchStarted(search.Id, jobId, search.CandidateCount);
     }
 
     private static Func<IJobProgress, CancellationToken, Task> CreateExecutionWork(
@@ -77,154 +82,25 @@ public sealed class DuplicateSearchJobService(
         };
 
     /// <summary>
-    /// Releases a terminal or lost deletion job only when at least one unwanted video still exists.
-    /// A completed deletion retains its job id so keeper decisions cannot later be rewritten as if
-    /// the destructive action had never happened.
+    /// Videos a resolution of the given groups would remove: members not kept in their group, in a group
+    /// that still keeps someone, and not kept by any other group of the same search. Oversized logical
+    /// groups are persisted as chunks sharing one keeper, so the cross-group rule is what lets every
+    /// chunk remove its non-keepers without ever removing a video another chunk keeps.
     /// </summary>
-    public async Task<bool> ReconcileDeletionAsync(
+    internal static IQueryable<int> EffectiveUnkeptVideoIds(
+        CoveContext context,
         Guid searchId,
-        string expectedJobId,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(expectedJobId))
-            return false;
-
-        var executionStrategy = db.Database.CreateExecutionStrategy();
-        return await executionStrategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            // The conditional write both proves that this reconciliation still owns the claim and
-            // locks the search row until its keeper reservations have been removed. A newer claim
-            // cannot appear between the ownership check and reservation cleanup.
-            var owned = await db.DuplicateSearches
-                .Where(search => search.Id == searchId && search.DeletionJobId == expectedJobId)
-                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, expectedJobId), ct);
-            if (owned == 0)
-            {
-                var current = await db.DuplicateSearches
-                    .Where(search => search.Id == searchId)
-                    .Select(search => new { search.DeletionJobId })
-                    .SingleOrDefaultAsync(ct);
-                await transaction.CommitAsync(ct);
-                // A retry after an ambiguously acknowledged successful release only needs its caller
-                // to reload. Most importantly, it must not touch reservations belonging to a newer job.
-                return current is not null && current.DeletionJobId != expectedJobId;
-            }
-
-            var unwantedVideoIds = EffectiveUnkeptVideoIds(db, searchId);
-            var hasUnwantedVideos = await db.Videos.AnyAsync(video => unwantedVideoIds.Contains(video.Id), ct);
-            if (hasUnwantedVideos)
-            {
-                var released = await db.DuplicateSearches
-                    .Where(search => search.Id == searchId && search.DeletionJobId == expectedJobId)
-                    .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-                if (released != 1)
-                    throw new DbUpdateConcurrencyException("The duplicate deletion claim changed while it was being reconciled.");
-            }
-
-            await db.DuplicateDeletionKeeperReservations
-                .IgnoreQueryFilters()
-                .Where(item => item.SearchId == searchId)
-                .ExecuteDeleteAsync(ct);
-            await transaction.CommitAsync(ct);
-            return hasUnwantedVideos;
-        });
-    }
-
-    public async Task<bool> ReconcileTerminalDeletionAsync(DuplicateSearch search, CancellationToken ct)
-    {
-        var deletionJobId = search.DeletionJobId;
-        if (string.IsNullOrWhiteSpace(deletionJobId)
-            || deletionJobId.StartsWith(DuplicateSearchDeletionClaim.Prefix, StringComparison.Ordinal))
-            return false;
-
-        var job = jobService.GetJob(deletionJobId);
-        if (job is { Status: JobStatus.Pending or JobStatus.Running }
-            || job is { CompletedAt: null })
-            return false;
-
-        return await ReconcileDeletionAsync(search.Id, deletionJobId, ct);
-    }
-
-    /// <summary>
-    /// Releases the durable claim and keeper constraints for a deletion job that was cancelled while
-    /// still queued. Its callback never ran, so the normal callback-finally cleanup cannot execute.
-    /// </summary>
-    public async Task<int> ReleaseCancelledPendingDeletionAsync(string deletionJobId, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(deletionJobId))
-            return 0;
-
-        var executionStrategy = db.Database.CreateExecutionStrategy();
-        return await executionStrategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var owned = await db.DuplicateSearches
-                .Where(search => search.DeletionJobId == deletionJobId)
-                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, deletionJobId), ct);
-            if (owned == 0)
-            {
-                await transaction.CommitAsync(ct);
-                return 0;
-            }
-
-            var searchIds = await db.DuplicateSearches
-                .Where(search => search.DeletionJobId == deletionJobId)
-                .Select(search => search.Id)
-                .ToArrayAsync(ct);
-            await db.DuplicateDeletionKeeperReservations
-                .IgnoreQueryFilters()
-                .Where(item => searchIds.Contains(item.SearchId))
-                .ExecuteDeleteAsync(ct);
-            var released = await db.DuplicateSearches
-                .Where(search => searchIds.Contains(search.Id) && search.DeletionJobId == deletionJobId)
-                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-            if (released != owned)
-                throw new DbUpdateConcurrencyException("A duplicate deletion claim changed while cancellation was being reconciled.");
-            await transaction.CommitAsync(ct);
-            return released;
-        });
-    }
-
-    /// <summary>
-    /// Releases one pre-enqueue reservation only while the supplied request token still owns it.
-    /// The row lock is held through keeper cleanup so a later deletion claim cannot lose its guards.
-    /// </summary>
-    public async Task<bool> ReleaseDeletionClaimAsync(Guid searchId, string expectedClaim, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(expectedClaim))
-            return false;
-
-        var executionStrategy = db.Database.CreateExecutionStrategy();
-        return await executionStrategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var released = await db.DuplicateSearches
-                .Where(search => search.Id == searchId && search.DeletionJobId == expectedClaim)
-                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-            if (released == 1)
-            {
-                await db.DuplicateDeletionKeeperReservations
-                    .IgnoreQueryFilters()
-                    .Where(item => item.SearchId == searchId)
-                    .ExecuteDeleteAsync(ct);
-            }
-            await transaction.CommitAsync(ct);
-            return released == 1;
-        });
-    }
-
-    internal static IQueryable<int> EffectiveUnkeptVideoIds(CoveContext context, Guid searchId)
+        IQueryable<DuplicateSearchGroup>? groups = null)
     {
         var keptVideoIds = context.DuplicateSearchItems
             .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
             .Select(item => item.VideoId);
+        var groupIds = (groups ?? context.DuplicateSearchGroups.Where(group => group.SearchId == searchId))
+            .Select(group => group.Id);
         return context.DuplicateSearchItems
             .Where(item => item.Group != null
                 && item.Group.SearchId == searchId
+                && groupIds.Contains(item.GroupId)
                 && !item.Keep
                 && item.Group.Items.Any(keeper => keeper.Keep)
                 && !keptVideoIds.Contains(item.VideoId))
@@ -241,9 +117,36 @@ public sealed class DuplicateSearchJobService(
             _ => "fingerprint",
         };
 
+    internal static string[] NormalizeScopePaths(IReadOnlyList<string>? paths)
+    {
+        var normalizedPaths = new List<string>();
+        var distinctPaths = new HashSet<string>(FilesystemPaths.PathComparer);
+        var retainedCharacters = 0;
+        foreach (var rawPath in paths ?? [])
+        {
+            DuplicateSearchMemoryBudget.CheckFieldLength(rawPath?.Length ?? 0);
+            var path = (rawPath ?? string.Empty).Trim().Replace('\\', '/').TrimEnd('/');
+            if (path.Length == 0 || !distinctPaths.Add(path))
+                continue;
+
+            retainedCharacters += path.Length;
+            if (retainedCharacters > MaximumScopePathCharacters)
+                throw new InvalidOperationException($"Duplicate search scope paths exceed the {MaximumScopePathCharacters:N0}-character total limit. Use fewer or shorter paths and try again.");
+            normalizedPaths.Add(path);
+        }
+        return normalizedPaths.ToArray();
+    }
+
+    internal static bool IsAtOrBelow(string candidatePath, string folder)
+    {
+        var candidate = candidatePath.Replace('\\', '/');
+        return candidate.Equals(folder, FilesystemPaths.PathComparison)
+            || candidate.StartsWith(folder + "/", FilesystemPaths.PathComparison);
+    }
+
     private static string DescribeMatchType(string matchType) => matchType switch
     {
-        "phash" => "visual pHash",
+        "phash" => "visual similarity",
         "title" => "title",
         "remoteId" => "remote ID",
         _ => "file fingerprint",
@@ -258,11 +161,12 @@ public sealed class DuplicateSearchExecutionService(
     private const int QueryChunkSize = 4_000;
     private const int PersistGroupBatchSize = 250;
     private const int PersistItemBatchSize = 1_000;
+    /// <summary>Buckets larger than this are unioned linearly; per-pair ignore checks would be quadratic.</summary>
+    private const int MaximumPairwiseBucketSize = 200;
     internal const int MaximumPersistedGroupSize = 50;
     internal const int MaximumPersistedGroupCount = 25_000;
     internal const long MaximumPHashComparisons = 50_000_000;
     internal const int MaximumPHashMatches = MaximumPersistedGroupCount;
-    private static readonly TimeSpan ResultRetention = TimeSpan.FromDays(7);
 
     public async Task ExecuteAsync(
         Guid searchId,
@@ -276,7 +180,7 @@ public sealed class DuplicateSearchExecutionService(
             // request whose only responsibility is to durably enqueue this search.
             var now = DateTime.UtcNow;
             var expiredSearches = db.DuplicateSearches
-                .Where(item => item.Id != searchId && item.ExpiresAt < now);
+                .Where(item => item.Id != searchId && item.ExpiresAt < now && item.DeletionJobId == null);
             if (db.Database.IsRelational())
             {
                 await expiredSearches.ExecuteDeleteAsync(ct);
@@ -296,35 +200,47 @@ public sealed class DuplicateSearchExecutionService(
             search.Error = null;
             await db.SaveChangesAsync(ct);
 
-            progress.Report(0.01, "Loading visible videos");
+            var memoryBudget = new DuplicateSearchMemoryBudget();
+            progress.Report(0.01, "Loading videos in scope");
             var ids = candidateVideoIds is null
-                ? await db.Videos.AsNoTracking().Select(video => video.Id).ToArrayAsync(ct)
-                : candidateVideoIds.Where(id => id > 0).Distinct().ToArray();
+                ? await ResolveCandidateIdsAsync(search, memoryBudget, ct)
+                : DuplicateSearchMemoryBudget.NormalizeIds(candidateVideoIds);
+            DuplicateSearchMemoryBudget.CheckVideoCount(ids.Length);
             search.CandidateCount = ids.Length;
             await db.SaveChangesAsync(ct);
+
+            progress.Report(0.03, "Loading pairs marked as not duplicates");
+            var ignored = await LoadIgnoredPairsAsync(ids, memoryBudget, ct);
+
             List<List<int>> groups;
             switch (search.MatchType)
             {
                 case "phash":
-                    groups = await FindPhashGroupsAsync(ids, search.Distance, search.DurationDifference, progress, ct);
+                    groups = await FindPhashGroupsAsync(ids, search.Distance, search.DurationDifference, ignored, memoryBudget, progress, ct);
                     break;
                 case "title":
-                    progress.Report(0.1, "Loading video titles");
-                    groups = await FindTitleGroupsAsync(ids, ct);
+                    progress.Report(0.1, "Comparing video titles");
+                    groups = await FindTitleGroupsAsync(ids, ignored, memoryBudget, ct);
                     break;
                 case "remoteId":
-                    progress.Report(0.1, "Loading remote IDs");
-                    groups = await FindRemoteIdGroupsAsync(ids, ct);
+                    progress.Report(0.1, "Comparing remote IDs");
+                    groups = await FindRemoteIdGroupsAsync(ids, ignored, memoryBudget, ct);
                     break;
                 default:
-                    progress.Report(0.1, "Loading file fingerprints");
-                    groups = await FindFingerprintGroupsAsync(ids, ct);
+                    progress.Report(0.1, "Comparing file fingerprints");
+                    groups = await FindFingerprintGroupsAsync(ids, ignored, memoryBudget, ct);
                     break;
             }
 
             ct.ThrowIfCancellationRequested();
-            progress.Report(0.92, "Saving duplicate groups");
-            var persistedGroupCount = await PersistGroupsAsync(searchId, groups, ct);
+            progress.Report(0.9, "Choosing keepers");
+            var persistedGroupCount = await PersistGroupsAsync(
+                searchId,
+                groups,
+                DuplicateKeeperRules.Deserialize(search.KeeperRulesJson),
+                memoryBudget,
+                progress,
+                ct);
             progress.Report(1, $"Found {persistedGroupCount.ToString(CultureInfo.InvariantCulture)} duplicate groups");
         }
         catch (OperationCanceledException)
@@ -339,88 +255,190 @@ public sealed class DuplicateSearchExecutionService(
         }
     }
 
-    private async Task<List<List<int>>> FindFingerprintGroupsAsync(int[] candidateVideoIds, CancellationToken ct)
+    private async Task<int[]> ResolveCandidateIdsAsync(
+        DuplicateSearch search,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
+    {
+        var includes = search.IncludePaths ?? [];
+        var excludes = search.ExcludePaths ?? [];
+        foreach (var path in includes.Concat(excludes))
+            DuplicateSearchMemoryBudget.CheckFieldLength(path.Length);
+        var minimumDuration = search.MinimumDuration;
+        var videoQuery = db.Videos.AsNoTracking();
+        if (minimumDuration > 0)
+            videoQuery = videoQuery.Where(video => video.MaxDuration >= minimumDuration);
+        if (includes.Length == 0 && excludes.Length == 0)
+        {
+            // Title and remote-ID matching also apply to metadata-only videos, so an unscoped search
+            // must not require a file.
+            return await videoQuery
+                .OrderBy(video => video.Id)
+                .Select(video => video.Id)
+                .Take(DuplicateSearchMemoryBudget.MaximumVideos + 1)
+                .ToArrayAsync(ct);
+        }
+
+        var ids = new HashSet<int>();
+        var files = db.VideoFiles
+            .AsNoTracking()
+            .Where(file => file.VideoId.HasValue)
+            .Join(videoQuery, file => file.VideoId!.Value, video => video.Id,
+                (file, video) => new
+                {
+                    SourceId = file.Id,
+                    VideoId = video.Id,
+                    Path = file.Path.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
+                        ? file.Path.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                        : file.Path,
+                })
+            .OrderBy(file => file.SourceId)
+            .AsAsyncEnumerable();
+        await foreach (var file in files.WithCancellation(ct))
+        {
+            DuplicateSearchMemoryBudget.CheckFieldLength(file.Path.Length);
+            if ((includes.Length == 0 || includes.Any(folder => DuplicateSearchJobService.IsAtOrBelow(file.Path, folder)))
+                && !excludes.Any(folder => DuplicateSearchJobService.IsAtOrBelow(file.Path, folder)))
+            {
+                ids.Add(file.VideoId);
+                if (ids.Count > DuplicateSearchMemoryBudget.MaximumVideos)
+                    break;
+            }
+        }
+        return ids.Order().ToArray();
+    }
+
+    private async Task<HashSet<(int Low, int High)>> LoadIgnoredPairsAsync(
+        int[] candidateIds,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
+    {
+        var candidates = candidateIds.ToHashSet();
+        var result = new HashSet<(int Low, int High)>();
+        foreach (var chunk in candidateIds.Chunk(QueryChunkSize))
+        {
+            var pairs = db.DuplicateIgnoredPairs
+                .AsNoTracking()
+                .Where(pair => chunk.Contains(pair.LowVideoId))
+                .Select(pair => new { pair.LowVideoId, pair.HighVideoId })
+                .AsAsyncEnumerable();
+            await foreach (var pair in pairs.WithCancellation(ct))
+            {
+                if (candidates.Contains(pair.HighVideoId) && result.Add((pair.LowVideoId, pair.HighVideoId)))
+                    memoryBudget.ReserveIgnoredPair();
+            }
+        }
+        return result;
+    }
+
+    private async Task<List<List<int>>> FindFingerprintGroupsAsync(
+        int[] candidateVideoIds,
+        HashSet<(int Low, int High)> ignored,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
     {
         var rows = new List<DuplicateFingerprintCandidate>();
         foreach (var chunk in candidateVideoIds.Chunk(QueryChunkSize))
         {
-            rows.AddRange(await db.VideoFiles
+            var query = db.VideoFiles
                 .Where(file => file.VideoId.HasValue && chunk.Contains(file.VideoId.Value))
                 .SelectMany(
                     file => file.Fingerprints.Where(fingerprint =>
                         (fingerprint.Type == "oshash" || fingerprint.Type == "md5")
                         && fingerprint.Value != ""),
-                    (file, fingerprint) => new DuplicateFingerprintCandidate(
-                        file.VideoId!.Value,
-                        fingerprint.Type,
-                        fingerprint.Value))
-                .AsNoTracking()
-                .ToListAsync(ct));
+                    (file, fingerprint) => new { SourceId = fingerprint.Id, VideoId = file.VideoId!.Value, fingerprint.Type, Value = fingerprint.Value.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters ? fingerprint.Value.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) : fingerprint.Value })
+                .AsNoTracking();
+            await foreach (var row in ReadCandidatePagesAsync(query, row => row.SourceId, memoryBudget,
+                row => (row.Type.Length + row.Value.Length, Math.Max(row.Type.Length, row.Value.Length)), false, ct))
+                rows.Add(new DuplicateFingerprintCandidate(row.VideoId, row.Type, row.Value));
         }
 
-        return DistinctGroups(rows
-            .GroupBy(row => (row.Type, row.Value))
-            .Select(group => group.Select(row => row.VideoId)));
+        return GroupBuckets(
+            rows.GroupBy(row => (row.Type, row.Value)).Select(bucket => bucket.Select(row => row.VideoId)),
+            ignored,
+            memoryBudget);
     }
 
-    private async Task<List<List<int>>> FindTitleGroupsAsync(int[] candidateVideoIds, CancellationToken ct)
+    private async Task<List<List<int>>> FindTitleGroupsAsync(
+        int[] candidateVideoIds,
+        HashSet<(int Low, int High)> ignored,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
     {
         var rows = new List<DuplicateTitleCandidate>();
         foreach (var chunk in candidateVideoIds.Chunk(QueryChunkSize))
         {
-            rows.AddRange(await db.Videos
+            var query = db.Videos
                 .Where(video => chunk.Contains(video.Id) && video.Title != null && video.Title != "")
-                .Select(video => new DuplicateTitleCandidate(video.Id, video.Title!))
-                .AsNoTracking()
-                .ToListAsync(ct));
+                .Select(video => new { SourceId = video.Id, VideoId = video.Id, Title = video.Title!.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters ? video.Title!.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) : video.Title! })
+                .AsNoTracking();
+            await foreach (var row in ReadCandidatePagesAsync(query, row => row.SourceId, memoryBudget,
+                row => (row.Title.Length, row.Title.Length), false, ct))
+                rows.Add(new DuplicateTitleCandidate(row.VideoId, row.Title));
         }
 
-        return DistinctGroups(rows
-            .GroupBy(row => row.Title.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.Select(row => row.VideoId)));
+        return GroupBuckets(
+            rows.GroupBy(row => NormalizeTitle(row.Title), StringComparer.OrdinalIgnoreCase)
+                .Where(bucket => bucket.Key.Length > 0)
+                .Select(bucket => bucket.Select(row => row.VideoId)),
+            ignored,
+            memoryBudget);
     }
 
-    private async Task<List<List<int>>> FindRemoteIdGroupsAsync(int[] candidateVideoIds, CancellationToken ct)
+    private async Task<List<List<int>>> FindRemoteIdGroupsAsync(
+        int[] candidateVideoIds,
+        HashSet<(int Low, int High)> ignored,
+        DuplicateSearchMemoryBudget memoryBudget,
+        CancellationToken ct)
     {
         var rows = new List<DuplicateRemoteIdCandidate>();
         foreach (var chunk in candidateVideoIds.Chunk(QueryChunkSize))
         {
-            rows.AddRange(await db.Set<VideoRemoteId>()
+            var query = db.Set<VideoRemoteId>()
                 .Where(remoteId => chunk.Contains(remoteId.VideoId) && remoteId.RemoteId != "")
-                .Select(remoteId => new DuplicateRemoteIdCandidate(
+                .Select(remoteId => new
+                {
+                    SourceId = remoteId.Id,
                     remoteId.VideoId,
-                    remoteId.Endpoint,
-                    remoteId.RemoteId))
-                .AsNoTracking()
-                .ToListAsync(ct));
+                    Endpoint = remoteId.Endpoint.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters ? remoteId.Endpoint.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) : remoteId.Endpoint,
+                    RemoteId = remoteId.RemoteId.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters ? remoteId.RemoteId.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) : remoteId.RemoteId
+                })
+                .AsNoTracking();
+            await foreach (var row in ReadCandidatePagesAsync(query, row => row.SourceId, memoryBudget,
+                row => (row.Endpoint.Length + row.RemoteId.Length, Math.Max(row.Endpoint.Length, row.RemoteId.Length)), false, ct))
+                rows.Add(new DuplicateRemoteIdCandidate(row.VideoId, row.Endpoint, row.RemoteId));
         }
 
-        return DistinctGroups(rows
-            .GroupBy(
-                row => $"{row.Endpoint.Trim()}\n{row.RemoteId.Trim()}",
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.Select(row => row.VideoId)));
+        return GroupBuckets(
+            rows.GroupBy(
+                    row => $"{row.Endpoint.Trim()}\n{row.RemoteId.Trim()}",
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(bucket => bucket.Select(row => row.VideoId)),
+            ignored,
+            memoryBudget);
     }
 
     private async Task<List<List<int>>> FindPhashGroupsAsync(
         int[] candidateVideoIds,
         int maxDistance,
         double maxDurationDifference,
+        HashSet<(int Low, int High)> ignored,
+        DuplicateSearchMemoryBudget memoryBudget,
         IJobProgress progress,
         CancellationToken ct)
     {
-        progress.Report(0.02, "Loading visual fingerprints");
+        progress.Report(0.04, "Loading visual fingerprints");
         var candidates = new List<DuplicatePHashCandidate>();
         foreach (var chunk in candidateVideoIds.Chunk(QueryChunkSize))
         {
-            var rows = await db.VideoFiles
+            var query = db.VideoFiles
                 .Where(file => file.VideoId.HasValue && chunk.Contains(file.VideoId.Value))
                 .SelectMany(
                     file => file.Fingerprints.Where(fingerprint => fingerprint.Type == "phash" && fingerprint.Value != ""),
-                    (file, fingerprint) => new { VideoId = file.VideoId!.Value, file.Duration, fingerprint.Value })
-                .AsNoTracking()
-                .ToListAsync(ct);
-            foreach (var row in rows)
+                    (file, fingerprint) => new { SourceId = fingerprint.Id, VideoId = file.VideoId!.Value, file.Duration, Value = fingerprint.Value.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters ? fingerprint.Value.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) : fingerprint.Value })
+                .AsNoTracking();
+            await foreach (var row in ReadCandidatePagesAsync(query, row => row.SourceId, memoryBudget,
+                row => (row.Value.Length, row.Value.Length), true, ct))
             {
                 if (TryParsePHash(row.Value, out var hash))
                     candidates.Add(new DuplicatePHashCandidate(row.VideoId, row.Duration, hash));
@@ -457,6 +475,8 @@ public sealed class DuplicateSearchExecutionService(
                         var pair = left.VideoId < right.VideoId
                             ? (left.VideoId, right.VideoId)
                             : (right.VideoId, left.VideoId);
+                        if (ignored.Contains(pair))
+                            return;
                         if (matches.TryAdd(pair, 0)
                             && Interlocked.Increment(ref matchCount) > MaximumPHashMatches)
                         {
@@ -483,42 +503,35 @@ public sealed class DuplicateSearchExecutionService(
         if (Volatile.Read(ref complexityExceeded) != 0)
         {
             throw new InvalidOperationException(
-                $"The visual search exceeded {MaximumPHashComparisons.ToString("N0", CultureInfo.InvariantCulture)} comparisons. Reduce the pHash distance or duration delta and try again.");
+                $"The visual search exceeded {MaximumPHashComparisons.ToString("N0", CultureInfo.InvariantCulture)} comparisons. Use a stricter accuracy or a smaller duration tolerance and try again.");
         }
         if (Volatile.Read(ref matchLimitExceeded) != 0)
         {
             throw new InvalidOperationException(
-                $"The visual search found more than {MaximumPHashMatches.ToString("N0", CultureInfo.InvariantCulture)} direct matches. Reduce the pHash distance or duration delta and try again.");
+                $"The visual search found more than {MaximumPHashMatches.ToString("N0", CultureInfo.InvariantCulture)} direct matches. Use a stricter accuracy or a smaller duration tolerance and try again.");
         }
         if (result.FailedUnits > 0)
             throw new InvalidOperationException($"{result.FailedUnits.ToString(CultureInfo.InvariantCulture)} pHash comparison units failed.");
-        return BuildConnectedGroups(matches.Keys);
+        return BuildConnectedGroups(matches.Keys, memoryBudget);
     }
 
-    private async Task<int> PersistGroupsAsync(Guid searchId, IReadOnlyList<List<int>> groups, CancellationToken ct)
+    private async Task<int> PersistGroupsAsync(
+        Guid searchId,
+        IReadOnlyList<List<int>> groups,
+        IReadOnlyList<DuplicateKeeperRule> rules,
+        DuplicateSearchMemoryBudget memoryBudget,
+        IJobProgress progress,
+        CancellationToken ct)
     {
         var allVideoIds = groups.SelectMany(group => group).Distinct().ToArray();
-        var scores = new Dictionary<int, DuplicateKeeperScore>();
-        foreach (var chunk in allVideoIds.Chunk(QueryChunkSize))
-        {
-            var chunkScores = await db.Videos
-                .Where(video => chunk.Contains(video.Id))
-                .Select(video => new DuplicateKeeperScore(video.Id, video.MaxResolution, video.MaxFileSize))
-                .AsNoTracking()
-                .ToListAsync(ct);
-            foreach (var score in chunkScores)
-                scores[score.VideoId] = score;
-        }
+        var facts = await DuplicateKeeperRules.LoadFactsAsync(db, allVideoIds, rules, memoryBudget, ct);
         var boundedGroups = PreparePersistedGroups(
             groups,
             MaximumPersistedGroupSize,
             MaximumPersistedGroupCount,
-            ids => ids
-                .OrderByDescending(id => scores.GetValueOrDefault(id)?.Resolution ?? 0)
-                .ThenByDescending(id => scores.GetValueOrDefault(id)?.FileSize ?? 0)
-                .ThenBy(id => id)
-                .First());
+            ids => DuplicateKeeperRules.Choose(ids, facts, rules));
 
+        progress.Report(0.94, "Saving duplicate groups");
         var existingGroups = db.DuplicateSearchGroups.Where(group => group.SearchId == searchId);
         if (db.Database.IsRelational())
         {
@@ -536,12 +549,18 @@ public sealed class DuplicateSearchExecutionService(
             for (var position = batchStart; position < batchEnd; position++)
             {
                 ct.ThrowIfCancellationRequested();
-                var videoIds = boundedGroups[position].VideoIds;
-                var keeperId = boundedGroups[position].KeeperId;
+                var bounded = boundedGroups[position];
                 definitions.Add(new PersistedGroupDefinition(
-                    new DuplicateSearchGroup { SearchId = searchId, Position = position },
-                    videoIds,
-                    keeperId));
+                    new DuplicateSearchGroup
+                    {
+                        SearchId = searchId,
+                        Position = position,
+                        Status = DuplicateGroupStatus.Unresolved,
+                        DecisionSource = "auto",
+                        DecisionRule = bounded.Choice.DecisionRule,
+                    },
+                    bounded.VideoIds,
+                    bounded.Choice.KeeperId));
             }
 
             db.DuplicateSearchGroups.AddRange(definitions.Select(definition => definition.Entity));
@@ -581,7 +600,7 @@ public sealed class DuplicateSearchExecutionService(
         search.GroupCount = boundedGroups.Count;
         search.VideoCount = allVideoIds.Length;
         search.CompletedAt = DateTime.UtcNow;
-        search.ExpiresAt = DateTime.UtcNow.Add(ResultRetention);
+        search.ExpiresAt = DateTime.UtcNow.Add(DuplicateSearchJobService.ResultRetention);
         search.Error = null;
         await db.SaveChangesAsync(ct);
         return boundedGroups.Count;
@@ -596,14 +615,15 @@ public sealed class DuplicateSearchExecutionService(
         search.Status = status;
         search.Error = string.IsNullOrWhiteSpace(error) ? null : error[..Math.Min(error.Length, 2_000)];
         search.CompletedAt = DateTime.UtcNow;
-        search.ExpiresAt = DateTime.UtcNow.Add(ResultRetention);
+        search.ExpiresAt = DateTime.UtcNow.Add(DuplicateSearchJobService.ResultRetention);
         await db.SaveChangesAsync(CancellationToken.None);
     }
 
     internal static PhashGroupingResult FindPhashGroupsForTests(
         IReadOnlyCollection<DuplicatePHashCandidate> candidates,
         int maxDistance,
-        double maxDurationDifference)
+        double maxDurationDifference,
+        IReadOnlySet<(int Low, int High)>? ignored = null)
     {
         var sorted = candidates.OrderBy(candidate => candidate.Duration).ThenBy(candidate => candidate.VideoId).ToArray();
         var index = new PHashMultiIndex(sorted, Math.Clamp(maxDistance, 0, 64));
@@ -616,9 +636,14 @@ public sealed class DuplicateSearchExecutionService(
                 leftIndex,
                 Math.Clamp(maxDistance, 0, 64),
                 Math.Max(0, maxDurationDifference),
-                (left, right) => matches.Add(left.VideoId < right.VideoId
-                    ? (left.VideoId, right.VideoId)
-                    : (right.VideoId, left.VideoId)),
+                (left, right) =>
+                {
+                    var pair = left.VideoId < right.VideoId
+                        ? (left.VideoId, right.VideoId)
+                        : (right.VideoId, left.VideoId);
+                    if (ignored?.Contains(pair) != true)
+                        matches.Add(pair);
+                },
                 () => comparisons++,
                 CancellationToken.None);
         }
@@ -627,13 +652,67 @@ public sealed class DuplicateSearchExecutionService(
             comparisons);
     }
 
-    private static List<List<int>> BuildConnectedGroups(IEnumerable<(int Left, int Right)> matches)
+    /// <summary>
+    /// Connects every pair of videos that share a bucket (a fingerprint, a title, a remote ID) unless the
+    /// pair was marked as not duplicates. Components rather than raw buckets become groups, so an MD5 match
+    /// and an OSHash match of the same videos collapse into one group.
+    /// </summary>
+    internal static List<List<int>> GroupBuckets(
+        IEnumerable<IEnumerable<int>> buckets,
+        IReadOnlySet<(int Low, int High)> ignored,
+        DuplicateSearchMemoryBudget? memoryBudget = null)
+    {
+        var ignoredVideoIds = new HashSet<int>();
+        foreach (var pair in ignored)
+        {
+            ignoredVideoIds.Add(pair.Low);
+            ignoredVideoIds.Add(pair.High);
+        }
+        return BuildConnectedGroups(EnumerateEdges(), memoryBudget);
+
+        IEnumerable<(int Left, int Right)> EnumerateEdges()
+        {
+            foreach (var bucket in buckets)
+            {
+                var ids = bucket.Distinct().Order().ToArray();
+                if (ids.Length < 2)
+                    continue;
+                var touchesIgnored = ids.Length <= MaximumPairwiseBucketSize && ids.Any(ignoredVideoIds.Contains);
+                if (!touchesIgnored)
+                {
+                    for (var index = 1; index < ids.Length; index++)
+                    {
+                        yield return (ids[0], ids[index]);
+                    }
+                    continue;
+                }
+                for (var left = 0; left < ids.Length; left++)
+                {
+                    for (var right = left + 1; right < ids.Length; right++)
+                    {
+                        if (ignored.Contains((ids[left], ids[right])))
+                            continue;
+                        yield return (ids[left], ids[right]);
+                    }
+                }
+            }
+        }
+    }
+
+    internal static string NormalizeTitle(string title)
+        => string.Join(' ', title.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static List<List<int>> BuildConnectedGroups(
+        IEnumerable<(int Left, int Right)> matches,
+        DuplicateSearchMemoryBudget? memoryBudget = null)
     {
         var parent = new Dictionary<int, int>();
         foreach (var (left, right) in matches)
         {
-            parent.TryAdd(left, left);
-            parent.TryAdd(right, right);
+            if (parent.TryAdd(left, left))
+                memoryBudget?.ReserveGroupingNode();
+            if (parent.TryAdd(right, right))
+                memoryBudget?.ReserveGroupingNode();
             Union(parent, left, right);
         }
 
@@ -681,7 +760,7 @@ public sealed class DuplicateSearchExecutionService(
                 groups,
                 maximumGroupSize,
                 maximumGroupCount,
-                ids => ids[0])
+                ids => new DuplicateKeeperChoice(ids.Min(), DuplicateKeeperRules.TieBreakRule))
             .Select(group => group.VideoIds)
             .ToList();
 
@@ -689,7 +768,7 @@ public sealed class DuplicateSearchExecutionService(
         IEnumerable<IEnumerable<int>> groups,
         int maximumGroupSize,
         int maximumGroupCount,
-        Func<int[], int> keeperSelector)
+        Func<int[], DuplicateKeeperChoice> keeperSelector)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumGroupSize, 2);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumGroupCount, 1);
@@ -700,22 +779,22 @@ public sealed class DuplicateSearchExecutionService(
             if (ids.Length < 2)
                 continue;
 
-            var keeperId = keeperSelector(ids);
-            if (!ids.Contains(keeperId))
+            var choice = keeperSelector(ids);
+            if (!ids.Contains(choice.KeeperId))
                 throw new InvalidOperationException("The duplicate-group keeper must belong to its group.");
 
             if (ids.Length <= maximumGroupSize)
             {
-                result.Add(new BoundedDuplicateGroup(ids, keeperId));
+                result.Add(new BoundedDuplicateGroup(ids, choice));
                 ThrowIfTooManyGroups(result.Count, maximumGroupCount);
                 continue;
             }
 
             // Each persisted chunk shares the logical group's keeper. The global kept-video rule can
             // therefore delete every other member even though the UI pages groups in bounded rows.
-            foreach (var chunk in ids.Where(id => id != keeperId).Chunk(maximumGroupSize - 1))
+            foreach (var chunk in ids.Where(id => id != choice.KeeperId).Chunk(maximumGroupSize - 1))
             {
-                result.Add(new BoundedDuplicateGroup([keeperId, .. chunk], keeperId));
+                result.Add(new BoundedDuplicateGroup([choice.KeeperId, .. chunk], choice));
                 ThrowIfTooManyGroups(result.Count, maximumGroupCount);
             }
         }
@@ -765,18 +844,6 @@ public sealed class DuplicateSearchExecutionService(
                     match(left, right);
             }
         }
-    }
-
-    private static List<List<int>> DistinctGroups(IEnumerable<IEnumerable<int>> groups)
-    {
-        return groups
-            .Select(group => group.Distinct().OrderBy(id => id).ToArray())
-            .Where(group => group.Length > 1)
-            .DistinctBy(group => string.Join(',', group))
-            .OrderBy(group => group[0])
-            .ThenBy(group => group.Length)
-            .Select(group => group.ToList())
-            .ToList();
     }
 
     private static bool TryParsePHash(string value, out ulong hash)
@@ -844,11 +911,39 @@ public sealed class DuplicateSearchExecutionService(
         }
     }
 
+    private static async IAsyncEnumerable<T> ReadCandidatePagesAsync<T>(IQueryable<T> query, System.Linq.Expressions.Expression<Func<T, int>> identity,
+        DuplicateSearchMemoryBudget budget, Func<T, (int Characters, int LargestField)> measure, bool visual,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        var getId = identity.Compile();
+        int? after = null;
+        while (true)
+        {
+            var pageQuery = query;
+            if (after.HasValue)
+            {
+                System.Linq.Expressions.Expression<Func<int>> cursor = () => after.Value;
+                var predicate = System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(
+                    System.Linq.Expressions.Expression.GreaterThan(identity.Body, cursor.Body), identity.Parameters);
+                pageQuery = pageQuery.Where(predicate);
+            }
+            var page = await pageQuery.OrderBy(identity).Take(DuplicateSearchMemoryBudget.PageSize).ToListAsync(ct);
+            if (page.Count == 0) yield break;
+            after = getId(page[^1]);
+            foreach (var row in page)
+            {
+                ct.ThrowIfCancellationRequested();
+                var size = measure(row);
+                budget.Reserve(size.Characters, size.LargestField, visual);
+                yield return row;
+            }
+        }
+    }
+
     private sealed record DuplicateFingerprintCandidate(int VideoId, string Type, string Value);
     private sealed record DuplicateTitleCandidate(int VideoId, string Title);
     private sealed record DuplicateRemoteIdCandidate(int VideoId, string Endpoint, string RemoteId);
-    private sealed record DuplicateKeeperScore(int VideoId, int Resolution, long FileSize);
-    private sealed record BoundedDuplicateGroup(int[] VideoIds, int KeeperId);
+    private sealed record BoundedDuplicateGroup(int[] VideoIds, DuplicateKeeperChoice Choice);
     private sealed record PersistedGroupDefinition(DuplicateSearchGroup Entity, int[] VideoIds, int KeeperId);
     private sealed class DuplicateSearchComplexityException : Exception
     {
@@ -860,9 +955,9 @@ internal sealed record PhashGroupingResult(IReadOnlyList<List<int>> Groups, long
 
 internal static class DuplicateSearchDeletionClaim
 {
-    // Recovery also releases durable keeper reservations, so it is safe to run only after the
-    // migration that introduces that table, not merely after the initial search-result tables.
-    public const string MigrationId = "20260824154058_AddDurableDeletionOutbox";
+    // Recovery also resets group review state, so it is safe to run only after the migration that
+    // introduces the per-group resolution columns.
+    public const string MigrationId = DuplicateResolutionMigration.Id;
     public const string Prefix = "~";
 
     public static string Create() => Prefix + Guid.NewGuid().ToString("N")[..31];
@@ -895,6 +990,8 @@ public sealed class DuplicateSearchRecoveryService(
         }
     }
 
+    internal const string InterruptedResolutionError = "Cove restarted before this group was resolved. Nothing was removed after the restart; review it and resolve it again.";
+
     internal static async Task RecoverAsync(CoveContext db, DateTime now, CancellationToken ct)
     {
         await db.DuplicateSearches
@@ -903,43 +1000,18 @@ public sealed class DuplicateSearchRecoveryService(
                 .SetProperty(search => search.Status, DuplicateSearchStatus.Interrupted)
                 .SetProperty(search => search.CompletedAt, now)
                 .SetProperty(search => search.Error, "The server stopped before this search completed."), ct);
+
+        // Resolution workers are in-memory jobs, so none survive a restart. Groups they still owned
+        // return to review with an explanation instead of silently resuming destructive work.
+        await db.DuplicateSearchGroups
+            .Where(group => group.Status == DuplicateGroupStatus.Queued || group.Status == DuplicateGroupStatus.Processing)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(group => group.Status, DuplicateGroupStatus.Failed)
+                .SetProperty(group => group.Error, InterruptedResolutionError), ct);
         await db.DuplicateSearches
-            .Where(search => search.DeletionJobId != null
-                && search.DeletionJobId.StartsWith(DuplicateSearchDeletionClaim.Prefix))
+            .Where(search => search.DeletionJobId != null)
             .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-
-        // In-memory deletion jobs do not survive a restart. Release their keeper constraints so the
-        // reconciled search can be queued again; the physical-file outbox is recovered separately.
         await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ExecuteDeleteAsync(ct);
-
-        var claimedSearchIds = await db.DuplicateSearches
-            .Where(search => search.DeletionJobId != null
-                && !search.DeletionJobId.StartsWith(DuplicateSearchDeletionClaim.Prefix))
-            .Select(search => search.Id)
-            .ToArrayAsync(ct);
-        foreach (var chunk in claimedSearchIds.Chunk(4_000))
-        {
-            var incompleteSearchIds = await db.DuplicateSearchItems
-                .Where(item => item.Group != null
-                    && chunk.Contains(item.Group.SearchId)
-                    && !item.Keep
-                    && item.Group.Items.Any(keeper => keeper.Keep)
-                    && !db.DuplicateSearchItems.Any(keeper => keeper.Group != null
-                        && keeper.Group.SearchId == item.Group.SearchId
-                        && keeper.VideoId == item.VideoId
-                        && keeper.Keep))
-                .Join(db.Videos, item => item.VideoId, video => video.Id, (item, _) => item.Group!.SearchId)
-                .Distinct()
-                .ToArrayAsync(ct);
-            if (incompleteSearchIds.Length > 0)
-            {
-                await db.DuplicateSearches
-                    .Where(search => incompleteSearchIds.Contains(search.Id)
-                        && search.DeletionJobId != null
-                        && !search.DeletionJobId.StartsWith(DuplicateSearchDeletionClaim.Prefix))
-                    .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-            }
-        }
 
         await db.DuplicateSearches.Where(search => search.ExpiresAt < now).ExecuteDeleteAsync(ct);
     }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -109,7 +110,7 @@ public class AiCoreControllerTests
         context.Detections.Add(representativeDetection);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, null, 1, 5, 5, CancellationToken.None);
+        var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
         var similarOk = Assert.IsType<OkObjectResult>(similarResult.Result);
         var similarFaces = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(similarOk.Value);
         var match = Assert.Single(similarFaces.Items);
@@ -176,10 +177,10 @@ public class AiCoreControllerTests
             Array.Empty<IFaceLifecycleParticipant>(),
             NullLogger<FacesController>.Instance);
 
-        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, 1, 5, 5, CancellationToken.None);
+        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
         var firstOk = Assert.IsType<OkObjectResult>(firstResult.Result);
         var firstPage = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(firstOk.Value);
-        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, 2, 2, 5, CancellationToken.None);
+        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, 2, 2, 5, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(ok.Value);
 
@@ -188,15 +189,174 @@ public class AiCoreControllerTests
         Assert.Equal(2, page.Items.Count);
         Assert.Equal(firstPage.Items.Skip(2).Take(2).Select(face => face.Id), page.Items.Select(face => face.Id));
 
-        var randomFirstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, 1, 3, 5, CancellationToken.None);
+        var randomFirstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 1, 3, 5, CancellationToken.None);
         var randomFirst = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomFirstResult.Result).Value);
-        var randomSecondResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, 2, 3, 5, CancellationToken.None);
+        var randomSecondResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 2, 3, 5, CancellationToken.None);
         var randomSecond = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomSecondResult.Result).Value);
-        var randomRepeatResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, 1, 3, 5, CancellationToken.None);
+        var randomRepeatResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 1, 3, 5, CancellationToken.None);
         var randomRepeat = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomRepeatResult.Result).Value);
 
         Assert.Equal(randomFirst.Items.Select(face => face.Id), randomRepeat.Items.Select(face => face.Id));
         Assert.Empty(randomFirst.Items.Select(face => face.Id).Intersect(randomSecond.Items.Select(face => face.Id)));
+    }
+
+    [Fact]
+    public async Task FacesController_List_FiltersByTheFilesFacesAppearIn()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var janeVideo = CreateVideo("jane scene", @"D:\Videos\Jane\2024", "scene.mp4");
+        var janeSiblingVideo = CreateVideo("jane-other scene", @"D:\Videos\Jane-Other", "scene.mp4");
+        var melissaImage = CreateImage("melissa still", @"D:\Videos\Melissa", "still.jpg");
+        context.Videos.AddRange(janeVideo, janeSiblingVideo);
+        context.Images.Add(melissaImage);
+        var janeFace = new Face { Label = "jane", PrimarySourceKey = "ext:ai.faces:1" };
+        var siblingFace = new Face { Label = "sibling", PrimarySourceKey = "ext:ai.faces:2" };
+        var melissaFace = new Face { Label = "melissa", PrimarySourceKey = "ext:ai.faces:3" };
+        context.Faces.AddRange(janeFace, siblingFace, melissaFace);
+        await context.SaveChangesAsync(ct);
+
+        context.FaceAppearances.AddRange(
+            new FaceAppearance { FaceId = janeFace.Id, HostType = FaceAppearanceHostType.Video, HostId = janeVideo.Id, SourceKey = "ext:ai.faces" },
+            // The same person was also detected in a video outside the folder; it must still match.
+            new FaceAppearance { FaceId = janeFace.Id, HostType = FaceAppearanceHostType.Video, HostId = janeSiblingVideo.Id, SourceKey = "ext:ai.faces" },
+            new FaceAppearance { FaceId = siblingFace.Id, HostType = FaceAppearanceHostType.Video, HostId = janeSiblingVideo.Id, SourceKey = "ext:ai.faces" },
+            // An image id that collides with the Jane video id must not match through the video branch.
+            new FaceAppearance { FaceId = melissaFace.Id, HostType = FaceAppearanceHostType.Image, HostId = melissaImage.Id, SourceKey = "ext:ai.faces" });
+        await context.SaveChangesAsync(ct);
+
+        var controller = CreateFacesController(context);
+
+        Assert.Equal(["jane"], await ListFaceLabelsAsync(controller, @"D:\Videos\Jane", "UNDER_PATH", ct));
+        Assert.Equal(["jane", "sibling"], await ListFaceLabelsAsync(controller, "jane", "INCLUDES", ct));
+        Assert.Equal(["melissa"], await ListFaceLabelsAsync(controller, "D:/Videos/Melissa/", null, ct));
+        // "Not under" means never seen in that folder, so the face also seen in Jane-Other is still excluded.
+        Assert.Equal(["melissa", "sibling"], await ListFaceLabelsAsync(controller, @"D:\Videos\Jane", "NOT_UNDER_PATH", ct));
+    }
+
+    [Fact]
+    public async Task FacesController_GetSimilar_FiltersByLinkStateAndPath()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var performer = new Performer { Name = "Jane" };
+        context.Performers.Add(performer);
+        var janeVideo = CreateVideo("jane scene", @"D:\Videos\Jane", "scene.mp4");
+        context.Videos.Add(janeVideo);
+        var sourceFace = new Face { Label = "source", PrimarySourceKey = "ext:ai.faces:source" };
+        var linkedInFolder = new Face { Label = "linked in folder", PrimarySourceKey = "ext:ai.faces:1", Performer = performer };
+        var unlinkedInFolder = new Face { Label = "unlinked in folder", PrimarySourceKey = "ext:ai.faces:2" };
+        var unlinkedElsewhere = new Face { Label = "unlinked elsewhere", PrimarySourceKey = "ext:ai.faces:3" };
+        context.Faces.AddRange(sourceFace, linkedInFolder, unlinkedInFolder, unlinkedElsewhere);
+        await context.SaveChangesAsync(ct);
+
+        context.FaceAppearances.AddRange(
+            new FaceAppearance { FaceId = linkedInFolder.Id, HostType = FaceAppearanceHostType.Video, HostId = janeVideo.Id, SourceKey = "ext:ai.faces" },
+            new FaceAppearance { FaceId = unlinkedInFolder.Id, HostType = FaceAppearanceHostType.Video, HostId = janeVideo.Id, SourceKey = "ext:ai.faces" });
+        context.Embeddings.AddRange(new[] { sourceFace, linkedInFolder, unlinkedInFolder, unlinkedElsewhere }.Select((face, index) => new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = face.Id,
+            Kind = "face.arcface",
+            KindFamily = "face.arcface",
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = 3,
+            Vector = new Vector(new[] { 1f, index * 0.1f, 0f }),
+            SourceKey = "ext:ai.faces",
+        }));
+        await context.SaveChangesAsync(ct);
+
+        var controller = CreateFacesController(context);
+
+        async Task<string?[]> SimilarLabelsAsync(bool? linked, string? path)
+        {
+            var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "label", "asc", null, linked, path, null, 1, 10, 10, ct);
+            var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            Assert.Equal(page.Items.Count, page.TotalCount);
+            return page.Items.Select(face => face.Label).ToArray();
+        }
+
+        Assert.Equal(["linked in folder", "unlinked elsewhere", "unlinked in folder"], await SimilarLabelsAsync(null, null));
+        Assert.Equal(["unlinked elsewhere", "unlinked in folder"], await SimilarLabelsAsync(false, null));
+        Assert.Equal(["unlinked in folder"], await SimilarLabelsAsync(false, @"D:\Videos\Jane"));
+    }
+
+    [Fact]
+    public async Task FacesController_PathFiltersRequireFileReadPermission()
+    {
+        await using var scope = await CreateContextAsync();
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "faces-reader",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.FacesRead },
+            Roles = new HashSet<string>(),
+        });
+        var controller = CreateFacesController(scope.Context, principalAccessor);
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.IsType<ForbidResult>((await controller.List(path: "/restricted", cancellationToken: ct)).Result);
+        Assert.IsType<ForbidResult>((await controller.GetSimilar(1, null, null, null, null, null, path: "/restricted", cancellationToken: ct)).Result);
+    }
+
+    private static FacesController CreateFacesController(CoveContext context, ICurrentPrincipalAccessor? principalAccessor = null)
+    {
+        principalAccessor ??= CreatePrincipalAccessor();
+        return new(
+            context,
+            new EmbeddingService(context, []),
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            new FacePerformerPropagationService(context),
+            Array.Empty<IFaceLifecycleParticipant>(),
+            NullLogger<FacesController>.Instance,
+            principalAccessor: principalAccessor);
+    }
+
+    private static CurrentPrincipalAccessor CreatePrincipalAccessor()
+    {
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(CovePrincipal.System());
+        return principalAccessor;
+    }
+
+    private static async Task<string?[]> ListFaceLabelsAsync(FacesController controller, string path, string? pathModifier, CancellationToken ct)
+    {
+        var result = await controller.List(path: path, pathModifier: pathModifier, sort: "label", perPage: 50, cancellationToken: ct);
+        var page = Assert.IsType<PaginatedResponse<FaceDto>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        return page.Items.Select(face => face.Label).ToArray();
+    }
+
+    private static Video CreateVideo(string title, string folderPath, string basename)
+    {
+        var video = new Video { Title = title };
+        video.Files.Add(new VideoFile
+        {
+            Basename = basename,
+            ParentFolder = new Folder { Path = folderPath, ModTime = DateTime.UtcNow },
+            Size = 1024,
+            ModTime = DateTime.UtcNow,
+        });
+        return video;
+    }
+
+    private static Image CreateImage(string title, string folderPath, string basename)
+    {
+        var image = new Image { Title = title };
+        image.Files.Add(new ImageFile
+        {
+            Basename = basename,
+            ParentFolder = new Folder { Path = folderPath, ModTime = DateTime.UtcNow },
+            Size = 1024,
+            ModTime = DateTime.UtcNow,
+        });
+        return image;
     }
 
     [Fact]

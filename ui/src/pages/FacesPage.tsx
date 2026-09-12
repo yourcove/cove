@@ -40,6 +40,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { FACE_SORT_OPTIONS } from "../components/faceSortOptions";
+import { FACE_PATH_CRITERION, FACE_PATH_MODIFIERS } from "../components/faceFilterCriteria";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -52,7 +53,9 @@ const defaultFaceDirection = "desc";
 const FACE_CRITERIA: CriterionDefinition[] = [
   { id: "linked", label: "Linked", type: "bool", filterKey: "linkedCriterion" },
   { id: "label", label: "Label", type: "string", filterKey: "labelCriterion" },
-  { id: "source", label: "Source", type: "string", filterKey: "primarySourceKeyCriterion" },
+  FACE_PATH_CRITERION,
+  // The key of the provider that produced the cluster (for example an AI Faces identity key), not a file path.
+  { id: "source", label: "Source Key", type: "string", filterKey: "primarySourceKeyCriterion" },
   { id: "hasCover", label: "Has Cover", type: "bool", filterKey: "hasCoverCriterion" },
   { id: "ignored", label: "Ignored", type: "bool", filterKey: "ignoredCriterion" },
   {
@@ -155,6 +158,12 @@ function readStringCriterion(value: unknown): StringCriterion | undefined {
   return undefined;
 }
 
+function readPathCriterion(value: unknown): StringCriterion | undefined {
+  const criterion = readStringCriterion(value);
+  if (!criterion?.value) return undefined;
+  return FACE_PATH_MODIFIERS.includes(criterion.modifier) ? criterion : { ...criterion, modifier: "UNDER_PATH" };
+}
+
 function readBoolCriterion(value: unknown): BoolCriterion | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -235,6 +244,7 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
   const suggestionConfidenceCriterion = readNumberCriterion(filter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(filter.labelCriterion);
   const primarySourceKeyCriterion = readStringCriterion(filter.primarySourceKeyCriterion);
+  const pathCriterion = readPathCriterion(filter.pathCriterion);
   const hasCoverCriterion = readBoolCriterion(filter.hasCoverCriterion);
   const ignoredCriterion = readBoolCriterion(filter.ignoredCriterion);
   const detectionCountCriterion = readCountCriterion(filter.detectionCountCriterion);
@@ -256,6 +266,7 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
 
   if (labelCriterion) next.labelCriterion = labelCriterion;
   if (primarySourceKeyCriterion) next.primarySourceKeyCriterion = primarySourceKeyCriterion;
+  if (pathCriterion) next.pathCriterion = pathCriterion;
   if (hasCoverCriterion) next.hasCoverCriterion = hasCoverCriterion;
   if (ignoredCriterion) next.ignoredCriterion = ignoredCriterion;
   if (detectionCountCriterion) next.detectionCountCriterion = detectionCountCriterion;
@@ -368,6 +379,7 @@ export function FacesPage({ onNavigate }: Props) {
   const suggestionConfidenceCriterion = readNumberCriterion(objectFilter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(objectFilter.labelCriterion);
   const primarySourceKeyCriterion = readStringCriterion(objectFilter.primarySourceKeyCriterion);
+  const pathCriterion = readPathCriterion(objectFilter.pathCriterion);
   const hasCoverCriterion = readBoolCriterion(objectFilter.hasCoverCriterion);
   const ignoredCriterion = readBoolCriterion(objectFilter.ignoredCriterion);
   const detectionCountCriterion = readCountCriterion(objectFilter.detectionCountCriterion);
@@ -405,6 +417,8 @@ export function FacesPage({ onNavigate }: Props) {
       labelModifier: labelCriterion?.modifier,
       primarySourceKey: primarySourceKeyCriterion?.value,
       primarySourceKeyModifier: primarySourceKeyCriterion?.modifier,
+      path: pathCriterion?.value,
+      pathModifier: pathCriterion?.modifier,
       hasCover: hasCoverCriterion?.value,
       ignored: ignoredCriterion?.value,
       detectionCount: detectionCountCriterion?.value,
@@ -461,6 +475,8 @@ export function FacesPage({ onNavigate }: Props) {
       linkedCriterion?.value,
       linkedPerformerIds,
       minSuggestionConfidence,
+      pathCriterion?.modifier,
+      pathCriterion?.value,
       primarySourceKeyCriterion?.modifier,
       primarySourceKeyCriterion?.value,
       videoCountCriterion?.modifier,

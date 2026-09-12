@@ -41,6 +41,7 @@ public class FacesController(
     IStreamService? streamService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
+    private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
 
     // Extensions live in isolated DI containers since the extensions-runtime redesign and surface
     // their face contributions through the cross-extension service exchange. The host-injected
@@ -177,6 +178,8 @@ public class FacesController(
         [FromQuery] string? labelModifier = null,
         [FromQuery] string? primarySourceKey = null,
         [FromQuery] string? primarySourceKeyModifier = null,
+        [FromQuery] string? path = null,
+        [FromQuery] string? pathModifier = null,
         [FromQuery] bool? hasCover = null,
         [FromQuery] int? detectionCount = null,
         [FromQuery] int? detectionCount2 = null,
@@ -208,6 +211,9 @@ public class FacesController(
     {
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
+        var pathCriterion = BuildPathCriterion(path, pathModifier);
+        if (pathCriterion is not null && !CanReadFiles)
+            return Forbid();
 
         var totalSw = Stopwatch.StartNew();
         var phaseSw = new Stopwatch();
@@ -260,6 +266,7 @@ public class FacesController(
 
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(label, labelModifier), face => face.Label);
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(primarySourceKey, primarySourceKeyModifier), face => face.PrimarySourceKey);
+        query = ApplyAppearancePathCriterion(query, pathCriterion);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(detectionCount, detectionCount2, detectionCountModifier), face => face.DetectionCount);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(appearanceCount, appearanceCount2, appearanceCountModifier), face => face.AppearanceCount);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(frameSampleCount, frameSampleCount2, frameSampleCountModifier), face => face.FrameSampleCount);
@@ -420,6 +427,56 @@ public class FacesController(
             return new StringCriterion { Value = value?.Trim() ?? string.Empty, Modifier = parsedModifier };
 
         return null;
+    }
+
+    private static StringCriterion? BuildPathCriterion(string? value, string? modifier)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var parsedModifier = modifier?.Trim().ToUpperInvariant() switch
+        {
+            "NOT_UNDER_PATH" => CriterionModifier.NotUnderPath,
+            "UNDER_PATH" or null or "" => CriterionModifier.UnderPath,
+            _ => ParseCriterionModifier(modifier) ?? CriterionModifier.UnderPath,
+        };
+
+        return parsedModifier is CriterionModifier.IsNull or CriterionModifier.NotNull
+            ? null
+            : new StringCriterion { Value = value.Trim(), Modifier = parsedModifier };
+    }
+
+    // A face has no file of its own, so a path criterion matches the files of the videos and images the face
+    // appears in. Negated modifiers exclude a face seen in *any* matching file: "not under D:\Videos\Jane"
+    // means "never appears in Jane's folder", not "also appears somewhere else".
+    private IQueryable<Face> ApplyAppearancePathCriterion(IQueryable<Face> query, StringCriterion? criterion)
+    {
+        if (criterion is null)
+            return query;
+
+        var positiveModifier = criterion.Modifier switch
+        {
+            CriterionModifier.NotEquals => CriterionModifier.Equals,
+            CriterionModifier.Excludes => CriterionModifier.Includes,
+            CriterionModifier.NotMatchesRegex => CriterionModifier.MatchesRegex,
+            CriterionModifier.NotUnderPath => CriterionModifier.UnderPath,
+            var modifier => modifier,
+        };
+        var negated = positiveModifier != criterion.Modifier;
+        var matching = new StringCriterion { Value = criterion.Value, Modifier = positiveModifier };
+
+        var videoIds = FilterHelpers.ApplyFilePath(db.Videos.AsNoTracking(), matching, video => video.Files).Select(video => video.Id);
+        var imageIds = FilterHelpers.ApplyFilePath(db.Images.AsNoTracking(), matching, image => image.Files).Select(image => image.Id);
+        var matchingFaceIds = db.FaceAppearances
+            .AsNoTracking()
+            .Where(appearance =>
+                (appearance.HostType == FaceAppearanceHostType.Video && videoIds.Contains(appearance.HostId))
+                || (appearance.HostType == FaceAppearanceHostType.Image && imageIds.Contains(appearance.HostId)))
+            .Select(appearance => appearance.FaceId);
+
+        return negated
+            ? query.Where(face => !matchingFaceIds.Contains(face.Id))
+            : query.Where(face => matchingFaceIds.Contains(face.Id));
     }
 
     private static IntCriterion? BuildIntCriterion(int? value, int? value2, string? modifier)
@@ -1335,6 +1392,9 @@ public class FacesController(
         [FromQuery] string? sort,
         [FromQuery] string? direction,
         [FromQuery] int? seed,
+        [FromQuery] bool? linked = null,
+        [FromQuery] string? path = null,
+        [FromQuery] string? pathModifier = null,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 18,
         [FromQuery] int k = 80,
@@ -1343,6 +1403,9 @@ public class FacesController(
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
         var candidateCount = Math.Clamp(k, 1, 250);
+        var pathCriterion = BuildPathCriterion(path, pathModifier);
+        if (pathCriterion is not null && !CanReadFiles)
+            return Forbid();
 
         // Face similarity is a face-reading feature, so callers do not need broad access to the raw
         // embeddings API. Establish source-face visibility under the normal face filter first, then
@@ -1392,12 +1455,19 @@ public class FacesController(
         if (faceIds.Length == 0)
             return Ok(new PaginatedResponse<FaceSimilarDto>(Array.Empty<FaceSimilarDto>(), 0, page, perPage));
 
-        var faces = await db.Faces
+        var similarFaceQuery = db.Faces
             .AsNoTracking()
             .Include(face => face.Performer)
             // Merged faces are absorbed into their target, so they must not appear as similar-face results.
-            .Where(face => faceIds.Contains(face.Id) && face.MergedIntoFaceId == null)
-            .ToDictionaryAsync(face => face.Id, cancellationToken);
+            .Where(face => faceIds.Contains(face.Id) && face.MergedIntoFaceId == null);
+        // Filters narrow the nearest-neighbour candidates; they never widen the search beyond k.
+        if (linked.HasValue)
+            similarFaceQuery = linked.Value
+                ? similarFaceQuery.Where(face => face.PerformerId != null)
+                : similarFaceQuery.Where(face => face.PerformerId == null);
+        similarFaceQuery = ApplyAppearancePathCriterion(similarFaceQuery, pathCriterion);
+
+        var faces = await similarFaceQuery.ToDictionaryAsync(face => face.Id, cancellationToken);
 
         var computedCounts = await LoadComputedCountsAsync(faceIds, cancellationToken);
 

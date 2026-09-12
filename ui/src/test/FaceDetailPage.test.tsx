@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FaceDetailPage } from "../pages/FaceDetailPage";
 
-const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack } = vi.hoisted(() => ({
+const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth } = vi.hoisted(() => ({
   mockFaces: {
     get: vi.fn(),
     similar: vi.fn(),
@@ -17,6 +17,11 @@ const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack } = vi.hoist
     mergeInto: vi.fn(),
     delete: vi.fn(),
     list: vi.fn(),
+    capabilities: vi.fn(),
+    markNotPresent: vi.fn(),
+    hostTracks: vi.fn(),
+    split: vi.fn(),
+    suggestions: vi.fn(),
   },
   mockPerformers: {
     find: vi.fn(),
@@ -27,6 +32,7 @@ const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack } = vi.hoist
     setRating: vi.fn(),
   },
   mockGoBack: vi.fn(),
+  mockAuth: { canWrite: false },
 }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
@@ -46,7 +52,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     user: { kind: "user" },
-    hasPermission: (permission: string) => permission.endsWith(".read"),
+    hasPermission: (permission: string) => permission.endsWith(".read") || mockAuth.canWrite,
   }),
 }));
 
@@ -80,6 +86,8 @@ function renderPage() {
 describe("FaceDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    mockAuth.canWrite = false;
   });
 
   it("shows a retryable load error and recovers", async () => {
@@ -220,4 +228,106 @@ describe("FaceDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to faces" }));
     expect(mockGoBack).toHaveBeenCalled();
   });
+
+  it("links unlinked similar faces to the viewed face's performer", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(undefined);
+    mockFaces.similar.mockResolvedValue({
+      items: [
+        similarFace({ id: 17, label: "Dracuina" }),
+        similarFace({ id: 18, label: "Other", performerId: 40, performerName: "Someone Else" }),
+      ],
+      totalCount: 2,
+      page: 1,
+      perPage: 18,
+    });
+    mockFaces.link.mockResolvedValue({ ...similarFace({ id: 17 }), performerId: 12, performerName: "Jane Doe" });
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Jane Doe" });
+    fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+    await screen.findByText("Dracuina");
+
+    // Only the unlinked neighbour is offered; relinking a face that belongs to someone else stays deliberate.
+    const linkButtons = screen.getAllByRole("button", { name: "Link to Jane Doe" });
+    expect(linkButtons).toHaveLength(1);
+
+    fireEvent.click(linkButtons[0]);
+    await waitFor(() => expect(mockFaces.link).toHaveBeenCalledWith(17, { performerId: 12 }));
+  });
+
+  it("corrects a wrong appearance from the Appears In tab", async () => {
+    mockAuth.canWrite = true;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: true, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(undefined);
+    mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({
+      items: [
+        {
+          appearanceId: 91,
+          hostType: "video",
+          hostId: 5,
+          title: "Wrong person video",
+          thumbnailUrl: "/thumb/5.jpg",
+          frameSampleCount: 4,
+          retainedSpatialSampleCount: 2,
+          segmentCount: 1,
+        },
+      ],
+      totalCount: 1,
+      page: 1,
+      perPage: 24,
+    });
+    mockFaces.markNotPresent.mockResolvedValue({});
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Jane Doe" });
+    fireEvent.click(screen.getByRole("tab", { name: /Appears In/i }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Not present/ }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('NOT present in "Wrong person video"'));
+    await waitFor(() => expect(mockFaces.markNotPresent).toHaveBeenCalledWith(7, { hostType: "video", hostId: 5 }));
+
+    expect(screen.getByRole("button", { name: /Separate/ })).toBeInTheDocument();
+  });
 });
+
+const linkedFace = {
+  id: 7,
+  label: "Dracuina",
+  performerId: 12,
+  performerName: "Jane Doe",
+  ignored: false,
+  detectionCount: 18,
+  videoCount: 4,
+  appearanceCount: 6,
+  frameSampleCount: 11,
+  imageCount: 2,
+  createdAt: "2026-04-01T12:00:00Z",
+  updatedAt: "2026-04-02T12:00:00Z",
+};
+
+function similarFace(overrides: Record<string, unknown>) {
+  return {
+    id: 17,
+    ignored: false,
+    detectionCount: 9,
+    videoCount: 3,
+    imageCount: 1,
+    createdAt: "2026-03-30T12:00:00Z",
+    updatedAt: "2026-04-03T12:00:00Z",
+    appearanceCount: 4,
+    frameSampleCount: 7,
+    distance: 0.1234,
+    ...overrides,
+  };
+}

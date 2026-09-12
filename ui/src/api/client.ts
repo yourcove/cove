@@ -155,6 +155,12 @@ import type {
   DuplicateSearchStart,
   DuplicateSearchInfo,
   DuplicateSearchGroupPage,
+  DuplicateSearchListItem,
+  DuplicateGroupQuery,
+  DuplicateKeeperRule,
+  DuplicateResolveRequest,
+  DuplicateResolveResult,
+  DuplicateAutoSelectResult,
   CustomFieldDefinition,
   CustomFieldDefinitionCreate,
   CustomFieldDefinitionUpdate,
@@ -667,24 +673,53 @@ export const videos = {
   },
   startDuplicateSearch: (options: DuplicateSearchRequest) =>
     request<DuplicateSearchStart>("/videos/duplicate-searches", { method: "POST", body: JSON.stringify(options) }),
+  listDuplicateSearches: (limit = 10) =>
+    request<DuplicateSearchListItem[]>(`/videos/duplicate-searches${buildQuery(undefined, { limit })}`),
   getDuplicateSearch: (searchId: string) =>
     request<DuplicateSearchInfo>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}`),
-  getDuplicateSearchGroups: (searchId: string, page: number, perPage: number) =>
+  deleteDuplicateSearch: (searchId: string) =>
+    request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}`, { method: "DELETE" }),
+  getDuplicateSearchGroups: (searchId: string, query: DuplicateGroupQuery) =>
     request<DuplicateSearchGroupPage>(
-      `/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`,
+      `/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, {
+        page: query.page,
+        perPage: query.perPage,
+        status: query.status,
+        sort: query.sort,
+        q: query.q?.trim() || undefined,
+        ids: query.ids?.length ? query.ids.join(",") : undefined,
+      })}`,
     ),
   updateDuplicateSearchDecision: (searchId: string, groupId: number, keepVideoIds: number[]) =>
     request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}`, {
       method: "PATCH",
       body: JSON.stringify({ keepVideoIds }),
     }),
-  deleteUnkeptDuplicates: (searchId: string, options?: DeleteEntityOptions) =>
-    request<BulkDeletionJobStart>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/delete-unkept`, {
+  autoSelectDuplicateKeepers: (
+    searchId: string,
+    rules: DuplicateKeeperRule[],
+    options?: { groupIds?: number[]; overwriteManual?: boolean },
+  ) =>
+    request<DuplicateAutoSelectResult>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/auto-select`, {
       method: "POST",
       body: JSON.stringify({
-        deleteFiles: options?.deleteFile ?? false,
-        deleteGenerated: options?.deleteGenerated ?? false,
+        rules,
+        groupIds: options?.groupIds ?? null,
+        overwriteManual: options?.overwriteManual ?? false,
       }),
+    }),
+  resolveDuplicateGroups: (searchId: string, body: DuplicateResolveRequest) =>
+    request<DuplicateResolveResult>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ignoreDuplicateGroup: (searchId: string, groupId: number) =>
+    request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}/ignore`, {
+      method: "POST",
+    }),
+  restoreDuplicateGroup: (searchId: string, groupId: number) =>
+    request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}/ignore`, {
+      method: "DELETE",
     }),
 };
 
@@ -775,6 +810,9 @@ type FaceListOptions = {
   labelModifier?: string;
   primarySourceKey?: string;
   primarySourceKeyModifier?: string;
+  /** Matches the files of the videos and images a face appears in. */
+  path?: string;
+  pathModifier?: string;
   hasCover?: boolean;
   detectionCount?: number;
   detectionCount2?: number;
@@ -837,6 +875,9 @@ export const faces: {
       sort?: string;
       direction?: "asc" | "desc";
       seed?: number;
+      linked?: boolean;
+      path?: string;
+      pathModifier?: string;
       page?: number;
       perPage?: number;
     },
@@ -877,6 +918,8 @@ export const faces: {
           labelModifier: opts?.labelModifier,
           primarySourceKey: opts?.primarySourceKey,
           primarySourceKeyModifier: opts?.primarySourceKeyModifier,
+          path: opts?.path,
+          pathModifier: opts?.pathModifier,
           hasCover: opts?.hasCover,
           detectionCount: opts?.detectionCount,
           detectionCount2: opts?.detectionCount2,
@@ -958,12 +1001,26 @@ export const faces: {
       sort?: string;
       direction?: "asc" | "desc";
       seed?: number;
+      linked?: boolean;
+      path?: string;
+      pathModifier?: string;
       page?: number;
       perPage?: number;
     },
   ) =>
     request<PaginatedResponse<FaceSimilar>>(
-      `/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`,
+      `/faces/${id}/similar${buildQuery(
+        { page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed },
+        {
+          kindFamily: opts?.kindFamily,
+          k: opts?.k,
+          sort: opts?.sort,
+          direction: opts?.direction,
+          linked: opts?.linked,
+          path: opts?.path,
+          pathModifier: opts?.pathModifier,
+        },
+      )}`,
     ),
   suggestions: (id: number, maxResults?: number) =>
     request<FaceSuggestion[]>(`/faces/${id}/suggestions${buildQuery(undefined, { maxResults })}`),

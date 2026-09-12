@@ -19,7 +19,7 @@ public class JobsController(
     IBackupService backupService,
     ICurrentPrincipalAccessor principalAccessor,
     CoveContext db,
-    DuplicateSearchJobService duplicateSearchJobService,
+    DuplicateResolutionService duplicateResolutionService,
     ILogger<JobsController>? logger = null) : ControllerBase
 {
     [HttpGet]
@@ -71,7 +71,7 @@ public class JobsController(
                         .SetProperty(search => search.Status, Cove.Core.Entities.DuplicateSearchStatus.Cancelled)
                         .SetProperty(search => search.CompletedAt, now)
                         .SetProperty(search => search.ExpiresAt, now.AddDays(7)), CancellationToken.None);
-                await duplicateSearchJobService.ReleaseCancelledPendingDeletionAsync(jobId, CancellationToken.None);
+                await duplicateResolutionService.ReleaseCancelledWorkerAsync(jobId, CancellationToken.None);
             }
         }
         catch (Exception ex)

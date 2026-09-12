@@ -285,6 +285,8 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
             if (!(await authorizationService.AuthorizeAsync(principalAccessor.Current, Permissions.VideosDelete, EntityRef.Of(EntityKinds.Video, id), ct)).Allowed)
                 throw new UnauthorizedAccessException("The clip deletion scope is not authorized.");
         var videos = await db.Videos.IgnoreQueryFilters().Include(v => v.Files).Where(v => scopeIds.Contains(v.Id)).ToListAsync(ct);
+        // Flushes dependency changes staged so far too; the caller's serializable transaction keeps it atomic.
+        await VideoHierarchyQueries.ReleasePrimaryFilesBeforeDeletionAsync(db, videos, ct);
         foreach (var video in videos)
         {
             await hostDependencies.StageDeleteAsync(AffinityHostType.Video, video.Id, ct);
