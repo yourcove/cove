@@ -147,6 +147,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     Map<number, { group: DuplicateSearchGroup; index: number; intent: "resolve" | "ignore" }>
   >(new Map());
   const groupRefs = useRef(new Map<number, HTMLElement>());
+  const reviewControlsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -476,6 +477,17 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     },
   });
 
+  const scrollToGroup = (groupId: number) => {
+    const group = groupRefs.current.get(groupId);
+    if (!group) return;
+    const navbarHeight = document.querySelector<HTMLElement>(".cove-navbar")?.getBoundingClientRect().height ?? 0;
+    const controls = reviewControlsRef.current;
+    const controlsHeight =
+      controls && window.getComputedStyle(controls).position === "sticky" ? controls.getBoundingClientRect().height : 0;
+    const top = window.scrollY + group.getBoundingClientRect().top - navbarHeight - controlsHeight - 16;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  };
+
   const advanceFocusFrom = (groupId: number) => {
     const index = displayedGroups.findIndex((group) => group.id === groupId);
     const next = displayedGroups.findIndex(
@@ -483,10 +495,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     );
     if (next >= 0) {
       setFocusedIndex(next);
-      window.setTimeout(
-        () => groupRefs.current.get(displayedGroups[next].id)?.scrollIntoView({ behavior: "smooth", block: "start" }),
-        50,
-      );
+      window.setTimeout(() => scrollToGroup(displayedGroups[next].id), 50);
     }
   };
 
@@ -524,7 +533,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     if (displayedGroups.length === 0) return;
     const next = Math.max(0, Math.min(displayedGroups.length - 1, focusedIndex + offset));
     setFocusedIndex(next);
-    groupRefs.current.get(displayedGroups[next].id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollToGroup(displayedGroups[next].id);
   };
   const keyboardActions = useMemo<KeyboardActionRegistration[]>(() => {
     const reviewable = focusedGroup && (focusedGroup.status === "unresolved" || focusedGroup.status === "failed");
@@ -691,7 +700,10 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
             <EmptyResults search={search} onAdjust={() => setSetupOpen(true)} />
           ) : (
             <>
-              <div className="md:sticky md:top-0 z-20 -mx-1 space-y-3 rounded-xl border border-border bg-surface/95 px-3 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+              <div
+                ref={reviewControlsRef}
+                className="md:sticky md:top-12 z-20 -mx-1 space-y-3 rounded-xl border border-border bg-surface/95 px-3 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/80"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap gap-1 rounded-lg bg-card p-1" role="tablist" aria-label="Group status">
                     {GROUP_FILTERS.map((filter) => {
