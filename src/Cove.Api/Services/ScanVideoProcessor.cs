@@ -25,7 +25,7 @@ internal sealed class ScanVideoProcessor(
         Dictionary<string, Folder>? folderCache = null,
         bool syncCaptions = true,
         bool knownNew = false,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
+        ScanCaptionIndex? captionFilesByDir = null,
         int? parentFolderId = null,
         bool contentChanged = false,
         bool forceMetadataProbe = false,
@@ -174,7 +174,7 @@ internal sealed class ScanVideoProcessor(
         VideoFile videoFile,
         string path,
         CancellationToken ct,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
+        ScanCaptionIndex? captionFilesByDir = null,
         string? videoProbeJson = null,
         MoveDetectionIndex? moveIndex = null)
     {
@@ -214,7 +214,7 @@ internal sealed class ScanVideoProcessor(
     private static void SyncVideoCaptions(
         VideoFile videoFile,
         string path,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null)
+        ScanCaptionIndex? captionFilesByDir = null)
     {
         var sidecars = DiscoverCaptionSidecars(path, captionFilesByDir);
         var expected = sidecars.ToDictionary(item => item.Filename, StringComparer.OrdinalIgnoreCase);
@@ -251,19 +251,18 @@ internal sealed class ScanVideoProcessor(
 
     private static List<CaptionSidecar> DiscoverCaptionSidecars(
         string path,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null)
+        ScanCaptionIndex? captionFilesByDir = null)
     {
         var videoDir = Path.GetDirectoryName(path);
         if (videoDir == null || !Directory.Exists(videoDir))
             return [];
 
-        // Enumerating the whole directory once per video is O(files-in-folder) per video —
-        // i.e. O(n^2) for a folder full of videos, which is what made later scans crawl.
-        // Enumerate each directory's caption files (.vtt/.srt) a single time per scan and
-        // reuse the small result for every video in that folder.
-        var captionFiles = captionFilesByDir != null
-            ? captionFilesByDir.GetOrAdd(videoDir, EnumerateCaptionFiles)
-            : EnumerateCaptionFiles(videoDir);
+        var captionFiles = captionFilesByDir?.Find(path)
+            ?? Directory.EnumerateFiles(videoDir)
+                .Where(file => file.EndsWith(".vtt", StringComparison.OrdinalIgnoreCase)
+                    || file.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
         if (captionFiles.Count == 0)
             return [];
@@ -290,22 +289,6 @@ internal sealed class ScanVideoProcessor(
             .OrderBy(item => item.Filename, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
-
-    private static IReadOnlyList<string> EnumerateCaptionFiles(string videoDir)
-    {
-        try
-        {
-            return Directory.EnumerateFiles(videoDir)
-                .Where(f => f.EndsWith(".vtt", StringComparison.OrdinalIgnoreCase)
-                    || f.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-        {
-            return [];
-        }
-    }
-
 
     private void TryDeleteGeneratedFile(string path)
     {

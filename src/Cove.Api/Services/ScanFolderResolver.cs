@@ -24,16 +24,49 @@ internal sealed class ScanFolderResolver(ILogger logger)
         IReadOnlyCollection<DiscoveredFile> files,
         CancellationToken ct)
     {
-        // Use the host filesystem's case sensitivity so two folders differing only by case (distinct on
-        // Linux, e.g. .../Weibtm and .../weibtm) get separate folder ids instead of being collapsed —
-        // which would make their identically-named files collide on the unique (ParentFolderId, Basename) index.
+        using var canonicalFolderIds = new ScanDiskCollection<ResolvedScanFolder>(
+            db,
+            folder => folder.Path,
+            FilesystemPaths.PathComparer,
+            ScanSortKey.Filesystem,
+            FilesystemPaths.PathComparer,
+            ct);
+        await IndexExistingFoldersAsync(db, canonicalFolderIds, ct);
+        return await ResolvePathsAsync(db, files.Select(file => ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path))
+            .Distinct(FilesystemPaths.PathComparer).ToArray(), canonicalFolderIds, ct);
+    }
+
+    internal static async Task IndexExistingFoldersAsync(
+        CoveContext db,
+        ScanDiskCollection<ResolvedScanFolder> canonicalFolderIds,
+        CancellationToken ct)
+    {
+        int? after = null;
+        while (true)
+        {
+            var query = db.Folders.AsNoTracking();
+            if (after.HasValue) query = query.Where(folder => folder.Id > after.Value);
+            var page = await query.OrderBy(folder => folder.Id).Take(256)
+                .Select(folder => new { folder.Id, folder.Path }).ToListAsync(ct);
+            if (page.Count == 0) return;
+            after = page[^1].Id;
+            foreach (var folder in page)
+            {
+                var canonical = ScanPath.TryCanonicalizeStoredFolderPath(folder.Path);
+                if (canonical != null)
+                    canonicalFolderIds.TryAdd(new ResolvedScanFolder(canonical, folder.Id));
+            }
+            db.ChangeTracker.Clear();
+        }
+    }
+
+    internal async Task<ConcurrentDictionary<string, int>> ResolvePathsAsync(
+        CoveContext db,
+        IReadOnlyCollection<string> directories,
+        ScanDiskCollection<ResolvedScanFolder> canonicalFolderIds,
+        CancellationToken ct)
+    {
         var folderIdsByPath = new ConcurrentDictionary<string, int>(FilesystemPaths.PathComparer);
-
-        var directories = files
-            .Select(file => ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path))
-            .Distinct(FilesystemPaths.PathComparer)
-            .ToList();
-
         if (directories.Count == 0)
             return folderIdsByPath;
 
@@ -47,7 +80,12 @@ internal sealed class ScanFolderResolver(ILogger logger)
                 .ToListAsync(ct);
 
             foreach (var row in rows)
+            {
                 folderIdsByPath[row.Path] = row.Id;
+                var canonical = ScanPath.TryCanonicalizeStoredFolderPath(row.Path);
+                if (canonical != null)
+                    canonicalFolderIds.TryAdd(new ResolvedScanFolder(canonical, row.Id));
+            }
         }
 
         // Create any folders that don't exist yet. Shallowest paths first so a child can pick up its
@@ -67,24 +105,13 @@ internal sealed class ScanFolderResolver(ILogger logger)
         // equality means the same directory, so this can never merge genuinely distinct folders.
         if (missing.Count > 0)
         {
-            var canonicalFolderIds = new Dictionary<string, int>(FilesystemPaths.PathComparer);
-            var candidateFolders = await db.Folders
-                .AsNoTracking()
-                .Select(folder => new { folder.Id, folder.Path })
-                .ToListAsync(ct);
-            foreach (var candidate in candidateFolders)
-            {
-                var canonical = ScanPath.TryCanonicalizeStoredFolderPath(candidate.Path);
-                if (canonical != null)
-                    canonicalFolderIds.TryAdd(canonical, candidate.Id);
-            }
-
             var reusedByCanonicalPath = 0;
             foreach (var dir in missing)
             {
-                if (!folderIdsByPath.ContainsKey(dir) && canonicalFolderIds.TryGetValue(dir, out var existingId))
+                if (!folderIdsByPath.ContainsKey(dir)
+                    && canonicalFolderIds.TryGet(new ResolvedScanFolder(dir, 0), out var existing))
                 {
-                    folderIdsByPath[dir] = existingId;
+                    folderIdsByPath[dir] = existing!.Id;
                     reusedByCanonicalPath++;
                 }
             }
@@ -106,6 +133,7 @@ internal sealed class ScanFolderResolver(ILogger logger)
             if (existing != null)
             {
                 folderIdsByPath[dir] = existing.Id;
+                canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, existing.Id));
                 continue;
             }
 
@@ -120,6 +148,8 @@ internal sealed class ScanFolderResolver(ILogger logger)
             {
                 if (folderIdsByPath.TryGetValue(parentDir, out var parentId))
                     folder.ParentFolderId = parentId;
+                else if (canonicalFolderIds.TryGet(new ResolvedScanFolder(parentDir, 0), out var canonicalParent))
+                    folder.ParentFolderId = canonicalParent!.Id;
                 else
                 {
                     var parent = await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Path == parentDir, ct);
@@ -141,10 +171,12 @@ internal sealed class ScanFolderResolver(ILogger logger)
                 if (raced == null)
                     throw;
                 folderIdsByPath[dir] = raced.Id;
+                canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, raced.Id));
                 continue;
             }
 
             folderIdsByPath[dir] = folder.Id;
+            canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, folder.Id));
             db.Entry(folder).State = EntityState.Detached;
         }
 
@@ -228,3 +260,5 @@ internal sealed class ScanFolderResolver(ILogger logger)
         }
     }
 }
+
+internal sealed record ResolvedScanFolder(string Path, int Id);

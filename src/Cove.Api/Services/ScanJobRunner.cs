@@ -51,7 +51,7 @@ internal sealed class ScanJobRunner(
             using var scanLease = await physicalFileCoordinator.AcquireReadAsync(ct);
             var cfg = config;
             var scanStopwatch = Stopwatch.StartNew();
-            var discovery = await discoveryService.DiscoverAsync(options, progress, ct);
+            using var discovery = await discoveryService.DiscoverAsync(options, progress, ct);
             var scanTargets = discovery.Targets;
 
             if (scanTargets.Count == 0)
@@ -64,32 +64,34 @@ internal sealed class ScanJobRunner(
             var audioExts = discovery.Extensions.Audio;
             var textExts = discovery.Extensions.Text;
             var directoryScanContext = discovery.DirectoryScanContext;
+            using var stagingScope = scopeFactory.CreateScope();
+            var stagingDb = stagingScope.ServiceProvider.GetRequiredService<CoveContext>();
             // Per-directory cache of caption sidecar files (.vtt/.srt), shared across workers,
             // so each directory is enumerated once per scan instead of once per video.
-            var captionFilesByDir = new ConcurrentDictionary<string, IReadOnlyList<string>>(FilesystemPaths.PathComparer);
+            using var captionFilesByDir = new ScanCaptionIndex(stagingDb, ct);
 
             // Written from multiple scan workers, so these must be concurrent collections.
-            var processedVideoPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var changedVideoIds = new ConcurrentDictionary<int, byte>();
-            var processedImagePaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var processedAudioPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var processedTextPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            using var processedVideoPaths = new ScanDiskCollection<string>(stagingDb, path => path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
+            using var changedVideoIds = new ScanDiskCollection<int>(stagingDb, id => id.ToString(System.Globalization.CultureInfo.InvariantCulture), ct: ct);
+            using var processedImagePaths = new ScanDiskCollection<string>(stagingDb, path => path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
+            using var processedAudioPaths = new ScanDiskCollection<string>(stagingDb, path => path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
+            using var processedTextPaths = new ScanDiskCollection<string>(stagingDb, path => path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
 
             void AddAssetCandidate(ExistingFileKind kind, string path)
             {
                 switch (kind)
                 {
                     case ExistingFileKind.Video:
-                        processedVideoPaths.TryAdd(path, 0);
+                        processedVideoPaths.TryAdd(path);
                         break;
                     case ExistingFileKind.Image:
-                        processedImagePaths.TryAdd(path, 0);
+                        processedImagePaths.TryAdd(path);
                         break;
                     case ExistingFileKind.Audio:
-                        processedAudioPaths.TryAdd(path, 0);
+                        processedAudioPaths.TryAdd(path);
                         break;
                     case ExistingFileKind.Text:
-                        processedTextPaths.TryAdd(path, 0);
+                        processedTextPaths.TryAdd(path);
                         break;
                 }
             }
@@ -113,15 +115,6 @@ internal sealed class ScanJobRunner(
                 // in-memory provider used by tests is non-relational and would throw here.
                 if (db.Database.IsRelational())
                     db.Database.SetCommandTimeout(ScanCommandTimeout);
-                progress.Report(0.10, $"Loading existing file index for {files.Count:N0} media files...");
-                var indexStopwatch = Stopwatch.StartNew();
-                var existingFiles = await ScanExistingFileIndex.LoadAsync(db, files, videoExts, imageExts, galleryExts, audioExts, textExts, progress, logger, ct);
-                logger.LogInformation(
-                    "Scan phase existing-file index completed in {ElapsedMs} ms. Matched {ExistingCount} of {DiscoveredCount} discovered media files.",
-                    indexStopwatch.ElapsedMilliseconds,
-                    existingFiles.Count,
-                    files.Count);
-
                 void PublishScanEntityEvent(string entityType, int entityId, bool isUpdate)
                 {
                     var eventType = entityType switch
@@ -171,89 +164,100 @@ internal sealed class ScanJobRunner(
                 // Phase 2a: classify every discovered file against the in-memory index.
                 // This is cheap (no I/O, no DB) so it stays single-threaded; it skips
                 // unchanged files and collects only the ones that actually need work.
-                var filesToProcess = new List<ScanWorkItem>(files.Count);
-                foreach (var file in files)
+                using var filesToProcess = new ScanDiskCollection<ScanWorkItem>(
+                    db,
+                    work => work.File.StoredPath,
+                    FilesystemPaths.PathComparer,
+                    ScanSortKey.OrdinalIgnoreCase,
+                    StringComparer.OrdinalIgnoreCase,
+                    ct);
+                foreach (var filePage in files.Chunk(256))
                 {
-                    ct.ThrowIfCancellationRequested();
-
-                    // True only when the file's bytes are known to have changed on disk:
-                    // its metadata, identity hash, and derived assets must be refreshed, not just its
-                    // size/modtime. Forced and missing-metadata probes are handled separately and do
-                    // not invalidate fingerprints or generated assets.
-                    var contentChanged = false;
-                    var forceMetadataProbe = false;
-                    var isKnownFile = existingFiles.TryGetValue(file.StoredPath, out var existingFile);
-                    if (isKnownFile)
+                    var existingFiles = await ScanExistingFileIndex.LoadAsync(db, filePage, videoExts, imageExts, galleryExts, audioExts, textExts, progress, logger, ct);
+                    foreach (var file in filePage)
                     {
-                        var changeReason = ScanExistingFileIndex.GetChangeReason(existingFile!, file, options.Rescan);
-                        if (changeReason == ScanFileChangeReason.Unchanged)
+                        ct.ThrowIfCancellationRequested();
+
+                        // True only when the file's bytes are known to have changed on disk:
+                        // its metadata, identity hash, and derived assets must be refreshed, not just its
+                        // size/modtime. Forced and missing-metadata probes are handled separately and do
+                        // not invalidate fingerprints or generated assets.
+                        var contentChanged = false;
+                        var forceMetadataProbe = false;
+                        var isKnownFile = existingFiles.TryGetValue(file.StoredPath, out var existingFile);
+                        if (isKnownFile)
                         {
-                            if (options.IncludeUnchangedFilesInAssetGeneration)
-                                AddAssetCandidate(existingFile!.Kind, file.Path);
-                            skippedUnchangedCount++;
-                            processedCount++;
-                            ReportProcessingProgress(false);
-                            continue; // Not modified and metadata present, skip
+                            var changeReason = ScanExistingFileIndex.GetChangeReason(existingFile!, file, options.Rescan);
+                            if (changeReason == ScanFileChangeReason.Unchanged)
+                            {
+                                if (options.IncludeUnchangedFilesInAssetGeneration)
+                                    AddAssetCandidate(existingFile!.Kind, file.Path);
+                                skippedUnchangedCount++;
+                                processedCount++;
+                                ReportProcessingProgress(false);
+                                continue; // Not modified and metadata present, skip
+                            }
+
+                            switch (changeReason)
+                            {
+                                case ScanFileChangeReason.MetadataProbe:
+                                    metadataProbeCount++;
+                                    break;
+                                case ScanFileChangeReason.SizeChanged:
+                                    sizeChangedCount++;
+                                    contentChanged = true;
+                                    break;
+                                case ScanFileChangeReason.ModTimeChanged:
+                                    modTimeChangedCount++;
+                                    contentChanged = true;
+                                    break;
+                                case ScanFileChangeReason.RescanForced:
+                                    rescanForcedCount++;
+                                    forceMetadataProbe = true;
+                                    break;
+                            }
+
+                            TraceKnownFileClassified(
+                                file.StoredPath,
+                                existingFile!.Kind,
+                                changeReason,
+                                existingFile.Size,
+                                file.Size);
+
+                            var expectedKind = ScanExistingFileIndex.GetExpectedKind(
+                                file.Extension,
+                                videoExts,
+                                imageExts,
+                                galleryExts,
+                                audioExts,
+                                textExts);
+                            if (existingFile!.Kind != ExistingFileKind.Unknown
+                                && expectedKind != ExistingFileKind.Unknown
+                                && existingFile.Kind != expectedKind)
+                            {
+                                directoryScanContext.MarkRequiresConfirmation(file.Path);
+                                typeMismatchCount++;
+                                logger.LogWarning(
+                                    "Skipping changed scan path because it already exists as {ExistingKind} but extension maps to {ExpectedKind}: {Path}",
+                                    existingFile.Kind,
+                                    expectedKind,
+                                    file.Path);
+                                processedCount++;
+                                ReportProcessingProgress(false);
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            newFileCount++;
+                            TraceNewFileClassified(file.StoredPath);
                         }
 
-                        switch (changeReason)
-                        {
-                            case ScanFileChangeReason.MetadataProbe:
-                                metadataProbeCount++;
-                                break;
-                            case ScanFileChangeReason.SizeChanged:
-                                sizeChangedCount++;
-                                contentChanged = true;
-                                break;
-                            case ScanFileChangeReason.ModTimeChanged:
-                                modTimeChangedCount++;
-                                contentChanged = true;
-                                break;
-                            case ScanFileChangeReason.RescanForced:
-                                rescanForcedCount++;
-                                forceMetadataProbe = true;
-                                break;
-                        }
-
-                        TraceKnownFileClassified(
-                            file.StoredPath,
-                            existingFile!.Kind,
-                            changeReason,
-                            existingFile.Size,
-                            file.Size);
-
-                        var expectedKind = ScanExistingFileIndex.GetExpectedKind(
-                            file.Extension,
-                            videoExts,
-                            imageExts,
-                            galleryExts,
-                            audioExts,
-                            textExts);
-                        if (existingFile!.Kind != ExistingFileKind.Unknown
-                            && expectedKind != ExistingFileKind.Unknown
-                            && existingFile.Kind != expectedKind)
-                        {
-                            directoryScanContext.MarkRequiresConfirmation(file.Path);
-                            typeMismatchCount++;
-                            logger.LogWarning(
-                                "Skipping changed scan path because it already exists as {ExistingKind} but extension maps to {ExpectedKind}: {Path}",
-                                existingFile.Kind,
-                                expectedKind,
-                                file.Path);
-                            processedCount++;
-                            ReportProcessingProgress(false);
-                            continue;
-                        }
+                        directoryScanContext.MarkRequiresConfirmation(file.Path);
+                        changedOrNewCount++;
+                        filesToProcess.Add(new ScanWorkItem(file, isKnownFile, contentChanged, forceMetadataProbe));
                     }
-                    else
-                    {
-                        newFileCount++;
-                        TraceNewFileClassified(file.StoredPath);
-                    }
 
-                    directoryScanContext.MarkRequiresConfirmation(file.Path);
-                    changedOrNewCount++;
-                    filesToProcess.Add(new ScanWorkItem(file, isKnownFile, contentChanged, forceMetadataProbe));
                 }
 
                 // Load the compact identity key set once, and only when discovery found new paths that
@@ -275,261 +279,276 @@ internal sealed class ScanJobRunner(
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look
                 // folders up in memory instead of each re-querying (and re-locking) the Folders table,
                 // and the batched save path below stays free of incidental folder writes.
-                var folderIdsByPath = await folderResolver.ResolveAsync(
-                    db,
-                    filesToProcess.Select(item => item.File).ToList(),
-                    ct);
-
-                // Phase 2b: process the changed/new files across a fixed pool of workers.
-                // Concurrency is capped at the configured maximum so the UI and other jobs
-                // are not starved (a value of 1 reproduces the original sequential path).
-                // Each worker owns its own DbContext because EF contexts are not thread-safe;
-                // shared state is updated via thread-safe primitives. Workers commit in batches
-                // (ScanSaveBatchSize) to amortise Postgres commit overhead; a failed batch is
-                // retried one file at a time so a single bad file can never abort its neighbours.
-                var maxParallelism = Math.Max(1, ResolveMaxParallelism());
-                if (filesToProcess.Count > 0)
+                using var directoryPaths = new ScanDiskCollection<string>(db, path => path, FilesystemPaths.PathComparer, ScanSortKey.DirectoryDepth, ScanDirectoryDepthComparer.Instance, ct);
+                using var directoryIds = new ScanDiskCollection<ResolvedScanFolder>(db, folder => folder.Path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
+                await ScanFolderResolver.IndexExistingFoldersAsync(db, directoryIds, ct);
+                foreach (var work in filesToProcess)
                 {
-                    // Never spin up more workers (each opens its own DB connection) than there
-                    // is work for, but otherwise honour the configured concurrency ceiling.
-                    var workerCount = Math.Min(maxParallelism, filesToProcess.Count);
-                    progress.Report(0.15, $"Processing {filesToProcess.Count:N0} changed/new file(s) using up to {workerCount} worker(s)...");
+                    ct.ThrowIfCancellationRequested();
+                    directoryPaths.Add(ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(work.File.Path) ?? work.File.Path));
+                }
+                foreach (var directoryPage in directoryPaths.Chunk(256))
+                {
+                    var resolved = await folderResolver.ResolvePathsAsync(db, directoryPage, directoryIds, ct);
+                    foreach (var pair in resolved) directoryIds.Add(new ResolvedScanFolder(pair.Key, pair.Value));
+                    db.ChangeTracker.Clear();
+                }
+                foreach (var workPage in filesToProcess.Chunk(256))
+                {
 
-                    var workQueue = new ConcurrentQueue<ScanWorkItem>(filesToProcess);
 
-                    int? ResolveFolderId(DiscoveredFile file)
+                    // Phase 2b: process the changed/new files across a fixed pool of workers.
+                    // Concurrency is capped at the configured maximum so the UI and other jobs
+                    // are not starved (a value of 1 reproduces the original sequential path).
+                    // Each worker owns its own DbContext because EF contexts are not thread-safe;
+                    // shared state is updated via thread-safe primitives. Workers commit in batches
+                    // (ScanSaveBatchSize) to amortise Postgres commit overhead; a failed batch is
+                    // retried one file at a time so a single bad file can never abort its neighbours.
+                    var maxParallelism = Math.Max(1, ResolveMaxParallelism());
+                    if (workPage.Length > 0)
                     {
-                        var dir = ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path);
-                        return folderIdsByPath.TryGetValue(dir, out var id) ? id : null;
-                    }
+                        // Never spin up more workers (each opens its own DB connection) than there
+                        // is work for, but otherwise honour the configured concurrency ceiling.
+                        var workerCount = Math.Min(maxParallelism, workPage.Length);
+                        progress.Report(0.15, $"Processing {filesToProcess.Count:N0} changed/new file(s) using up to {workerCount} worker(s)...");
 
-                    async Task RunScanWorkerAsync()
-                    {
-                        using var workerScope = scopeFactory.CreateScope();
-                        var workerDb = workerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                        // Batched commits can exceed the default 30s command timeout on large/busy
-                        // libraries; give scan workers a generous timeout to avoid spurious abort.
-                        if (workerDb.Database.IsRelational())
-                            workerDb.Database.SetCommandTimeout(ScanCommandTimeout);
+                        var workQueue = new ConcurrentQueue<ScanWorkItem>(workPage);
 
-                        // The current un-committed batch, plus the entity events to publish once it commits.
-                        var batchItems = new List<ScanWorkItem>(ScanSaveBatchSize);
-                        var batchEvents = new List<Action>(ScanSaveBatchSize);
-
-                        // Stage one file's entities into the worker context (no save). Appends the event
-                        // to fire once persisted. Galleries are excluded here as they commit internally.
-                        async Task<bool> StageAsync(ScanWorkItem work, List<Action> events)
+                        int? ResolveFolderId(DiscoveredFile file)
                         {
-                            var file = work.File;
-                            var isKnownFile = work.IsKnownFile;
-                            var contentChanged = work.ContentChanged;
-                            var folderId = ResolveFolderId(file);
-                            var kind = ScanExistingFileIndex.GetExpectedKind(file.Extension, videoExts, imageExts, galleryExts, audioExts, textExts);
-                            var validation = await fileValidator.ValidateAsync(
-                                file.Path,
-                                file.Size,
-                                file.ObservedModTime,
-                                ScanExistingFileIndex.ToMediaKind(kind),
-                                ct);
-                            if (!RecordValidationOutcome(file, validation))
-                                return false;
+                            var dir = ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path);
+                            return directoryIds.TryGet(new ResolvedScanFolder(dir, 0), out var folder) ? folder!.Id : null;
+                        }
 
-                            if (videoExts.Contains(file.Extension))
+                        async Task RunScanWorkerAsync()
+                        {
+                            using var workerScope = scopeFactory.CreateScope();
+                            var workerDb = workerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                            // Batched commits can exceed the default 30s command timeout on large/busy
+                            // libraries; give scan workers a generous timeout to avoid spurious abort.
+                            if (workerDb.Database.IsRelational())
+                                workerDb.Database.SetCommandTimeout(ScanCommandTimeout);
+
+                            // The current un-committed batch, plus the entity events to publish once it commits.
+                            var batchItems = new List<ScanWorkItem>(ScanSaveBatchSize);
+                            var batchEvents = new List<Action>(ScanSaveBatchSize);
+
+                            // Stage one file's entities into the worker context (no save). Appends the event
+                            // to fire once persisted. Galleries are excluded here as they commit internally.
+                            async Task<bool> StageAsync(ScanWorkItem work, List<Action> events)
                             {
-                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
-                                    processedVideoPaths.TryAdd(file.Path, 0);
-                                var (videoFile, relinked, moved) = await videoProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, forceMetadataProbe: work.ForceMetadataProbe, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
-                                events.Add(() =>
-                                {
-                                    RecordPersistedFile(isKnownFile || moved);
-                                    if (!videoFile.VideoId.HasValue) return;
-                                    PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked);
-                                    if (contentChanged)
-                                        changedVideoIds.TryAdd(videoFile.VideoId.Value, 0);
-                                });
-                            }
-                            else if (imageExts.Contains(file.Extension))
-                            {
-                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
-                                    processedImagePaths.TryAdd(file.Path, 0);
-                                var (image, relinked, moved) = await imageProcessor.ProcessAsync(
-                                    workerDb,
+                                var file = work.File;
+                                var isKnownFile = work.IsKnownFile;
+                                var contentChanged = work.ContentChanged;
+                                var folderId = ResolveFolderId(file);
+                                var kind = ScanExistingFileIndex.GetExpectedKind(file.Extension, videoExts, imageExts, galleryExts, audioExts, textExts);
+                                var validation = await fileValidator.ValidateAsync(
                                     file.Path,
-                                    null,
-                                    ct,
-                                    file.Stat,
-                                    null,
-                                    knownNew: !isKnownFile,
-                                    parentFolderId: folderId,
-                                    contentChanged: contentChanged,
-                                    scanOptions: options,
-                                    moveIndex: moveIndex,
-                                    validatedWidth: validation.Width,
-                                    validatedHeight: validation.Height);
-                                events.Add(() =>
-                                {
-                                    RecordPersistedFile(isKnownFile || moved);
-                                    PublishScanEntityEvent("Image", image.Id, isKnownFile || relinked);
-                                });
-                            }
-                            else if (audioExts.Contains(file.Extension))
-                            {
-                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
-                                    processedAudioPaths.TryAdd(file.Path, 0);
-                                var (audio, relinked, moved) = await audioProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, mediaProbeJson: validation.ProbeJson);
-                                events.Add(() =>
-                                {
-                                    RecordPersistedFile(isKnownFile || moved);
-                                    PublishScanEntityEvent("Audio", audio.Id, isKnownFile || relinked);
-                                });
-                            }
-                            else if (textExts.Contains(file.Extension))
-                            {
-                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
-                                    processedTextPaths.TryAdd(file.Path, 0);
-                                var (textDocument, relinked, moved) = await textProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
-                                events.Add(() =>
-                                {
-                                    RecordPersistedFile(isKnownFile || moved);
-                                    PublishScanEntityEvent("Text", textDocument.Id, isKnownFile || relinked);
-                                });
-                            }
+                                    file.Size,
+                                    file.ObservedModTime,
+                                    ScanExistingFileIndex.ToMediaKind(kind),
+                                    ct);
+                                if (!RecordValidationOutcome(file, validation))
+                                    return false;
 
-                            return true;
-                        }
-
-                        // Process a single item in its own transaction. Used for galleries (which commit
-                        // internally) and as the fallback when a batch save fails.
-                        async Task ProcessSingleAsync(ScanWorkItem work)
-                        {
-                            var file = work.File;
-                            var isKnownFile = work.IsKnownFile;
-                            try
-                            {
-                                if (galleryExts.Contains(file.Extension))
+                                if (videoExts.Contains(file.Extension))
                                 {
-                                    var validation = await fileValidator.ValidateAsync(
+                                    if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                        processedVideoPaths.TryAdd(file.Path);
+                                    var (videoFile, relinked, moved) = await videoProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, forceMetadataProbe: work.ForceMetadataProbe, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
+                                    events.Add(() =>
+                                    {
+                                        RecordPersistedFile(isKnownFile || moved);
+                                        if (!videoFile.VideoId.HasValue) return;
+                                        PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked);
+                                        if (contentChanged)
+                                            changedVideoIds.TryAdd(videoFile.VideoId.Value);
+                                    });
+                                }
+                                else if (imageExts.Contains(file.Extension))
+                                {
+                                    if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                        processedImagePaths.TryAdd(file.Path);
+                                    var (image, relinked, moved) = await imageProcessor.ProcessAsync(
+                                        workerDb,
                                         file.Path,
-                                        file.Size,
-                                        file.ObservedModTime,
-                                        ScanMediaKind.Gallery,
-                                        ct);
-                                    if (!RecordValidationOutcome(file, validation))
-                                        return;
-
-                                    var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries, contentChanged: work.ContentChanged);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    RecordPersistedFile(isKnownFile);
-                                    PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);
+                                        null,
+                                        ct,
+                                        file.Stat,
+                                        null,
+                                        knownNew: !isKnownFile,
+                                        parentFolderId: folderId,
+                                        contentChanged: contentChanged,
+                                        scanOptions: options,
+                                        moveIndex: moveIndex,
+                                        validatedWidth: validation.Width,
+                                        validatedHeight: validation.Height);
+                                    events.Add(() =>
+                                    {
+                                        RecordPersistedFile(isKnownFile || moved);
+                                        PublishScanEntityEvent("Image", image.Id, isKnownFile || relinked);
+                                    });
                                 }
-                                else
+                                else if (audioExts.Contains(file.Extension))
                                 {
-                                    var events = new List<Action>(1);
-                                    var staged = await StageAsync(work, events);
-                                    if (!staged)
-                                        return;
-                                    await workerDb.SaveChangesAsync(ct);
-                                    foreach (var publish in events)
-                                        publish();
+                                    if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                        processedAudioPaths.TryAdd(file.Path);
+                                    var (audio, relinked, moved) = await audioProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, mediaProbeJson: validation.ProbeJson);
+                                    events.Add(() =>
+                                    {
+                                        RecordPersistedFile(isKnownFile || moved);
+                                        PublishScanEntityEvent("Audio", audio.Id, isKnownFile || relinked);
+                                    });
                                 }
-                            }
-                            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-                            {
-                                directoryScanContext.MarkRequiresConfirmation(file.Path);
-                                Interlocked.Increment(ref failedCount);
-                                logger.LogError(ex, "Error processing file: {Path}", file.Path);
-                            }
-                            finally
-                            {
-                                workerDb.ChangeTracker.Clear();
-                            }
-                        }
+                                else if (textExts.Contains(file.Extension))
+                                {
+                                    if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                        processedTextPaths.TryAdd(file.Path);
+                                    var (textDocument, relinked, moved) = await textProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                    events.Add(() =>
+                                    {
+                                        RecordPersistedFile(isKnownFile || moved);
+                                        PublishScanEntityEvent("Text", textDocument.Id, isKnownFile || relinked);
+                                    });
+                                }
 
-                        // Commit the staged batch. On failure, discard it and retry each item individually
-                        // so one bad row can't fail the whole group.
-                        async Task FlushBatchAsync()
-                        {
-                            if (batchItems.Count == 0)
-                                return;
-
-                            try
-                            {
-                                await workerDb.SaveChangesAsync(ct);
-                                TraceScanBatchCommitted(batchItems.Count);
-                                workerDb.ChangeTracker.Clear();
-                                foreach (var publish in batchEvents)
-                                    publish();
-                                batchItems.Clear();
-                                batchEvents.Clear();
+                                return true;
                             }
-                            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-                            {
-                                logger.LogWarning(ex, "Batched scan save of {Count} file(s) failed; retrying individually.", batchItems.Count);
-                                workerDb.ChangeTracker.Clear();
-                                var retryItems = batchItems.ToList();
-                                batchItems.Clear();
-                                batchEvents.Clear();
-                                foreach (var retry in retryItems)
-                                    await ProcessSingleAsync(retry);
-                            }
-                        }
 
-                        while (workQueue.TryDequeue(out var item))
-                        {
-                            if (ct.IsCancellationRequested)
-                                break;
-
-                            var file = item.File;
-
-                            if (galleryExts.Contains(file.Extension))
+                            // Process a single item in its own transaction. Used for galleries (which commit
+                            // internally) and as the fallback when a batch save fails.
+                            async Task ProcessSingleAsync(ScanWorkItem work)
                             {
-                                // Galleries commit internally, so flush any pending batch first to keep
-                                // ordering and error isolation intact.
-                                await FlushBatchAsync();
-                                await ProcessSingleAsync(item);
-                            }
-                            else
-                            {
+                                var file = work.File;
+                                var isKnownFile = work.IsKnownFile;
                                 try
                                 {
-                                    var staged = await StageAsync(item, batchEvents);
-                                    if (staged)
+                                    if (galleryExts.Contains(file.Extension))
                                     {
-                                        batchItems.Add(item);
-                                        if (batchItems.Count >= ScanSaveBatchSize)
-                                            await FlushBatchAsync();
+                                        var validation = await fileValidator.ValidateAsync(
+                                            file.Path,
+                                            file.Size,
+                                            file.ObservedModTime,
+                                            ScanMediaKind.Gallery,
+                                            ct);
+                                        if (!RecordValidationOutcome(file, validation))
+                                            return;
+
+                                        var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries, contentChanged: work.ContentChanged);
+                                        await workerDb.SaveChangesAsync(ct);
+                                        RecordPersistedFile(isKnownFile);
+                                        PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);
+                                    }
+                                    else
+                                    {
+                                        var events = new List<Action>(1);
+                                        var staged = await StageAsync(work, events);
+                                        if (!staged)
+                                            return;
+                                        await workerDb.SaveChangesAsync(ct);
+                                        foreach (var publish in events)
+                                            publish();
                                     }
                                 }
                                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                                 {
-                                    // Staging threw mid-item, leaving partial tracked state. Drop the
-                                    // whole pending batch, count this file as failed, and re-stage the
-                                    // previously-good items one at a time. Rare: the hot path (new files,
-                                    // ffprobe errors are swallowed internally) does not throw here.
                                     directoryScanContext.MarkRequiresConfirmation(file.Path);
                                     Interlocked.Increment(ref failedCount);
                                     logger.LogError(ex, "Error processing file: {Path}", file.Path);
+                                }
+                                finally
+                                {
                                     workerDb.ChangeTracker.Clear();
-                                    var good = batchItems.ToList();
-                                    batchItems.Clear();
-                                    batchEvents.Clear();
-                                    foreach (var recovered in good)
-                                        await ProcessSingleAsync(recovered);
                                 }
                             }
 
-                            Interlocked.Increment(ref processedCount);
-                            ReportProcessingProgress(false, file.Path);
+                            // Commit the staged batch. On failure, discard it and retry each item individually
+                            // so one bad row can't fail the whole group.
+                            async Task FlushBatchAsync()
+                            {
+                                if (batchItems.Count == 0)
+                                    return;
+
+                                try
+                                {
+                                    await workerDb.SaveChangesAsync(ct);
+                                    TraceScanBatchCommitted(batchItems.Count);
+                                    workerDb.ChangeTracker.Clear();
+                                    foreach (var publish in batchEvents)
+                                        publish();
+                                    batchItems.Clear();
+                                    batchEvents.Clear();
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                                {
+                                    logger.LogWarning(ex, "Batched scan save of {Count} file(s) failed; retrying individually.", batchItems.Count);
+                                    workerDb.ChangeTracker.Clear();
+                                    var retryItems = batchItems.ToList();
+                                    batchItems.Clear();
+                                    batchEvents.Clear();
+                                    foreach (var retry in retryItems)
+                                        await ProcessSingleAsync(retry);
+                                }
+                            }
+
+                            while (workQueue.TryDequeue(out var item))
+                            {
+                                if (ct.IsCancellationRequested)
+                                    break;
+
+                                var file = item.File;
+
+                                if (galleryExts.Contains(file.Extension))
+                                {
+                                    // Galleries commit internally, so flush any pending batch first to keep
+                                    // ordering and error isolation intact.
+                                    await FlushBatchAsync();
+                                    await ProcessSingleAsync(item);
+                                }
+                                else
+                                {
+                                    try
+                                    {
+                                        var staged = await StageAsync(item, batchEvents);
+                                        if (staged)
+                                        {
+                                            batchItems.Add(item);
+                                            if (batchItems.Count >= ScanSaveBatchSize)
+                                                await FlushBatchAsync();
+                                        }
+                                    }
+                                    catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                                    {
+                                        // Staging threw mid-item, leaving partial tracked state. Drop the
+                                        // whole pending batch, count this file as failed, and re-stage the
+                                        // previously-good items one at a time. Rare: the hot path (new files,
+                                        // ffprobe errors are swallowed internally) does not throw here.
+                                        directoryScanContext.MarkRequiresConfirmation(file.Path);
+                                        Interlocked.Increment(ref failedCount);
+                                        logger.LogError(ex, "Error processing file: {Path}", file.Path);
+                                        workerDb.ChangeTracker.Clear();
+                                        var good = batchItems.ToList();
+                                        batchItems.Clear();
+                                        batchEvents.Clear();
+                                        foreach (var recovered in good)
+                                            await ProcessSingleAsync(recovered);
+                                    }
+                                }
+
+                                Interlocked.Increment(ref processedCount);
+                                ReportProcessingProgress(false, file.Path);
+                            }
+
+                            await FlushBatchAsync();
                         }
 
-                        await FlushBatchAsync();
+                        var workers = new Task[workerCount];
+                        for (var workerIndex = 0; workerIndex < workerCount; workerIndex++)
+                            workers[workerIndex] = RunScanWorkerAsync();
+                        await Task.WhenAll(workers);
+                        ct.ThrowIfCancellationRequested();
                     }
 
-                    var workers = new Task[workerCount];
-                    for (var workerIndex = 0; workerIndex < workerCount; workerIndex++)
-                        workers[workerIndex] = RunScanWorkerAsync();
-                    await Task.WhenAll(workers);
-                    ct.ThrowIfCancellationRequested();
                 }
 
                 ReportProcessingProgress(true);
@@ -562,11 +581,11 @@ internal sealed class ScanJobRunner(
                 var assetSummary = await assetGenerationService.GenerateRequestedAssetsAsync(
                     db,
                     progress,
-                    new HashSet<string>(processedVideoPaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(processedImagePaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(processedAudioPaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(processedTextPaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<int>(changedVideoIds.Keys),
+                    processedVideoPaths,
+                    processedImagePaths,
+                    processedAudioPaths,
+                    processedTextPaths,
+                    changedVideoIds,
                     options,
                     ResolveMaxParallelism(),
                     ct);
@@ -661,70 +680,50 @@ internal sealed class ScanJobRunner(
     /// </summary>
     private async Task CreateGalleriesFromFoldersAsync(CoveContext db, bool createAllEligibleFolders, CancellationToken ct)
     {
-        // Find folders that contain image files but don't already have a gallery
-        var foldersWithImages = await db.ImageFiles
-            .Where(f => f.ParentFolderId != 0 && f.ZipFileId == null) // Only real folders, not zip virtual folders
-            .Select(f => f.ParentFolderId)
-            .Distinct()
-            .ToListAsync(ct);
-
-        if (foldersWithImages.Count == 0) return;
-
-        // Get existing folder-based galleries
-        var existingGalleryFolderIds = await db.Galleries
-            .Where(g => g.FolderId != null && foldersWithImages.Contains(g.FolderId.Value))
-            .Select(g => g.FolderId!.Value)
-            .ToListAsync(ct);
-
-        var newFolderIds = foldersWithImages.Except(existingGalleryFolderIds).ToList();
-        if (newFolderIds.Count == 0) return;
-
-        // Load the folders
-        var folders = await db.Folders
-            .Where(f => newFolderIds.Contains(f.Id))
-            .ToDictionaryAsync(f => f.Id, ct);
-
-        var eligibleFolderIds = folders
-            .Where(item => ShouldCreateFolderGallery(item.Value.Path, createAllEligibleFolders))
-            .Select(item => item.Key)
-            .ToHashSet();
-
-        if (eligibleFolderIds.Count == 0) return;
-
-        // Get image IDs per folder
-        var imagesByFolder = await db.ImageFiles
-            .Where(f => eligibleFolderIds.Contains(f.ParentFolderId) && f.ZipFileId == null && f.ImageId != null)
-            .GroupBy(f => f.ParentFolderId)
-            .Select(g => new { FolderId = g.Key, ImageIds = g.Select(f => f.ImageId!.Value).ToList() })
-            .ToListAsync(ct);
-
-        var createdGalleries = new List<Gallery>();
-        foreach (var group in imagesByFolder)
+        int? afterFolder = null;
+        while (true)
         {
-            if (!folders.TryGetValue(group.FolderId, out var folder)) continue;
-            var uniqueImageIds = group.ImageIds.Distinct().ToList();
-
-            // Intentionally leave Title null on scan. Storing the folder name as the title makes it
-            // impossible to filter for galleries that have no real title; the UI falls back to the
-            // folder name for display when Title is null.
-            var gallery = new Gallery
+            var query = db.Folders.AsNoTracking().Where(folder =>
+                db.ImageFiles.Any(file => file.ParentFolderId == folder.Id && file.ZipFileId == null && file.ImageId != null)
+                && !db.Galleries.Any(gallery => gallery.FolderId == folder.Id));
+            if (afterFolder.HasValue) query = query.Where(folder => folder.Id > afterFolder.Value);
+            var folders = await query.OrderBy(folder => folder.Id).Take(256).ToListAsync(ct);
+            if (folders.Count == 0) return;
+            afterFolder = folders[^1].Id;
+            foreach (var folder in folders)
             {
-                FolderId = folder.Id,
-            };
-
-            foreach (var imageId in uniqueImageIds)
-            {
-                gallery.ImageGalleries.Add(new ImageGallery { ImageId = imageId, Gallery = gallery });
+                if (!ShouldCreateFolderGallery(folder.Path, createAllEligibleFolders)) continue;
+                await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                {
+                    db.ChangeTracker.Clear();
+                    if (await db.Galleries.AnyAsync(existing => existing.FolderId == folder.Id, ct)) return;
+                    await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+                    var gallery = new Gallery { FolderId = folder.Id };
+                    db.Galleries.Add(gallery);
+                    await db.SaveChangesAsync(ct);
+                    var galleryId = gallery.Id;
+                    db.ChangeTracker.Clear();
+                    int? afterImage = null;
+                    var count = 0;
+                    while (true)
+                    {
+                        var imageQuery = db.ImageFiles.AsNoTracking().Where(file => file.ParentFolderId == folder.Id
+                            && file.ZipFileId == null && file.ImageId != null).Select(file => file.ImageId!.Value).Distinct();
+                        if (afterImage.HasValue) imageQuery = imageQuery.Where(id => id > afterImage.Value);
+                        var imageIds = await imageQuery.OrderBy(id => id).Take(256).ToListAsync(ct);
+                        if (imageIds.Count == 0) break;
+                        afterImage = imageIds[^1];
+                        foreach (var imageId in imageIds) db.Set<ImageGallery>().Add(new ImageGallery { ImageId = imageId, GalleryId = galleryId });
+                        await db.SaveChangesAsync(ct);
+                        db.ChangeTracker.Clear();
+                        count += imageIds.Count;
+                    }
+                    if (transaction != null) await transaction.CommitAsync(ct);
+                    TraceFolderGalleryCreated(folder.Path, count);
+                    eventBus.Publish(new EntityEvent(EventType.GalleryCreated, "Gallery", galleryId));
+                });
             }
-
-            db.Galleries.Add(gallery);
-            createdGalleries.Add(gallery);
-            TraceFolderGalleryCreated(folder.Path, uniqueImageIds.Count);
         }
-
-        await db.SaveChangesAsync(ct);
-        foreach (var gallery in createdGalleries)
-            eventBus.Publish(new EntityEvent(EventType.GalleryCreated, "Gallery", gallery.Id));
     }
 
     private static bool ShouldCreateFolderGallery(string folderPath, bool createAllEligibleFolders)

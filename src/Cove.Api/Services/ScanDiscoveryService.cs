@@ -66,61 +66,60 @@ internal sealed class ScanDiscoveryService(
 
         var scanStopwatch = Stopwatch.StartNew();
         progress.Report(0, "Discovering files...");
-        var files = new List<DiscoveredFile>();
-        var discoveryProgress = new ScanDiscoveryProgress(progress, logger);
-        var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(FilesystemPaths.PathComparer);
-        var configuredPatterns = new ConfiguredScanPatternMatcher(config);
-
-        foreach (var scanTarget in scanTargets)
+        await using var stagingScope = scopeFactory.CreateAsyncScope();
+        var stagingDb = stagingScope.ServiceProvider.GetRequiredService<CoveContext>();
+        var files = new ScanDiskCollection<DiscoveredFile>(
+            stagingDb,
+            file => file.StoredPath,
+            FilesystemPaths.PathComparer,
+            ScanSortKey.OrdinalIgnoreCase,
+            StringComparer.OrdinalIgnoreCase,
+            ct);
+        try
         {
-            if (scanTarget.IsFile)
+            var discoveryProgress = new ScanDiscoveryProgress(progress, logger);
+            var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(FilesystemPaths.PathComparer);
+            var configuredPatterns = new ConfiguredScanPatternMatcher(config);
+
+            foreach (var scanTarget in scanTargets)
             {
-                DiscoverFileTarget(scanTarget, extensions, configuredPatterns, ignoreRuleCache, discoveryProgress, files);
-                continue;
+                if (scanTarget.IsFile)
+                {
+                    DiscoverFileTarget(scanTarget, extensions, configuredPatterns, ignoreRuleCache, discoveryProgress, files);
+                    continue;
+                }
+
+                if (!Directory.Exists(scanTarget.Path))
+                {
+                    logger.LogWarning("Scan target does not exist: {Path}", scanTarget.Path);
+                    continue;
+                }
+
+                foreach (var file in DiscoverFilesSafely(
+                    scanTarget,
+                    extensions,
+                    configuredPatterns,
+                    ignoreRuleCache,
+                    discoveryProgress,
+                    directoryScanContext,
+                    ct))
+                    files.Add(file);
             }
 
-            if (!Directory.Exists(scanTarget.Path))
-            {
-                logger.LogWarning("Scan target does not exist: {Path}", scanTarget.Path);
-                continue;
-            }
+            discoveryProgress.Complete();
 
-            files.AddRange(DiscoverFilesSafely(
-                scanTarget,
-                extensions,
-                configuredPatterns,
-                ignoreRuleCache,
-                discoveryProgress,
-                directoryScanContext,
-                ct));
+            logger.LogInformation(
+                "Scan phase discovery completed in {ElapsedMs} ms. Discovered {FileCount} media files across {DirectoryCount} directories; skipped file enumeration in {UnchangedDirectoryCount} verified unchanged directories, {IgnoredPathCount} ignored paths, and {UnsupportedFileCount} unsupported files.",
+                scanStopwatch.ElapsedMilliseconds,
+                files.Count,
+                discoveryProgress.DirectoryCount,
+                discoveryProgress.UnchangedDirectoryCount,
+                discoveryProgress.IgnoredPathCount,
+                discoveryProgress.UnsupportedFileCount);
+
+            return new ScanDiscoveryResult(files, scanTargets, extensions, directoryScanContext);
         }
-
-        discoveryProgress.Complete();
-
-        logger.LogInformation(
-            "Scan phase discovery completed in {ElapsedMs} ms. Discovered {FileCount} media files across {DirectoryCount} directories; skipped file enumeration in {UnchangedDirectoryCount} verified unchanged directories, {IgnoredPathCount} ignored paths, and {UnsupportedFileCount} unsupported files.",
-            scanStopwatch.ElapsedMilliseconds,
-            files.Count,
-            discoveryProgress.DirectoryCount,
-            discoveryProgress.UnchangedDirectoryCount,
-            discoveryProgress.IgnoredPathCount,
-            discoveryProgress.UnsupportedFileCount);
-
-        // Overlapping roots may surface the same physical file more than once. Stable path ordering
-        // also keeps parallel workers reading nearby directories together.
-        if (files.Count > 0)
-        {
-            var beforeDedup = files.Count;
-            files = files
-                .GroupBy(file => file.StoredPath, FilesystemPaths.PathComparer)
-                .Select(group => group.First())
-                .OrderBy(file => file.StoredPath, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            if (files.Count != beforeDedup)
-                logger.LogInformation("Scan de-duplicated {DuplicateCount} discovered file path(s).", beforeDedup - files.Count);
-        }
-
-        return new ScanDiscoveryResult(files, scanTargets, extensions, directoryScanContext);
+        catch { files.Dispose(); throw; }
     }
 
     public async Task PersistDirectoryScanStatesAsync(DirectoryScanContext context, CancellationToken ct)
@@ -230,7 +229,7 @@ internal sealed class ScanDiscoveryService(
         ConfiguredScanPatternMatcher configuredPatterns,
         Dictionary<string, List<IgnoreRule>> ignoreRuleCache,
         ScanDiscoveryProgress discoveryProgress,
-        List<DiscoveredFile> files)
+        ICollection<DiscoveredFile> files)
     {
         if (!File.Exists(scanTarget.Path))
         {
@@ -318,35 +317,8 @@ internal sealed class ScanDiscoveryService(
                 directory,
                 frame.HasIgnoreFileInScope || frame.HasLocalGalleryControlFile);
 
-            List<FileSystemInfo> entries;
-            try
-            {
-                var directoryInfo = new DirectoryInfo(directory);
-                var enumerationOptions = new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false };
-                if (directoryScanContext.CanSkipFileEnumeration(observation))
-                {
-                    entries = directoryInfo
-                        .EnumerateDirectories("*", enumerationOptions)
-                        .Cast<FileSystemInfo>()
-                        .ToList();
-                    observation.MarkSkipped();
-                    discoveryProgress.RecordUnchangedDirectory();
-                }
-                else
-                {
-                    entries = directoryInfo
-                        .EnumerateFileSystemInfos("*", enumerationOptions)
-                        .ToList();
-                    observation.MarkFullyEnumerated();
-                }
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-            {
-                observation.MarkRequiresConfirmation();
-                discoveryProgress.RecordUnreadablePath(directory);
-                logger.LogWarning(ex, "Skipping unreadable scan directory: {Path}", directory);
-                continue;
-            }
+            var skipFiles = directoryScanContext.CanSkipFileEnumeration(observation);
+            var entries = ReadEntries(directory, observation, skipFiles);
 
             foreach (var entry in entries)
             {
@@ -456,6 +428,50 @@ internal sealed class ScanDiscoveryService(
                 discoveryProgress.RecordMediaFile(discoveredFile.Path);
                 yield return discoveredFile;
             }
+        }
+
+        IEnumerable<FileSystemInfo> ReadEntries(string directory, DirectoryScanObservation observation, bool skipFiles)
+        {
+            IEnumerator<FileSystemInfo>? iterator = null;
+            try
+            {
+                var info = new DirectoryInfo(directory);
+                var options = new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false };
+                iterator = (skipFiles ? info.EnumerateDirectories("*", options).Cast<FileSystemInfo>() : info.EnumerateFileSystemInfos("*", options)).GetEnumerator();
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                observation.MarkRequiresConfirmation();
+                discoveryProgress.RecordUnreadablePath(directory);
+                logger.LogWarning(ex, "Skipping unreadable scan directory: {Path}", directory);
+            }
+            if (iterator == null) yield break;
+            using (iterator)
+            {
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    FileSystemInfo? entry = null;
+                    var failed = false;
+                    try { if (iterator.MoveNext()) entry = iterator.Current; }
+                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                    {
+                        failed = true;
+                        observation.MarkRequiresConfirmation();
+                        discoveryProgress.RecordUnreadablePath(directory);
+                        logger.LogWarning(ex, "Skipping unreadable scan directory: {Path}", directory);
+                    }
+                    if (failed) yield break;
+                    if (entry == null) break;
+                    yield return entry;
+                }
+            }
+            if (skipFiles)
+            {
+                observation.MarkSkipped();
+                discoveryProgress.RecordUnchangedDirectory();
+            }
+            else observation.MarkFullyEnumerated();
         }
 
         DirectoryScanFrame CreateDirectoryScanFrame(
@@ -858,15 +874,15 @@ internal sealed class ScanDiscoveryService(
 }
 
 internal sealed record ScanDiscoveryResult(
-    List<DiscoveredFile> Files,
+    IReadOnlyCollection<DiscoveredFile> Files,
     IReadOnlyList<ScanTarget> Targets,
     ScanExtensionCatalog Extensions,
-    DirectoryScanContext DirectoryScanContext)
+    DirectoryScanContext DirectoryScanContext) : IDisposable
 {
+    public void Dispose() => (Files as IDisposable)?.Dispose();
     public bool HasForceGalleryHints => Files
         .Select(file => Path.GetDirectoryName(file.Path))
         .Where(directory => !string.IsNullOrWhiteSpace(directory))
-        .Distinct(FilesystemPaths.PathComparer)
         .Any(directory => File.Exists(Path.Combine(directory!, ".forcegallery")));
 }
 
