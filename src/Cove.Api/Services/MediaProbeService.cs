@@ -153,12 +153,18 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(json))
             return MediaProbeResult.Rejected(CondenseFailure(error));
 
-        // At error log level ffprobe writes only structural/demuxing errors encountered during its
-        // bounded metadata read. Treat those as an invalid input rather than silently persisting it.
-        if (!string.IsNullOrWhiteSpace(error))
+        // FFprobe can report a MOV sample-count mismatch while still returning usable metadata for
+        // a playable file. Keep rejecting every other structural or demuxing error.
+        if (!string.IsNullOrWhiteSpace(error) && !ContainsOnlyWrongSampleCountDiagnostics(error))
             return MediaProbeResult.Rejected(CondenseFailure(error));
 
         return MediaProbeResult.Succeeded(json);
+    }
+
+    private static bool ContainsOnlyWrongSampleCountDiagnostics(string error)
+    {
+        var lines = error.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return lines.Length > 0 && lines.All(line => line.EndsWith("] wrong sample count", StringComparison.Ordinal));
     }
 
     private string? FindFfprobe()
