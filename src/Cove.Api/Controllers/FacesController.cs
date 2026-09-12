@@ -41,6 +41,7 @@ public class FacesController(
     IStreamService? streamService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
+    private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
 
     // Extensions live in isolated DI containers since the extensions-runtime redesign and surface
     // their face contributions through the cross-extension service exchange. The host-injected
@@ -210,6 +211,9 @@ public class FacesController(
     {
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
+        var pathCriterion = BuildPathCriterion(path, pathModifier);
+        if (pathCriterion is not null && !CanReadFiles)
+            return Forbid();
 
         var totalSw = Stopwatch.StartNew();
         var phaseSw = new Stopwatch();
@@ -262,7 +266,7 @@ public class FacesController(
 
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(label, labelModifier), face => face.Label);
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(primarySourceKey, primarySourceKeyModifier), face => face.PrimarySourceKey);
-        query = ApplyAppearancePathCriterion(query, BuildPathCriterion(path, pathModifier));
+        query = ApplyAppearancePathCriterion(query, pathCriterion);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(detectionCount, detectionCount2, detectionCountModifier), face => face.DetectionCount);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(appearanceCount, appearanceCount2, appearanceCountModifier), face => face.AppearanceCount);
         query = FilterHelpers.ApplyInt(query, BuildIntCriterion(frameSampleCount, frameSampleCount2, frameSampleCountModifier), face => face.FrameSampleCount);
@@ -1399,6 +1403,9 @@ public class FacesController(
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
         var candidateCount = Math.Clamp(k, 1, 250);
+        var pathCriterion = BuildPathCriterion(path, pathModifier);
+        if (pathCriterion is not null && !CanReadFiles)
+            return Forbid();
 
         // Face similarity is a face-reading feature, so callers do not need broad access to the raw
         // embeddings API. Establish source-face visibility under the normal face filter first, then
@@ -1458,7 +1465,7 @@ public class FacesController(
             similarFaceQuery = linked.Value
                 ? similarFaceQuery.Where(face => face.PerformerId != null)
                 : similarFaceQuery.Where(face => face.PerformerId == null);
-        similarFaceQuery = ApplyAppearancePathCriterion(similarFaceQuery, BuildPathCriterion(path, pathModifier));
+        similarFaceQuery = ApplyAppearancePathCriterion(similarFaceQuery, pathCriterion);
 
         var faces = await similarFaceQuery.ToDictionaryAsync(face => face.Id, cancellationToken);
 

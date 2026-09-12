@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -285,14 +286,45 @@ public class AiCoreControllerTests
         Assert.Equal(["unlinked in folder"], await SimilarLabelsAsync(false, @"D:\Videos\Jane"));
     }
 
-    private static FacesController CreateFacesController(CoveContext context)
-        => new(
+    [Fact]
+    public async Task FacesController_PathFiltersRequireFileReadPermission()
+    {
+        await using var scope = await CreateContextAsync();
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "faces-reader",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.FacesRead },
+            Roles = new HashSet<string>(),
+        });
+        var controller = CreateFacesController(scope.Context, principalAccessor);
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.IsType<ForbidResult>((await controller.List(path: "/restricted", cancellationToken: ct)).Result);
+        Assert.IsType<ForbidResult>((await controller.GetSimilar(1, null, null, null, null, null, path: "/restricted", cancellationToken: ct)).Result);
+    }
+
+    private static FacesController CreateFacesController(CoveContext context, ICurrentPrincipalAccessor? principalAccessor = null)
+    {
+        principalAccessor ??= CreatePrincipalAccessor();
+        return new(
             context,
             new EmbeddingService(context, []),
             new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
             new FacePerformerPropagationService(context),
             Array.Empty<IFaceLifecycleParticipant>(),
-            NullLogger<FacesController>.Instance);
+            NullLogger<FacesController>.Instance,
+            principalAccessor: principalAccessor);
+    }
+
+    private static CurrentPrincipalAccessor CreatePrincipalAccessor()
+    {
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(CovePrincipal.System());
+        return principalAccessor;
+    }
 
     private static async Task<string?[]> ListFaceLabelsAsync(FacesController controller, string path, string? pathModifier, CancellationToken ct)
     {
