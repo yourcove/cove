@@ -1115,8 +1115,47 @@ describe("FilterDialog", () => {
     expect(screen.queryByRole("tabpanel", { name: "Title" })).not.toBeInTheDocument();
   });
 
+  it("pins custom filter sections without changing the other navigator groups", async () => {
+    const user = userEvent.setup();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{}}
+        onApply={vi.fn()}
+        openAtRoot
+        customSections={[
+          {
+            id: "custom",
+            label: "Custom",
+            filterKey: "customCriterion",
+            defaultValue: false,
+            isActive: (value) => value === true,
+            renderEditor: () => null,
+          },
+        ]}
+      />,
+    );
+
+    const customTab = screen.getByRole("tab", { name: "Custom" });
+    await user.click(customTab);
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Pin Custom" })).toHaveFocus();
+    await user.keyboard(" ");
+    expect(screen.getByRole("tab", { name: "Custom" })).toHaveFocus();
+
+    const groups = within(screen.getByRole("tablist", { name: "Available filter criteria" })).getAllByRole("region");
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Pinned", "All filters", "Related items"]);
+    expect(within(groups[0]).getByRole("tab", { name: "Custom" })).toBeInTheDocument();
+    expect(within(groups[0]).getByRole("button", { name: "Unpin Custom" })).toBeInTheDocument();
+    expect(within(groups[1]).getByRole("tab", { name: "Title" })).toBeInTheDocument();
+    expect(within(groups[2]).getByRole("tab", { name: "Related Performers" })).toBeInTheDocument();
+    expect(localStorage.getItem("filter-pinned")).toBe(JSON.stringify(["custom"]));
+  });
+
   it("lists active filters first and related items last", () => {
-    localStorage.setItem("filter-pinned", JSON.stringify(["rating", "title"]));
+    localStorage.setItem("filter-pinned", JSON.stringify(["rating", "title", "custom"]));
     render(
       <FilterDialog
         open
@@ -1148,6 +1187,7 @@ describe("FilterDialog", () => {
     expect(within(groups[0]).getByRole("tab", { name: "Title" })).toHaveAccessibleDescription("Active filter");
     expect(within(groups[0]).getByRole("tab", { name: "Custom" })).toHaveAccessibleDescription("Active filter");
     expect(within(groups[0]).getByRole("button", { name: "Unpin Title" })).toBeInTheDocument();
+    expect(within(groups[0]).getByRole("button", { name: "Unpin Custom" })).toBeInTheDocument();
     expect(within(groups[1]).getByRole("tab", { name: "Rating" })).toBeInTheDocument();
     expect(within(groups[1]).queryByRole("tab", { name: "Title" })).not.toBeInTheDocument();
     expect(within(groups[2]).queryByRole("tab", { name: "Title" })).not.toBeInTheDocument();
