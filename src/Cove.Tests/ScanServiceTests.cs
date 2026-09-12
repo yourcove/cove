@@ -148,6 +148,53 @@ public class ScanServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsShortZeroPaddingAfterCompleteMp4Box(int paddingLength)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-padded-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var bytes = new byte[8 + paddingLength];
+            bytes[3] = 8;
+            bytes[4] = (byte)'f';
+            bytes[5] = (byte)'r';
+            bytes[6] = (byte)'e';
+            bytes[7] = (byte)'e';
+            await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Null(failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsNonzeroPartialMp4BoxHeader()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-partial-header-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            await File.WriteAllBytesAsync(path, [
+                0, 0, 0, 8, (byte)'f', (byte)'r', (byte)'e', (byte)'e',
+                0, 1,
+            ], TestContext.Current.CancellationToken);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Contains("partial box header", failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task ValidateDeclaredContainerLengthAsync_RejectsPathologicalIsoBoxCounts()
     {
