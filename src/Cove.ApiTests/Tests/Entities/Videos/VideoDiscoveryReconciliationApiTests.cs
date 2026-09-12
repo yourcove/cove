@@ -154,8 +154,8 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         var restrictedTag = await owner.CreateTagAsync($"Owner-scoped duplicate search {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var restrictedRole = await owner.CreateRoleAsync(new CreateRoleRequest(
             restrictedRoleName,
-            "Can run and delete owned duplicate searches without reading other owners' jobs.",
-            [Permissions.VideosRead, Permissions.VideosDelete, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
+            "Can manage owned duplicate searches without reading other owners' jobs.",
+            [Permissions.VideosRead, Permissions.VideosWrite, Permissions.VideosDelete, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             restrictedRole.Id,
             EntityKinds.Video,
