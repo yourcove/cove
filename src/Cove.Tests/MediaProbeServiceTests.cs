@@ -86,6 +86,59 @@ public class MediaProbeServiceTests
     }
 
     [Fact]
+    public async Task ProbeAsync_AcceptsWrongSampleCountWhenProbeOtherwiseSucceeds()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-probe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var scriptPath = Path.Combine(tempRoot, "fake ffprobe");
+            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nprintf '%s' '{\"streams\":[]}'\nprintf '%s\\n' '[mov,mp4,m4a,3gp,3g2,mj2 @ 0x1234] wrong sample count' >&2\n", TestContext.Current.CancellationToken);
+            File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var service = CreateService(scriptPath, TimeSpan.FromSeconds(2));
+
+            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media.mp4"), TestContext.Current.CancellationToken);
+
+            Assert.Equal(MediaProbeStatus.Success, result.Status);
+            Assert.Equal("{\"streams\":[]}", result.Json);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeAsync_RejectsWrongSampleCountAlongsideOtherErrors()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-probe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var scriptPath = Path.Combine(tempRoot, "fake ffprobe");
+            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nprintf '%s' '{\"streams\":[]}'\nprintf '%s\\n' '[mov,mp4,m4a,3gp,3g2,mj2 @ 0x1234] wrong sample count' 'corrupt packet' >&2\n", TestContext.Current.CancellationToken);
+            File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var service = CreateService(scriptPath, TimeSpan.FromSeconds(2));
+
+            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media.mp4"), TestContext.Current.CancellationToken);
+
+            Assert.Equal(MediaProbeStatus.Invalid, result.Status);
+            Assert.Null(result.Json);
+            Assert.False(string.IsNullOrWhiteSpace(result.Reason));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProbeAsync_TimesOutAndTerminatesHungProcess()
     {
         if (OperatingSystem.IsWindows())
