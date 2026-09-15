@@ -77,25 +77,6 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-function getVideoSourceMimeType(format?: string) {
-  switch (format?.trim().toLowerCase()) {
-    case "mp4":
-      return "video/mp4";
-    case "webm":
-      return "video/webm";
-    case "ogg":
-    case "ogv":
-      return "video/ogg";
-    case "mpeg":
-    case "mpg":
-      return "video/mpeg";
-    case "mov":
-      return "video/quicktime";
-    default:
-      return undefined;
-  }
-}
-
 // Sentinel quality meaning "transcode at the source resolution" — used as a fallback when no
 // smaller transcode-ladder entries are available (e.g. a sub-360p source).
 const SOURCE_TRANSCODE_QUALITY = "Source";
@@ -906,16 +887,14 @@ export function VideoPlayer({
 
   // The source sentinel transcodes at the original resolution (no `resolution` query param).
   const transcodeResolution = selectedQuality === SOURCE_TRANSCODE_QUALITY ? undefined : selectedQuality;
-  const effectiveStreamUrl =
-    selectedQuality === "Direct"
-      ? streamUrl
-      : videos.transcodeUrl(
-          videoId,
-          transcodeResolution,
-          transcodeStartSec > 0 ? transcodeStartSec : undefined,
-          fileId,
-        );
-  const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
+  const isDirectSource = selectedQuality === "Direct";
+  const effectiveStreamUrl = isDirectSource
+    ? streamUrl
+    : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined, fileId);
+  // The transcode endpoint always emits MP4. The direct stream declares no type, so the browser
+  // reads the container from the bytes. A declared type can only reject the source before any
+  // request, which browsers do for the correct type of several containers we serve.
+  const effectiveSourceType = isDirectSource ? undefined : "video/mp4";
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
 
   const suspendedPlaybackRef = useRef<{ time: number; resume: boolean } | null>(null);
@@ -2116,6 +2095,18 @@ export function VideoPlayer({
           ref={sourceRef}
           src={compatibilityLookupPending || suspended ? undefined : effectiveStreamUrl}
           type={effectiveSourceType}
+          onError={(e) => {
+            // A source the browser cannot demux fails during resource selection, which fires
+            // `error` on the <source> and leaves video.error null — so the <video> onError below
+            // never sees it and the player sits dead with no message. Containers such as flv,
+            // mpegts and mpeg-ps reach the user this way. Treat it as a decode failure.
+            if (compatibilityLookupPending || suspended) return;
+            if (selectedQuality !== "Direct") return;
+            // Teardown clears the src to abort in-flight downloads; that is not a playback failure.
+            if (!e.currentTarget.getAttribute("src")) return;
+            if (videoRef.current?.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE) return;
+            fallbackToTranscode();
+          }}
         />
         {captions?.map((cap, idx) => (
           <track

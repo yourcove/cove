@@ -1137,7 +1137,7 @@ describe("VideoPlayer source lifecycle", () => {
 
     await waitFor(() => {
       expect(source).toHaveAttribute("src", "/api/stream/video/1");
-      expect(source).toHaveAttribute("type", "video/mp4");
+      expect(source).not.toHaveAttribute("type");
     });
   });
 
@@ -1381,22 +1381,25 @@ describe("VideoPlayer source lifecycle", () => {
     expect(playMock).toHaveBeenCalledOnce();
   });
 
-  it("does not declare a misleading MIME type for unknown direct video streams", () => {
-    const { container } = render(
-      <VideoPlayer
-        streamUrl="/api/stream/video/8912"
-        format="mpegts"
-        duration={120}
-        videoId={8912}
-        detections={[]}
-        trackingEnabled={false}
-      />,
-    );
+  it.each(["mov", "mpeg", "mp4", "mpegts"])(
+    "does not declare a MIME type on the direct source for format %s",
+    (format) => {
+      const { container } = render(
+        <VideoPlayer
+          streamUrl="/api/stream/video/8912"
+          format={format}
+          duration={120}
+          videoId={8912}
+          detections={[]}
+          trackingEnabled={false}
+        />,
+      );
 
-    const source = container.querySelector("source");
-    expect(source).toBeInstanceOf(HTMLSourceElement);
-    expect(source).not.toHaveAttribute("type");
-  });
+      const source = container.querySelector("source");
+      expect(source).toBeInstanceOf(HTMLSourceElement);
+      expect(source).not.toHaveAttribute("type");
+    },
+  );
 
   it("does not carry the previous video's end position into a different video", async () => {
     const { container, rerender } = render(
@@ -1679,6 +1682,51 @@ describe("VideoPlayer source lifecycle", () => {
       );
       expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/42");
       expect(screen.queryByText(/Using transcoded stream for/)).not.toBeInTheDocument();
+    });
+
+    const rejectSource = (container: HTMLElement, networkState: number) => {
+      const video = container.querySelector("video") as HTMLVideoElement;
+      const source = container.querySelector("source") as HTMLSourceElement;
+      Object.defineProperty(video, "networkState", { configurable: true, value: networkState });
+      act(() => {
+        source.dispatchEvent(new Event("error"));
+      });
+    };
+
+    it("falls back to a transcode when the browser rejects the container outright", async () => {
+      mockResolutions(["360p", "720p"]);
+      const { container } = render(player(60, "flv"));
+      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/60"));
+
+      rejectSource(container, HTMLMediaElement.NETWORK_NO_SOURCE);
+
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute(
+          "src",
+          "/api/stream/video/60/transcode?resolution=720p",
+        ),
+      );
+    });
+
+    it("stays on Direct when a source error leaves a resource selected", async () => {
+      mockResolutions(["360p", "720p"]);
+      const { container } = render(player(61, "flv"));
+      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/61"));
+
+      rejectSource(container, HTMLMediaElement.NETWORK_LOADING);
+
+      expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/61");
+    });
+
+    it("stays on Direct when the source src was cleared for teardown", async () => {
+      mockResolutions(["360p", "720p"]);
+      const { container } = render(player(62, "flv"));
+      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/62"));
+
+      container.querySelector("source")?.removeAttribute("src");
+      rejectSource(container, HTMLMediaElement.NETWORK_NO_SOURCE);
+
+      expect(container.querySelector("source")).not.toHaveAttribute("src");
     });
 
     it("selects a transcode and shows an audio-specific notice for incompatible MP4 audio", async () => {
