@@ -1836,6 +1836,47 @@ describe("VideoPlayer source lifecycle", () => {
       expect(screen.queryByText(/Using transcoded stream for/)).not.toBeInTheDocument();
     });
 
+    it("transcodes incompatible audio when the compatibility lookup fails", async () => {
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? Promise.reject(new Error("lookup failed"))
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
+      const { container } = render(player(52, "mp4", "ac3"));
+
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/52/transcode"),
+      );
+      expect(screen.getByText("Using transcoded stream for audio codec compatibility")).toBeInTheDocument();
+    });
+
+    it("re-arms the compatibility fallback when a different file of the same video is selected", async () => {
+      mockResolutions(["360p", "720p"]);
+      const playerWithFile = (fileId: number, format: string) => (
+        <VideoPlayer
+          streamUrl={`/api/stream/video/53?fileId=${fileId}`}
+          format={format}
+          fileId={fileId}
+          duration={120}
+          videoId={53}
+          detections={[]}
+          trackingEnabled={false}
+        />
+      );
+      const { container, rerender } = render(playerWithFile(1, "wmv"));
+      await waitFor(() =>
+        expect(container.querySelector("source")?.getAttribute("src")).toContain("/transcode?resolution=720p"),
+      );
+
+      // The second file is directly playable, so it must not inherit the first file's transcode.
+      rerender(playerWithFile(2, "mp4"));
+
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/53?fileId=2"),
+      );
+      expect(screen.queryByText(/Using transcoded stream for/)).not.toBeInTheDocument();
+    });
+
     it("uses source-resolution transcoding when no ladder resolutions are available", async () => {
       mockResolutions([]);
       const { container } = render(player(45, "asf"));
