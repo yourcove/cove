@@ -1764,6 +1764,12 @@ public class GalleryRepository : IGalleryRepository
             expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
             filter.StudiosCriterion = expandedStudios.Criterion;
         }
+        ExpandedHierarchyCriterion? expandedPerformerTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.PerformerTagsCriterion))
+        {
+            expandedPerformerTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.PerformerTagsCriterion!, ct);
+            filter.PerformerTagsCriterion = expandedPerformerTags.Criterion;
+        }
 
         var query = _db.Galleries.AsQueryable();
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
@@ -1869,7 +1875,7 @@ public class GalleryRepository : IGalleryRepository
                         query = ptCriterion.Modifier switch
                         {
                             CriterionModifier.Excludes => query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
-                            CriterionModifier.IncludesAll => query.Where(g => ptIds.All(tid => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
+                            CriterionModifier.IncludesAll => ApplyGalleryPerformerTagsIncludesAll(query, expandedPerformerTags?.ValueGroups ?? ptIds.Select(id => new[] { id }).ToArray()),
                             _ => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
                         };
                     }
@@ -1923,6 +1929,14 @@ public class GalleryRepository : IGalleryRepository
                 group.SelectMany(gallery => gallery.Files).Sum(file => file.Size)))
             .FirstOrDefaultAsync(ct)
             ?? new GalleryAggregate(0, 0);
+    }
+
+    // Each selected tag group (the tag plus its sub-tags when expanded) must match some performer on the gallery.
+    private static IQueryable<Gallery> ApplyGalleryPerformerTagsIncludesAll(IQueryable<Gallery> query, IReadOnlyList<int[]> groups)
+    {
+        foreach (var group in groups.Select(group => group.Where(id => id > 0).ToArray()).Where(group => group.Length > 0))
+            query = query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => group.Contains(pt.TagId))));
+        return query;
     }
 
     public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
@@ -2521,6 +2535,12 @@ public class ImageRepository : IImageRepository
             expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
             filter.StudiosCriterion = expandedStudios.Criterion;
         }
+        ExpandedHierarchyCriterion? expandedPerformerTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.PerformerTagsCriterion))
+        {
+            expandedPerformerTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.PerformerTagsCriterion!, ct);
+            filter.PerformerTagsCriterion = expandedPerformerTags.Criterion;
+        }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         var readScopePlan = filter?.PerformerFilterCriterion != null
@@ -2534,7 +2554,7 @@ public class ImageRepository : IImageRepository
 
         // Build filter query once (lightweight, no includes)
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
-        filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups, expandedPerformerTags?.ValueGroups);
         filterQuery = ApplyImageSearch(filterQuery, findFilter?.Q);
 
         return await RelatedFilterQuery.ApplyToImagesAsync(_db, filterQuery, filter?.PerformerFilterCriterion, ct);
@@ -2613,7 +2633,7 @@ public class ImageRepository : IImageRepository
             ?? new ImageAggregate(0, 0);
     }
 
-    private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
+    private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null, IReadOnlyList<int[]>? performerTagGroups = null)
     {
         if (filter == null) return query;
 
@@ -2680,7 +2700,7 @@ public class ImageRepository : IImageRepository
         query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, i => i.TagCount);
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, i => i.ImagePerformers.Count);
 
-        query = ApplyPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
+        query = PerformerOccurrenceTagQuery.Apply(_db, query, AffinityHostType.Image, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter), performerTagGroups);
 
         query = ApplyPerformerAgeCriterion(query, filter.PerformerAgeCriterion);
 
@@ -2715,67 +2735,6 @@ public class ImageRepository : IImageRepository
         }
 
         return ids.ToArray();
-    }
-
-    private IQueryable<Image> ApplyPerformerOccurrenceTagCriterion(IQueryable<Image> query, MultiIdCriterion? criterion, IReadOnlyCollection<int> performerIds)
-    {
-        if (criterion == null)
-            return query;
-
-        var tagIds = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
-        var excludedTagIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
-        if (tagIds.Length == 0 && excludedTagIds.Length == 0)
-            return query;
-
-        var scopedApplications = _db.TagApplications.AsNoTracking()
-            .Where(application => application.HostType == AffinityHostType.Image
-                && application.ContextType == "performer"
-                && application.ContextId != null);
-
-        if (performerIds.Count > 0)
-        {
-            var performerIdArray = performerIds.ToArray();
-            scopedApplications = scopedApplications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
-        }
-
-        if (tagIds.Length > 0)
-        {
-            query = criterion.Modifier switch
-            {
-                CriterionModifier.Excludes => query.Where(image => !scopedApplications.Any(application => application.HostId == image.Id && tagIds.Contains(application.TagId))),
-                CriterionModifier.ExcludesAll => ApplyPerformerOccurrenceTagExcludesAll(query, scopedApplications, tagIds),
-                CriterionModifier.IncludesAll => ApplyPerformerOccurrenceTagIncludesAll(query, scopedApplications, tagIds),
-                _ => query.Where(image => scopedApplications.Any(application => application.HostId == image.Id && tagIds.Contains(application.TagId))),
-            };
-        }
-
-        if (excludedTagIds.Length > 0)
-        {
-            query = query.Where(image => !scopedApplications.Any(application => application.HostId == image.Id && excludedTagIds.Contains(application.TagId)));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<Image> ApplyPerformerOccurrenceTagIncludesAll(IQueryable<Image> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        foreach (var tagId in tagIds)
-        {
-            query = query.Where(image => applications.Any(application => application.HostId == image.Id && application.TagId == tagId));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<Image> ApplyPerformerOccurrenceTagExcludesAll(IQueryable<Image> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        var matchingAll = query;
-        foreach (var tagId in tagIds)
-        {
-            matchingAll = matchingAll.Where(image => applications.Any(application => application.HostId == image.Id && application.TagId == tagId));
-        }
-
-        return query.Where(image => !matchingAll.Select(match => match.Id).Contains(image.Id));
     }
 
     private IQueryable<Image> ApplySorting(IQueryable<Image> query, string sort, bool desc, int? seed = null)

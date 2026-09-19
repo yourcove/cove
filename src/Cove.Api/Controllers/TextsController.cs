@@ -162,6 +162,12 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter!.StudiosCriterion!, ct);
             req.ObjectFilter.StudiosCriterion = expandedStudios.Criterion;
         }
+        ExpandedHierarchyCriterion? expandedPerformerTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.PerformerTagsCriterion))
+        {
+            expandedPerformerTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter!.PerformerTagsCriterion!, ct);
+            req.ObjectFilter.PerformerTagsCriterion = expandedPerformerTags.Criterion;
+        }
 
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
 
@@ -177,7 +183,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
-        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups, expandedPerformerTags?.ValueGroups);
         query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         query = ApplySort(query, sort, descending, findFilter.Seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, sort))
@@ -214,6 +220,12 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter!.StudiosCriterion!, ct);
             req.ObjectFilter.StudiosCriterion = expandedStudios.Criterion;
         }
+        ExpandedHierarchyCriterion? expandedPerformerTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.PerformerTagsCriterion))
+        {
+            expandedPerformerTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter!.PerformerTagsCriterion!, ct);
+            req.ObjectFilter.PerformerTagsCriterion = expandedPerformerTags.Criterion;
+        }
 
         var textBase = db.TextDocuments.AsNoTracking().AsQueryable();
         var textQuery = FullTextSearchHelpers.Apply(db, textBase, findFilter.Q,
@@ -223,7 +235,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             tagSelectors: [text => text.TextTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
             performerSelectors: [text => text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
-        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups, expandedPerformerTags?.ValueGroups);
         query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         if (req.Ids is { Count: > 0 }) query = query.Where(text => req.Ids.Contains(text.Id));
 
@@ -742,7 +754,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return compound.Finish(text => text.Id, clauses[0].Direction == Cove.Core.Enums.SortDirection.Desc);
     }
 
-    private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
+    private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null, IReadOnlyList<int[]>? performerTagGroups = null)
     {
         if (filter == null)
             return query;
@@ -772,7 +784,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, text => text.TextPerformers.Count);
         query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, text => text.TextTags.Select(link => link.TagId), hierarchicalTagGroups, requiredTagGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, text => text.TextPerformers.Select(link => link.PerformerId));
-        query = ApplyPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
+        query = PerformerOccurrenceTagQuery.Apply(db, query, AffinityHostType.Text, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter), performerTagGroups);
         query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, text => text.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.GroupsCriterion, text => db.GroupItems
             .Where(item => item.HostType == "text" && item.HostId == text.Id && item.Kind == GroupItemKind.Text)
@@ -798,67 +810,6 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             ids.UnionWith(filter.PerformersCriterion.RequiredIds.Where(id => id > 0));
 
         return ids.ToArray();
-    }
-
-    private IQueryable<TextDocument> ApplyPerformerOccurrenceTagCriterion(IQueryable<TextDocument> query, MultiIdCriterion? criterion, IReadOnlyCollection<int> performerIds)
-    {
-        if (criterion == null)
-            return query;
-
-        var tagIds = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
-        var excludedTagIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
-        if (tagIds.Length == 0 && excludedTagIds.Length == 0)
-            return query;
-
-        var scopedApplications = db.TagApplications.AsNoTracking()
-            .Where(application => application.HostType == AffinityHostType.Text
-                && application.ContextType == "performer"
-                && application.ContextId != null);
-
-        if (performerIds.Count > 0)
-        {
-            var performerIdArray = performerIds.ToArray();
-            scopedApplications = scopedApplications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
-        }
-
-        if (tagIds.Length > 0)
-        {
-            query = criterion.Modifier switch
-            {
-                CriterionModifier.Excludes => query.Where(text => !scopedApplications.Any(application => application.HostId == text.Id && tagIds.Contains(application.TagId))),
-                CriterionModifier.ExcludesAll => ApplyPerformerOccurrenceTagExcludesAll(query, scopedApplications, tagIds),
-                CriterionModifier.IncludesAll => ApplyPerformerOccurrenceTagIncludesAll(query, scopedApplications, tagIds),
-                _ => query.Where(text => scopedApplications.Any(application => application.HostId == text.Id && tagIds.Contains(application.TagId))),
-            };
-        }
-
-        if (excludedTagIds.Length > 0)
-        {
-            query = query.Where(text => !scopedApplications.Any(application => application.HostId == text.Id && excludedTagIds.Contains(application.TagId)));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<TextDocument> ApplyPerformerOccurrenceTagIncludesAll(IQueryable<TextDocument> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        foreach (var tagId in tagIds)
-        {
-            query = query.Where(text => applications.Any(application => application.HostId == text.Id && application.TagId == tagId));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<TextDocument> ApplyPerformerOccurrenceTagExcludesAll(IQueryable<TextDocument> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        var matchingAll = query;
-        foreach (var tagId in tagIds)
-        {
-            matchingAll = matchingAll.Where(text => applications.Any(application => application.HostId == text.Id && application.TagId == tagId));
-        }
-
-        return query.Where(text => !matchingAll.Select(match => match.Id).Contains(text.Id));
     }
 
     private async Task<TextDocumentDto> MapToDetailDtoAsync(TextDocument text, CancellationToken ct)

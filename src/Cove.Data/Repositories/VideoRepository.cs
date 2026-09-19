@@ -118,8 +118,14 @@ public class VideoRepository : IVideoRepository
                 expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, leaf.StudiosCriterion!, ct);
                 leaf.StudiosCriterion = expandedStudios.Criterion;
             }
+            ExpandedHierarchyCriterion? expandedPerformerTags = null;
+            if (HierarchicalCriterionExpander.RequiresExpansion(leaf.PerformerTagsCriterion))
+            {
+                expandedPerformerTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, leaf.PerformerTagsCriterion!, ct);
+                leaf.PerformerTagsCriterion = expandedPerformerTags.Criterion;
+            }
 
-            query = ApplyFilters(query, leaf, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+            query = ApplyFilters(query, leaf, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups, expandedPerformerTags?.ValueGroups);
             return includeRelatedFilters && applyPerformerCriterion
                 ? await RelatedFilterQuery.ApplyToVideosAsync(_db, query, leaf.PerformerFilterCriterion, ct)
                 : query;
@@ -270,7 +276,7 @@ public class VideoRepository : IVideoRepository
             ?? new VideoAggregate(0, 0, 0);
     }
 
-    private IQueryable<Video> ApplyFilters(IQueryable<Video> query, VideoFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
+    private IQueryable<Video> ApplyFilters(IQueryable<Video> query, VideoFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null, IReadOnlyList<int[]>? performerTagGroups = null)
     {
         if (filter == null) return query;
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
@@ -406,7 +412,7 @@ public class VideoRepository : IVideoRepository
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, s => s.UpdatedAt);
             query = EngagementQueryHelpers.ApplyAffinityTimestampCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), filter.LastPlayedAtCriterion);
 
-            query = ApplyPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
+            query = PerformerOccurrenceTagQuery.Apply(_db, query, AffinityHostType.Video, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter), performerTagGroups);
 
             // Performer age criterion (age at time of video based on video date and performer birthdate)
             query = ApplyPerformerAgeCriterion(query, filter.PerformerAgeCriterion);
@@ -1019,7 +1025,7 @@ public class VideoRepository : IVideoRepository
         // Excluded tags arrive in a separate list (the filter UI emits `excludes` alongside an Includes
         // modifier rather than flipping the modifier), so apply them independently of the include set —
         // including the exclude-only case where there are no included tags at all. Mirrors the
-        // include/exclude split used by ApplyPerformerOccurrenceTagCriterion and the shared MultiId helper.
+        // include/exclude split used by PerformerOccurrenceTagQuery and the shared MultiId helper.
         if (criterion.Excludes is { Count: > 0 })
             query = ApplyVideoTagNone(query, criterion.Excludes);
 
@@ -1106,67 +1112,6 @@ public class VideoRepository : IVideoRepository
         }
 
         return ids.ToArray();
-    }
-
-    private IQueryable<Video> ApplyPerformerOccurrenceTagCriterion(IQueryable<Video> query, MultiIdCriterion? criterion, IReadOnlyCollection<int> performerIds)
-    {
-        if (criterion == null)
-            return query;
-
-        var tagIds = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
-        var excludedTagIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
-        if (tagIds.Length == 0 && excludedTagIds.Length == 0)
-            return query;
-
-        var scopedApplications = _db.TagApplications.AsNoTracking()
-            .Where(application => application.HostType == AffinityHostType.Video
-                && application.ContextType == "performer"
-                && application.ContextId != null);
-
-        if (performerIds.Count > 0)
-        {
-            var performerIdArray = performerIds.ToArray();
-            scopedApplications = scopedApplications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
-        }
-
-        if (tagIds.Length > 0)
-        {
-            query = criterion.Modifier switch
-            {
-                CriterionModifier.Excludes => query.Where(video => !scopedApplications.Any(application => application.HostId == video.Id && tagIds.Contains(application.TagId))),
-                CriterionModifier.ExcludesAll => ApplyPerformerOccurrenceTagExcludesAll(query, scopedApplications, tagIds),
-                CriterionModifier.IncludesAll => ApplyPerformerOccurrenceTagIncludesAll(query, scopedApplications, tagIds),
-                _ => query.Where(video => scopedApplications.Any(application => application.HostId == video.Id && tagIds.Contains(application.TagId))),
-            };
-        }
-
-        if (excludedTagIds.Length > 0)
-        {
-            query = query.Where(video => !scopedApplications.Any(application => application.HostId == video.Id && excludedTagIds.Contains(application.TagId)));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<Video> ApplyPerformerOccurrenceTagIncludesAll(IQueryable<Video> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        foreach (var tagId in tagIds)
-        {
-            query = query.Where(video => applications.Any(application => application.HostId == video.Id && application.TagId == tagId));
-        }
-
-        return query;
-    }
-
-    private static IQueryable<Video> ApplyPerformerOccurrenceTagExcludesAll(IQueryable<Video> query, IQueryable<TagApplication> applications, IReadOnlyCollection<int> tagIds)
-    {
-        var matchingAll = query;
-        foreach (var tagId in tagIds)
-        {
-            matchingAll = matchingAll.Where(video => applications.Any(application => application.HostId == video.Id && application.TagId == tagId));
-        }
-
-        return query.Where(video => !matchingAll.Select(match => match.Id).Contains(video.Id));
     }
 
     private IQueryable<Video> ApplyTagDurationCriterion(IQueryable<Video> query, TagDurationCriterion? criterion)

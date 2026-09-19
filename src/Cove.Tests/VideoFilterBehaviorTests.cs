@@ -1406,6 +1406,111 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task PerformerTagsCriterion_WithSubTags_MatchesDescendantOccurrenceTags()
+    {
+        await using var context = CreateContext();
+        var (parent, child, grandchild) = await AddTagChainAsync(context, "occurrence");
+        var unrelated = new Tag { Name = "unrelated" };
+        context.Tags.Add(unrelated);
+        var performer = CreatePerformer("Occurrence", new DateOnly(2000, 1, 1));
+        var childVideo = CreateVideoWithFile("child-tagged", performer: performer);
+        var grandchildVideo = CreateVideoWithFile("grandchild-tagged");
+        grandchildVideo.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+        var unrelatedVideo = CreateVideoWithFile("unrelated-tagged");
+        unrelatedVideo.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+        context.Videos.AddRange(childVideo, grandchildVideo, unrelatedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, childVideo.Id, performer.Id, child.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, childVideo.Id, performer.Id, unrelated.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, grandchildVideo.Id, performer.Id, grandchild.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, unrelatedVideo.Id, performer.Id, unrelated.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        async Task<string[]> FindAsync(MultiIdCriterion criterion)
+        {
+            var (items, _) = await new VideoRepository(context).FindAsync(
+                new VideoFilter { PerformerTagsCriterion = criterion },
+                new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+                TestContext.Current.CancellationToken);
+            return items.Select(video => video.Title ?? string.Empty).ToArray();
+        }
+
+        Assert.Equal(["child-tagged", "grandchild-tagged"], await FindAsync(new MultiIdCriterion { Value = [parent.Id], Modifier = CriterionModifier.Includes, Depth = -1 }));
+        Assert.Equal(["child-tagged", "grandchild-tagged"], await FindAsync(new MultiIdCriterion { Value = [parent.Id], Modifier = CriterionModifier.IncludesAll, Depth = -1 }));
+        Assert.Equal(["child-tagged"], await FindAsync(new MultiIdCriterion { Value = [parent.Id, unrelated.Id], Modifier = CriterionModifier.IncludesAll, Depth = -1 }));
+        Assert.Equal(["grandchild-tagged", "unrelated-tagged"], await FindAsync(new MultiIdCriterion { Value = [parent.Id, unrelated.Id], Modifier = CriterionModifier.ExcludesAll, Depth = -1 }));
+        Assert.Equal(["unrelated-tagged"], await FindAsync(new MultiIdCriterion { Value = [], Excludes = [parent.Id], Modifier = CriterionModifier.Includes, Depth = -1 }));
+        Assert.Empty(await FindAsync(new MultiIdCriterion { Value = [parent.Id], Modifier = CriterionModifier.Includes }));
+    }
+
+    [Fact]
+    public async Task PerformerTagsCriterion_WithSubTags_MatchesDescendantOccurrenceTagsForImagesAudiosAndTexts()
+    {
+        await using var context = CreateContext();
+        var (parent, child, _) = await AddTagChainAsync(context, "media-occurrence");
+        var performer = CreatePerformer("Media Occurrence", new DateOnly(2000, 1, 1));
+        var image = CreateImage("child-tagged-image", performer);
+        var audio = CreateAudio("child-tagged-audio", performer);
+        var text = CreateTextDocument("child-tagged-text", performer);
+        context.Images.AddRange(image, CreateImage("untagged-image", performer));
+        context.Audios.AddRange(audio, CreateAudio("untagged-audio", performer));
+        context.TextDocuments.AddRange(text, CreateTextDocument("untagged-text", performer));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Image, image.Id, performer.Id, child.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Audio, audio.Id, performer.Id, child.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Text, text.Id, performer.Id, child.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        MultiIdCriterion Criterion() => new() { Value = [parent.Id], Modifier = CriterionModifier.IncludesAll, Depth = -1 };
+
+        var (images, _) = await new ImageRepository(context).FindAsync(
+            new ImageFilter { PerformerTagsCriterion = Criterion() },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal("child-tagged-image", Assert.Single(images).Title);
+
+        var audioResponse = await new AudiosController(context, new CustomFieldService(context), null!, null!, null!, null).FindPost(new FilteredQueryRequest<AudioFilter>
+        {
+            FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            ObjectFilter = new AudioFilter { PerformerTagsCriterion = Criterion() },
+        }, CancellationToken.None);
+        var audios = Assert.IsType<PaginatedResponse<AudioDto>>(Assert.IsType<OkObjectResult>(audioResponse.Result).Value);
+        Assert.Equal("child-tagged-audio", Assert.Single(audios.Items).Title);
+
+        var textResponse = await new TextsController(context, new CustomFieldService(context), null!, null!, null!, null!, null).FindPost(new FilteredQueryRequest<TextDocumentFilter>
+        {
+            FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            ObjectFilter = new TextDocumentFilter { PerformerTagsCriterion = Criterion() },
+        }, CancellationToken.None);
+        var texts = Assert.IsType<PaginatedResponse<TextDocumentDto>>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
+        Assert.Equal("child-tagged-text", Assert.Single(texts.Items).Title);
+    }
+
+    [Fact]
+    public async Task GalleryPerformerTagsCriterion_WithSubTags_MatchesDescendantPerformerTags()
+    {
+        await using var context = CreateContext();
+        var (parent, child, _) = await AddTagChainAsync(context, "gallery-performer");
+        var taggedPerformer = CreatePerformer("Tagged Gallery Performer", new DateOnly(2000, 1, 1));
+        taggedPerformer.PerformerTags.Add(new PerformerTag { TagId = child.Id });
+        var taggedGallery = new Gallery { Title = "child-tagged-gallery" };
+        taggedGallery.GalleryPerformers.Add(new GalleryPerformer { Performer = taggedPerformer });
+        var untaggedGallery = new Gallery { Title = "untagged-gallery" };
+        untaggedGallery.GalleryPerformers.Add(new GalleryPerformer { Performer = CreatePerformer("Untagged Gallery Performer", new DateOnly(2000, 1, 1)) });
+        context.Galleries.AddRange(taggedGallery, untaggedGallery);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (galleries, _) = await new GalleryRepository(context).FindAsync(
+            new GalleryFilter { PerformerTagsCriterion = new MultiIdCriterion { Value = [parent.Id], Modifier = CriterionModifier.IncludesAll, Depth = -1 } },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("child-tagged-gallery", Assert.Single(galleries).Title);
+    }
+
+    [Fact]
     public async Task TextsController_GetById_OrdersEffectiveTagsByName()
     {
         await using var context = CreateContext();
@@ -2319,6 +2424,20 @@ public class VideoFilterBehaviorTests
             TagId = tagId,
             SourceKey = "test",
         };
+
+    private static async Task<(Tag Parent, Tag Child, Tag Grandchild)> AddTagChainAsync(CoveContext context, string prefix)
+    {
+        var parent = new Tag { Name = $"{prefix}-parent" };
+        var child = new Tag { Name = $"{prefix}-child" };
+        var grandchild = new Tag { Name = $"{prefix}-grandchild" };
+        context.Tags.AddRange(parent, child, grandchild);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.Set<TagParent>().AddRange(
+            new TagParent { ParentId = parent.Id, ChildId = child.Id },
+            new TagParent { ParentId = child.Id, ChildId = grandchild.Id });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (parent, child, grandchild);
+    }
 
     private static Image CreateImage(string title, Performer? performer = null)
     {
