@@ -6,7 +6,7 @@ import type { ExtensionAction } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { registerManualContext } from "./ManualContext";
 
-interface Props {
+export interface ExtensionEntityActionsProps {
   entityType: string;
   entityId: number;
   pageType?: string;
@@ -95,7 +95,7 @@ function getActionManualContexts(action: ExtensionAction) {
   ];
 }
 
-export function ExtensionEntityActions({ entityType, entityId, pageType, renderMode = "toolbar", onInvoked }: Props) {
+export function ExtensionEntityActions({ entityType, entityId, pageType, renderMode = "toolbar", onInvoked }: ExtensionEntityActionsProps) {
   const normalizedEntityType = normalizeEntityType(entityType);
   const normalizedPageType = normalizeEntityType(pageType ?? entityType);
   const queryClient = useQueryClient();
