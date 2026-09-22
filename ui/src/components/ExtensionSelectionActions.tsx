@@ -6,7 +6,7 @@ import type { ExtensionAction } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { registerManualContext } from "./ManualContext";
 
-interface Props {
+export interface ExtensionSelectionActionsProps {
   entityType: string;
   selectedIds: Set<number>;
 }
@@ -92,7 +92,7 @@ function getActionManualContexts(action: ExtensionAction) {
   ];
 }
 
-export function ExtensionSelectionActions({ entityType, selectedIds }: Props) {
+export function ExtensionSelectionActions({ entityType, selectedIds }: ExtensionSelectionActionsProps) {
   const normalizedEntityType = normalizeEntityType(entityType);
   const selectedIdList = useMemo(() => [...selectedIds], [selectedIds]);
   const queryClient = useQueryClient();

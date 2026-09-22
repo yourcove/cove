@@ -98,6 +98,15 @@ export { VideoSelectionActions } from "./VideoSelectionActions";
 export type { VideoSelectionActionsProps } from "./VideoSelectionActions";
 export { ImageSelectionActions } from "./ImageSelectionActions";
 export type { ImageSelectionActionsProps } from "./ImageSelectionActions";
+
+// Just the extension-contributed actions, without the native delete/download around them. A
+// page whose entities have their own ownership or lineage rules renders this instead of the
+// full bar, so a contributed action like Run AI is the SAME one the native pages show without
+// also importing native mutations that would bypass those rules.
+export { ExtensionSelectionActions } from "./ExtensionSelectionActions";
+export type { ExtensionSelectionActionsProps } from "./ExtensionSelectionActions";
+export { ExtensionEntityActions } from "./ExtensionEntityActions";
+export type { ExtensionEntityActionsProps } from "./ExtensionEntityActions";
 export { getDefaultFilter } from "./SavedFilterMenu";
 export { Pager } from "./Pager";
 // Scroll-triggered "load more" sentinel. ListPage deliberately renders no sentinel of its own in the display
