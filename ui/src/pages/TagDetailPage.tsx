@@ -895,6 +895,7 @@ function TagPerformersPanel({
         <BulkSelectionActions
           entityType="performers"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "tag", id: tagId }}
         />
@@ -1758,6 +1759,7 @@ function TagStudiosPanel({
         <BulkSelectionActions
           entityType="studios"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "tag", id: tagId }}
         />

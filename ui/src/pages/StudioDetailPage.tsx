@@ -1686,6 +1686,7 @@ function ChildStudiosPanel({ studioId, onNavigate }: { studioId: number; onNavig
         <BulkSelectionActions
           entityType="studios"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "studio", id: studioId }}
         />
@@ -1817,7 +1818,14 @@ function StudioPerformersPanel({
       onSelectAllMatching={selectShown}
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="performers"
+          selectedIds={selectedIds}
+          mergeItems={items}
+          onDone={selectNone}
+        />
+      }
       criteriaDefinitions={PERFORMER_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}

@@ -204,7 +204,7 @@ export function VideoSelectionActions({
           Identify
         </button>
       )}
-      {canWrite && selectedIds.size >= 2 && (
+      {canWrite && canDelete && selectedIds.size >= 2 && (
         <button
           onClick={() => setShowMerge(true)}
           className={`${actionClass} text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20`}

@@ -2196,7 +2196,14 @@ function PerformerAppearsWithPanel({ performerId, onNavigate }: { performerId: n
       onSelectAllMatching={selectShown}
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="performers"
+          selectedIds={selectedIds}
+          mergeItems={items}
+          onDone={selectNone}
+        />
+      }
       // No listEntityType: the appears-with endpoint ranks by shared-video count and ignores
       // sort=relevance, so offering it here would quietly reorder by something else.
       allowInfinitePageSize

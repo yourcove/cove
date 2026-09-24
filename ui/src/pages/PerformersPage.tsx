@@ -11,8 +11,7 @@ import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 import { IsoDateInput } from "../components/IsoDateInput";
-import { Users, Merge, User } from "lucide-react";
-import { MergeDialog } from "../components/MergeDialog";
+import { Users, User } from "lucide-react";
 import { PerformerTagger } from "../components/PerformerTagger";
 import { PerformerTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
@@ -60,7 +59,6 @@ export function PerformersPage({ onNavigate }: Props) {
   });
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const [showCreate, setShowCreate] = useState(false);
-  const [showMerge, setShowMerge] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { hasPermission } = useAuth();
   const canWritePerformer = canWriteEntity("performer", hasPermission);
@@ -156,18 +154,12 @@ export function PerformersPage({ onNavigate }: Props) {
         onSelectNone={selectNone}
         onInvertSelection={invertSelection}
         selectionActions={
-          <>
-            {canWritePerformer && selectedIds.size >= 2 && (
-              <button
-                onClick={() => setShowMerge(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-              >
-                <Merge className="w-3 h-3" />
-                Merge
-              </button>
-            )}
-            <BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />
-          </>
+          <BulkSelectionActions
+            entityType="performers"
+            selectedIds={selectedIds}
+            mergeItems={items}
+            onDone={selectNone}
+          />
         }
       >
         {displayMode === "tagger" ? (
@@ -252,20 +244,6 @@ export function PerformersPage({ onNavigate }: Props) {
           </div>
         )}
       </ListPage>
-
-      <MergeDialog
-        open={showMerge}
-        onClose={() => {
-          setShowMerge(false);
-          selectNone();
-        }}
-        entityType="performer"
-        items={items
-          .filter((p) => selectedIds.has(p.id))
-          .map((p) => ({ id: p.id, name: p.name, imagePath: p.imagePath }))}
-        onMerge={performers.merge}
-        queryKey="performers"
-      />
     </>
   );
 }

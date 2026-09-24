@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, Edit, Image as ImageIcon, Loader2, Trash2, Search, Play, Unlink } from "lucide-react";
+import { Download, Edit, Image as ImageIcon, Loader2, Trash2, Search, Play, Unlink, Merge } from "lucide-react";
 import {
   videos as videosApi,
   images,
@@ -52,6 +52,8 @@ import { IdentifyDialog } from "./IdentifyDialog";
 import { VideoQueue } from "./VideoQueue";
 import { ExtensionSelectionActions } from "./ExtensionSelectionActions";
 import { MediaScrapeDialog } from "./MediaScrapeDialog";
+import { MergeDialog } from "./MergeDialog";
+import { VideoMergeEditor } from "./VideoMergeEditor";
 import {
   DEFAULT_BATCH_DOWNLOAD_OPTIONS,
   formatBatchDownloadSummary,
@@ -330,6 +332,8 @@ interface Props {
   onDone: () => void;
   /** Raw video items for Play/Identify (only needed when entityType is "videos") */
   videoItems?: Pick<Video, "id" | "title" | "updatedAt" | "urls" | "files">[];
+  /** Loaded performer or studio names for the merge destination picker. */
+  mergeItems?: { id: number; name: string; imagePath?: string }[];
   audioItems?: Audio[];
   textItems?: TextDocument[];
   downloadItems?: DownloadSelectionItem[];
@@ -343,6 +347,7 @@ export function BulkSelectionActions({
   selectedIds,
   onDone,
   videoItems,
+  mergeItems,
   audioItems,
   textItems,
   downloadItems,
@@ -350,6 +355,7 @@ export function BulkSelectionActions({
   removeFromParent,
 }: Props) {
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [showMerge, setShowMerge] = useState(false);
   const [showIdentify, setShowIdentify] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showScrape, setShowScrape] = useState(false);
@@ -442,6 +448,25 @@ export function BulkSelectionActions({
   const isAudios = entityType === "audios";
   const isTexts = entityType === "texts";
   const canIdentify = isVideos && hasPermission("library.identify") && canWrite;
+  const mergeable = isVideos || entityType === "performers" || entityType === "studios";
+  const selectedItemsForMerge = useMemo(() => {
+    if (!mergeable) return [];
+    const itemsById = new Map<number, { name: string; imagePath?: string }>(
+      isVideos
+        ? videoItems?.map(
+            (video) => [video.id, { name: video.title || video.files[0]?.basename || `Video ${video.id}` }] as const,
+          )
+        : mergeItems?.map((item) => [item.id, item] as const),
+    );
+    return [...selectedIds].map((id) => {
+      const item = itemsById.get(id);
+      return {
+        id,
+        name: item?.name || `${resource.charAt(0).toUpperCase() + resource.slice(1)} ${id}`,
+        imagePath: item?.imagePath,
+      };
+    });
+  }, [isVideos, mergeable, mergeItems, resource, selectedIds, videoItems]);
   const downloadEntity: DownloadSelectionEntity | null =
     entityType === "videos"
       ? "Video"
@@ -541,6 +566,15 @@ export function BulkSelectionActions({
           Identify
         </button>
       )}
+      {mergeable && canWrite && canDelete && selectedIds.size >= 2 && (
+        <button
+          onClick={() => setShowMerge(true)}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+        >
+          <Merge className="w-3 h-3" />
+          Merge
+        </button>
+      )}
       {canScrapeMedia && mediaScrapeType && selectedMediaItem && (
         <button
           onClick={() => setShowScrape(true)}
@@ -627,6 +661,45 @@ export function BulkSelectionActions({
       )}
       {showIdentify && canIdentify && (
         <IdentifyDialog open onClose={() => setShowIdentify(false)} videoIds={[...selectedIds]} />
+      )}
+      {showMerge && (
+        <MergeDialog
+          open
+          onClose={() => {
+            setShowMerge(false);
+            onDone();
+          }}
+          entityType={resource as "video" | "performer" | "studio"}
+          items={selectedItemsForMerge}
+          onMerge={async (targetId, sourceIds) => {
+            const result =
+              entityType === "performers"
+                ? await performers.merge(targetId, sourceIds)
+                : entityType === "studios"
+                  ? await studios.merge(targetId, sourceIds)
+                  : await videosApi.merge(targetId, sourceIds);
+            void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== entityType });
+            return result;
+          }}
+          queryKey={entityType}
+          renderReview={
+            isVideos
+              ? (targetId, sourceIds, onBack) => (
+                  <VideoMergeEditor
+                    targetId={targetId}
+                    sourceIds={sourceIds}
+                    canDeleteFiles={canDeleteFiles}
+                    onClose={onBack}
+                    onMerged={() => {
+                      queryClient.invalidateQueries();
+                      setShowMerge(false);
+                      onDone();
+                    }}
+                  />
+                )
+              : undefined
+          }
+        />
       )}
       {showQueue && isVideos && videoItems && onNavigate && (
         <VideoQueue

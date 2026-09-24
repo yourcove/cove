@@ -7,9 +7,8 @@ import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../co
 import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { Building2, Merge } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/filterCriteriaCatalogs";
-import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
 import { StudioTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
@@ -52,7 +51,6 @@ export function StudiosPage({ onNavigate }: Props) {
     allowInfinitePageSize: true,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [showMerge, setShowMerge] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { hasPermission } = useAuth();
   const canWriteStudio = canWriteEntity("studio", hasPermission);
@@ -133,18 +131,7 @@ export function StudiosPage({ onNavigate }: Props) {
         onSelectNone={selectNone}
         onInvertSelection={invertSelection}
         selectionActions={
-          <>
-            {canWriteStudio && selectedIds.size >= 2 && (
-              <button
-                onClick={() => setShowMerge(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-              >
-                <Merge className="w-3 h-3" />
-                Merge
-              </button>
-            )}
-            <BulkSelectionActions entityType="studios" selectedIds={selectedIds} onDone={selectNone} />
-          </>
+          <BulkSelectionActions entityType="studios" selectedIds={selectedIds} mergeItems={items} onDone={selectNone} />
         }
       >
         {displayMode === "tagger" ? (
@@ -197,17 +184,6 @@ export function StudiosPage({ onNavigate }: Props) {
           </div>
         )}
       </ListPage>
-      <MergeDialog
-        open={showMerge}
-        onClose={() => {
-          setShowMerge(false);
-          selectNone();
-        }}
-        entityType="studio"
-        items={items.filter((s) => selectedIds.has(s.id)).map((s) => ({ id: s.id, name: s.name }))}
-        onMerge={studios.merge}
-        queryKey="studios"
-      />
     </>
   );
 }
