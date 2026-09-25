@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render as renderWithoutProviders,
+  screen,
+  waitFor,
+  type RenderOptions,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -80,9 +87,13 @@ const baseGallery = {
   updatedAt: "2024-01-12T00:00:00Z",
 };
 
-function renderWithQueryClient(ui: React.ReactElement) {
+// Cards render BookmarkButton, which needs a QueryClientProvider. The wrapper also applies on rerender.
+function render(ui: React.ReactElement, options?: RenderOptions) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return renderWithoutProviders(ui, {
+    wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+    ...options,
+  });
 }
 
 beforeEach(() => {
@@ -202,7 +213,7 @@ describe("VideoCard navigation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    renderWithQueryClient(
+    render(
       <VideoCardPopovers
         video={
           {
@@ -345,9 +356,7 @@ describe("PerformerTile country flag", () => {
       { value: "CA", code: "CA", name: "Canada", performerCount: 1, isCustom: false },
     ]);
     const onClick = vi.fn();
-    renderWithQueryClient(
-      <PerformerTile performer={{ id: 7, name: "Card performer", country: "CA" }} onClick={onClick} />,
-    );
+    render(<PerformerTile performer={{ id: 7, name: "Card performer", country: "CA" }} onClick={onClick} />);
 
     const flag = await screen.findByLabelText("Canada");
     expect(flag).toHaveTextContent("🇨🇦");
@@ -502,21 +511,21 @@ describe("PerformerTile", () => {
 
 describe("GalleryTile", () => {
   it("shows a formatted gallery date below the title", () => {
-    renderWithQueryClient(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
+    render(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
 
     expect(screen.getByText("Sample Gallery")).toBeInTheDocument();
     expect(screen.getByText("2024-01-15")).toBeInTheDocument();
   });
 
   it("does not reserve date content when a gallery is undated", () => {
-    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect(container.querySelector(".card-body")).toHaveTextContent("Sample Gallery");
     expect(container.querySelector(".card-body p + p")).not.toBeInTheDocument();
   });
 
   it("shows the aggregate like count from gallery engagement", () => {
-    const { container } = renderWithQueryClient(
+    const { container } = render(
       <GalleryTile gallery={baseGallery as any} engagement={{ likeCount: 6 } as any} onClick={vi.fn()} />,
     );
 
@@ -526,7 +535,7 @@ describe("GalleryTile", () => {
 
   it("uses media-enabled tag links in the shared reference popover", () => {
     vi.useFakeTimers();
-    renderWithQueryClient(
+    render(
       <GalleryTile
         gallery={
           { ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any
@@ -545,7 +554,7 @@ describe("GalleryTile", () => {
   });
 
   it("shows image and video counts once in the footer popovers", () => {
-    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     const imagesButton = screen.getByTitle("Images");
     const videosButton = screen.getByTitle("Videos");
@@ -560,14 +569,14 @@ describe("GalleryTile", () => {
   });
 
   it("uses a square media frame so gallery cards match image-card dimensions", () => {
-    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect(container.querySelector(".aspect-square")).toBeInTheDocument();
     expect(container.querySelector(".aspect-video")).not.toBeInTheDocument();
   });
 
   it("uses the effective gallery cover endpoint when no explicit cover path is present", () => {
-    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect((container.querySelector("img") as HTMLImageElement | null)?.getAttribute("src")).toContain(
       "/api/galleries/7/cover",
@@ -576,7 +585,7 @@ describe("GalleryTile", () => {
 
   it("scrubs only while the navigation overlay pointer is within the gallery media", async () => {
     const findSpy = vi.spyOn(images, "find").mockResolvedValue({ items: [{ id: 55 }], totalCount: 12 } as any);
-    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
     const scrubber = screen.getByTestId("gallery-scrub-thumbnail");
     vi.spyOn(scrubber, "getBoundingClientRect").mockReturnValue({
       left: 10,
@@ -603,7 +612,7 @@ describe("GalleryTile", () => {
   });
 
   it("shows the studio logo overlay and shared studio and performer popovers", () => {
-    renderWithQueryClient(
+    render(
       <GalleryTile
         gallery={
           {
@@ -864,7 +873,7 @@ describe("GroupTile", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    renderWithQueryClient(
+    render(
       <GroupTile
         group={
           {
@@ -906,7 +915,7 @@ describe("GroupTile", () => {
 
 describe("FileInfoTab", () => {
   it("renders every underlying video file", () => {
-    renderWithQueryClient(
+    render(
       <FileInfoTab
         files={
           [
@@ -930,7 +939,7 @@ describe("FileInfoTab", () => {
 
   it("links pHash fingerprints to an exact video filter isolated from saved list defaults", () => {
     const onNavigate = vi.fn();
-    renderWithQueryClient(
+    render(
       <FileInfoTab
         files={
           [
@@ -981,7 +990,7 @@ describe("DetailsTab performers", () => {
       ],
     };
 
-    renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
+    render(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
     expect(screen.getByText("24 years old")).toBeInTheDocument();
 
@@ -1005,7 +1014,7 @@ describe("DetailsTab director", () => {
       customFields: undefined,
     };
 
-    renderWithQueryClient(<DetailsTab video={video as any} onNavigate={onNavigate} />);
+    render(<DetailsTab video={video as any} onNavigate={onNavigate} />);
 
     const directorLink = screen.getByRole("link", { name: "Alex Example" });
     expect(directorLink).toHaveAttribute(
@@ -1052,7 +1061,7 @@ describe("DetailsTab tag hover", () => {
         },
       ],
     };
-    renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
+    render(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Featured" }));
 

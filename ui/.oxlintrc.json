@@ -5,6 +5,8 @@
     "correctness": "error"
   },
   "rules": {
+    // Not in the correctness category, so it must be enabled explicitly.
+    "react/rules-of-hooks": "error",
     "vitest/require-mock-type-parameters": "off",
     // These rules only report where React Compiler could not optimize a component. The build does not
     // run React Compiler, so they describe nothing about runtime behavior; re-enable them if it is adopted.

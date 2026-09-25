@@ -23,22 +23,7 @@ export function BookmarkButton({
 }: Props) {
   const [activated, setActivated] = useState(!deferUntilHover);
   const [resolvingClick, setResolvingClick] = useState(false);
-  let queryClient;
-  try {
-    queryClient = useQueryClient();
-  } catch {
-    return (
-      <button
-        type="button"
-        className={`inline-flex items-center justify-center rounded border border-border bg-card/80 text-secondary ${compact ? "h-7 w-7" : "h-8 w-8"} ${className}`}
-        title="Save for Later"
-        aria-label="Save for Later"
-        disabled
-      >
-        <Bookmark className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
-      </button>
-    );
-  }
+  const queryClient = useQueryClient();
   const queryKey = ["bookmark-state", hostType, hostId];
   const fetchBookmarkState = () => bookmarks.batch({ hostType, hostIds: [hostId] });
   const { data } = useQuery({
