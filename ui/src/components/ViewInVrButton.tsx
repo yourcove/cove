@@ -18,10 +18,13 @@ export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; o
   const [wall, setWall] = useState<VrWall | null>(null);
   const [state, setState] = useState<WallState>("browsing");
   const [error, setError] = useState<string | null>(null);
+  // The wall calls back long after this render; it must reach the latest list and navigator.
   const sourceRef = useRef(source);
-  sourceRef.current = source;
   const navigateRef = useRef(onNavigate);
-  navigateRef.current = onNavigate;
+  useEffect(() => {
+    sourceRef.current = source;
+    navigateRef.current = onNavigate;
+  });
 
   const hooks = () => ({
     navigate: (target: { page: string; id?: number }) => navigateRef.current(target),
@@ -68,7 +71,6 @@ export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; o
       cancelled = true;
     };
     // Once per mount: the wall is a page-level object, not a render-time one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The browser's list moved (page, sort, filter): the wall follows.

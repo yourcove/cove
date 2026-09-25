@@ -116,6 +116,10 @@ export function getActiveWall(): VrWall | null {
   return activeWall;
 }
 
+function setActiveWall(wall: VrWall | null) {
+  activeWall = wall;
+}
+
 // One renderer for every wall session on the page. A fresh WebGL context per session leaves desktop
 // Chrome unable to start a second immersive session until the page is reloaded.
 let sharedRenderer: THREE.WebGLRenderer | null = null;
@@ -304,7 +308,7 @@ export class VrWall {
    */
   async start(existingSession?: object): Promise<void> {
     if (activeWall && activeWall !== this) await activeWall.end();
-    activeWall = this;
+    setActiveWall(this);
     const session = (existingSession ?? (await requestImmersiveSession())) as XRSession;
     this.session = session;
     session.addEventListener("end", () => this.dispose());
@@ -833,7 +837,7 @@ export class VrWall {
     this.previewTextures?.right.dispose();
     this.previewTextures = null;
     disposeMesh(this.header);
-    if (activeWall === this) activeWall = null;
+    if (activeWall === this) setActiveWall(null);
     this.hooks.onEnd();
   }
 }
