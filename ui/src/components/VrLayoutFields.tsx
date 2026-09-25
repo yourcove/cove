@@ -41,7 +41,8 @@ export function VrLayoutFields({
   compact?: boolean;
 }) {
   const mode = value ? "custom" : "auto";
-  const current: VrDescriptor = value ?? detected ?? { projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" };
+  const current: VrDescriptor = value ??
+    detected ?? { projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" };
 
   const update = (patch: Partial<VrDescriptor>) => {
     const { inferred: _inferred, ...explicit } = current;
@@ -60,7 +61,9 @@ export function VrLayoutFields({
           }}
           className={inputClassName}
         >
-          <option value="auto">{detected ? `Auto (detected ${formatVrLayout(detected)})` : "Auto (detect from file)"}</option>
+          <option value="auto">
+            {detected ? `Auto (detected ${formatVrLayout(detected)})` : "Auto (detect from file)"}
+          </option>
           <option value="custom">Set manually</option>
         </select>
       </label>
@@ -73,7 +76,8 @@ export function VrLayoutFields({
               onChange={(event) => {
                 const projection = event.target.value as VrProjection;
                 const preset = PROJECTIONS.find((candidate) => candidate.value === projection);
-                const keepFov = projection === "equirectangular" && (current.fieldOfView === 180 || current.fieldOfView === 360);
+                const keepFov =
+                  projection === "equirectangular" && (current.fieldOfView === 180 || current.fieldOfView === 360);
                 update({ projection, fieldOfView: keepFov ? current.fieldOfView : (preset?.defaultFov ?? 180) });
               }}
               className={inputClassName}

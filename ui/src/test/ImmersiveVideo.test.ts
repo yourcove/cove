@@ -82,8 +82,12 @@ describe("immersive video", () => {
   });
 
   it("labels layouts and times", () => {
-    expect(formatVrLayout({ projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" })).toBe("180° SBS");
-    expect(formatVrLayout({ projection: "fisheye", fieldOfView: 190, stereoMode: "topBottom" })).toBe("Fisheye 190° TB");
+    expect(formatVrLayout({ projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" })).toBe(
+      "180° SBS",
+    );
+    expect(formatVrLayout({ projection: "fisheye", fieldOfView: 190, stereoMode: "topBottom" })).toBe(
+      "Fisheye 190° TB",
+    );
     expect(formatVrLayout({ projection: "mkx200", fieldOfView: 200, stereoMode: "mono" })).toBe("MKX200 Mono");
     expect(formatVrLayout(null)).toBe("VR");
     expect(formatTime(65)).toBe("1:05");
@@ -148,9 +152,12 @@ describe("immersive video", () => {
   });
 
   it("aims the video along the viewer's gaze, pitch included", () => {
-    const apply3 = (q: Float32Array, v: number[]) => [0, 1, 2].map((row) => q[row] * v[0] + q[3 + row] * v[1] + q[6 + row] * v[2]);
+    const apply3 = (q: Float32Array, v: number[]) =>
+      [0, 1, 2].map((row) => q[row] * v[0] + q[3 + row] * v[1] + q[6 + row] * v[2]);
     // Looking straight ahead: no change.
-    expect(apply3(gazeOrientation({ transform: { inverse: { matrix: identity } } }), [0, 0, -1]).map((n) => +n.toFixed(6))).toEqual([0, 0, -1]);
+    expect(
+      apply3(gazeOrientation({ transform: { inverse: { matrix: identity } } }), [0, 0, -1]).map((n) => +n.toFixed(6)),
+    ).toEqual([0, 0, -1]);
     // A view matrix of Rx(30°) is a head pitched 30° down, gazing along (0, -sin, -cos). That gaze must
     // land on the video's centre (0, 0, -1), and a world direction to the right stays to the right.
     const c = Math.cos(Math.PI / 6);
@@ -166,7 +173,9 @@ describe("immersive video", () => {
 
   it("aims the video only once the head has held still, or on request", () => {
     const level = { transform: { inverse: { matrix: identity } } };
-    const turned = { transform: { inverse: { matrix: new Float32Array([0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]) } } };
+    const turned = {
+      transform: { inverse: { matrix: new Float32Array([0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]) } },
+    };
     const settler = new GazeSettler();
     expect(settler.settled(level, 0)).toBe(false);
     expect(settler.settled(level, 300)).toBe(false);
@@ -270,7 +279,9 @@ describe("immersive video", () => {
     // Pitched 30° down: the strip follows the gaze down and sits just below it.
     const c = Math.cos(Math.PI / 6);
     const s = Math.sin(Math.PI / 6);
-    const down = placeHud({ transform: { inverse: { matrix: new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]) } } });
+    const down = placeHud({
+      transform: { inverse: { matrix: new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]) } },
+    });
     // Gaze is (0, -s, -c); "up" in the gaze frame is (0, c, -s).
     expect(down.center[1]).toBeCloseTo(-s * 1.6 - c * 0.5);
     expect(down.center[2]).toBeCloseTo(-c * 1.6 + s * 0.5);

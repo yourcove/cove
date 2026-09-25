@@ -730,7 +730,12 @@ function TagVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "tagsCriterion",
+                  tagId,
+                  includeSubTags ? -1 : undefined,
+                ),
               })
             : queryPage({ ...filter, page, perPage }),
         setPage: (page) => setFilter({ ...filter, page }),

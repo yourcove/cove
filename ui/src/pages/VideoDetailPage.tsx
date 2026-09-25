@@ -3344,7 +3344,13 @@ function VideoEditPanel({
         VR
       </label>
       {isVr ? (
-        <VrLayoutFields value={vrLayout} detected={detectedVrLayout(video)} onChange={setVrLayout} inputClassName={inputCls} compact />
+        <VrLayoutFields
+          value={vrLayout}
+          detected={detectedVrLayout(video)}
+          onChange={setVrLayout}
+          inputClassName={inputCls}
+          compact
+        />
       ) : null}
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="studio" block>
         <div className="space-y-1">

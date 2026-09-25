@@ -575,7 +575,9 @@ export function VideosPage({ onNavigate }: Props) {
               hasObjectFilter || vrOnly
                 ? videos.findFiltered({
                     findFilter: { ...filter, page, perPage },
-                    objectFilter: (vrOnly ? vrOnlyFilter(backendObjectFilter) : backendObjectFilter) as VideoFilterCriteria,
+                    objectFilter: (vrOnly
+                      ? vrOnlyFilter(backendObjectFilter)
+                      : backendObjectFilter) as VideoFilterCriteria,
                     filterExpression,
                   })
                 : videos.find({ ...filter, page, perPage }),

@@ -713,7 +713,11 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "galleriesCriterion", galleryId),
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "galleriesCriterion",
+                  galleryId,
+                ),
               })
             : queryPage({ ...filter, page, perPage }),
         setPage: (page) => setFilter({ ...filter, page }),

@@ -83,7 +83,10 @@ describe("VR wall cards", () => {
   });
 
   it("restricts to VR videos on top of whatever the list filters by", () => {
-    expect(vrOnlyFilter({ tagsCriterion: { value: [1] } })).toEqual({ tagsCriterion: { value: [1] }, isVrCriterion: { value: true } });
+    expect(vrOnlyFilter({ tagsCriterion: { value: [1] } })).toEqual({
+      tagsCriterion: { value: [1] },
+      isVrCriterion: { value: true },
+    });
   });
 
   it("names resolutions by the larger side", () => {

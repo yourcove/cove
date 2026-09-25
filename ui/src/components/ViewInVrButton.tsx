@@ -73,7 +73,8 @@ export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; o
 
   // The browser's list moved (page, sort, filter): the wall follows.
   useEffect(() => {
-    if (wall && wall.state === "browsing") wall.setSource(source, `${window.location.pathname}${window.location.search}`);
+    if (wall && wall.state === "browsing")
+      wall.setSource(source, `${window.location.pathname}${window.location.search}`);
   }, [source, wall]);
 
   // Without a headset the button has no job; it appears only where a session can be started.
@@ -103,7 +104,9 @@ export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; o
       type="button"
       onClick={() => void enter()}
       className={`inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border px-2.5 py-2 text-sm transition-colors sm:min-h-0 sm:py-1 sm:text-xs ${
-        wall ? "border-accent bg-accent/15 text-accent" : "border-border bg-card/70 text-secondary hover:border-accent/50 hover:text-accent"
+        wall
+          ? "border-accent bg-accent/15 text-accent"
+          : "border-border bg-card/70 text-secondary hover:border-accent/50 hover:text-accent"
       } ${error ? "border-red-500/60" : ""}`}
       title={error ? `VR: ${error}` : wall ? "Leave VR" : "Show this list in the headset"}
       aria-label={label}

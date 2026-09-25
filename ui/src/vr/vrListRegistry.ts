@@ -72,7 +72,10 @@ export function dropWallSession(session: object): boolean {
 }
 
 /** A {@link VrListSource.key}: the current path plus whatever defines the list, with paging left out. */
-export function listKey(filter: { page?: number; perPage?: number; [key: string]: unknown }, ...extra: unknown[]): string {
+export function listKey(
+  filter: { page?: number; perPage?: number; [key: string]: unknown },
+  ...extra: unknown[]
+): string {
   const { page: _page, perPage: _perPage, ...rest } = filter as Record<string, unknown>;
   return JSON.stringify([window.location.pathname, rest, ...extra]);
 }
@@ -84,6 +87,8 @@ export function pageLabel(fallback = "Videos"): string {
 }
 
 /** A video object filter restricted to VR videos, as the wall's "VR only" asks for. */
-export function vrOnlyFilter<T extends Record<string, unknown>>(objectFilter: T): T & { isVrCriterion: { value: boolean } } {
+export function vrOnlyFilter<T extends Record<string, unknown>>(
+  objectFilter: T,
+): T & { isVrCriterion: { value: boolean } } {
   return { ...objectFilter, isVrCriterion: { value: true } };
 }

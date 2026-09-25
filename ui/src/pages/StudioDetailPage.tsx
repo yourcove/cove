@@ -934,7 +934,12 @@ function StudioVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredSingleId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
+                objectFilter: withRequiredSingleId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "studiosCriterion",
+                  studioId,
+                  includeSubStudios ? -1 : undefined,
+                ),
               })
             : queryPage({ ...filter, page, perPage }),
         setPage: (page) => setFilter({ ...filter, page }),

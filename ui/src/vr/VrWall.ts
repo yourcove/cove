@@ -546,7 +546,15 @@ export class VrWall {
   private button(label: string, width: number, angle: number, y: number, action: Action, accent = false): Widget {
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(width, BUTTON_HEIGHT),
-      new THREE.MeshBasicMaterial({ map: labelTexture(label, width, BUTTON_HEIGHT, accent ? this.theme.accent : this.theme.card, this.theme.foreground) }),
+      new THREE.MeshBasicMaterial({
+        map: labelTexture(
+          label,
+          width,
+          BUTTON_HEIGHT,
+          accent ? this.theme.accent : this.theme.card,
+          this.theme.foreground,
+        ),
+      }),
     );
     placeOnWall(mesh, angle, y);
     const ring = makeRing(width, BUTTON_HEIGHT, this.theme.accent);
@@ -563,9 +571,24 @@ export class VrWall {
       { label: "◀", width: 0.14, action: { kind: "page", delta: -1 } },
       { label: `Page ${this.page} / ${pages}`, width: 0.42, action: { kind: "page", delta: 0 } },
       { label: "▶", width: 0.14, action: { kind: "page", delta: 1 } },
-      { label: this.stereoCards ? "Cards: 3D" : "Cards: 2D", width: 0.34, action: { kind: "stereo" }, accent: this.stereoCards },
-      { label: this.showFlat ? "Showing: all videos" : "Showing: VR only", width: 0.5, action: { kind: "flat" }, accent: this.showFlat },
-      ...CARD_SIZES.map((size, index) => ({ label: size.label, width: 0.12, action: { kind: "size", index } as Action, accent: index === this.sizeIndex })),
+      {
+        label: this.stereoCards ? "Cards: 3D" : "Cards: 2D",
+        width: 0.34,
+        action: { kind: "stereo" },
+        accent: this.stereoCards,
+      },
+      {
+        label: this.showFlat ? "Showing: all videos" : "Showing: VR only",
+        width: 0.5,
+        action: { kind: "flat" },
+        accent: this.showFlat,
+      },
+      ...CARD_SIZES.map((size, index) => ({
+        label: size.label,
+        width: 0.12,
+        action: { kind: "size", index } as Action,
+        accent: index === this.sizeIndex,
+      })),
     ];
     const total = buttons.reduce((sum, button) => sum + button.width, 0) + GAP * (buttons.length - 1);
     let offset = -total / 2;
@@ -616,7 +639,10 @@ export class VrWall {
       const width = this.size.width;
       const coverHeight = width * COVER_RATIO;
       const cardHeight = width * (COVER_RATIO + BAND_RATIO);
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, coverHeight), new THREE.MeshBasicMaterial({ map: left }));
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, coverHeight),
+        new THREE.MeshBasicMaterial({ map: left }),
+      );
       plane.position.set(0, cardHeight / 2 - coverHeight / 2, 0.003);
       plane.onBeforeRender = (_renderer, _scene, camera) => {
         plane.material.map = isRightEye(camera) ? right : left;
@@ -727,7 +753,10 @@ export class VrWall {
       const column = index % columns;
       const angle = (column - (columns - 1) / 2) * step;
       const y = GRID_CENTRE_Y + ((rows - 1) / 2 - row) * (cardHeight + GAP);
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, cardHeight), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, cardHeight),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+      );
       placeOnWall(mesh, angle, y);
       const textures = videoCardTextures(video, this.stereoCards, this.theme);
       mesh.material.map = textures.left;
@@ -739,7 +768,16 @@ export class VrWall {
       const ring = makeRing(width, cardHeight, this.theme.accent);
       mesh.add(ring);
       this.cardGroup.add(mesh);
-      const widget: Widget = { mesh, action: { kind: "video", video }, angle, y, scrolls: true, ring, preview: null, dispose: textures.dispose };
+      const widget: Widget = {
+        mesh,
+        action: { kind: "video", video },
+        angle,
+        y,
+        scrolls: true,
+        ring,
+        preview: null,
+        dispose: textures.dispose,
+      };
       this.cards.push(widget);
       if (video.id === focusedId) this.setFocus(widget);
     });
@@ -808,9 +846,11 @@ export function wallPageFor(source: Pick<VrListSource, "page" | "perPage">, page
 
 // ---- URLs -----------------------------------------------------------------------------------------------------
 
-const coverUrl = (video: Video, max = 640) => `/api/videos/${video.id}/image?max=${max}&v=${encodeURIComponent(video.updatedAt)}`;
+const coverUrl = (video: Video, max = 640) =>
+  `/api/videos/${video.id}/image?max=${max}&v=${encodeURIComponent(video.updatedAt)}`;
 /** Both eyes' flat view of the scene side by side (each 16:9); made by the generate job. */
-const stereoCardUrl = (video: Video) => `/api/stream/video/${video.id}/vr-card?v=${encodeURIComponent(video.updatedAt)}`;
+const stereoCardUrl = (video: Video) =>
+  `/api/stream/video/${video.id}/vr-card?v=${encodeURIComponent(video.updatedAt)}`;
 /** The stereoscopic clip for VR videos, the ordinary preview clip for flat ones. */
 const previewUrl = (video: Video) =>
   video.isVr
@@ -832,7 +872,10 @@ function isRightEye(camera: THREE.Camera): boolean {
 
 /** An accent-coloured plane just behind a widget, shown while it has the focus. */
 function makeRing(width: number, height: number, colour: string): Plane {
-  const ring = new THREE.Mesh(new THREE.PlaneGeometry(width + FOCUS_RING, height + FOCUS_RING), new THREE.MeshBasicMaterial({ color: colour }));
+  const ring = new THREE.Mesh(
+    new THREE.PlaneGeometry(width + FOCUS_RING, height + FOCUS_RING),
+    new THREE.MeshBasicMaterial({ color: colour }),
+  );
   ring.position.z = -0.004;
   ring.visible = false;
   return ring;
@@ -932,7 +975,12 @@ function videoCardTextures(video: Video, stereoCards: boolean, theme: Theme): Ca
   const details = cardDetails(video);
   const performers = video.performers.map((performer) => performer.name).join(", ");
 
-  const drawFrame = (target: { context: CanvasRenderingContext2D }, texture: THREE.CanvasTexture, image?: HTMLImageElement, eye?: "left" | "right") => {
+  const drawFrame = (
+    target: { context: CanvasRenderingContext2D },
+    texture: THREE.CanvasTexture,
+    image?: HTMLImageElement,
+    eye?: "left" | "right",
+  ) => {
     const context = target.context;
     context.fillStyle = theme.card;
     context.fillRect(0, 0, TEXTURE_WIDTH, TEXTURE_HEIGHT);
@@ -999,7 +1047,13 @@ function videoCardTextures(video: Video, stereoCards: boolean, theme: Theme): Ca
 }
 
 /** Cover-fit: fill the slot, crop the overflow. With `eye` set, only that half of the image is used. */
-function drawCover(context: CanvasRenderingContext2D, image: HTMLImageElement, width: number, height: number, eye?: "left" | "right") {
+function drawCover(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  eye?: "left" | "right",
+) {
   const sourceWidth = eye ? image.naturalWidth / 2 : image.naturalWidth;
   const sourceX = eye === "right" ? image.naturalWidth / 2 : 0;
   const scale = Math.max(width / sourceWidth, height / image.naturalHeight);
@@ -1009,7 +1063,17 @@ function drawCover(context: CanvasRenderingContext2D, image: HTMLImageElement, w
   context.beginPath();
   context.rect(0, 0, width, height);
   context.clip();
-  context.drawImage(image, sourceX, 0, sourceWidth, image.naturalHeight, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  context.drawImage(
+    image,
+    sourceX,
+    0,
+    sourceWidth,
+    image.naturalHeight,
+    (width - drawWidth) / 2,
+    (height - drawHeight) / 2,
+    drawWidth,
+    drawHeight,
+  );
   context.restore();
 }
 
@@ -1054,13 +1118,19 @@ function createHeader(text: string, hint: string, theme: Theme) {
   context.fillStyle = theme.muted;
   context.font = "28px system-ui, sans-serif";
   context.fillText(hint, 512, 78);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.15), new THREE.MeshBasicMaterial({ map: toTexture(canvas), transparent: true }));
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.6, 0.15),
+    new THREE.MeshBasicMaterial({ map: toTexture(canvas), transparent: true }),
+  );
   placeOnWall(mesh, 0, HEADER_Y);
   return mesh;
 }
 
 function createFloorRing(colour: string) {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.24, 64), new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide }));
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.2, 1.24, 64),
+    new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide }),
+  );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = -1.5;
   return ring;

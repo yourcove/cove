@@ -877,7 +877,13 @@ class PlaybackHud {
     c.font = "500 26px system-ui, sans-serif";
     c.textAlign = "right";
     c.fillStyle = "#c9cfdb";
-    c.fillText(this.seeking != null ? `${this.seeking < 0 ? "◀◀" : "▶▶"} ${formatStep(Math.abs(this.seeking))}` : `Zoom ${this.zoom.value.toFixed(1)}×`, HUD_WIDTH - 28, 34);
+    c.fillText(
+      this.seeking != null
+        ? `${this.seeking < 0 ? "◀◀" : "▶▶"} ${formatStep(Math.abs(this.seeking))}`
+        : `Zoom ${this.zoom.value.toFixed(1)}×`,
+      HUD_WIDTH - 28,
+      34,
+    );
 
     const duration = Number.isFinite(this.transport.duration()) ? this.transport.duration() : 0;
     // While the stick is held the strip follows the position being seeked to, ahead of the picture.
@@ -901,7 +907,11 @@ class PlaybackHud {
     c.font = "500 22px system-ui, sans-serif";
     c.fillStyle = "#7d8597";
     c.textAlign = "left";
-    c.fillText(`Trigger or A: play / pause   Hold trigger: recentre   ◀ ▶ seek (hold to speed up)   ▲ ▼ zoom   ${backButtonHint()}: back`, 28, 122);
+    c.fillText(
+      `Trigger or A: play / pause   Hold trigger: recentre   ◀ ▶ seek (hold to speed up)   ▲ ▼ zoom   ${backButtonHint()}: back`,
+      28,
+      122,
+    );
   }
 }
 
@@ -1198,7 +1208,10 @@ function createWebGlRenderer(
         // Zoom makes the screen larger; the frame's own aspect ratio shapes it.
         gl.uniform1f(uniforms.screenHalfWidth, Math.tan(FLAT_SCREEN_HALF_ANGLE) * zoom.value);
         const aspect = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 16 / 9;
-        gl.uniform1f(uniforms.aspect, vr.stereoMode === "sideBySide" ? aspect / 2 : vr.stereoMode === "topBottom" ? aspect * 2 : aspect);
+        gl.uniform1f(
+          uniforms.aspect,
+          vr.stereoMode === "sideBySide" ? aspect / 2 : vr.stereoMode === "topBottom" ? aspect * 2 : aspect,
+        );
       }
       for (const view of pose.views) {
         const viewport = targets(view);
@@ -1234,7 +1247,11 @@ function createWebGlRenderer(
         const viewport = targets(view);
         if (!viewport) continue;
         gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-        gl.uniformMatrix4fv(hudUniforms.viewProjection, false, multiply4(view.projectionMatrix, view.transform.inverse.matrix));
+        gl.uniformMatrix4fv(
+          hudUniforms.viewProjection,
+          false,
+          multiply4(view.projectionMatrix, view.transform.inverse.matrix),
+        );
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
       gl.disable(gl.BLEND);
@@ -1296,7 +1313,13 @@ export class GazeSettler {
     const forward = [-m[2], -m[6], -m[10]];
     this.startedAt ??= now;
     if (this.lastForward) {
-      const dot = Math.max(-1, Math.min(1, forward[0] * this.lastForward[0] + forward[1] * this.lastForward[1] + forward[2] * this.lastForward[2]));
+      const dot = Math.max(
+        -1,
+        Math.min(
+          1,
+          forward[0] * this.lastForward[0] + forward[1] * this.lastForward[1] + forward[2] * this.lastForward[2],
+        ),
+      );
       const moved = (Math.acos(dot) * 180) / Math.PI;
       if (moved > GAZE_SETTLE_DEGREES) this.steadySince = now;
     } else {

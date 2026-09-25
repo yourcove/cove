@@ -2829,7 +2829,11 @@ function GroupVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "groupsCriterion", groupId),
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "groupsCriterion",
+                  groupId,
+                ),
               })
             : queryPage({ ...filter, page, perPage }),
         setPage: (page) => setFilter({ ...filter, page }),

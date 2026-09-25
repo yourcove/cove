@@ -1366,7 +1366,11 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "performersCriterion", performerId),
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "performersCriterion",
+                  performerId,
+                ),
               })
             : queryPage({ ...filter, page, perPage }),
         setPage: (page) => setFilter({ ...filter, page }),
