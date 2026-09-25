@@ -380,6 +380,16 @@ internal static class FfmpegHwAccel
     /// </summary>
     public static string ConversionVideoFilter(string encoder, bool tenBit, double? frameRate = null)
     {
+        var chain = ConversionVideoFilterChain(encoder, tenBit, frameRate);
+        return chain.Length == 0 ? string.Empty : $"-vf \"{chain}\"";
+    }
+
+    /// <summary>
+    /// The filters themselves, without <c>-vf</c>, for a graph that joins several parts of a video and
+    /// so needs them inside its <c>-filter_complex</c> (see <see cref="ConversionVideoFilter"/>).
+    /// </summary>
+    public static string ConversionVideoFilterChain(string encoder, bool tenBit, double? frameRate = null)
+    {
         var chain = new List<string>();
         if (frameRate is > 0)
             chain.Add("fps=" + frameRate.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
@@ -391,7 +401,7 @@ internal static class FfmpegHwAccel
             chain.Add("hwupload");
         }
 
-        return chain.Count == 0 ? string.Empty : $"-vf \"{string.Join(',', chain)}\"";
+        return string.Join(',', chain);
     }
 
     /// <summary>Returns extra input-side arguments required by the chosen encoder (e.g. the VAAPI

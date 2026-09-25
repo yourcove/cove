@@ -2,6 +2,7 @@ using System.Globalization;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using IVideoFileMaintenanceService = Cove.Plugins.IVideoFileMaintenanceService;
@@ -13,6 +14,13 @@ namespace Cove.Api.Services;
 public sealed record VideoConversionEncoderInfo(string Codec, string? Encoder, bool Hardware);
 
 public sealed record VideoConversionJobStart(string JobId, int ItemCount);
+
+/// <summary>
+/// A cut for one video: the parts of its timeline to remove, in seconds. <paramref name="FileId"/> is the
+/// primary file those times were read against; if the video's primary file has changed by the time the
+/// cut runs, the times no longer describe the same footage and the video is left alone.
+/// </summary>
+public sealed record VideoCutRequest(int FileId, IReadOnlyList<TimeRange> Remove);
 
 /// <summary>
 /// Converts videos' primary files to another codec and/or container. Each converted file is written next
@@ -46,20 +54,34 @@ public sealed class VideoConversionJobService(
     private readonly Dictionary<(string Fingerprint, VideoConversionCodec Codec), string?> _encoders = [];
     private readonly object _encoderLock = new();
 
-    public VideoConversionJobStart Start(CovePrincipal? principal, IReadOnlyList<int> videoIds, VideoConversionSettings settings)
+    /// <summary>
+    /// Queues a conversion of <paramref name="videoIds"/>. Videos with an entry in <paramref name="cuts"/> are
+    /// also cut: parts of their timeline are removed, and when the original is replaced everything timed on
+    /// the video moves with the cut. <paramref name="principal"/> is the requesting user, kept so that those
+    /// timeline changes are checked against what they may do when the job reaches them.
+    /// </summary>
+    public VideoConversionJobStart Start(
+        CovePrincipal? principal, IReadOnlyList<int> videoIds, VideoConversionSettings settings,
+        IReadOnlyDictionary<int, VideoCutRequest>? cuts = null)
     {
-        var ids = videoIds.Where(id => id > 0).Distinct().ToArray();
+        cuts ??= new Dictionary<int, VideoCutRequest>();
+        var ids = videoIds.Where(id => id > 0).Concat(cuts.Keys).Distinct().ToArray();
         var target = settings.Codec == VideoConversionCodec.Copy
             ? ContainerLabelFor(settings)
             : $"{FfmpegHwAccel.CodecLabel(settings.Codec)} {ContainerLabelFor(settings)}";
-        var description = $"Converting {ids.Length} video{(ids.Length == 1 ? "" : "s")} to {target}"
-            + (settings.ReplaceOriginal ? " (replacing originals)" : string.Empty);
+        var count = $"{ids.Length} video{(ids.Length == 1 ? "" : "s")}";
+        var description = cuts.Count == 0
+            ? $"Converting {count} to {target}"
+            : settings.Codec == VideoConversionCodec.Copy
+                ? $"Cutting {count}"
+                : $"Cutting and converting {count} to {target}";
+        description += settings.ReplaceOriginal ? " (replacing originals)" : string.Empty;
 
         var jobId = jobService.EnqueueFor(
             JobOwner.FromPrincipal(principal),
             "convert-videos",
             description,
-            (progress, ct) => RunAsync(ids, settings, progress, ct));
+            (progress, ct) => RunAsync(ids, settings, cuts, principal, progress, ct));
         return new VideoConversionJobStart(jobId, ids.Length);
     }
 
@@ -120,7 +142,9 @@ public sealed class VideoConversionJobService(
         public int LeftAlone => Volatile.Read(ref _leftAlone);
     }
 
-    private async Task RunAsync(int[] ids, VideoConversionSettings settings, IJobProgress progress, CancellationToken ct)
+    private async Task RunAsync(
+        int[] ids, VideoConversionSettings settings, IReadOnlyDictionary<int, VideoCutRequest> cuts, CovePrincipal? principal,
+        IJobProgress progress, CancellationToken ct)
     {
         var ffmpeg = FfmpegHwAccel.FindFfmpeg(config.FfmpegPath)
             ?? throw new InvalidOperationException("FFmpeg was not found. Set its path in Settings before converting videos.");
@@ -173,10 +197,12 @@ public sealed class VideoConversionJobService(
             : 1;
 
         var reclaimed = new ReclaimedSpace();
+        var regenerate = new System.Collections.Concurrent.ConcurrentBag<(int VideoId, GeneratedAssets Assets)>();
         var result = await jobService.RunBatchAsync(
             work,
             parallelism,
-            (item, unit, token) => ConvertAsync(ffmpeg, encoder, item.Id, settings, reclaimed, unit, token),
+            (item, unit, token) => ConvertAsync(
+                ffmpeg, encoder, item.Id, settings, cuts.GetValueOrDefault(item.Id), principal, reclaimed, regenerate, unit, token),
             progress,
             unitIdFactory: (item, _) => item.Id.ToString(CultureInfo.InvariantCulture),
             labelFactory: item => item.Label,
@@ -201,6 +227,7 @@ public sealed class VideoConversionJobService(
             "Conversion finished: {Summary} (encoder {Encoder})",
             summary, encoder ?? "stream copy");
 
+        QueueRegeneration(regenerate);
         progress.SetSummary(summary);
     }
 
@@ -210,7 +237,10 @@ public sealed class VideoConversionJobService(
         string? encoder,
         int videoId,
         VideoConversionSettings settings,
+        VideoCutRequest? cut,
+        CovePrincipal? principal,
         ReclaimedSpace reclaimed,
+        System.Collections.Concurrent.ConcurrentBag<(int VideoId, GeneratedAssets Assets)> regenerate,
         IJobUnit unit,
         CancellationToken ct)
     {
@@ -247,10 +277,33 @@ public sealed class VideoConversionJobService(
             return;
         }
 
+        if (settings.Container == VideoConversionContainer.Source)
+            settings = settings with { Container = VideoConversionPlanner.ContainerFor(sourcePath) };
+
         unit.Report(0, "Reading the original file...");
         var source = await ProbeAsync(sourcePath, "original", ct);
         var sourceCodec = source.Video?.CodecName ?? string.Empty;
-        if (VideoConversionPlanner.SkipReason(sourcePath, settings) is { } skip)
+
+        IReadOnlyList<TimeRange>? kept = null;
+        if (cut is not null)
+        {
+            if (cut.FileId != original.Id)
+            {
+                unit.Complete(JobUnitOutcome.Failed,
+                    "The video's primary file changed after this cut was chosen, so its times no longer describe the same footage. Nothing was cut.");
+                return;
+            }
+            var (cutKept, cutError) = VideoCut.KeepAfterRemoving(cut.Remove, source.Duration);
+            if (cutKept is null)
+            {
+                unit.Complete(JobUnitOutcome.Failed, $"{cutError} Nothing was cut.");
+                return;
+            }
+            kept = cutKept;
+        }
+
+        // A remux into the container the file is already in has nothing to do - unless it is cutting.
+        if (kept is null && VideoConversionPlanner.SkipReason(sourcePath, settings) is { } skip)
         {
             unit.Complete(JobUnitOutcome.Skipped, skip);
             return;
@@ -266,7 +319,8 @@ public sealed class VideoConversionJobService(
         var outputPath = VideoConversionPlanner.ChooseOutputPath(sourcePath, settings, candidate =>
             File.Exists(candidate)
             || File.Exists(candidate + VideoConversionPlanner.PartialSuffix)
-            || usedNames.Contains(Path.GetFileName(candidate)));
+            || usedNames.Contains(Path.GetFileName(candidate)),
+            label: kept is null ? null : "trimmed");
         var partialPath = outputPath + VideoConversionPlanner.PartialSuffix;
 
         var sourceSize = new FileInfo(sourcePath).Length;
@@ -289,7 +343,8 @@ public sealed class VideoConversionJobService(
                 {
                     attempt = await SearchAndEncodeAsync(
                         ffmpeg, current, source, sourcePath, partialPath, sourceSize, settings, video.IsVr,
-                        sameCodec && changesContainer, notes, unit, ct);
+                        // A requested cut is never quietly turned into a lossless one: the two place cuts differently.
+                        kept is null && sameCodec && changesContainer, kept, notes, unit, ct);
                     break;
                 }
                 catch (HardwareEncodeFailedException failure) when (current is not null && !FfmpegHwAccel.IsSoftwareEncoder(current))
@@ -358,10 +413,16 @@ public sealed class VideoConversionJobService(
                 newFileId = await scanService.ImportConvertedVideoFileWithinProducerLeaseAsync(outputPath, videoId, ct);
             }
 
-            var outcome = $"Converted to {Path.GetFileName(outputPath)} ({FormatSize(sourceSize)} → {FormatSize(outputSize)})";
+            var outcome = attempt.Kept is { } cutKept
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"Cut to {Path.GetFileName(outputPath)}, removing {FormatDuration(source.Duration - VideoCut.OutputDuration(cutKept))} of {FormatDuration(source.Duration)} ({FormatSize(sourceSize)} → {FormatSize(outputSize)})")
+                : $"Converted to {Path.GetFileName(outputPath)} ({FormatSize(sourceSize)} → {FormatSize(outputSize)})";
             if (!settings.ReplaceOriginal)
             {
-                unit.Complete(JobUnitOutcome.Succeeded, Describe($"{outcome}, added as an extra file.", notes));
+                var extra = attempt.Kept is null
+                    ? ", added as an extra file."
+                    : ", added as an extra file. The video's markers and segments still follow the original, which was kept.";
+                unit.Complete(JobUnitOutcome.Succeeded, Describe(outcome + extra, notes));
                 return;
             }
 
@@ -377,16 +438,35 @@ public sealed class VideoConversionJobService(
                 return;
             }
 
-            // The swap re-checks that both files show the same footage (length and perceptual hash) before
-            // changing anything, which is what keeps the video's generated assets valid.
             unit.Report(0.97, "Making the converted file primary...");
             var maintenance = scope.ServiceProvider.GetRequiredService<IVideoFileMaintenanceService>();
-            var swap = await maintenance.MakePrimaryWhenSameContentAsync(videoId, newFileId, ct);
-            if (!swap.Applied)
+            if (attempt.Kept is { } timelineKept)
             {
-                unit.Complete(JobUnitOutcome.Failed,
-                    Describe($"{outcome}, but it was not made primary: {swap.Reason} The original was kept, and the converted file is attached as an extra file.", notes));
-                return;
+                // A cut changes the timeline, so the same-footage swap cannot apply. Everything timed on the
+                // video is moved through the cut instead - exactly, since the cut itself is the mapping.
+                var assetsBefore = GeneratedAssetsOf(scope, videoId);
+                var moved = await ApplyCutTimelineAsync(scope, videoId, original.Id, newFileId, timelineKept, source.Duration, principal, ct);
+                if (moved.Reason is { } refused)
+                {
+                    unit.Complete(JobUnitOutcome.Failed,
+                        Describe($"{outcome}, but it was not made primary: {refused} The original was kept, and the cut file is attached as an extra file.", notes));
+                    return;
+                }
+                if (moved.Moved + moved.Removed > 0)
+                    notes.Add($"{moved.Moved} timed item(s) moved with the cut; {moved.Removed} that lay entirely inside removed parts were deleted.");
+                regenerate.Add((videoId, assetsBefore));
+            }
+            else
+            {
+                // The swap re-checks that both files show the same footage (length and perceptual hash) before
+                // changing anything, which is what keeps the video's generated assets valid.
+                var swap = await maintenance.MakePrimaryWhenSameContentAsync(videoId, newFileId, ct);
+                if (!swap.Applied)
+                {
+                    unit.Complete(JobUnitOutcome.Failed,
+                        Describe($"{outcome}, but it was not made primary: {swap.Reason} The original was kept, and the converted file is attached as an extra file.", notes));
+                    return;
+                }
             }
 
             var removal = await maintenance.DeleteFileAsync(original.Id, deleteFromDisk: true, ct);
@@ -432,7 +512,7 @@ public sealed class VideoConversionJobService(
     }
 
     /// <summary>What one pass of measure-then-encode produced: a finished encode, or why the video was left alone.</summary>
-    private sealed record ConversionAttempt(VideoConversionPlan? Plan, QualityChoice? Choice, string? SkipReason);
+    private sealed record ConversionAttempt(VideoConversionPlan? Plan, QualityChoice? Choice, string? SkipReason, IReadOnlyList<TimeRange>? Kept = null);
 
     /// <summary>The setting the quality search settled on, and what its samples measured and predicted.</summary>
     private sealed record QualityChoice(string Encoder, double Level, double Score, double Target, long PredictedBytes, int MaxKbps, int Rounds)
@@ -460,6 +540,7 @@ public sealed class VideoConversionJobService(
         VideoConversionSettings settings,
         bool isVr,
         bool canRemuxInstead,
+        IReadOnlyList<TimeRange>? kept,
         List<string> notes,
         IJobUnit unit,
         CancellationToken ct)
@@ -468,7 +549,7 @@ public sealed class VideoConversionJobService(
         var videoEncoder = encoder;
         if (encoder is not null)
         {
-            var (found, reason) = await SearchQualityAsync(ffmpeg, encoder, source, sourcePath, sourceSize, settings, isVr, unit, ct);
+            var (found, reason) = await SearchQualityAsync(ffmpeg, encoder, source, sourcePath, sourceSize, settings, isVr, kept, unit, ct);
             if (found is not null)
             {
                 choice = found;
@@ -487,8 +568,48 @@ public sealed class VideoConversionJobService(
             }
         }
 
-        var plan = await EncodeAsync(ffmpeg, videoEncoder, source, sourcePath, partialPath, settings, choice, unit, ct);
-        return new ConversionAttempt(plan, choice, null);
+        if (kept is null)
+        {
+            var plan = await EncodeAsync(ffmpeg, videoEncoder, source, sourcePath, partialPath, settings, choice, null, unit, ct);
+            return new ConversionAttempt(plan, choice, null);
+        }
+
+        if (videoEncoder is not null)
+        {
+            // Re-encoding decodes every frame anyway, so the cut lands exactly where it was asked to.
+            var exact = await EncodeAsync(ffmpeg, videoEncoder, source, sourcePath, partialPath, settings, choice, new VideoCutPlan(kept), unit, ct);
+            return new ConversionAttempt(exact, choice, null, kept);
+        }
+
+        // A lossless cut can only begin a kept part on a keyframe. Each start moves back to the one at or
+        // before it, so the cut keeps slightly more than asked rather than ever losing wanted footage.
+        unit.Report(0.02, "Finding where the cut can start...");
+        var ffprobe = FfprobeMediaProbeService.ResolveFfprobePath(config)
+            ?? throw new VideoConversionException("ffprobe was not found, so the file's keyframes could not be read. Nothing was cut.");
+        var videoIndex = source.Video!.Index;
+        var keyframes = new Dictionary<double, double>();
+        foreach (var range in kept)
+            keyframes[range.Start] = await VideoKeyframes.FindAtOrBeforeAsync(ffprobe, sourcePath, videoIndex, range.Start, source.StartTime, ct);
+        var snapped = VideoCut.SnapStartsToKeyframes(kept, start => keyframes[start]);
+        var extra = VideoCut.OutputDuration(snapped) - VideoCut.OutputDuration(kept);
+        if (extra > 0.05)
+        {
+            notes.Add(string.Create(CultureInfo.InvariantCulture,
+                $"Cut without re-encoding, so each kept part starts on the keyframe before its mark: {FormatDuration(extra)} more was kept than marked. Re-encode for exact cuts."));
+        }
+
+        var list = Path.Combine(Path.GetTempPath(), $"cove-cut-{Guid.NewGuid():N}.ffconcat");
+        try
+        {
+            await File.WriteAllTextAsync(list, VideoConversionPlanner.CutConcatList(sourcePath, snapped, source.StartTime), ct);
+            var lossless = await EncodeAsync(ffmpeg, null, source, sourcePath, partialPath, settings, null, new VideoCutPlan(snapped, list), unit, ct);
+            return new ConversionAttempt(lossless, null, null, snapped);
+        }
+        finally
+        {
+            try { File.Delete(list); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { logger.LogWarning(ex, "Could not remove the cut list {Path}", list); }
+        }
     }
 
     /// <summary>
@@ -504,11 +625,15 @@ public sealed class VideoConversionJobService(
         long sourceSize,
         VideoConversionSettings settings,
         bool isVr,
+        IReadOnlyList<TimeRange>? kept,
         IJobUnit unit,
         CancellationToken ct)
     {
         var video = source.Video ?? throw new VideoConversionException("The file has no video stream to convert.");
-        var windows = VideoQualitySearch.SampleWindows(source.Duration);
+        // With a cut, samples come only from footage that is kept: a removed scene must not decide the
+        // setting for the rest, and the size is predicted for the cut length.
+        var windows = kept is null ? VideoQualitySearch.SampleWindows(source.Duration) : VideoCut.SampleWindows(kept);
+        var outputDuration = kept is null ? source.Duration : VideoCut.OutputDuration(kept);
         if (windows.Count == 0)
             throw new VideoConversionException("The file's length could not be read, so its quality could not be measured.");
 
@@ -523,7 +648,8 @@ public sealed class VideoConversionJobService(
         // Any level that fails the target needs a lower (larger) level to pass, so once a failing level
         // already predicts a file too big to be worth it, no passing one can be. That ends the search for
         // an already-lean file after a single round.
-        var worthItBelow = settings.ConvertEvenIfLarger
+        // A cut is the point of the job and saves space by itself, so it is never refused as not worth it.
+        var worthItBelow = settings.ConvertEvenIfLarger || kept is not null
             ? long.MaxValue
             : settings.ConvertMarginalSavings
                 ? sourceSize
@@ -554,7 +680,7 @@ public sealed class VideoConversionJobService(
                     ffmpeg, encoder, level, clips, work.FullName, settings, tenBit, maxKbps, outputRate, scoreRate, video, isVr, ct);
                 search.Record(level, score, bytesPerSecond);
 
-                var predicted = VideoQualitySearch.PredictBytes(bytesPerSecond, source.Duration, audioKbps);
+                var predicted = VideoQualitySearch.PredictBytes(bytesPerSecond, outputDuration, audioKbps);
                 logger.LogInformation(
                     "Quality search for {Path}: {Encoder} level {Level} scored {Score:0.00} PSNR-HVS (target {Target}), predicting {Predicted}",
                     sourcePath, encoder, level, score, target, FormatSize(predicted));
@@ -573,8 +699,8 @@ public sealed class VideoConversionJobService(
                     : $"The quality search did not settle within {VideoQualitySearch.MaxRounds} rounds, so the video was left alone.");
             }
 
-            var predictedBytes = VideoQualitySearch.PredictBytes(best.BytesPerSecond, source.Duration, audioKbps);
-            if (WorthItReason(sourceSize, predictedBytes, settings) is { } notWorth)
+            var predictedBytes = VideoQualitySearch.PredictBytes(best.BytesPerSecond, outputDuration, audioKbps);
+            if (kept is null && WorthItReason(sourceSize, predictedBytes, settings) is { } notWorth)
                 return (null, notWorth);
 
             return (new QualityChoice(encoder, best.Level, best.Score, target, predictedBytes, maxKbps, search.Rounds.Count), string.Empty);
@@ -708,15 +834,23 @@ public sealed class VideoConversionJobService(
         string partialPath,
         VideoConversionSettings settings,
         QualityChoice? choice,
+        VideoCutPlan? cut,
         IJobUnit unit,
         CancellationToken ct)
     {
         var plan = VideoConversionPlanner.Build(
             source, sourcePath, partialPath, settings, encoder, config.FfmpegInputArgs,
-            choice?.Level ?? 0, choice?.MaxKbps ?? 0, EffectiveFrameRate(source, settings));
-        var action = plan.CopiesVideo ? "Remuxing" : $"Encoding with {encoder}";
+            choice?.Level ?? 0, choice?.MaxKbps ?? (encoder is null ? 0 : MaxRateFor(source)), EffectiveFrameRate(source, settings), cut);
+        var action = (plan.CopiesVideo, cut is not null) switch
+        {
+            (true, true) => "Cutting",
+            (true, false) => "Remuxing",
+            (false, true) => $"Cutting and encoding with {encoder}",
+            _ => $"Encoding with {encoder}",
+        };
 
-        var result = await RunTrackedAsync(ffmpeg, plan.Arguments, source.Duration, $"{action}...", SearchShare, EncodeShare, unit, ct, encoder);
+        // Progress is the output position, and a cut output is shorter than its source.
+        var result = await RunTrackedAsync(ffmpeg, plan.Arguments, plan.ExpectedDuration ?? source.Duration, $"{action}...", SearchShare, EncodeShare, unit, ct, encoder);
         if (result.ExitCode == 0)
             return plan;
 
@@ -726,6 +860,149 @@ public sealed class VideoConversionJobService(
         throw new VideoConversionException(result.TimedOut
             ? "ffmpeg stopped responding, so the conversion was stopped. The original was kept."
             : $"ffmpeg could not convert the file: {LastLine(result.StandardError)} The original was kept.");
+    }
+
+    /// <summary>Which generated assets a video had before its timeline changed, so exactly those are rebuilt.</summary>
+    private sealed record GeneratedAssets(bool Cover, bool Preview, bool Sprite);
+
+    private static GeneratedAssets GeneratedAssetsOf(AsyncServiceScope scope, int videoId)
+    {
+        var thumbnails = scope.ServiceProvider.GetRequiredService<IThumbnailService>();
+        return new GeneratedAssets(
+            File.Exists(thumbnails.GetThumbnailPathForVideo(videoId)),
+            File.Exists(thumbnails.GetPreviewPath(videoId)),
+            File.Exists(thumbnails.GetSpritePath(videoId)));
+    }
+
+    /// <summary>
+    /// Rebuilds what a cut made stale, once the whole batch is done: the preview, sprite and cover each
+    /// video had before (they show footage at times that no longer hold it), and the new file's
+    /// perceptual hash, which duplicate matching and metadata lookups rely on. Nothing a video did not
+    /// already have is generated.
+    /// </summary>
+    private void QueueRegeneration(IReadOnlyCollection<(int VideoId, GeneratedAssets Assets)> changed)
+    {
+        if (changed.Count == 0)
+            return;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var generate = scope.ServiceProvider.GetRequiredService<GenerateJobService>();
+            generate.Start(new Cove.Core.DTOs.GenerateOptionsDto
+            {
+                VideoIds = [.. changed.Select(item => item.VideoId).Distinct()],
+                Thumbnails = changed.Any(item => item.Assets.Cover),
+                Previews = changed.Any(item => item.Assets.Preview),
+                Sprites = changed.Any(item => item.Assets.Sprite),
+                Phashes = true,
+            });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            logger.LogWarning(ex, "Could not queue regeneration for {Count} cut video(s); run Generate to rebuild their previews.", changed.Count);
+        }
+    }
+
+    /// <summary>
+    /// Makes a cut file the video's primary and moves everything timed on the video through the cut, in
+    /// one transaction. Items entirely inside removed parts are deleted; items spanning a cut are joined
+    /// across it; everything else shifts earlier by what was removed before it. The same permission
+    /// checks as the primary-file dialog apply, made against the user who asked for the cut.
+    /// Returns a reason when nothing was changed.
+    /// </summary>
+    private async Task<(string? Reason, int Moved, int Removed)> ApplyCutTimelineAsync(
+        AsyncServiceScope scope, int videoId, int originalFileId, int newFileId, IReadOnlyList<TimeRange> kept,
+        double sourceDuration, CovePrincipal? principal, CancellationToken ct)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        var timeline = scope.ServiceProvider.GetRequiredService<VideoTimelineDependencyService>();
+        var assetCoordinator = scope.ServiceProvider.GetRequiredService<VideoGeneratedAssetCoordinator>();
+        (string? Reason, int Moved, int Removed) result = ("The cut could not be applied to the video's timeline.", 0, 0);
+        var affected = new HashSet<int> { videoId };
+
+        await using (await assetCoordinator.AcquireAsync(videoId, ct))
+        {
+            await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                db.ChangeTracker.Clear();
+                affected = [videoId];
+                await using var transaction = db.Database.IsRelational()
+                    ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct)
+                    : null;
+                var video = await db.Videos.SingleOrDefaultAsync(item => item.Id == videoId, ct);
+                if (video is null) { result = ("The video no longer exists.", 0, 0); return; }
+                if (video.PrimaryFileId != originalFileId) { result = ("The video's primary file changed while it was being cut.", 0, 0); return; }
+
+                var dependencies = await timeline.LoadAsync(videoId, includeSegments: true, ct);
+                var mapped = new Dictionary<string, Cove.Core.Services.AlignedRange>();
+                var deletes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var dependency in dependencies)
+                {
+                    // An open-ended clip survives as long as anything after its start is kept.
+                    if (VideoCut.MapRange(dependency.StartSec, dependency.EffectiveEnd(sourceDuration), kept) is { } range)
+                        mapped[dependency.Key] = new Cove.Core.Services.AlignedRange(range.Start, range.End);
+                    else
+                        deletes.Add(dependency.Key);
+                }
+                if (!await timeline.CanReadAsync(principal, dependencies, ct)
+                    || !await timeline.MayChangeAsync(principal, videoId, dependencies, moves: true, deletesAll: false, deletes, ct))
+                {
+                    result = ("The user who asked for the cut may not move or remove everything on this video's timeline that it affects.", 0, 0);
+                    return;
+                }
+
+                await timeline.ApplyAsync(principal, dependencies, mapped, deletes, ct);
+                await timeline.InvalidateDerivedDataAsync(videoId, dependencies, ct);
+                video.PrimaryFileId = newFileId;
+                video.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                if (transaction is not null)
+                    await transaction.CommitAsync(ct);
+                foreach (var host in dependencies.Select(item => item.TimelineHostId).Where(id => id.HasValue))
+                    affected.Add(host!.Value);
+                result = (null, mapped.Count, deletes.Count);
+            });
+
+            if (result.Reason is not null)
+                return result;
+
+            // Generated previews, sprites and timestamped thumbnails show footage at times that no longer
+            // hold it. They are removed now and rebuilt once the batch finishes (see QueueRegeneration).
+            var thumbnails = scope.ServiceProvider.GetRequiredService<IThumbnailService>();
+            foreach (var affectedVideoId in affected)
+            {
+                try { await thumbnails.DeleteVideoGeneratedFilesAsync(affectedVideoId, ct); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { logger.LogWarning(ex, "Could not delete generated assets after cutting video {VideoId}", affectedVideoId); }
+                assetCoordinator.Advance(affectedVideoId);
+            }
+        }
+
+        try
+        {
+            var spans = scope.ServiceProvider.GetRequiredService<ISegmentSpanCacheInvalidator>();
+            var events = scope.ServiceProvider.GetRequiredService<IEventBus>();
+            foreach (var affectedVideoId in affected)
+            {
+                spans.InvalidateVideo(affectedVideoId);
+                events.Publish(new EntityEvent(EventType.VideoUpdated, "video", affectedVideoId));
+            }
+            var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
+            await audit.LogAsync("video.cut", AuditOutcomes.Success, principal, "video", videoId.ToString(CultureInfo.InvariantCulture),
+                new { previousFileId = originalFileId, primaryFileId = newFileId, kept, moved = result.Moved, removed = result.Removed }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not finish notifications after cutting video {VideoId}", videoId);
+        }
+        return result;
+    }
+
+    private static string FormatDuration(double seconds)
+    {
+        var span = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        return span.TotalHours >= 1 ? $"{(int)span.TotalHours}:{span:mm\\:ss}"
+            : span.TotalMinutes >= 1 ? $"{(int)span.TotalMinutes}:{span:ss}"
+            : string.Create(CultureInfo.InvariantCulture, $"{seconds:0.#}s");
     }
 
     private async Task VerifyDecodesAsync(string ffmpeg, string path, double duration, IJobUnit unit, CancellationToken ct)

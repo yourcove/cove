@@ -17,6 +17,13 @@ public enum VideoConversionContainer
 {
     Mp4,
     Mkv,
+
+    /// <summary>
+    /// Each file keeps its own format where it can: MP4 stays MP4, anything else becomes MKV, which can hold
+    /// any codec. Resolved per file (see <see cref="VideoConversionPlanner.ContainerFor"/>), so a cut or
+    /// re-encode never has to ask which container to use.
+    /// </summary>
+    Source,
 }
 
 /// <summary>
@@ -131,6 +138,13 @@ public sealed record ProbedMedia(double Duration, IReadOnlyList<ProbedStream> St
     /// <summary>Container average bitrate in kbit/s, when the probe reported one.</summary>
     public double OverallBitRateKbps { get; init; }
 
+    /// <summary>
+    /// The file's first timestamp, in seconds. Usually zero; some files start later. Times on Cove's
+    /// timeline count from the file's start, while ffmpeg's concat in- and out-points are raw timestamps,
+    /// so a cut adds this to reach the same frame.
+    /// </summary>
+    public double StartTime { get; init; }
+
     public static ProbedMedia Parse(string ffprobeJson)
     {
         using var document = JsonDocument.Parse(ffprobeJson);
@@ -176,7 +190,8 @@ public sealed record ProbedMedia(double Duration, IReadOnlyList<ProbedStream> St
         }
 
         var overall = root.TryGetProperty("format", out var formatElement) ? Number(formatElement, "bit_rate") / 1000d : 0;
-        return new ProbedMedia(duration, streams) { OverallBitRateKbps = overall };
+        var start = root.TryGetProperty("format", out var startElement) ? Number(startElement, "start_time") : 0;
+        return new ProbedMedia(duration, streams) { OverallBitRateKbps = overall, StartTime = double.IsFinite(start) ? start : 0 };
     }
 
     private static string? String(JsonElement element, string property)
@@ -215,7 +230,17 @@ public sealed record VideoConversionPlan(
     bool CopiesVideo,
     string ExpectedVideoCodec,
     int AudioStreamCount,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    /// <summary>The length the output must come out at when the timeline is cut; null when it is the source's.</summary>
+    double? ExpectedDuration = null,
+    /// <summary>How many parts a cut joins, which sets how much its length may drift at the joins.</summary>
+    int CutParts = 0);
+
+/// <summary>
+/// How a conversion cuts the timeline: the source ranges kept, in order, and for a lossless cut the
+/// concat list ffmpeg reads them from (written by the caller from <see cref="VideoConversionPlanner.CutConcatList"/>).
+/// </summary>
+public sealed record VideoCutPlan(IReadOnlyList<TimeRange> Kept, string? ConcatListPath = null);
 
 /// <summary>
 /// The decisions of a library conversion that need no I/O: whether a file needs converting at all, where
@@ -233,6 +258,9 @@ public static class VideoConversionPlanner
     /// </summary>
     public const double DurationTolerance = 1;
 
+    /// <summary>Extra length drift allowed per joined part of a cut file.</summary>
+    public const double CutJoinTolerance = 0.1;
+
     // Codecs the MP4 muxer stores without re-encoding. Everything else in an MP4 target gets re-encoded
     // (audio) or dropped (image subtitles), or refuses a video stream copy.
     private static readonly HashSet<string> Mp4VideoCodecs = ["h264", "hevc", "av1", "vp9", "mpeg4", "mpeg2video", "mpeg1video"];
@@ -247,17 +275,34 @@ public static class VideoConversionPlanner
         _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, "Stream copy keeps the source codec."),
     };
 
-    public static string Extension(VideoConversionContainer container) => container == VideoConversionContainer.Mkv ? ".mkv" : ".mp4";
+    public static string Extension(VideoConversionContainer container) => container switch
+    {
+        VideoConversionContainer.Mkv => ".mkv",
+        VideoConversionContainer.Mp4 => ".mp4",
+        _ => throw new ArgumentOutOfRangeException(nameof(container), container, "Resolve the source's container first (ContainerFor)."),
+    };
 
-    public static string ContainerLabel(VideoConversionContainer container) => container == VideoConversionContainer.Mkv ? "MKV" : "MP4";
+    public static string ContainerLabel(VideoConversionContainer container) => container switch
+    {
+        VideoConversionContainer.Mkv => "MKV",
+        VideoConversionContainer.Mp4 => "MP4",
+        _ => "its own format",
+    };
 
     public static bool IsInContainer(string path, VideoConversionContainer container)
     {
         var extension = Path.GetExtension(path).ToLowerInvariant();
-        return container == VideoConversionContainer.Mkv
-            ? extension == ".mkv"
-            : extension is ".mp4" or ".m4v";
+        return container switch
+        {
+            VideoConversionContainer.Mkv => extension == ".mkv",
+            VideoConversionContainer.Mp4 => extension is ".mp4" or ".m4v",
+            _ => true,
+        };
     }
+
+    /// <summary>The container <see cref="VideoConversionContainer.Source"/> resolves to for this file.</summary>
+    public static VideoConversionContainer ContainerFor(string sourcePath)
+        => IsInContainer(sourcePath, VideoConversionContainer.Mp4) ? VideoConversionContainer.Mp4 : VideoConversionContainer.Mkv;
 
     /// <summary>True when the video stream can be copied as is, because the target is a remux or the source is already in the target codec.</summary>
     public static bool CopiesVideo(string sourceVideoCodec, VideoConversionCodec target)
@@ -327,12 +372,12 @@ public static class VideoConversionPlanner
     /// (so sidecar captions keep matching). When that name is the original's own or is already in use, the
     /// codec is added to the name ("clip.hevc.mp4"), then a counter.
     /// </summary>
-    public static string ChooseOutputPath(string sourcePath, VideoConversionSettings settings, Func<string, bool> isTaken)
+    public static string ChooseOutputPath(string sourcePath, VideoConversionSettings settings, Func<string, bool> isTaken, string? label = null)
     {
         var directory = Path.GetDirectoryName(sourcePath) ?? string.Empty;
         var stem = Path.GetFileNameWithoutExtension(sourcePath);
         var extension = Extension(settings.Container);
-        var label = settings.Codec == VideoConversionCodec.Copy ? "remux" : CodecName(settings.Codec);
+        label ??= settings.Codec == VideoConversionCodec.Copy ? "remux" : CodecName(settings.Codec);
 
         bool Usable(string candidate) =>
             !string.Equals(candidate, sourcePath, StringComparison.OrdinalIgnoreCase) && !isTaken(candidate);
@@ -345,6 +390,26 @@ public static class VideoConversionPlanner
         for (var counter = 2; !Usable(labelled); counter++)
             labelled = Path.Combine(directory, $"{stem}.{label}-{counter}{extension}");
         return labelled;
+    }
+
+    /// <summary>
+    /// The concat-demuxer list for a lossless cut: the source once per kept range, each with its in- and
+    /// out-point. The points are raw file timestamps, hence <paramref name="startTime"/>. Each in-point
+    /// must already sit on a keyframe (see <see cref="VideoCut.SnapStartsToKeyframes"/>): the demuxer
+    /// starts copying from the keyframe at or before it, so an in-point anywhere else would silently keep
+    /// footage the timeline mapping does not know about.
+    /// </summary>
+    public static string CutConcatList(string sourcePath, IReadOnlyList<TimeRange> kept, double startTime)
+    {
+        var file = "'" + sourcePath.Replace('\\', '/').Replace("'", "'\\''", StringComparison.Ordinal) + "'";
+        var list = new StringBuilder("ffconcat version 1.0\n");
+        foreach (var range in kept)
+        {
+            list.Append("file ").Append(file).Append('\n');
+            list.Append(string.Create(CultureInfo.InvariantCulture, $"inpoint {range.Start + startTime:0.######}\n"));
+            list.Append(string.Create(CultureInfo.InvariantCulture, $"outpoint {range.End + startTime:0.######}\n"));
+        }
+        return list.ToString();
     }
 
     /// <summary>
@@ -367,12 +432,21 @@ public static class VideoConversionPlanner
         string? decodeInputArgs,
         double qualityLevel = 0,
         int maxKbps = 0,
-        double? outputFrameRate = null)
+        double? outputFrameRate = null,
+        VideoCutPlan? cut = null)
     {
         var video = source.Video ?? throw new VideoConversionException("The file has no video stream to convert.");
+        if (settings.Container == VideoConversionContainer.Source)
+            throw new ArgumentException("Resolve the source's container first (ContainerFor).", nameof(settings));
         var mp4 = settings.Container == VideoConversionContainer.Mp4;
         var copyVideo = string.IsNullOrWhiteSpace(encoder);
         var notes = new List<string>();
+        var kept = cut?.Kept is { Count: > 0 } ranges ? ranges : null;
+        if (kept is not null && copyVideo && string.IsNullOrWhiteSpace(cut!.ConcatListPath))
+            throw new ArgumentException("A lossless cut reads its parts from a concat list.", nameof(cut));
+        // Joining several re-encoded parts goes through the concat filter, which decodes every stream it
+        // joins: audio cannot be copied through it, and subtitles cannot pass it at all.
+        var joinsParts = kept is { Count: > 1 } && !copyVideo;
 
         if (copyVideo && settings.Codec != VideoConversionCodec.Copy && !CopiesVideo(video.CodecName, settings.Codec))
             throw new ArgumentException("An encoder is required to change the video codec.", nameof(encoder));
@@ -385,17 +459,76 @@ public static class VideoConversionPlanner
 
 
         var args = new StringBuilder("-hide_banner -nostdin -y -v error -nostats -progress pipe:1");
-        if (!copyVideo)
-        {
-            Append(args, FfmpegHwAccel.InputArgsForEncoder(encoder!));
-            Append(args, decodeInputArgs);
-        }
-        args.Append(" -i ").Append(Quote(inputPath));
-
-        args.Append(" -map 0:").Append(video.Index.ToString(CultureInfo.InvariantCulture));
-
         var audio = source.Audio.ToList();
-        for (var ordinal = 0; ordinal < audio.Count; ordinal++)
+        if (kept is not null && copyVideo)
+        {
+            // Lossless cut: the demuxer reads the kept parts back to back and nothing is decoded.
+            args.Append(" -f concat -safe 0 -i ").Append(Quote(cut!.ConcatListPath!));
+        }
+        else if (kept is not null)
+        {
+            // Frame-exact cut: one seeked input per kept part. Seeking an input that is decoded is exact -
+            // ffmpeg decodes from the keyframe before and discards up to the requested time.
+            Append(args, FfmpegHwAccel.InputArgsForEncoder(encoder!));
+            foreach (var range in kept)
+            {
+                Append(args, decodeInputArgs);
+                args.Append(string.Create(CultureInfo.InvariantCulture, $" -ss {range.Start:0.######} -t {range.Length:0.######}"));
+                args.Append(" -i ").Append(Quote(inputPath));
+            }
+        }
+        else
+        {
+            if (!copyVideo)
+            {
+                Append(args, FfmpegHwAccel.InputArgsForEncoder(encoder!));
+                Append(args, decodeInputArgs);
+            }
+            args.Append(" -i ").Append(Quote(inputPath));
+        }
+
+        var tenBit = IsTenBit(video);
+        if (joinsParts)
+        {
+            var graph = new StringBuilder();
+            for (var part = 0; part < kept!.Count; part++)
+            {
+                graph.Append('[').Append(part).Append(':').Append(video.Index).Append(']');
+                foreach (var track in audio)
+                    graph.Append('[').Append(part).Append(':').Append(track.Index).Append(']');
+            }
+            graph.Append(string.Create(CultureInfo.InvariantCulture, $"concat=n={kept.Count}:v=1:a={audio.Count}[vc]"));
+            for (var ordinal = 0; ordinal < audio.Count; ordinal++)
+                graph.Append("[a").Append(ordinal).Append(']');
+            var chain = FfmpegHwAccel.ConversionVideoFilterChain(encoder!, tenBit, outputFrameRate is > 0 ? outputFrameRate : null);
+            var videoLabel = "[vc]";
+            if (chain.Length > 0)
+            {
+                graph.Append(";[vc]").Append(chain).Append("[vout]");
+                videoLabel = "[vout]";
+            }
+            args.Append(" -filter_complex \"").Append(graph).Append('"');
+            args.Append(" -map \"").Append(videoLabel).Append('"');
+            for (var ordinal = 0; ordinal < audio.Count; ordinal++)
+            {
+                var ordinalText = ordinal.ToString(CultureInfo.InvariantCulture);
+                // Near the source's own rate, within what AAC needs to stay clean and what it can use.
+                var kbps = (int)Math.Clamp(audio[ordinal].BitRateKbps > 0 ? audio[ordinal].BitRateKbps : 192, 128, 320);
+                args.Append(" -map \"[a").Append(ordinalText).Append("]\" -c:a:").Append(ordinalText)
+                    .Append(" aac -b:a:").Append(ordinalText).Append(' ').Append(kbps).Append('k');
+            }
+            if (audio.Count > 0)
+                notes.Add($"Audio was re-encoded to AAC, because joining {kept.Count} parts decodes it.");
+            var subtitleCount = source.Subtitles.Count();
+            if (subtitleCount > 0)
+                notes.Add($"{subtitleCount} subtitle track(s) were dropped, because subtitles cannot be joined from several parts.");
+        }
+        else
+        {
+            args.Append(" -map 0:").Append(video.Index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        for (var ordinal = 0; ordinal < (joinsParts ? 0 : audio.Count); ordinal++)
         {
             args.Append(" -map 0:").Append(audio[ordinal].Index.ToString(CultureInfo.InvariantCulture));
             var ordinalText = ordinal.ToString(CultureInfo.InvariantCulture);
@@ -412,7 +545,7 @@ public static class VideoConversionPlanner
 
         var subtitleOrdinal = 0;
         var droppedSubtitles = 0;
-        foreach (var subtitle in source.Subtitles)
+        foreach (var subtitle in joinsParts ? [] : source.Subtitles)
         {
             if (mp4 && !TextSubtitleCodecs.Contains(subtitle.CodecName))
             {
@@ -436,15 +569,14 @@ public static class VideoConversionPlanner
         }
         else
         {
-            var tenBit = IsTenBit(video);
-
             // Constant quality at the level the sample search settled on, so every scene keeps the quality
             // the samples were measured at rather than sharing out an average bitrate.
             Append(args, FfmpegHwAccel.ConversionQualityArgs(encoder!, qualityLevel, settings.Effort, tenBit, maxKbps));
             // Dropping frame rate is the one size lever that costs no per-frame fidelity, and it lowers
             // the bitrate target too since that is derived from the output's frame rate. It is a filter
             // rather than -r: see ConversionVideoFilter for the 50 ms shift -r introduced.
-            Append(args, FfmpegHwAccel.ConversionVideoFilter(encoder!, tenBit, outputFrameRate is > 0 ? outputFrameRate : null));
+            if (!joinsParts)
+                Append(args, FfmpegHwAccel.ConversionVideoFilter(encoder!, tenBit, outputFrameRate is > 0 ? outputFrameRate : null));
 
             // Carry the colour description over explicitly so HDR and wide-gamut sources are not tagged as
             // (and then displayed as) plain BT.709.
@@ -463,11 +595,14 @@ public static class VideoConversionPlanner
         if (mp4 && outputVideoCodec == "hevc")
             args.Append(" -tag:v hvc1");
 
-        args.Append(" -map_metadata 0 -map_chapters 0");
+        // Chapters are dropped from a cut file: their times refer to the uncut timeline.
+        args.Append(kept is null ? " -map_metadata 0 -map_chapters 0" : " -map_metadata 0 -map_chapters -1");
         args.Append(mp4 ? " -movflags +faststart -f mp4 " : " -f matroska ");
         args.Append(Quote(outputPath));
 
-        return new VideoConversionPlan(args.ToString(), copyVideo, outputVideoCodec, audio.Count, notes);
+        return new VideoConversionPlan(
+            args.ToString(), copyVideo, outputVideoCodec, audio.Count, notes,
+            kept is null ? null : VideoCut.OutputDuration(kept), kept?.Count ?? 0);
     }
 
     /// <summary>
@@ -532,7 +667,16 @@ public static class VideoConversionPlanner
 
         if (output.Duration <= 0)
             return "The converted file's length could not be read.";
-        if (Math.Abs(output.Duration - source.Duration) > DurationTolerance)
+        if (plan.ExpectedDuration is { } expected)
+        {
+            // Each join can land a frame or so off where a lossless cut ends a part; allow for that.
+            if (Math.Abs(output.Duration - expected) > DurationTolerance + CutJoinTolerance * plan.CutParts)
+            {
+                return string.Create(CultureInfo.InvariantCulture,
+                    $"The cut file is {output.Duration:0.##}s long; the cut should have left {expected:0.##}s.");
+            }
+        }
+        else if (Math.Abs(output.Duration - source.Duration) > DurationTolerance)
         {
             return string.Create(CultureInfo.InvariantCulture,
                 $"The converted file is {output.Duration:0.##}s long; the original is {source.Duration:0.##}s.");

@@ -145,6 +145,7 @@ import { invalidateGalleriesForVideoLinkChange } from "../utils/galleryVideoLink
 import { changedUpdateFields } from "../utils/changedUpdateFields";
 import { applyFormFields, untouchedFieldUpdates, type FormFieldSetters } from "../utils/rebaseEditForm";
 import { LikeHistorySection } from "../components/LikeHistorySection";
+import type { CutRange } from "../utils/videoCut";
 
 function directorVideosRoute(director: string) {
   return {
@@ -182,6 +183,9 @@ function phashVideosLinkProps(value: string, onNavigate?: (route: ReturnType<typ
 const GenerateDialog = lazy(() =>
   import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })),
 );
+const VideoTrimEditor = lazy(() =>
+  import("../components/VideoTrimEditor").then((module) => ({ default: module.VideoTrimEditor })),
+);
 const ConvertVideosDialog = lazy(() =>
   import("../components/ConvertVideosDialog").then((module) => ({ default: module.ConvertVideosDialog })),
 );
@@ -205,6 +209,8 @@ interface Props {
   id: number;
   initialSeekTo?: number;
   initialTab?: string;
+  /** Removals to open the trim editor with, from a `?cut=` link. */
+  initialCut?: CutRange[];
   onNavigate: (r: any) => void;
 }
 
@@ -341,7 +347,7 @@ function VideoQueuePanel({
 
 type TabKey = "details" | "segments" | "filters" | "file-info" | "edit" | "history" | string;
 
-export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: Props) {
+export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onNavigate }: Props) {
   const {
     data: video,
     isLoading,
@@ -380,6 +386,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
+  // The trim editor opens from the menu, or from a link carrying removals to review (`?cut=`).
+  const [trimming, setTrimming] = useState(initialCut != null);
+  const initialCutKey = initialCut ? JSON.stringify(initialCut) : null;
+  useEffect(() => {
+    if (initialCutKey) setTrimming(true);
+  }, [initialCutKey, id]);
+  useEffect(() => {
+    if (!initialCutKey) setTrimming(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a move to another video closes it
+  }, [id]);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [showQueuePanel, setShowQueuePanel] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
@@ -422,9 +438,12 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const canGenerateVideo = canRunJobs && canWriteVideo;
   const canIdentifyVideo = canIdentify && canWriteVideo;
   const canDownloadVideo = canRunJobs && canWriteVideo;
+  // Clips share their parent's file, so only a top-level video is trimmed.
+  const canTrimVideo = canGenerateVideo && canReadFiles && video?.parentVideoId == null;
   const metadataServers = config?.scraping?.metadataServers ?? [];
   const canSubmitDraft = canWriteVideo && metadataServers.length > 0;
   const seekRef = useRef<((time: number) => void) | null>(null);
+  const seekToTime = useCallback((time: number) => seekRef.current?.(time), []);
   const trackedPageVisitVideoIdRef = useRef<number | null>(null);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const [videoTime, setVideoTime] = useState(0);
@@ -459,6 +478,24 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       ? video?.files[0]
       : video?.files.find((candidate) => candidate.id === video.primaryFileId);
   const effectiveVideoResumeTime = normalizeStoredResumeTime(videoResumeTime, primaryFileForResume?.duration);
+
+  // Removals from a link describe the file the link was made for. Once a cut (or anything else) replaces
+  // that file they would land on different footage, so the editor closes and the link's removals are
+  // no longer offered.
+  const [linkCutDismissed, setLinkCutDismissed] = useState(false);
+  useEffect(() => setLinkCutDismissed(false), [initialCutKey, id]);
+  const trimmedFileRef = useRef<{ videoId: number; fileId: number } | null>(null);
+  useEffect(() => {
+    const videoId = video?.id;
+    const fileId = primaryFileForResume?.id;
+    if (videoId == null || fileId == null) return;
+    const previous = trimmedFileRef.current;
+    trimmedFileRef.current = { videoId, fileId };
+    if (previous?.videoId === videoId && previous.fileId !== fileId) {
+      setTrimming(false);
+      setLinkCutDismissed(true);
+    }
+  }, [video?.id, primaryFileForResume?.id]);
 
   useEffect(() => {
     const videoId = video?.id;
@@ -1101,6 +1138,17 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
               <FileVideoCamera className="h-3.5 w-3.5" /> Convert…
             </button>
           ) : null}
+          {canTrimVideo ? (
+            <button
+              onClick={() => {
+                setTrimming(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Scissors className="h-3.5 w-3.5" /> Trim…
+            </button>
+          ) : null}
           {canWriteVideo ? (
             <button
               onClick={() => {
@@ -1320,6 +1368,22 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
         )}
       </div>
+      {trimming && canTrimVideo && file && alternateFileId == null ? (
+        <Suspense fallback={null}>
+          <VideoTrimEditor
+            key={`${video.id}-${file.id}`}
+            videoId={video.id}
+            fileId={file.id}
+            duration={file.duration}
+            currentTime={videoTime}
+            initialRemove={linkCutDismissed ? undefined : initialCut}
+            canReplaceOriginal={canDeleteVideoFiles}
+            sourceFrameRate={file.frameRate ?? null}
+            onSeek={seekToTime}
+            onClose={() => setTrimming(false)}
+          />
+        </Suspense>
+      ) : null}
       {file && video.parentVideoId == null && alternateFileId == null ? (
         <VideoScrubber
           videoId={video.id}

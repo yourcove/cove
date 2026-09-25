@@ -1151,7 +1151,7 @@ public sealed class DeletionSafetyTests
             => throw new NotSupportedException();
     }
 
-    private sealed class ReferenceAwareBlobService(CoveContext db) : IBlobService
+    internal sealed class ReferenceAwareBlobService(CoveContext db) : IBlobService
     {
         public List<string> DeletedBlobIds { get; } = [];
         public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default) => throw new NotSupportedException();
@@ -1165,7 +1165,7 @@ public sealed class DeletionSafetyTests
         }
     }
 
-    private sealed class RecordingThumbnailService : IThumbnailService
+    internal sealed class RecordingThumbnailService : IThumbnailService
     {
         public List<string> DeletedBlobIds { get; } = [];
         public List<int> DeletedVideoIds { get; } = [];

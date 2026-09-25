@@ -77,7 +77,7 @@ public sealed class VideoConversionController(
         return Accepted(conversionService.Start(principalAccessor.Current, dto.VideoIds, settings));
     }
 
-    private static bool TryParse<TEnum>(string? value, out TEnum result) where TEnum : struct, Enum
+    internal static bool TryParse<TEnum>(string? value, out TEnum result) where TEnum : struct, Enum
         => Enum.TryParse(value?.Trim(), ignoreCase: true, out result)
             && Enum.IsDefined(result)
             // Enum.TryParse also accepts numbers; only the documented names are part of the API.

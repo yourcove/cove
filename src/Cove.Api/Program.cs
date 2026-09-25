@@ -335,6 +335,7 @@ try
     builder.Services.AddSingleton<IDownloaderService>(provider => provider.GetRequiredService<DownloaderService>());
     builder.Services.AddSingleton<IDownloaderSiteLoginProvider, DownloaderSiteLoginProvider>();
     builder.Services.AddScoped<IVideoFileMaintenanceService, VideoFileMaintenanceService>();
+    builder.Services.AddScoped<VideoTimelineDependencyService>();
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
     builder.Services.AddScoped<StashMigrationService>();
     builder.Services.AddScoped<ITagProvenanceService, TagProvenanceService>();

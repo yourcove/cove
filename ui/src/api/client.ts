@@ -2030,6 +2030,62 @@ export const videoConversion = {
     request<{ jobId: string; itemCount: number }>("/video-conversion", { method: "POST", body: JSON.stringify(opts) }),
 };
 
+/** A span of a video's timeline, in seconds. */
+export interface VideoCutRange {
+  start: number;
+  end: number;
+}
+
+/** What a cut does to one timed item on the video. */
+export interface VideoCutItemPreview {
+  kind: "segment" | "clip" | "detection" | "group range";
+  id: number;
+  title: string | null;
+  start: number;
+  end: number | null;
+  /** kept: unchanged. moved: earlier by the footage removed before it. joined: spans a cut and now covers its kept parts back to back. removed: lies entirely inside removed footage and is deleted. */
+  outcome: "kept" | "moved" | "joined" | "removed";
+  newStart: number | null;
+  newEnd: number | null;
+}
+
+export interface VideoCutPreview {
+  /** The primary file the preview read; pass it back when cutting. */
+  fileId: number;
+  sourceDuration: number;
+  exact: boolean;
+  /** Where the kept parts really start and end. A lossless cut starts each part on the keyframe at or before its mark. */
+  kept: VideoCutRange[];
+  outputDuration: number;
+  removedSeconds: number;
+  sourceBytes: number;
+  /** Assumes kept footage costs what it did in the original; a re-encode is measured when it runs. */
+  estimatedBytes: number;
+  items: VideoCutItemPreview[];
+}
+
+export interface VideoCutOptions {
+  videos: { videoId: number; fileId: number; remove: VideoCutRange[] }[];
+  /** "copy" cuts losslessly on keyframes in seconds; a codec re-encodes and cuts exactly. */
+  codec?: VideoConversionCodec;
+  container?: "source" | "mp4" | "mkv";
+  effort?: VideoConversionOptions["effort"];
+  outputFrameRate?: number | null;
+  /** Make the cut file primary, move everything timed on the video with the cut and delete the original. */
+  replaceOriginal?: boolean;
+}
+
+export const videoCuts = {
+  preview: (videoId: number, remove: VideoCutRange[], exact: boolean, signal?: AbortSignal) =>
+    request<VideoCutPreview>(`/videos/${videoId}/cut/preview`, {
+      method: "POST",
+      body: JSON.stringify({ remove, exact }),
+      signal,
+    }),
+  start: (opts: VideoCutOptions) =>
+    request<{ jobId: string; itemCount: number }>("/videos/cut", { method: "POST", body: JSON.stringify(opts) }),
+};
+
 export interface LibraryFolder {
   name: string;
   path: string;

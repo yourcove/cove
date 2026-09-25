@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS: Settings = {
 // and leaves a video alone when that would not save enough. Hardware entries are listed separately
 // rather than as a modifier: a machine may not have a usable hardware encoder at all, and hardware is a
 // different quality-per-bit trade rather than a speed setting.
-const EFFORTS: ReadonlyArray<{ value: Settings["effort"]; label: string; hint: string }> = [
+export const EFFORTS: ReadonlyArray<{ value: Settings["effort"]; label: string; hint: string }> = [
   {
     value: "highHardware",
     label: "High quality (GPU)",
@@ -64,9 +64,9 @@ const EFFORTS: ReadonlyArray<{ value: Settings["effort"]; label: string; hint: s
 ];
 
 // Only rates below the source are useful: converting up invents frames, costing size for nothing.
-const FRAME_RATE_CHOICES = [60, 30, 24] as const;
+export const FRAME_RATE_CHOICES = [60, 30, 24] as const;
 
-const CODECS: ReadonlyArray<{ value: VideoConversionCodec; label: string; hint: string }> = [
+export const CODECS: ReadonlyArray<{ value: VideoConversionCodec; label: string; hint: string }> = [
   { value: "hevc", label: "HEVC (H.265)", hint: "About half the size of H.264 at the same quality." },
   { value: "h264", label: "H.264", hint: "Plays everywhere; larger files." },
   {
@@ -142,7 +142,7 @@ function saveSettings(settings: Settings) {
   }
 }
 
-function EncoderHint({
+export function EncoderHint({
   codec,
   encoders,
   loading,

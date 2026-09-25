@@ -183,14 +183,17 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         }
     }
 
-    private string? ResolveFfprobePath()
-    {
-        if (!string.IsNullOrWhiteSpace(_config.FfprobePath) && File.Exists(_config.FfprobePath))
-            return _config.FfprobePath;
+    private string? ResolveFfprobePath() => ResolveFfprobePath(_config);
 
-        if (!string.IsNullOrWhiteSpace(_config.FfmpegPath))
+    /// <summary>The ffprobe Cove uses: the configured one, else the one beside the configured ffmpeg, else PATH's.</summary>
+    internal static string? ResolveFfprobePath(CoveConfiguration config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.FfprobePath) && File.Exists(config.FfprobePath))
+            return config.FfprobePath;
+
+        if (!string.IsNullOrWhiteSpace(config.FfmpegPath))
         {
-            var directory = Path.GetDirectoryName(_config.FfmpegPath);
+            var directory = Path.GetDirectoryName(config.FfmpegPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {
                 var sibling = Path.Combine(directory, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
