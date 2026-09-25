@@ -203,6 +203,15 @@ export async function getImmersiveVrSupport(): Promise<ImmersiveSupport> {
   }
 }
 
+/**
+ * The support answer when it needs no asking: a browser with no `navigator.xr` cannot start a session.
+ * Lets the buttons render their final state at once instead of after a query settles.
+ */
+export function immersiveVrSupportIfKnown(): ImmersiveSupport | undefined {
+  if (xrSystem()) return undefined;
+  return { supported: false, reason: window.isSecureContext ? "no-webxr" : "insecure-context" };
+}
+
 export async function isImmersiveVrSupported(): Promise<boolean> {
   return (await getImmersiveVrSupport()).supported;
 }

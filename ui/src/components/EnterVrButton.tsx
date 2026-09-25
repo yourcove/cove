@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Glasses } from "lucide-react";
 import { system } from "../api/client";
 import { navigateToUrl } from "../router/location";
@@ -8,12 +7,53 @@ import {
   claimHandedOffSession,
   getImmersiveVrSupport,
   hasHandedOffSession,
+  immersiveVrSupportIfKnown,
   playVideoInSession,
   startImmersiveVideo,
+  type ImmersiveSupport,
   type ImmersiveVideoSession,
   type PlaybackTransport,
   type VrDescriptor,
 } from "../vr/immersiveVideo";
+
+// Asked of the browser once per page; the answer does not change while the page lives.
+let supportPromise: Promise<ImmersiveSupport> | null = null;
+
+/** WebXR support, without needing a query client: the player is rendered in places that have none. */
+function useImmersiveSupport(): ImmersiveSupport | undefined {
+  const [support, setSupport] = useState<ImmersiveSupport | undefined>(immersiveVrSupportIfKnown);
+  useEffect(() => {
+    if (support) return;
+    let cancelled = false;
+    supportPromise ??= getImmersiveVrSupport();
+    void supportPromise.then((result) => {
+      if (!cancelled) setSupport(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [support]);
+  return support;
+}
+
+/** Cove's HTTPS listener, asked for only when a headset page landed on plain HTTP. */
+function useHttpsStatus(enabled: boolean) {
+  const [status, setStatus] = useState<{ enabled: boolean; port: number | null } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    system
+      .httpsStatus()
+      .then((result) => {
+        if (!cancelled) setStatus({ enabled: result.enabled, port: result.port ?? null });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return status;
+}
 
 /** The same page on Cove's HTTPS listener, for a headset that opened Cove over plain HTTP. */
 export function secureUrlFor(location: Pick<Location, "hostname" | "pathname" | "search" | "hash">, port: number) {
@@ -42,14 +82,9 @@ export function EnterVrButton({
   /** The player's own playhead, so seeking and the timeline agree with it even on a transcode. */
   transport?: PlaybackTransport;
 }) {
-  const support = useQuery({ queryKey: ["webxr-support"], queryFn: getImmersiveVrSupport, staleTime: Infinity });
-  const insecure = support.data?.supported === false && support.data.reason === "insecure-context";
-  const https = useQuery({
-    queryKey: ["https-status"],
-    queryFn: system.httpsStatus,
-    enabled: insecure,
-    staleTime: 60_000,
-  });
+  const support = useImmersiveSupport();
+  const insecure = support?.supported === false && support.reason === "insecure-context";
+  const https = useHttpsStatus(insecure);
   const [session, setSession] = useState<ImmersiveVideoSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const claimedRef = useRef(false);
@@ -133,10 +168,10 @@ export function EnterVrButton({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (insecure && https.data?.enabled && https.data.port) {
+  if (insecure && https?.enabled && https.port) {
     return (
       <a
-        href={secureUrlFor(window.location, https.data.port)}
+        href={secureUrlFor(window.location, https.port)}
         className="hidden shrink-0 p-1 hover:text-accent md:inline-flex"
         title="VR playback needs HTTPS. Open this page on Cove's secure address."
         aria-label="Open over HTTPS for VR"
@@ -145,7 +180,7 @@ export function EnterVrButton({
       </a>
     );
   }
-  if (!support.data?.supported && !session) return null;
+  if (!support?.supported && !session) return null;
 
   const enter = async () => {
     const video = videoRef.current;

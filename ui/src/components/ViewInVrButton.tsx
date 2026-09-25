@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Glasses } from "lucide-react";
-import { getImmersiveVrSupport } from "../vr/immersiveVideo";
-import { claimWallSession, registerVrList, type VrListSource } from "../vr/vrListRegistry";
+import { getImmersiveVrSupport, immersiveVrSupportIfKnown } from "../vr/immersiveVideo";
+import { claimWallSession, hasPendingWallSession, registerVrList, type VrListSource } from "../vr/vrListRegistry";
 import type { VrWall, WallState } from "../vr/VrWall";
 
 const loadWall = () => import("../vr/VrWall");
@@ -14,7 +14,12 @@ const loadWall = () => import("../vr/VrWall");
  * viewer presses back, with the wall showing.
  */
 export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; onNavigate: (route: any) => void }) {
-  const support = useQuery({ queryKey: ["webxr-support"], queryFn: getImmersiveVrSupport, staleTime: Infinity });
+  const support = useQuery({
+    queryKey: ["webxr-support"],
+    queryFn: getImmersiveVrSupport,
+    staleTime: Infinity,
+    initialData: immersiveVrSupportIfKnown,
+  });
   const [wall, setWall] = useState<VrWall | null>(null);
   const [state, setState] = useState<WallState>("browsing");
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +49,8 @@ export function ViewInVrButton({ source, onNavigate }: { source: VrListSource; o
   // Pick up a wall that is already showing (we came back from a video), or a session a video page
   // left for this list to show the wall in.
   useEffect(() => {
+    // Without WebXR there can be no wall to pick up, and three.js need not load at all.
+    if (immersiveVrSupportIfKnown() && !hasPendingWallSession()) return;
     let cancelled = false;
     void loadWall().then(async ({ getActiveWall, VrWall }) => {
       if (cancelled) return;

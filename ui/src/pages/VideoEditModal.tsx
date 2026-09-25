@@ -96,7 +96,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const handleSave = () => {
     const urlList = urls.map((u) => u.trim()).filter(Boolean);
     const clearFields = videoEditClearFields(date, studioId);
-    if (!vrLayout) clearFields.push("vr");
+    if (!vrLayout && explicitVrLayout(video)) clearFields.push("vr");
     mutation.mutate({
       title: title,
       code: code,
