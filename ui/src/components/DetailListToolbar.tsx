@@ -38,6 +38,8 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
 import { customFieldEntityTypeForFilterMode, useCustomFieldFilterSection } from "./CustomFieldFilterSection";
 import { FilterButton } from "./FilterButton";
+import { ViewInVrButton } from "./ViewInVrButton";
+import type { VrListSource } from "../vr/vrListRegistry";
 import type { CriterionDefinition } from "./filterCriteriaTypes";
 import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
 import { PageSizeSelect } from "./PageSizeSelect";
@@ -74,6 +76,9 @@ const DISPLAY_MODE_BUTTONS: Array<{ mode: DetailListDisplayMode; title: string; 
 ];
 
 export interface DetailListToolbarProps {
+  /** When set, a "View in VR" button shows this list in a headset. */
+  vrListSource?: VrListSource;
+  onNavigate?: (route: any) => void;
   metadataByline?: React.ReactNode;
   selectionMetadata?: React.ReactNode;
   filter: FindFilter;
@@ -179,6 +184,8 @@ export function DetailListPagination({
 }
 
 export function DetailListToolbar({
+  vrListSource,
+  onNavigate,
   metadataByline,
   selectionMetadata,
   filter,
@@ -385,6 +392,7 @@ export function DetailListToolbar({
         </div>
 
         <div className="contents lg:flex lg:min-w-0 lg:flex-initial lg:flex-wrap lg:items-center lg:justify-center lg:gap-2">
+          {vrListSource && onNavigate ? <ViewInVrButton source={vrListSource} onNavigate={onNavigate} /> : null}
           {showSearch && (
             <ListSearchControl
               query={filter.q}

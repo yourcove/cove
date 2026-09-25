@@ -31,6 +31,7 @@ import { videos } from "../api/client";
 import { supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
 import type { Detection, Face, Segment, VrDescriptor } from "../api/types";
 import { EnterVrButton } from "./EnterVrButton";
+import { FLAT_VR } from "../vr/immersiveVideo";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
 import { ExtensionSlot, useHasExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
@@ -219,6 +220,7 @@ export function VideoPlayer({
   suspended = false,
   keyboardShortcutsEnabled = true,
   vr,
+  vrTitle,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -264,6 +266,8 @@ export function VideoPlayer({
   keyboardShortcutsEnabled?: boolean;
   /** VR layout of the video. When set, the controls offer immersive playback where WebXR allows it. */
   vr?: VrDescriptor | null;
+  /** Shown on the in-headset timeline during immersive playback. */
+  vrTitle?: string;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -2674,7 +2678,19 @@ export function VideoPlayer({
               </button>
             ) : null}
 
-            {vr ? <EnterVrButton videoRef={videoRef} vr={vr} /> : null}
+            {extensionSurface === "detail" ? (
+              <EnterVrButton
+                videoRef={videoRef}
+                vr={vr ?? FLAT_VR}
+                title={vrTitle}
+                transport={{
+                  currentTime: () => toAbsoluteTime(videoRef.current?.currentTime ?? 0),
+                  duration: () => duration,
+                  seek: (seconds) => seekToAbsoluteTime(seconds, false),
+                  isSeeking: () => videoRef.current?.seeking ?? false,
+                }}
+              />
+            ) : null}
 
             <button
               onClick={toggleFullscreen}

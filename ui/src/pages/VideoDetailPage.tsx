@@ -53,6 +53,7 @@ import {
   AlertTriangle,
   FileVideoCamera,
   CloudUpload,
+  Glasses,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -132,6 +133,8 @@ import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { videoEditClearFields } from "../utils/videoEditClearFields";
+import { VrLayoutFields, detectedVrLayout, explicitVrLayout } from "../components/VrLayoutFields";
+import { formatVrLayout, type VrDescriptor } from "../vr/immersiveVideo";
 import { invalidateGalleriesForVideoLinkChange } from "../utils/galleryVideoLinks";
 import { changedUpdateFields } from "../utils/changedUpdateFields";
 import { applyFormFields, untouchedFieldUpdates, type FormFieldSetters } from "../utils/rebaseEditForm";
@@ -933,6 +936,17 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
               </a>
             </FieldProvenanceHover>
           ) : null}
+          {video.isVr ? (
+            <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="isVr">
+              <span
+                className="inline-flex items-center gap-1 rounded bg-card px-1.5 py-0.5 text-xs"
+                title={video.vr?.inferred ? "VR layout detected from the file" : "VR layout set on the video"}
+              >
+                <Glasses className="h-3 w-3" />
+                {formatVrLayout(video.vr)}
+              </span>
+            </FieldProvenanceHover>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1277,6 +1291,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             captions={file.captions}
             videoStyle={videoStyle}
             vr={video.vr}
+            vrTitle={video.title || file.basename}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
             }}
@@ -3066,6 +3081,7 @@ function videoFormValues(video: Video) {
     director: video.director || "",
     date: video.date || "",
     isVr: video.isVr ?? false,
+    vrLayout: explicitVrLayout(video),
     rating: undefined as number | undefined,
     urls: video.urls.length > 0 ? video.urls : [""],
     studioId: video.studioId ?? undefined,
@@ -3089,6 +3105,7 @@ function videoUpdatePayload(values: VideoFormValues): VideoUpdate {
     director: values.director,
     date: values.date || undefined,
     isVr: values.isVr,
+    vr: values.isVr && values.vrLayout ? values.vrLayout : undefined,
     rating: values.rating,
     studioId: values.studioId,
     urls: values.urls.map((url) => url.trim()).filter(Boolean),
@@ -3098,7 +3115,7 @@ function videoUpdatePayload(values: VideoFormValues): VideoUpdate {
     performerIds: values.selectedPerformerIds,
     galleryIds: values.selectedGalleryIds,
     groups: values.selectedGroups,
-    clearFields: videoEditClearFields(values.date, values.studioId),
+    clearFields: [...videoEditClearFields(values.date, values.studioId), ...(values.vrLayout ? [] : ["vr"])],
   };
 }
 
@@ -3121,6 +3138,7 @@ function VideoEditPanel({
   const [director, setDirector] = useState(video.director || "");
   const [date, setDate] = useState(video.date || "");
   const [isVr, setIsVr] = useState(video.isVr ?? false);
+  const [vrLayout, setVrLayout] = useState<VrDescriptor | null>(explicitVrLayout(video));
   const [rating, setRating] = useState<number | undefined>(undefined);
   const [urls, setUrls] = useState(video.urls.length > 0 ? video.urls : [""]);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(video.remoteIds?.length ? video.remoteIds : []);
@@ -3146,6 +3164,7 @@ function VideoEditPanel({
     director,
     date,
     isVr,
+    vrLayout,
     rating,
     urls,
     studioId,
@@ -3164,6 +3183,7 @@ function VideoEditPanel({
     director: setDirector,
     date: setDate,
     isVr: setIsVr,
+    vrLayout: setVrLayout,
     rating: setRating,
     urls: setUrls,
     studioId: setStudioId,
@@ -3323,6 +3343,9 @@ function VideoEditPanel({
         />
         VR
       </label>
+      {isVr ? (
+        <VrLayoutFields value={vrLayout} detected={detectedVrLayout(video)} onChange={setVrLayout} inputClassName={inputCls} compact />
+      ) : null}
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="studio" block>
         <div className="space-y-1">
           <span className="text-xs text-secondary">Studio</span>

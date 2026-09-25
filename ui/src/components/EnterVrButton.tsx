@@ -1,11 +1,17 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Glasses } from "lucide-react";
 import { system } from "../api/client";
+import { navigateToUrl } from "../router/location";
+import { dropWallSession, lastVrList, offerWallSession } from "../vr/vrListRegistry";
 import {
+  claimHandedOffSession,
   getImmersiveVrSupport,
+  hasHandedOffSession,
+  playVideoInSession,
   startImmersiveVideo,
   type ImmersiveVideoSession,
+  type PlaybackTransport,
   type VrDescriptor,
 } from "../vr/immersiveVideo";
 
@@ -19,8 +25,23 @@ export function secureUrlFor(location: Pick<Location, "hostname" | "pathname" | 
  * Enters immersive playback of the player's own `<video>` element. Shown only for VR videos, and only
  * where the browser can start an immersive session. When WebXR is hidden because the page is not a
  * secure context and Cove's HTTPS listener is on, it links to the same page over HTTPS instead.
+ *
+ * When another page (a VR gallery) handed a live session to this one, the player takes it over as soon
+ * as it mounts, so the headset goes straight from the gallery to the video while the browser shows the
+ * video's page.
  */
-export function EnterVrButton({ videoRef, vr }: { videoRef: RefObject<HTMLVideoElement | null>; vr: VrDescriptor }) {
+export function EnterVrButton({
+  videoRef,
+  vr,
+  title,
+  transport,
+}: {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  vr: VrDescriptor;
+  title?: string;
+  /** The player's own playhead, so seeking and the timeline agree with it even on a transcode. */
+  transport?: PlaybackTransport;
+}) {
   const support = useQuery({ queryKey: ["webxr-support"], queryFn: getImmersiveVrSupport, staleTime: Infinity });
   const insecure = support.data?.supported === false && support.data.reason === "insecure-context";
   const https = useQuery({
@@ -31,6 +52,86 @@ export function EnterVrButton({ videoRef, vr }: { videoRef: RefObject<HTMLVideoE
   });
   const [session, setSession] = useState<ImmersiveVideoSession | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const claimedRef = useRef(false);
+  // Whatever is playing in the headset for this button, so leaving the page can stop it.
+  const liveRef = useRef<{ end: () => void } | null>(null);
+  // The player rebuilds its transport as the stream changes; the headset always calls the latest one.
+  const transportRef = useRef(transport);
+  transportRef.current = transport;
+  const playbackOptions = () => ({
+    title,
+    element: () => videoRef.current,
+    transport: transportRef.current
+      ? {
+          currentTime: () => transportRef.current?.currentTime() ?? videoRef.current?.currentTime ?? 0,
+          duration: () => transportRef.current?.duration() ?? videoRef.current?.duration ?? 0,
+          seek: (seconds: number) => transportRef.current?.seek(seconds),
+          isSeeking: () => transportRef.current?.isSeeking?.() ?? videoRef.current?.seeking ?? false,
+        }
+      : undefined,
+  });
+
+  useEffect(
+    () => () => {
+      // Leaving the page stops immersive playback: an own session ends, a borrowed one goes back to
+      // its owner without dragging the browser along.
+      liveRef.current?.end();
+      liveRef.current = null;
+    },
+    [],
+  );
+
+  // Take over a session a gallery handed to this page. Runs once, on mount, before the support query
+  // resolves: the session already exists, so support is a given.
+  useEffect(() => {
+    if (claimedRef.current || !hasHandedOffSession()) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const claimed = claimHandedOffSession();
+    if (!claimed) return;
+    claimedRef.current = true;
+    let active = true;
+    playVideoInSession(claimed.session, video, vr, {
+      ...playbackOptions(),
+      presenter: claimed.presenter,
+      onExit: () => {
+        liveRef.current = null;
+        if (active) setSession(null);
+        claimed.returnToOwner("exit");
+      },
+    })
+      .then((playback) => {
+        if (!active) {
+          playback.stop();
+          claimed.returnToOwner("abandoned");
+          return;
+        }
+        liveRef.current = {
+          end: () => {
+            playback.stop();
+            claimed.returnToOwner("abandoned");
+          },
+        };
+        setSession({
+          mode: playback.mode,
+          end: async () => {
+            liveRef.current = null;
+            playback.stop();
+            setSession(null);
+            claimed.returnToOwner("exit");
+          },
+        });
+      })
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        claimed.returnToOwner("abandoned");
+      });
+    return () => {
+      active = false;
+    };
+    // The claim must happen exactly once per mount; later prop changes do not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (insecure && https.data?.enabled && https.data.port) {
     return (
@@ -44,7 +145,7 @@ export function EnterVrButton({ videoRef, vr }: { videoRef: RefObject<HTMLVideoE
       </a>
     );
   }
-  if (!support.data?.supported) return null;
+  if (!support.data?.supported && !session) return null;
 
   const enter = async () => {
     const video = videoRef.current;
@@ -55,7 +156,26 @@ export function EnterVrButton({ videoRef, vr }: { videoRef: RefObject<HTMLVideoE
     }
     setError(null);
     try {
-      const started = await startImmersiveVideo(video, vr, { onEnd: () => setSession(null) });
+      const started = await startImmersiveVideo(video, vr, {
+        ...playbackOptions(),
+        onEnd: () => {
+          liveRef.current = null;
+          setSession(null);
+        },
+        // Back goes to the list this video was opened from, with that list showing in the headset.
+        onBack: (xrSession) => {
+          const list = lastVrList();
+          if (!list) return false;
+          offerWallSession(xrSession, list.url);
+          // If that page never shows the wall (it is gone, say), the session must not linger.
+          window.setTimeout(() => {
+            if (dropWallSession(xrSession)) void (xrSession as { end(): Promise<void> }).end().catch(() => {});
+          }, 10_000);
+          navigateToUrl(list.url);
+          return true;
+        },
+      });
+      liveRef.current = { end: () => void started.end() };
       setSession(started);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -63,15 +183,22 @@ export function EnterVrButton({ videoRef, vr }: { videoRef: RefObject<HTMLVideoE
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => void enter()}
-      className={`shrink-0 p-1 hover:text-accent ${session ? "text-accent" : ""} ${error ? "text-red-400" : ""}`}
-      title={error ? `Could not enter VR: ${error}` : session ? "Exit VR" : "Enter VR"}
-      aria-label={session ? "Exit VR" : "Enter VR"}
-      aria-pressed={session != null}
-    >
-      <Glasses className="h-4 w-4" />
-    </button>
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={() => void enter()}
+        className={`shrink-0 p-1 hover:text-accent ${session ? "text-accent" : ""} ${error ? "text-red-400" : ""}`}
+        title={error ? `Could not enter VR: ${error}` : session ? "Exit VR" : "Enter VR"}
+        aria-label={session ? "Exit VR" : "Enter VR"}
+        aria-pressed={session != null}
+      >
+        <Glasses className="h-4 w-4" />
+      </button>
+      {error ? (
+        <span className="hidden max-w-[18rem] truncate text-xs text-red-400 md:inline" title={error}>
+          {error}
+        </span>
+      ) : null}
+    </span>
   );
 }

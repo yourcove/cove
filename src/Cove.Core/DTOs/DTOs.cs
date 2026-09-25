@@ -1561,6 +1561,7 @@ public record UiConfigDto
     public bool ContinuePlaylistDefault { get; init; }
     public bool ShowAbLoopControls { get; init; } = true;
     public bool SoundOnPreview { get; init; }
+    public string VrMediaStyle { get; init; } = "flat";
     public double PreviewSegmentDuration { get; init; } = 0.75;
     public int PreviewSegments { get; init; } = 12;
     public string PreviewExcludeStart { get; init; } = "0";

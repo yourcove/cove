@@ -110,6 +110,7 @@ import {
 } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -923,6 +924,21 @@ function StudioVideosPanel({
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, studioId, includeSubStudios),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                objectFilter: withRequiredSingleId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(
         objectFilter,
         "studiosCriterion",

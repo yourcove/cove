@@ -123,6 +123,7 @@ import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -719,6 +720,21 @@ function TagVideosPanel({
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, tagId, includeSubTags),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
       selectedIds={selectedIds}
       filter={filter}

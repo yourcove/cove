@@ -115,6 +115,7 @@ import { sortSeededRandom } from "../utils/seededRandomSort";
 import { parseDateFilterValue } from "../utils/relativeDate";
 import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { compareNatural } from "../utils/naturalCompare";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -2818,6 +2819,21 @@ function GroupVideosPanel({
       filter={filter}
       onFilterChange={setFilter}
       totalCount={groupVideos?.totalCount ?? 0}
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, groupId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                objectFilter: withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "groupsCriterion", groupId),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       sortOptions={[
         { value: "title", label: "Title" },
         { value: "date", label: "Date" },

@@ -42,6 +42,7 @@ internal static class VideoFrameBatchExtractor
     /// extraction could not be attempted at all (no usable timestamps).
     /// </summary>
     /// <param name="scaleWidth">Target width; height follows the aspect ratio. Values &lt;= 0 keep the native size.</param>
+    /// <param name="preFilter">An ffmpeg video filter applied before the scale, such as a VR reprojection. Null for none.</param>
     public static async Task<Image<Rgba32>?[]?> ExtractAsync(
         string ffmpegPath,
         string videoPath,
@@ -50,7 +51,8 @@ internal static class VideoFrameBatchExtractor
         FfmpegConcurrencyLimiter limiter,
         ILogger logger,
         CancellationToken ct,
-        int batchSize = DefaultBatchSize)
+        int batchSize = DefaultBatchSize,
+        string? preFilter = null)
     {
         if (timestamps.Count == 0)
             return null;
@@ -66,11 +68,11 @@ internal static class VideoFrameBatchExtractor
 
         try
         {
-            foreach (var batch in PlanBatches(videoPath, tmpDir, timestamps.Count, scaleWidth, batchSize))
+            foreach (var batch in PlanBatches(videoPath, tmpDir, timestamps.Count, scaleWidth, batchSize, preFilter))
             {
                 ct.ThrowIfCancellationRequested();
 
-                var args = BuildBatchArguments(videoPath, tmpDir, timestamps, batch.Start, batch.Count, scaleWidth);
+                var args = BuildBatchArguments(videoPath, tmpDir, timestamps, batch.Start, batch.Count, scaleWidth, preFilter);
                 var timeout = BaseBatchTimeout + PerFrameTimeout * batch.Count;
 
                 // Held only for the decode itself. Loading the extracted frames afterwards is
@@ -141,13 +143,13 @@ internal static class VideoFrameBatchExtractor
 
     /// <summary>Splits the timestamps into batches that each fit inside the command-line limit.</summary>
     internal static IEnumerable<BatchPlan> PlanBatches(
-        string videoPath, string tmpDir, int timestampCount, int scaleWidth, int batchSize)
+        string videoPath, string tmpDir, int timestampCount, int scaleWidth, int batchSize, string? preFilter = null)
     {
         var requested = Math.Max(1, batchSize);
 
         // Worst-case characters one input/output pair contributes, measured against the longest
         // frame index so the estimate never under-counts.
-        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth);
+        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth) + (preFilter?.Length + 1 ?? 0);
         var affordable = Math.Max(1, MaxCommandLineLength / Math.Max(1, perFrame));
         var effective = Math.Min(requested, affordable);
 
@@ -178,7 +180,8 @@ internal static class VideoFrameBatchExtractor
         IReadOnlyList<double> timestamps,
         int start,
         int count,
-        int scaleWidth)
+        int scaleWidth,
+        string? preFilter = null)
     {
         var builder = new StringBuilder("-v error -y");
 
@@ -197,8 +200,18 @@ internal static class VideoFrameBatchExtractor
         {
             builder.Append(" -map ").Append(offset.ToString(CultureInfo.InvariantCulture)).Append(":v:0")
                    .Append(" -an -frames:v 1");
-            if (scaleWidth > 0)
-                builder.Append(" -vf \"scale=").Append(scaleWidth.ToString(CultureInfo.InvariantCulture)).Append(":-2\"");
+            if (preFilter != null || scaleWidth > 0)
+            {
+                builder.Append(" -vf \"");
+                if (preFilter != null)
+                {
+                    builder.Append(preFilter);
+                    if (scaleWidth > 0) builder.Append(',');
+                }
+                if (scaleWidth > 0)
+                    builder.Append("scale=").Append(scaleWidth.ToString(CultureInfo.InvariantCulture)).Append(":-2");
+                builder.Append('"');
+            }
             // -threads 1 on the OUTPUT caps the mjpeg encoder. The -threads 1 before each input only
             // caps that input's decoder; each output encoder otherwise defaults to frame threading
             // across every core, so a 24-output batch spawned ~770 threads on a 32-core host. Capping

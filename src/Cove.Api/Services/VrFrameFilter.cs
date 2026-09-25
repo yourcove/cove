@@ -20,6 +20,16 @@ internal static class VrFrameFilter
     /// <paramref name="width"/>-wide 16:9 frame, or null when the video is not VR.
     /// </summary>
     public static string? OneEyeFlat(VrDescriptorDto? vr, int width)
+        => Flat(vr, width, stereoOutput: false);
+
+    /// <summary>
+    /// Like <see cref="OneEyeFlat"/> but keeps both eyes, side by side, each <paramref name="eyeWidth"/>
+    /// wide: the texture a stereoscopic card in a headset wants. A mono source yields a single view.
+    /// </summary>
+    public static string? StereoFlat(VrDescriptorDto? vr, int eyeWidth)
+        => Flat(vr, eyeWidth, stereoOutput: true);
+
+    private static string? Flat(VrDescriptorDto? vr, int width, bool stereoOutput)
     {
         if (vr == null)
             return null;
@@ -40,8 +50,10 @@ internal static class VrFrameFilter
         };
         var evenWidth = Math.Max(2, width / 2 * 2);
         var evenHeight = Math.Max(2, (int)Math.Round(evenWidth * 9 / 16.0 / 2) * 2);
+        // v360's w/h are per eye; a side-by-side output is twice as wide.
+        var outStereo = stereoOutput && stereo != "2d" ? "sbs" : "2d";
 
         return string.Create(CultureInfo.InvariantCulture,
-            $"v360={input}:output=flat:in_stereo={stereo}:out_stereo=2d:h_fov={HorizontalFov:0.##}:v_fov={VerticalFov:0.##}:w={evenWidth}:h={evenHeight}");
+            $"v360={input}:output=flat:in_stereo={stereo}:out_stereo={outStereo}:h_fov={HorizontalFov:0.##}:v_fov={VerticalFov:0.##}:w={evenWidth}:h={evenHeight}");
     }
 }

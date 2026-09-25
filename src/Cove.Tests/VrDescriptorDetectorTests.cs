@@ -104,4 +104,16 @@ public class VrFrameFilterTests
 
         Assert.Equal(expected, filter);
     }
+
+    [Theory]
+    [InlineData(VrStereoMode.SideBySide, "sbs", "sbs")]
+    [InlineData(VrStereoMode.TopBottom, "tb", "sbs")]
+    [InlineData(VrStereoMode.Mono, "2d", "2d")]
+    public void StereoCardsKeepBothEyesSideBySide(VrStereoMode stereo, string inStereo, string outStereo)
+    {
+        // v360's w/h are per eye, so an 800-wide request yields a 1600-wide side-by-side card.
+        var filter = Cove.Api.Services.VrFrameFilter.StereoFlat(new Cove.Core.DTOs.VrDescriptorDto(VrProjection.Equirectangular, 180, stereo), 800);
+
+        Assert.Equal($"v360=input=he:output=flat:in_stereo={inStereo}:out_stereo={outStereo}:h_fov=100:v_fov=67.67:w=800:h=450", filter);
+    }
 }

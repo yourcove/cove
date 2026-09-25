@@ -106,6 +106,8 @@ export interface FileBackedCreate {
 }
 
 export interface VideoUpdate extends Partial<VideoCreate> {
+  /** Explicit VR layout. Omit to leave it alone; list "vr" in clearFields to go back to detection. */
+  vr?: VrDescriptor | null;
   clearFields?: string[];
 }
 
@@ -2262,6 +2264,8 @@ export interface UiConfig {
   continuePlaylistDefault: boolean;
   showAbLoopControls: boolean;
   soundOnPreview: boolean;
+  /** "flat" (one eye) or "stereo" (both eyes side by side) for VR videos' covers and previews. */
+  vrMediaStyle: string;
   previewSegmentDuration: number;
   previewSegments: number;
   previewExcludeStart: string;
