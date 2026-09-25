@@ -1276,6 +1276,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             faces={videoFaces.map(({ face }) => face)}
             captions={file.captions}
             videoStyle={videoStyle}
+            vr={video.vr}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
             }}

@@ -8,8 +8,10 @@ using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Cove.Core.Common;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
+using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data;
 
@@ -154,6 +156,7 @@ public class ThumbnailService(
     private const int DefaultPreviewSegments = 12;
     private const double DefaultPreviewSegmentDuration = 0.75;
     private const int PreviewWidth = 640;
+    private const int VrThumbnailWidth = 1920;
     private const string PreviewPreset = "fast";
     private const int PreviewCrf = 21;
     private const double SegmentPreviewDefaultDuration = 3.0;
@@ -987,6 +990,7 @@ public class ThumbnailService(
 
         var seekSeconds = atSeconds ?? duration * 0.2;
         if (seekSeconds <= 0) seekSeconds = 1;
+        var vrFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth);
 
         // Limit concurrent FFmpeg processes
         var sem = GetFfmpegSemaphore();
@@ -997,13 +1001,18 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
+                string ThumbnailArgs(string? filter) => $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\"{(filter != null ? $" -vf \"{filter}\"" : string.Empty)} -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
 
                 // One input, but it still comes out of the same budget: a run generating thumbnails
                 // alongside sprites would otherwise add a decode per video on top of a sprite's batch.
                 bool decoded;
                 await using (await ffmpegConcurrency.AcquireAsync(1, ct))
-                    decoded = await TryRunFfmpegAsync(ffmpegPath, args, ResolveFrameDecodeTimeout(filePath), ct);
+                {
+                    decoded = await TryRunFfmpegAsync(ffmpegPath, ThumbnailArgs(vrFilter), ResolveFrameDecodeTimeout(filePath), ct);
+                    // A build without v360, or a layout the filter rejects, still gets the full frame.
+                    if (!decoded && vrFilter != null)
+                        decoded = await TryRunFfmpegAsync(ffmpegPath, ThumbnailArgs(null), ResolveFrameDecodeTimeout(filePath), ct);
+                }
 
                 if (!decoded)
                 {
@@ -1230,6 +1239,8 @@ public class ThumbnailService(
 
         var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (filePath == null || duration <= 0) return false;
+        var previewScale = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), PreviewWidth)
+            ?? $"scale={PreviewWidth}:-2";
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
@@ -1275,7 +1286,7 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
+                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
                     generatedPreviewPath,
                     TimeSpan.FromMinutes(5),
                     preset,
@@ -1321,8 +1332,8 @@ public class ThumbnailService(
                     // setpts=PTS-STARTPTS rebases each segment to zero; without it concat inherits the
                     // source timestamps and the output carries huge gaps between segments.
                     filter.Append('[').Append(i.ToString(CultureInfo.InvariantCulture))
-                          .Append(":v:0]scale=").Append(PreviewWidth.ToString(CultureInfo.InvariantCulture))
-                          .Append(":-2,setsar=1,setpts=PTS-STARTPTS[v")
+                          .Append(":v:0]").Append(previewScale)
+                          .Append(",setsar=1,setpts=PTS-STARTPTS[v")
                           .Append(i.ToString(CultureInfo.InvariantCulture)).Append("];");
                 }
                 for (var i = 0; i < segmentCount; i++)
@@ -1359,7 +1370,7 @@ public class ThumbnailService(
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} -ss {seekTimes[i].ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
+                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} -ss {seekTimes[i].ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
                     chunkPath,
                     TimeSpan.FromSeconds(60),
                     preset,
@@ -1840,6 +1851,26 @@ public class ThumbnailService(
     {
         var ts = TimeSpan.FromSeconds(seconds);
         return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
+    }
+
+    /// <summary>The VR layout to flatten generated images with, or null for a flat video.</summary>
+    private async Task<VrDescriptorDto?> GetVideoVrAsync(int videoId, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        var video = await db.Videos
+            .AsNoTracking()
+            .Where(video => video.Id == videoId && video.IsVr)
+            .Select(video => new { video.VrProjection, video.VrFieldOfView, video.VrStereoMode, video.PrimaryFileId })
+            .SingleOrDefaultAsync(ct);
+        if (video == null)
+            return null;
+        var file = await db.VideoFiles
+            .AsNoTracking()
+            .Where(file => file.VideoId == videoId && file.Id == video.PrimaryFileId)
+            .Select(file => new { file.Path, file.Width, file.Height })
+            .SingleOrDefaultAsync(ct);
+        return VrDescriptorDetector.Resolve(true, video.VrProjection, video.VrFieldOfView, video.VrStereoMode, file?.Path, file?.Width ?? 0, file?.Height ?? 0);
     }
 
     internal async Task<(string? FilePath, double Duration)> GetVideoFileInfoAsync(

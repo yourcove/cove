@@ -602,6 +602,22 @@ try
     // registration and before the root container is built (which makes it immutable).
     extensionManager.CaptureHostServices(builder.Services);
 
+    // Optional HTTPS listener with a certificate from a local CA (see LocalHttpsCertificates). Off unless
+    // Cove:HttpsPort is set, because it matters only to clients that need a secure context over the LAN,
+    // such as a standalone VR headset using WebXR.
+    var httpsPort = coveConfig.GetValue<int?>("HttpsPort");
+    LocalHttpsCertificates? httpsCertificates = null;
+    if (httpsPort is > 0 && !isTestHarness)
+    {
+        httpsCertificates = LocalHttpsCertificates.LoadOrCreate(
+            Path.Combine(CoveDefaultPaths.GetDataRoot(), "certs"),
+            coveConfig.GetSection("HttpsHostNames").Get<string[]>() ?? [],
+            DateTimeOffset.UtcNow);
+        builder.WebHost.ConfigureKestrel(kestrel =>
+            kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate = httpsCertificates.Server));
+    }
+    builder.Services.AddSingleton(new LocalHttpsStatus(httpsCertificates, httpsPort is > 0 ? httpsPort : null));
+
     var app = builder.Build();
 
     IFileProvider? frontendFiles = null;
@@ -828,6 +844,11 @@ try
     var port = coveConfig.GetValue<int?>("Port") ?? 5073;
     if (!isTestHarness)
         app.Urls.Add($"http://0.0.0.0:{port}");
+    if (httpsCertificates != null)
+    {
+        app.Urls.Add($"https://0.0.0.0:{httpsPort}");
+        Log.Information("HTTPS enabled on port {Port} for {HostNames}", httpsPort, string.Join(", ", httpsCertificates.HostNames));
+    }
 
     // Initialize SignalR log sink with hub context
     SignalRLogSink.SetHubContext(app.Services.GetRequiredService<IHubContext<LogHub>>());

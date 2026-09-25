@@ -10,6 +10,12 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- VR videos can be watched in a headset. A VR video's page has an **Enter VR** button wherever the browser supports WebXR: the Quest Browser, or Chrome and Edge on a PC running SteamVR or the Oculus runtime. On the Quest the video goes to an equirect media layer that the headset composites directly, so 8K plays as smoothly as in a native player. Pull the trigger to play or pause, flick the thumbstick to seek, and press B or Y to go back to the page. Fisheye and MKX200 videos play only on a PC for now.
+- VR videos now record their layout: projection (equirectangular, fisheye or MKX200), field of view, and stereo packing (side by side, top/bottom or mono). The layout is read from studio file-name conventions such as `_180_LR`, `_360_TB`, `_3dh`, `_MKX200` and `_FISHEYE190`, falling back to the frame's proportions. New files with such names are marked as VR when they are scanned. The API returns the layout as `vr` on videos and accepts an explicit one on update. Clear it with `"vr"` in `clearFields` to go back to detection.
+- Covers and preview clips of VR videos now show a flat view of the scene's centre from one eye, instead of both eyes' warped frames side by side. Regenerate covers and previews to update existing VR videos.
+- Cove can serve HTTPS alongside HTTP, for headsets and other devices that only allow WebXR on a secure origin. Set `Cove:HttpsPort` (for example `Cove__HttpsPort=5443`) to turn it on. Cove creates a local certificate authority in its data folder and issues a certificate for this machine's names and addresses, which it reissues when the machine's address changes. Devices can install the authority from `/api/https/ca.crt`, or accept the browser's warning. In Docker, list the host's LAN names or addresses in `Cove:HttpsHostNames`.
+- Extensions can use Cove's VR playback through the new `@cove/runtime/webxr` runtime module, including handing a video off inside an immersive session the extension opened itself.
+
 ## [1.5.1] - 2026-09-25
 
 Fixed extension upgrades and uninstalls that could leave extensions stuck disabled.

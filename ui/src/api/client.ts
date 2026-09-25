@@ -122,6 +122,7 @@ import type {
   PaginatedResponse,
   Stats,
   SystemStatus,
+  HttpsStatus,
   CoveConfig,
   FfmpegCapabilities,
   JobInfo,
@@ -1816,6 +1817,7 @@ export const entityImages = {
 // ===== System =====
 export const system = {
   status: () => request<SystemStatus>("/system/status"),
+  httpsStatus: () => request<HttpsStatus>("/https"),
   shutdown: () => request<{ message: string }>("/system/shutdown", { method: "POST" }),
   stats: () => request<Stats>("/system/stats"),
   getConfig: () => request<CoveConfig>("/system/config"),

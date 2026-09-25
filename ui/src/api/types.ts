@@ -1,3 +1,7 @@
+import type { VrDescriptor } from "../vr/immersiveVideo";
+
+export type { VrDescriptor };
+
 // ===== Entity Types =====
 
 export interface Video {
@@ -10,6 +14,8 @@ export interface Video {
   date?: string;
   organized: boolean;
   isVr?: boolean;
+  /** VR layout for immersive playback; null when the video is not VR. */
+  vr?: VrDescriptor | null;
   studioId?: number;
   studioName?: string;
   urls: string[];
@@ -4076,4 +4082,12 @@ export interface VideoMergeAssessment {
   videoId: number;
   filesEquivalent: boolean;
   timelineItemCount: number;
+}
+
+/** The optional HTTPS listener. WebXR needs a secure context, which plain HTTP on a LAN address is not. */
+export interface HttpsStatus {
+  enabled: boolean;
+  port?: number | null;
+  hostNames: string[];
+  certificateAuthorityUrl?: string | null;
 }

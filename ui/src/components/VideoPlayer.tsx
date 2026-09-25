@@ -29,7 +29,8 @@ import {
 } from "lucide-react";
 import { videos } from "../api/client";
 import { supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
-import type { Detection, Face, Segment } from "../api/types";
+import type { Detection, Face, Segment, VrDescriptor } from "../api/types";
+import { EnterVrButton } from "./EnterVrButton";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
 import { ExtensionSlot, useHasExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
@@ -217,6 +218,7 @@ export function VideoPlayer({
   interactionResetKey,
   suspended = false,
   keyboardShortcutsEnabled = true,
+  vr,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -260,6 +262,8 @@ export function VideoPlayer({
   suspended?: boolean;
   /** Keeps media lifecycle active while declining global player shortcut ownership. */
   keyboardShortcutsEnabled?: boolean;
+  /** VR layout of the video. When set, the controls offer immersive playback where WebXR allows it. */
+  vr?: VrDescriptor | null;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -2669,6 +2673,8 @@ export function VideoPlayer({
                 {faceOverlayEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
               </button>
             ) : null}
+
+            {vr ? <EnterVrButton videoRef={videoRef} vr={vr} /> : null}
 
             <button
               onClick={toggleFullscreen}

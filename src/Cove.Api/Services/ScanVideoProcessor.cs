@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Cove.Core.Common;
 using Cove.Core.Entities;
+using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data;
 
@@ -146,17 +147,18 @@ internal sealed class ScanVideoProcessor(
             VideoId = targetVideo?.Id
         };
 
+        Video? newVideo = null;
         if (targetVideo == null)
         {
             // Intentionally leave Title null on scan. Storing the filename as the title makes it
             // impossible to filter for entities that have no real title; the UI falls back to the
             // file basename for display when Title is null.
-            var video = new Video
+            newVideo = new Video
             {
                 Files = [videoFile],
             };
 
-            db.Videos.Add(video);
+            db.Videos.Add(newVideo);
         }
         else
         {
@@ -166,6 +168,11 @@ internal sealed class ScanVideoProcessor(
         }
 
         await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir, videoProbeJson, moveIndex);
+
+        // Only new videos: an existing one may already carry a user's explicit IsVr choice.
+        // The layout itself is left unset so it keeps following detection until someone overrides it.
+        if (newVideo != null && VrDescriptorDetector.DetectFromFileName(path) != null)
+            newVideo.IsVr = true;
 
         logger.LogTrace("Added video file for {Path}", path);
         return (videoFile, false, false);

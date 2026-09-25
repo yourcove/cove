@@ -40,3 +40,21 @@ public enum SortDirection
     Asc,
     Desc
 }
+
+/// <summary>How a VR video's frame maps onto the sphere around the viewer.</summary>
+public enum VrProjection
+{
+    // Stored as integers. Append only.
+    Equirectangular,
+    Fisheye,
+    Mkx200
+}
+
+/// <summary>How the two eyes are packed into a VR video's frame.</summary>
+public enum VrStereoMode
+{
+    // Stored as integers. Append only.
+    Mono,
+    SideBySide,
+    TopBottom
+}

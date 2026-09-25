@@ -10,6 +10,11 @@ public class Video : BaseEntity
     public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
     public bool Organized { get; set; }
     public bool IsVr { get; set; }
+    // Explicit VR layout. Null means "not set": readers fall back to VrDescriptorDetector,
+    // so libraries flagged IsVr before these columns existed still get a usable layout.
+    public Cove.Core.Enums.VrProjection? VrProjection { get; set; }
+    public int? VrFieldOfView { get; set; }
+    public Cove.Core.Enums.VrStereoMode? VrStereoMode { get; set; }
     public int? StudioId { get; set; }
     public string? Captions { get; set; }
     public string? ImageBlobId { get; set; }

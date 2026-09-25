@@ -49,7 +49,17 @@ public record VideoDto(
     // Not a positional parameter: that would change the constructor and Deconstruct that extensions
     // compiled against Cove 1.4 bind to. See src/Cove.Sdk/README.md.
     public int? PrimaryFileId { get; init; }
+
+    /// <summary>
+    /// VR layout for players. Null when the video is not VR. Explicit values win; otherwise the
+    /// layout is inferred from the file name and dimensions and <see cref="VrDescriptorDto.Inferred"/> is set.
+    /// </summary>
+    public VrDescriptorDto? Vr { get; init; }
 }
+
+/// <summary>How a VR video should be projected. <paramref name="FieldOfView"/> is the horizontal
+/// coverage in degrees: 180 and 360 for equirectangular, the lens angle (e.g. 190, 200) for fisheye.</summary>
+public record VrDescriptorDto(VrProjection Projection, int FieldOfView, VrStereoMode StereoMode, bool Inferred = false);
 
 public record VideoListEntryDto(string Kind, int Id, VideoDto? Video = null, GroupDto? Group = null);
 
@@ -71,7 +81,12 @@ public record VideoUpdateDto(
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields,
     double? ClipStartSec = null, double? ClipEndSec = null, bool? IsVr = null,
-    List<string>? ClearFields = null);
+    List<string>? ClearFields = null)
+{
+    /// <summary>Sets an explicit VR layout. Clear it with <c>"vr"</c> in <see cref="ClearFields"/> to go back to detection.
+    /// Not positional, see src/Cove.Sdk/README.md.</summary>
+    public VrDescriptorDto? Vr { get; init; }
+}
 
 // ===== PERFORMER DTOs =====
 public record PerformerDto(
