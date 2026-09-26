@@ -4,6 +4,8 @@ const PROJECTIONS: { value: VrProjection; label: string; defaultFov: number }[] 
   { value: "equirectangular", label: "Equirectangular", defaultFov: 180 },
   { value: "fisheye", label: "Fisheye", defaultFov: 190 },
   { value: "mkx200", label: "MKX200", defaultFov: 200 },
+  // A 3D film: a screen in front of the viewer rather than a sphere around them.
+  { value: "flat", label: "Flat screen (3D film)", defaultFov: 0 },
 ];
 
 const STEREO_MODES: { value: VrStereoMode; label: string }[] = [
@@ -89,32 +91,34 @@ export function VrLayoutFields({
               ))}
             </select>
           </label>
-          <label className="block space-y-1">
-            <span className="text-xs text-secondary">Field of view (°)</span>
-            {current.projection === "equirectangular" ? (
-              <select
-                value={current.fieldOfView === 360 ? "360" : "180"}
-                onChange={(event) => update({ fieldOfView: Number(event.target.value) })}
-                className={inputClassName}
-              >
-                <option value="180">180</option>
-                <option value="360">360</option>
-              </select>
-            ) : (
-              <input
-                type="number"
-                min={120}
-                max={360}
-                step={1}
-                value={current.fieldOfView}
-                onChange={(event) => {
-                  const fov = Number(event.target.value);
-                  if (Number.isFinite(fov) && fov > 0) update({ fieldOfView: Math.round(fov) });
-                }}
-                className={inputClassName}
-              />
-            )}
-          </label>
+          {current.projection === "flat" ? null : (
+            <label className="block space-y-1">
+              <span className="text-xs text-secondary">Field of view (°)</span>
+              {current.projection === "equirectangular" ? (
+                <select
+                  value={current.fieldOfView === 360 ? "360" : "180"}
+                  onChange={(event) => update({ fieldOfView: Number(event.target.value) })}
+                  className={inputClassName}
+                >
+                  <option value="180">180</option>
+                  <option value="360">360</option>
+                </select>
+              ) : (
+                <input
+                  type="number"
+                  min={120}
+                  max={360}
+                  step={1}
+                  value={current.fieldOfView}
+                  onChange={(event) => {
+                    const fov = Number(event.target.value);
+                    if (Number.isFinite(fov) && fov > 0) update({ fieldOfView: Math.round(fov) });
+                  }}
+                  className={inputClassName}
+                />
+              )}
+            </label>
+          )}
           <label className="block space-y-1">
             <span className="text-xs text-secondary">Stereo</span>
             <select

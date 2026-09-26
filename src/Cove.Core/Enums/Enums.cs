@@ -47,7 +47,12 @@ public enum VrProjection
     // Stored as integers. Append only.
     Equirectangular,
     Fisheye,
-    Mkx200
+    Mkx200,
+    /// <summary>
+    /// Not wrapped around the viewer at all: a flat picture on a virtual screen, usually a stereoscopic
+    /// 3D film with one eye per half of the frame. Has no field of view.
+    /// </summary>
+    Flat
 }
 
 /// <summary>How the two eyes are packed into a VR video's frame.</summary>

@@ -6,6 +6,7 @@ import {
   claimHandedOffSession,
   createControllerMapping,
   equirectLayerInit,
+  flatEyeAspect,
   formatTime,
   formatVrLayout,
   GazeSettler,
@@ -81,6 +82,20 @@ describe("immersive video", () => {
     expect(Math.abs(z / w)).toBeLessThan(1e-2 * Math.abs(x / w));
   });
 
+  it("shapes a 3D film's screen like one eye's picture, whether packed at full or half size", () => {
+    // Full side by side: two 16:9 eyes next to each other.
+    expect(flatEyeAspect(3840, 1080, "sideBySide")).toBeCloseTo(16 / 9);
+    // Half side by side: two squeezed eyes in a 16:9 frame.
+    expect(flatEyeAspect(1920, 1080, "sideBySide")).toBeCloseTo(16 / 9);
+    // A scope film at full size keeps its width.
+    expect(flatEyeAspect(2 * 1920, 804, "sideBySide")).toBeCloseTo(1920 / 804);
+    // Full and half over-under.
+    expect(flatEyeAspect(1920, 2160, "topBottom")).toBeCloseTo(16 / 9);
+    expect(flatEyeAspect(1920, 1080, "topBottom")).toBeCloseTo(16 / 9);
+    expect(flatEyeAspect(1280, 720, "mono")).toBeCloseTo(16 / 9);
+    expect(flatEyeAspect(0, 0, "mono")).toBeCloseTo(16 / 9);
+  });
+
   it("labels layouts and times", () => {
     expect(formatVrLayout({ projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" })).toBe(
       "180° SBS",
@@ -90,6 +105,9 @@ describe("immersive video", () => {
     );
     expect(formatVrLayout({ projection: "mkx200", fieldOfView: 200, stereoMode: "mono" })).toBe("MKX200 Mono");
     expect(formatVrLayout(null)).toBe("VR");
+    expect(formatVrLayout({ projection: "flat", fieldOfView: 0, stereoMode: "mono" })).toBe("2D");
+    expect(formatVrLayout({ projection: "flat", fieldOfView: 0, stereoMode: "sideBySide" })).toBe("3D SBS");
+    expect(formatVrLayout({ projection: "flat", fieldOfView: 0, stereoMode: "topBottom" })).toBe("3D TB");
     expect(formatTime(65)).toBe("1:05");
     expect(formatTime(3725)).toBe("1:02:05");
     expect(formatTime(Number.NaN)).toBe("0:00");

@@ -19,7 +19,10 @@
  * ({@link offerSessionHandoff}), so the browser shows the video's page while the headset plays it.
  */
 
-/** How a video's frame maps around the viewer. "flat" is an ordinary video on a virtual screen. */
+/**
+ * How a video's frame maps around the viewer. "flat" is a video on a virtual screen: an ordinary one,
+ * or with a stereo mode a 3D film, each eye seeing its own half of the frame.
+ */
 export type VrProjection = "equirectangular" | "fisheye" | "mkx200" | "flat";
 export type VrStereoMode = "mono" | "sideBySide" | "topBottom";
 
@@ -36,10 +39,11 @@ export interface VrDescriptor {
 /** An ordinary, non-VR video: shown on a virtual screen in front of the viewer. */
 export const FLAT_VR: VrDescriptor = { projection: "flat", fieldOfView: 0, stereoMode: "mono" };
 
-/** Short human label for a layout, e.g. "180° SBS", "Fisheye 190° SBS", "MKX200 TB", "2D". */
+/** Short human label for a layout, e.g. "180° SBS", "Fisheye 190° SBS", "MKX200 TB", "3D SBS", "2D". */
 export function formatVrLayout(vr: VrDescriptor | null | undefined): string {
   if (!vr) return "VR";
-  if (vr.projection === "flat") return "2D";
+  if (vr.projection === "flat")
+    return vr.stereoMode === "sideBySide" ? "3D SBS" : vr.stereoMode === "topBottom" ? "3D TB" : "2D";
   const projection =
     vr.projection === "equirectangular"
       ? `${vr.fieldOfView}°`
@@ -223,6 +227,19 @@ export function canUseMediaLayer(vr: VrDescriptor): boolean {
 
 /** Horizontal half-angle of the virtual screen a flat video is shown on, at zoom 1. */
 export const FLAT_SCREEN_HALF_ANGLE = (28 * Math.PI) / 180;
+
+/**
+ * Width / height of the picture one eye of a flat video sees. 3D films come packed at full size (each
+ * eye keeps its own pixels, doubling the frame) or at half size (each eye squeezed into half the
+ * frame, restored on playback). An eye narrower than 1.2:1 side by side, or wider than 2.5:1 over
+ * and under, is taken for a squeezed one: no film is shot that tall or that wide. Exported for tests.
+ */
+export function flatEyeAspect(width: number, height: number, stereoMode: VrStereoMode): number {
+  const frame = width > 0 && height > 0 ? width / height : 16 / 9;
+  if (stereoMode === "sideBySide") return frame / 2 < 1.2 ? frame : frame / 2;
+  if (stereoMode === "topBottom") return frame * 2 > 2.5 ? frame : frame * 2;
+  return frame;
+}
 
 /** The `XRMediaBinding.createEquirectLayer` init for a layout. Exported for extensions and tests. */
 export function equirectLayerInit(vr: VrDescriptor, space: unknown): Record<string, unknown> {
@@ -1216,11 +1233,7 @@ function createWebGlRenderer(
       if (vr.projection === "flat") {
         // Zoom makes the screen larger; the frame's own aspect ratio shapes it.
         gl.uniform1f(uniforms.screenHalfWidth, Math.tan(FLAT_SCREEN_HALF_ANGLE) * zoom.value);
-        const aspect = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 16 / 9;
-        gl.uniform1f(
-          uniforms.aspect,
-          vr.stereoMode === "sideBySide" ? aspect / 2 : vr.stereoMode === "topBottom" ? aspect * 2 : aspect,
-        );
+        gl.uniform1f(uniforms.aspect, flatEyeAspect(video.videoWidth, video.videoHeight, vr.stereoMode));
       }
       for (const view of pose.views) {
         const viewport = targets(view);
