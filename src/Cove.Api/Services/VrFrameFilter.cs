@@ -7,7 +7,7 @@ namespace Cove.Api.Services;
 /// <summary>
 /// ffmpeg filters that turn a VR frame into what a flat screen should show: the left eye only,
 /// reprojected to an ordinary 16:9 view of the scene's centre. Without this a cover is two
-/// warped circles side by side.
+/// warped circles side by side. A 3D film's eyes are only separated, not reprojected.
 /// </summary>
 internal static class VrFrameFilter
 {
@@ -33,6 +33,8 @@ internal static class VrFrameFilter
     {
         if (vr == null)
             return null;
+        if (vr.Projection == VrProjection.Flat)
+            return FlatStereo(vr.StereoMode, width, stereoOutput);
 
         var input = vr.Projection switch
         {
@@ -55,5 +57,27 @@ internal static class VrFrameFilter
 
         return string.Create(CultureInfo.InvariantCulture,
             $"v360={input}:output=flat:in_stereo={stereo}:out_stereo={outStereo}:h_fov={HorizontalFov:0.##}:v_fov={VerticalFov:0.##}:w={evenWidth}:h={evenHeight}");
+    }
+
+    /// <summary>
+    /// A 3D film needs no reprojection, only its eyes pulled apart. Each eye is stretched to 16:9, which
+    /// also undoes the squeeze of half-width or half-height packing. A mono flat video is an ordinary one.
+    /// </summary>
+    private static string? FlatStereo(VrStereoMode stereoMode, int width, bool stereoOutput)
+    {
+        if (stereoMode == VrStereoMode.Mono)
+            return null;
+
+        var evenWidth = Math.Max(2, width / 2 * 2);
+        var evenHeight = Math.Max(2, (int)Math.Round(evenWidth * 9 / 16.0 / 2) * 2);
+        var sideBySide = stereoMode == VrStereoMode.SideBySide;
+        if (!stereoOutput)
+        {
+            var leftEye = sideBySide ? "crop=iw/2:ih:0:0" : "crop=iw:ih/2:0:0";
+            return string.Create(CultureInfo.InvariantCulture, $"{leftEye},scale={evenWidth}:{evenHeight},setsar=1");
+        }
+        // Both eyes side by side, each evenWidth wide, like the reprojected cards.
+        var packing = sideBySide ? "" : "stereo3d=abl:sbsl,";
+        return string.Create(CultureInfo.InvariantCulture, $"{packing}scale={evenWidth * 2}:{evenHeight},setsar=1");
     }
 }

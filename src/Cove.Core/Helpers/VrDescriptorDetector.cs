@@ -21,6 +21,10 @@ public static class VrDescriptorDetector
     private static readonly HashSet<string> SideBySideTokens = new(StringComparer.OrdinalIgnoreCase) { "LR", "SBS", "3DH" };
     private static readonly HashSet<string> TopBottomTokens = new(StringComparer.OrdinalIgnoreCase) { "TB", "OU", "3DV" };
 
+    // Stereoscopic flat video (a 3D film): half or full side by side, half or full over-under.
+    private static readonly HashSet<string> FlatSideBySideTokens = new(StringComparer.OrdinalIgnoreCase) { "HSBS", "FSBS", "LRF" };
+    private static readonly HashSet<string> FlatTopBottomTokens = new(StringComparer.OrdinalIgnoreCase) { "HOU", "FOU", "HTB", "FTB", "HTAB", "FTAB", "TBF" };
+
     /// <summary>
     /// Returns a layout when the file name marks the file as VR, otherwise null. A bare <c>180</c> or
     /// <c>SBS</c> is not enough on its own (a flat 3D film or a runtime could match), but the two together are.
@@ -65,21 +69,47 @@ public static class VrDescriptorDetector
     }
 
     /// <summary>
-    /// The layout to play a video flagged VR with: explicit values, then file-name detection,
-    /// then a guess from dimensions. Returns null for non-VR videos.
+    /// A stereoscopic flat layout when the file name marks a 3D film (<c>HSBS</c>, <c>FSBS</c>,
+    /// <c>HOU</c>, …, or <c>3D</c> next to <c>SBS</c> or <c>OU</c>), otherwise null.
+    /// Unlike <see cref="DetectFromFileName"/> this never marks a file as VR by itself: it only decides
+    /// how a video someone already flagged VR is laid out.
+    /// </summary>
+    public static VrDescriptorDto? DetectFlatStereoFromFileName(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        var tokens = Path.GetFileNameWithoutExtension(path).Split(Separators, StringSplitOptions.RemoveEmptyEntries);
+        var has3D = tokens.Any(t => t.Equals("3D", StringComparison.OrdinalIgnoreCase));
+        VrStereoMode? stereo =
+            tokens.Any(FlatSideBySideTokens.Contains) || (has3D && tokens.Any(t => t.Equals("SBS", StringComparison.OrdinalIgnoreCase)))
+                ? VrStereoMode.SideBySide
+            : tokens.Any(FlatTopBottomTokens.Contains) || (has3D && tokens.Any(t => t.Equals("OU", StringComparison.OrdinalIgnoreCase)))
+                ? VrStereoMode.TopBottom
+            : null;
+
+        return stereo.HasValue ? new VrDescriptorDto(VrProjection.Flat, 0, stereo.Value, Inferred: true) : null;
+    }
+
+    /// <summary>
+    /// The layout to play a video flagged VR with: explicit values, then file-name detection (VR,
+    /// then 3D film), then a guess from dimensions. Returns null for non-VR videos.
     /// </summary>
     public static VrDescriptorDto? Resolve(bool isVr, VrProjection? projection, int? fieldOfView, VrStereoMode? stereoMode, string? path, int width, int height)
     {
         if (!isVr)
             return null;
 
-        var detected = DetectFromFileName(path, width, height) ?? GuessFromDimensions(width, height);
+        var detected = DetectFromFileName(path, width, height)
+            ?? DetectFlatStereoFromFileName(path)
+            ?? GuessFromDimensions(width, height);
         if (projection is null && fieldOfView is null && stereoMode is null)
             return detected;
 
         return new VrDescriptorDto(
             projection ?? detected.Projection,
-            fieldOfView ?? DefaultFieldOfView(projection) ?? detected.FieldOfView,
+            // A 3D film has no field of view to lend a sphere someone picked for it.
+            fieldOfView ?? DefaultFieldOfView(projection) ?? (projection is not null && detected.Projection == VrProjection.Flat ? 180 : detected.FieldOfView),
             stereoMode ?? detected.StereoMode);
     }
 
@@ -98,6 +128,7 @@ public static class VrDescriptorDetector
     {
         VrProjection.Mkx200 => 200,
         VrProjection.Fisheye => 190,
+        VrProjection.Flat => 0,
         _ => null,
     };
 

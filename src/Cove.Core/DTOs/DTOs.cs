@@ -58,7 +58,7 @@ public record VideoDto(
 }
 
 /// <summary>How a VR video should be projected. <paramref name="FieldOfView"/> is the horizontal
-/// coverage in degrees: 180 and 360 for equirectangular, the lens angle (e.g. 190, 200) for fisheye.</summary>
+/// coverage in degrees: 180 and 360 for equirectangular, the lens angle (e.g. 190, 200) for fisheye, 0 for flat.</summary>
 public record VrDescriptorDto(VrProjection Projection, int FieldOfView, VrStereoMode StereoMode, bool Inferred = false);
 
 public record VideoListEntryDto(string Kind, int Id, VideoDto? Video = null, GroupDto? Group = null);
