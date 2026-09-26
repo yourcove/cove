@@ -73,6 +73,53 @@ public class VrDescriptorDetectorTests
         Assert.True(sideBySide.Inferred);
     }
 
+    [Theory]
+    [InlineData("/lib/Top Gun 3D SBS.mkv", VrStereoMode.SideBySide)]
+    [InlineData("/lib/Avatar.2009.HSBS.mkv", VrStereoMode.SideBySide)]
+    [InlineData("/lib/clip_FSBS.mp4", VrStereoMode.SideBySide)]
+    [InlineData("/lib/clip_LRF.mp4", VrStereoMode.SideBySide)]
+    [InlineData("/lib/Gravity 3D HOU.mkv", VrStereoMode.TopBottom)]
+    [InlineData("/lib/Gravity.3D.OU.mkv", VrStereoMode.TopBottom)]
+    public void ResolvesA3DFilmFlaggedVrToAFlatStereoScreen(string path, VrStereoMode stereo)
+    {
+        var descriptor = VrDescriptorDetector.Resolve(true, null, null, null, path, 3840, 1080)!;
+
+        Assert.Equal((VrProjection.Flat, 0, stereo), (descriptor.Projection, descriptor.FieldOfView, descriptor.StereoMode));
+        Assert.True(descriptor.Inferred);
+    }
+
+    [Theory]
+    [InlineData("/lib/Studio - Scene_180_LR.mp4")]
+    [InlineData("/lib/scene_3D_SBS_180.mp4")]
+    [InlineData("/lib/scene.mp4")]
+    [InlineData("/lib/scene_LR.mp4")]
+    public void VrNamesAndPlainNamesAreNotTakenForA3DFilm(string path)
+    {
+        Assert.NotEqual(VrProjection.Flat, VrDescriptorDetector.Resolve(true, null, null, null, path, 5760, 2880)!.Projection);
+    }
+
+    [Fact]
+    public void A3DFilmIsNotMarkedVrOnScan()
+    {
+        Assert.Null(VrDescriptorDetector.DetectFromFileName("/lib/Avatar.2009.HSBS.mkv"));
+    }
+
+    [Fact]
+    public void AnExplicitFlatLayoutHasNoFieldOfView()
+    {
+        var descriptor = VrDescriptorDetector.Resolve(true, VrProjection.Flat, null, VrStereoMode.SideBySide, "/lib/scene_180_LR.mp4", 5760, 2880)!;
+
+        Assert.Equal((VrProjection.Flat, 0, VrStereoMode.SideBySide), (descriptor.Projection, descriptor.FieldOfView, descriptor.StereoMode));
+    }
+
+    [Fact]
+    public void ASpherePickedForA3DFilmNameGetsA180FieldOfView()
+    {
+        var descriptor = VrDescriptorDetector.Resolve(true, VrProjection.Equirectangular, null, null, "/lib/Avatar.HSBS.mkv", 3840, 1080)!;
+
+        Assert.Equal((VrProjection.Equirectangular, 180, VrStereoMode.SideBySide), (descriptor.Projection, descriptor.FieldOfView, descriptor.StereoMode));
+    }
+
     [Fact]
     public void ExplicitValuesWinAndUnsetOnesAreFilledIn()
     {
@@ -115,5 +162,34 @@ public class VrFrameFilterTests
         var filter = Cove.Api.Services.VrFrameFilter.StereoFlat(new Cove.Core.DTOs.VrDescriptorDto(VrProjection.Equirectangular, 180, stereo), 800);
 
         Assert.Equal($"v360=input=he:output=flat:in_stereo={inStereo}:out_stereo={outStereo}:h_fov=100:v_fov=67.67:w=800:h=450", filter);
+    }
+
+    [Theory]
+    [InlineData(VrStereoMode.SideBySide, "crop=iw/2:ih:0:0,scale=640:360,setsar=1")]
+    [InlineData(VrStereoMode.TopBottom, "crop=iw:ih/2:0:0,scale=640:360,setsar=1")]
+    public void A3DFilmShowsItsLeftEyeUnwarped(VrStereoMode stereo, string expected)
+    {
+        var filter = Cove.Api.Services.VrFrameFilter.OneEyeFlat(new Cove.Core.DTOs.VrDescriptorDto(VrProjection.Flat, 0, stereo), 640);
+
+        Assert.Equal(expected, filter);
+    }
+
+    [Theory]
+    [InlineData(VrStereoMode.SideBySide, "scale=1600:450,setsar=1")]
+    [InlineData(VrStereoMode.TopBottom, "stereo3d=abl:sbsl,scale=1600:450,setsar=1")]
+    public void A3DFilmsStereoCardPutsItsEyesSideBySide(VrStereoMode stereo, string expected)
+    {
+        var filter = Cove.Api.Services.VrFrameFilter.StereoFlat(new Cove.Core.DTOs.VrDescriptorDto(VrProjection.Flat, 0, stereo), 800);
+
+        Assert.Equal(expected, filter);
+    }
+
+    [Fact]
+    public void AMonoFlatVideoIsLeftAlone()
+    {
+        var mono = new Cove.Core.DTOs.VrDescriptorDto(VrProjection.Flat, 0, VrStereoMode.Mono);
+
+        Assert.Null(Cove.Api.Services.VrFrameFilter.OneEyeFlat(mono, 640));
+        Assert.Null(Cove.Api.Services.VrFrameFilter.StereoFlat(mono, 800));
     }
 }
