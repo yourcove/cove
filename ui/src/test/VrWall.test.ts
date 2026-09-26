@@ -11,7 +11,7 @@ import {
   vrOnlyFilter,
   type VrListSource,
 } from "../vr/vrListRegistry";
-import { cardDetails, resolutionLabel, wallPageFor } from "../vr/VrWall";
+import { cardDetails, connectExistingControllers, resolutionLabel, wallPageFor } from "../vr/VrWall";
 
 const source: VrListSource = {
   label: "Videos",
@@ -93,5 +93,31 @@ describe("VR wall cards", () => {
     expect(resolutionLabel(7680, 3840)).toBe("8K");
     expect(resolutionLabel(1920, 1080)).toBe("1080p");
     expect(resolutionLabel(640, 480)).toBe("480p");
+  });
+});
+
+describe("VR wall controllers", () => {
+  it("reports the controllers a taken-over session already has, so three.js connects them", () => {
+    const left = { handedness: "left" };
+    const right = { handedness: "right" };
+    const session = Object.assign(new EventTarget(), { inputSources: [left, right] });
+    const reported: { added: unknown[]; removed: unknown[] }[] = [];
+    session.addEventListener("inputsourceschange", (event) => reported.push(event as never));
+
+    connectExistingControllers(session as never);
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.added).toEqual([left, right]);
+    expect(reported[0]!.removed).toEqual([]);
+  });
+
+  it("stays quiet when the session has no controllers yet", () => {
+    const session = Object.assign(new EventTarget(), { inputSources: [] });
+    let reported = 0;
+    session.addEventListener("inputsourceschange", () => reported++);
+
+    connectExistingControllers(session as never);
+
+    expect(reported).toBe(0);
   });
 });
