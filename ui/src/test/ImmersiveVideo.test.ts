@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sharedModuleSpecifiers } from "../generated/extensions/runtime/v1/contract";
 import {
   canUseMediaLayer,
@@ -14,6 +14,7 @@ import {
   inverseViewProjection,
   offerSessionHandoff,
   placeHud,
+  playVideoInSession,
   seekStepAfter,
   steeringAxes,
   type VrDescriptor,
@@ -291,5 +292,85 @@ describe("immersive video", () => {
   it("builds the HTTPS address of the current page", () => {
     const location = { hostname: "192.168.1.20", pathname: "/videos/5", search: "?t=1", hash: "" };
     expect(secureUrlFor(location, 5443)).toBe("https://192.168.1.20:5443/videos/5?t=1");
+  });
+});
+
+describe("choosing how a video is drawn in a session it owns", () => {
+  // Enough of WebGL 2 for the renderer to set itself up: every call succeeds and returns a handle.
+  const fakeGl = new Proxy({} as Record<string | symbol, unknown>, {
+    get: (target, key) => {
+      if (key in target) return target[key];
+      if (key === "isContextLost") return () => false;
+      if (key === "getShaderParameter" || key === "getProgramParameter") return () => true;
+      if (typeof key === "string" && /^[A-Z0-9_]+$/.test(key)) return 1;
+      return () => ({});
+    },
+  });
+
+  function fakeSession() {
+    const renderStates: Record<string, unknown>[] = [];
+    const session = Object.assign(new EventTarget(), {
+      enabledFeatures: ["layers"],
+      inputSources: [],
+      renderState: { baseLayer: null, layers: [] },
+      requestReferenceSpace: async () => ({}),
+      updateRenderState: (state: Record<string, unknown>) => void renderStates.push(state),
+      requestAnimationFrame: () => 0,
+      end: async () => {},
+    });
+    return { session: session as unknown as XRSessionLike, renderStates };
+  }
+
+  const video = { style: { visibility: "" }, play: () => Promise.resolve(), paused: true } as unknown as HTMLVideoElement;
+  const equirect: VrDescriptor = { projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" };
+  const projectionLayer = { kind: "projection" };
+  const mediaLayer = { kind: "equirect" };
+
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(fakeGl as never);
+    vi.stubGlobal(
+      "XRWebGLBinding",
+      class {
+        createProjectionLayer() {
+          return projectionLayer;
+        }
+        getViewSubImage() {
+          return { colorTexture: {}, viewport: { x: 0, y: 0, width: 1, height: 1 } };
+        }
+      },
+    );
+    vi.stubGlobal("XRWebGLLayer", class {});
+    vi.stubGlobal(
+      "XRMediaBinding",
+      class {
+        createEquirectLayer() {
+          return mediaLayer;
+        }
+      },
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("draws into a projection layer, with zoom and the timeline, even where media layers exist", async () => {
+    const { session, renderStates } = fakeSession();
+
+    const playback = await playVideoInSession(session, video, equirect);
+
+    expect(playback.mode).toBe("webgl");
+    expect(renderStates[0]).toEqual({ layers: [projectionLayer] });
+    playback.stop();
+  });
+
+  it("hands the video to the compositor only when asked to", async () => {
+    const { session, renderStates } = fakeSession();
+
+    const playback = await playVideoInSession(session, video, equirect, { preferMediaLayer: true });
+
+    expect(playback.mode).toBe("media-layer");
+    expect(renderStates[0]).toEqual({ layers: [mediaLayer] });
+    playback.stop();
   });
 });
