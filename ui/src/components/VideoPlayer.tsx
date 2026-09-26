@@ -29,7 +29,9 @@ import {
 } from "lucide-react";
 import { videos } from "../api/client";
 import { supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
-import type { Detection, Face, Segment } from "../api/types";
+import type { Detection, Face, Segment, VrDescriptor } from "../api/types";
+import { EnterVrButton } from "./EnterVrButton";
+import { FLAT_VR } from "../vr/immersiveVideo";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
 import { ExtensionSlot, useHasExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
@@ -217,6 +219,8 @@ export function VideoPlayer({
   interactionResetKey,
   suspended = false,
   keyboardShortcutsEnabled = true,
+  vr,
+  vrTitle,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -260,6 +264,10 @@ export function VideoPlayer({
   suspended?: boolean;
   /** Keeps media lifecycle active while declining global player shortcut ownership. */
   keyboardShortcutsEnabled?: boolean;
+  /** VR layout of the video. When set, the controls offer immersive playback where WebXR allows it. */
+  vr?: VrDescriptor | null;
+  /** Shown on the in-headset timeline during immersive playback. */
+  vrTitle?: string;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -2668,6 +2676,20 @@ export function VideoPlayer({
               >
                 {faceOverlayEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
               </button>
+            ) : null}
+
+            {extensionSurface === "detail" ? (
+              <EnterVrButton
+                videoRef={videoRef}
+                vr={vr ?? FLAT_VR}
+                title={vrTitle}
+                transport={{
+                  currentTime: () => toAbsoluteTime(videoRef.current?.currentTime ?? 0),
+                  duration: () => duration,
+                  seek: (seconds) => seekToAbsoluteTime(seconds, false),
+                  isSeeking: () => videoRef.current?.seeking ?? false,
+                }}
+              />
             ) : null}
 
             <button

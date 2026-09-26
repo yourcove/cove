@@ -93,6 +93,7 @@ import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
+import { listKey, vrOnlyFilter, type VrListSource } from "../vr/vrListRegistry";
 
 const VideoDownloadDialog = lazy(() =>
   import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })),
@@ -560,6 +561,31 @@ export function VideosPage({ onNavigate }: Props) {
     setFilter({ ...filter, sorts: undefined, page: 1 });
   }, [filter, includeCompilationGroups, setFilter]);
 
+  // The same page of the same list, for the headset. Visual search has no page-by-page fetch.
+  const vrListSource = useMemo<VrListSource | undefined>(
+    () =>
+      visualSearchActive
+        ? undefined
+        : {
+            label: "Videos",
+            key: listKey({ ...filter }, backendObjectFilter, filterExpression ?? null),
+            page: filter.page ?? 1,
+            perPage: filter.perPage || 40,
+            fetchPage: (page, perPage, vrOnly) =>
+              hasObjectFilter || vrOnly
+                ? videos.findFiltered({
+                    findFilter: { ...filter, page, perPage },
+                    objectFilter: (vrOnly
+                      ? vrOnlyFilter(backendObjectFilter)
+                      : backendObjectFilter) as VideoFilterCriteria,
+                    filterExpression,
+                  })
+                : videos.find({ ...filter, page, perPage }),
+            setPage: (page) => setFilter({ ...filter, page }),
+          },
+    [backendObjectFilter, filter, filterExpression, hasObjectFilter, setFilter, visualSearchActive],
+  );
+
   const {
     data,
     isLoading,
@@ -945,6 +971,8 @@ export function VideosPage({ onNavigate }: Props) {
         selectAllMatchingLabel="Select shown"
         savedFilterUIOptions={savedFilterUIOptions}
         onApplySavedFilterUIOptions={applySavedFilterUIOptions}
+        vrListSource={vrListSource}
+        onNavigate={onNavigate}
         renderOperations={() => (
           <>
             {displayMode === "list" && (

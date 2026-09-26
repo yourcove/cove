@@ -523,6 +523,7 @@ public class ConfigService
             ContinuePlaylistDefault = ui.ContinuePlaylistDefault,
             ShowAbLoopControls = ui.ShowAbLoopControls,
             SoundOnPreview = ui.SoundOnPreview,
+            VrMediaStyle = ui.VrMediaStyle,
             PreviewSegmentDuration = ui.PreviewSegmentDuration,
             PreviewSegments = ui.PreviewSegments,
             PreviewExcludeStart = ui.PreviewExcludeStart,
@@ -573,6 +574,7 @@ public class ConfigService
         ui.ContinuePlaylistDefault = dto.ContinuePlaylistDefault;
         ui.ShowAbLoopControls = dto.ShowAbLoopControls;
         ui.SoundOnPreview = dto.SoundOnPreview;
+        ui.VrMediaStyle = string.Equals(dto.VrMediaStyle, "stereo", StringComparison.OrdinalIgnoreCase) ? "stereo" : "flat";
         ui.PreviewSegmentDuration = dto.PreviewSegmentDuration;
         ui.PreviewSegments = dto.PreviewSegments;
         ui.PreviewExcludeStart = string.IsNullOrWhiteSpace(dto.PreviewExcludeStart) ? "0" : dto.PreviewExcludeStart.Trim();

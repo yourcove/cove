@@ -8,8 +8,10 @@ using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Cove.Core.Common;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
+using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data;
 
@@ -77,6 +79,8 @@ public class ThumbnailService(
     private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
     private string PreviewDir => Path.Combine(config.GeneratedPath, "previews");
     private string SegmentPreviewDir => Path.Combine(config.GeneratedPath, "segment-previews");
+    private string VrCardDir => Path.Combine(config.GeneratedPath, "vr-cards");
+    private string VrPreviewDir => Path.Combine(config.GeneratedPath, "vr-previews");
     private string VttDir => Path.Combine(config.GeneratedPath, "vtt");
     private SemaphoreSlim? _ffmpegSemaphore;
     private int _semaphoreCapacity;
@@ -154,6 +158,8 @@ public class ThumbnailService(
     private const int DefaultPreviewSegments = 12;
     private const double DefaultPreviewSegmentDuration = 0.75;
     private const int PreviewWidth = 640;
+    private const int VrThumbnailWidth = 1920;
+    private const int VrCardEyeWidth = 800;
     private const string PreviewPreset = "fast";
     private const int PreviewCrf = 21;
     private const double SegmentPreviewDefaultDuration = 3.0;
@@ -208,7 +214,106 @@ public class ThumbnailService(
         DeleteFileIfExists(GetSpriteVttPath(videoId));
         DeleteFilesByPattern(Path.GetDirectoryName(GetTimestampedThumbnailPath(videoId, 0))!, $"{videoId}_t*.jpg");
         DeleteFilesByPattern(Path.GetDirectoryName(GetSegmentAnimatedPreviewPath(videoId, 0))!, $"{videoId}_t*.webp");
+        DeleteFileIfExists(GetVrCardPath(videoId));
+        DeleteFileIfExists(GetVrPreviewPath(videoId));
         return Task.CompletedTask;
+    }
+
+    /// <summary>Where a VR video's stereoscopic preview clip lives.</summary>
+    public string GetVrPreviewPath(int videoId)
+    {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
+        return Path.Combine(VrPreviewDir, hash[..2], $"{videoId}.mp4");
+    }
+
+    public bool HasVrPreview(int videoId) => File.Exists(GetVrPreviewPath(videoId));
+
+    public Task<bool> GenerateVrPreviewFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
+        => GenerateVrPreviewCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    private async Task<bool> GenerateVrPreviewCoreAsync(int videoId, int? sourceFileId, bool overwrite, CancellationToken ct)
+    {
+        var vr = await GetVideoVrAsync(videoId, ct);
+        if (vr == null) return false;
+        var filter = VrFrameFilter.StereoFlat(vr, PreviewWidth);
+        if (filter == null) return false;
+        return await _generatedAssetCoordinator.RunAsync(
+            videoId,
+            () => GenerateVideoPreviewUnlockedAsync(videoId, sourceFileId, overwrite, ct, GetVrPreviewPath(videoId), filter),
+            ct);
+    }
+
+    /// <summary>
+    /// The filter that turns a VR frame into what generated covers and previews should show on a flat
+    /// screen: one eye reprojected, or both eyes side by side when the VR media style is "stereo".
+    /// </summary>
+    private string? VrGeneratedFilter(VrDescriptorDto? vr, int width, int stereoEyeWidth)
+        => string.Equals(config.Ui.VrMediaStyle, "stereo", StringComparison.OrdinalIgnoreCase)
+            ? VrFrameFilter.StereoFlat(vr, stereoEyeWidth)
+            : VrFrameFilter.OneEyeFlat(vr, width);
+
+    /// <summary>Where a VR video's stereoscopic card image lives; see <see cref="GenerateVrCardFromFileAsync"/>.</summary>
+    public string GetVrCardPath(int videoId)
+    {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
+        return Path.Combine(VrCardDir, hash[..2], $"{videoId}.jpg");
+    }
+
+    public bool HasVrCard(int videoId) => File.Exists(GetVrCardPath(videoId));
+
+    public Task<bool> GenerateVrCardFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
+        => GenerateVrCardCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    /// <summary>
+    /// A flat view of the scene's centre for each eye, side by side, taken from the same moment as the
+    /// cover: the texture a stereoscopic card in a headset wants. Made by the generate job alongside
+    /// covers, never on request. False for non-VR videos or an ffmpeg without <c>v360</c>.
+    /// </summary>
+    private async Task<bool> GenerateVrCardCoreAsync(int videoId, int? sourceFileId, bool overwrite, CancellationToken ct)
+    {
+        var cardPath = GetVrCardPath(videoId);
+        if (!overwrite && File.Exists(cardPath)) return true;
+
+        var vr = await GetVideoVrAsync(videoId, ct);
+        if (vr == null) return false;
+        var filter = VrFrameFilter.StereoFlat(vr, VrCardEyeWidth);
+        if (filter == null) return false;
+
+        return await _generatedAssetCoordinator.RunAsync(videoId, async () =>
+        {
+            if (!overwrite && File.Exists(cardPath)) return true;
+            var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+            if (filePath == null) return false;
+            var ffmpegPath = GetCachedFfmpegPath();
+            if (ffmpegPath == null) return false;
+
+            var seekSeconds = duration * 0.2;
+            if (seekSeconds <= 0) seekSeconds = 1;
+            Directory.CreateDirectory(Path.GetDirectoryName(cardPath)!);
+            var tempPath = Path.Combine(Path.GetDirectoryName(cardPath)!, $"{videoId}.{Guid.NewGuid():N}.tmp.jpg");
+            var args = $"{GetFfmpegDecodeArgs()} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -vf \"{filter}\" -vframes 1 -q:v 3 -f image2 \"{tempPath}\"";
+
+            var sem = GetFfmpegSemaphore();
+            await sem.WaitAsync(ct);
+            try
+            {
+                bool decoded;
+                await using (await ffmpegConcurrency.AcquireAsync(1, ct))
+                    decoded = await TryRunFfmpegAsync(ffmpegPath, args, ResolveFrameDecodeTimeout(filePath), ct);
+                if (!decoded || !File.Exists(tempPath))
+                {
+                    logger.LogWarning("VR card generation failed for video {VideoId}", videoId);
+                    return false;
+                }
+                File.Move(tempPath, cardPath, overwrite: true);
+                return true;
+            }
+            finally
+            {
+                sem.Release();
+                DeleteFileIfExists(tempPath);
+            }
+        }, ct);
     }
 
     public Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default)
@@ -987,6 +1092,7 @@ public class ThumbnailService(
 
         var seekSeconds = atSeconds ?? duration * 0.2;
         if (seekSeconds <= 0) seekSeconds = 1;
+        var vrFilter = VrGeneratedFilter(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth, VrThumbnailWidth / 2);
 
         // Limit concurrent FFmpeg processes
         var sem = GetFfmpegSemaphore();
@@ -997,13 +1103,18 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
+                string ThumbnailArgs(string? filter) => $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\"{(filter != null ? $" -vf \"{filter}\"" : string.Empty)} -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
 
                 // One input, but it still comes out of the same budget: a run generating thumbnails
                 // alongside sprites would otherwise add a decode per video on top of a sprite's batch.
                 bool decoded;
                 await using (await ffmpegConcurrency.AcquireAsync(1, ct))
-                    decoded = await TryRunFfmpegAsync(ffmpegPath, args, ResolveFrameDecodeTimeout(filePath), ct);
+                {
+                    decoded = await TryRunFfmpegAsync(ffmpegPath, ThumbnailArgs(vrFilter), ResolveFrameDecodeTimeout(filePath), ct);
+                    // A build without v360, or a layout the filter rejects, still gets the full frame.
+                    if (!decoded && vrFilter != null)
+                        decoded = await TryRunFfmpegAsync(ffmpegPath, ThumbnailArgs(null), ResolveFrameDecodeTimeout(filePath), ct);
+                }
 
                 if (!decoded)
                 {
@@ -1168,7 +1279,12 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
+                // Segment previews sit on the 2D timeline, so a VR video contributes one eye, reprojected.
+                var segmentFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), SegmentPreviewWidth);
+                var frameFilter = segmentFilter != null
+                    ? $"fps={SegmentPreviewFps},{segmentFilter}"
+                    : $"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos";
+                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"{frameFilter}\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
                 if (!File.Exists(tempPath))
@@ -1223,13 +1339,18 @@ public class ThumbnailService(
         int videoId,
         int? sourceFileId,
         bool overwrite,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? outputPath = null,
+        string? scaleFilter = null)
     {
-        var previewPath = GetPreviewPath(videoId);
+        var previewPath = outputPath ?? GetPreviewPath(videoId);
         if (!overwrite && File.Exists(previewPath)) return true;
 
         var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (filePath == null || duration <= 0) return false;
+        var previewScale = scaleFilter
+            ?? VrGeneratedFilter(await GetVideoVrAsync(videoId, ct), PreviewWidth, PreviewWidth)
+            ?? $"scale={PreviewWidth}:-2";
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
@@ -1275,7 +1396,7 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
+                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
                     generatedPreviewPath,
                     TimeSpan.FromMinutes(5),
                     preset,
@@ -1321,8 +1442,8 @@ public class ThumbnailService(
                     // setpts=PTS-STARTPTS rebases each segment to zero; without it concat inherits the
                     // source timestamps and the output carries huge gaps between segments.
                     filter.Append('[').Append(i.ToString(CultureInfo.InvariantCulture))
-                          .Append(":v:0]scale=").Append(PreviewWidth.ToString(CultureInfo.InvariantCulture))
-                          .Append(":-2,setsar=1,setpts=PTS-STARTPTS[v")
+                          .Append(":v:0]").Append(previewScale)
+                          .Append(",setsar=1,setpts=PTS-STARTPTS[v")
                           .Append(i.ToString(CultureInfo.InvariantCulture)).Append("];");
                 }
                 for (var i = 0; i < segmentCount; i++)
@@ -1359,7 +1480,7 @@ public class ThumbnailService(
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} -ss {seekTimes[i].ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
+                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} -ss {seekTimes[i].ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
                     chunkPath,
                     TimeSpan.FromSeconds(60),
                     preset,
@@ -1608,8 +1729,10 @@ public class ThumbnailService(
             for (var i = 0; i < frameCount; i++)
                 timestamps[i] = interval * (i + 0.5);
 
+            // Scrub-bar frames are read on a flat screen, so a VR video contributes one eye, reprojected.
+            var spriteFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), SpriteFrameSize);
             var extracted = await VideoFrameBatchExtractor.ExtractAsync(
-                ffmpegPath, filePath, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct);
+                ffmpegPath, filePath, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct, preFilter: spriteFilter);
 
             if (extracted == null)
             {
@@ -1840,6 +1963,26 @@ public class ThumbnailService(
     {
         var ts = TimeSpan.FromSeconds(seconds);
         return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
+    }
+
+    /// <summary>The VR layout to flatten generated images with, or null for a flat video.</summary>
+    private async Task<VrDescriptorDto?> GetVideoVrAsync(int videoId, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        var video = await db.Videos
+            .AsNoTracking()
+            .Where(video => video.Id == videoId && video.IsVr)
+            .Select(video => new { video.VrProjection, video.VrFieldOfView, video.VrStereoMode, video.PrimaryFileId })
+            .SingleOrDefaultAsync(ct);
+        if (video == null)
+            return null;
+        var file = await db.VideoFiles
+            .AsNoTracking()
+            .Where(file => file.VideoId == videoId && file.Id == video.PrimaryFileId)
+            .Select(file => new { file.Path, file.Width, file.Height })
+            .SingleOrDefaultAsync(ct);
+        return VrDescriptorDetector.Resolve(true, video.VrProjection, video.VrFieldOfView, video.VrStereoMode, file?.Path, file?.Width ?? 0, file?.Height ?? 0);
     }
 
     internal async Task<(string? FilePath, double Duration)> GetVideoFileInfoAsync(

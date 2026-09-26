@@ -112,6 +112,7 @@ import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 import { compareNatural } from "../utils/naturalCompare";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -1355,6 +1356,25 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, performerId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "performersCriterion",
+                  performerId,
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
       selectedIds={selectedIds}
       filter={filter}

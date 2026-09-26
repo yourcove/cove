@@ -1,3 +1,7 @@
+import type { VrDescriptor } from "../vr/immersiveVideo";
+
+export type { VrDescriptor };
+
 // ===== Entity Types =====
 
 export interface Video {
@@ -10,6 +14,8 @@ export interface Video {
   date?: string;
   organized: boolean;
   isVr?: boolean;
+  /** VR layout for immersive playback; null when the video is not VR. */
+  vr?: VrDescriptor | null;
   studioId?: number;
   studioName?: string;
   urls: string[];
@@ -100,6 +106,8 @@ export interface FileBackedCreate {
 }
 
 export interface VideoUpdate extends Partial<VideoCreate> {
+  /** Explicit VR layout. Omit to leave it alone; list "vr" in clearFields to go back to detection. */
+  vr?: VrDescriptor | null;
   clearFields?: string[];
 }
 
@@ -2256,6 +2264,8 @@ export interface UiConfig {
   continuePlaylistDefault: boolean;
   showAbLoopControls: boolean;
   soundOnPreview: boolean;
+  /** "flat" (one eye) or "stereo" (both eyes side by side) for VR videos' covers and previews. */
+  vrMediaStyle: string;
   previewSegmentDuration: number;
   previewSegments: number;
   previewExcludeStart: string;
@@ -4076,4 +4086,12 @@ export interface VideoMergeAssessment {
   videoId: number;
   filesEquivalent: boolean;
   timelineItemCount: number;
+}
+
+/** The optional HTTPS listener. WebXR needs a secure context, which plain HTTP on a LAN address is not. */
+export interface HttpsStatus {
+  enabled: boolean;
+  port?: number | null;
+  hostNames: string[];
+  certificateAuthorityUrl?: string | null;
 }

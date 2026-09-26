@@ -22,8 +22,55 @@ Use the `@cove/runtime/*` specifiers in extension source:
 | `@cove/runtime/lucide-react` | Lucide React icons |
 | `@cove/runtime/components` | Cove's public shared component and hook barrel |
 | `@cove/runtime/api` | Authenticated requests to Cove APIs |
+| `@cove/runtime/webxr` | Immersive (WebXR) playback of VR videos |
 
 Cove still maps the corresponding bare third-party specifiers for older bundles, but new bundles should use the namespaced runtime imports. Configure the extension build to leave runtime modules external so Cove and the extension share the same React tree and host libraries.
+
+## Immersive VR playback
+
+`@cove/runtime/webxr` is the same WebXR playback the video player's **Enter VR** button uses, so an
+extension that shows VR videos plays them exactly as Cove does. VR videos carry their layout in
+`video.vr` (`projection`, `fieldOfView`, `stereoMode`); it is `null` for flat videos.
+
+```tsx
+import { getImmersiveVrSupport, startImmersiveVideo } from "@cove/runtime/webxr";
+
+// From a click handler: requesting an immersive session needs a user gesture.
+if ((await getImmersiveVrSupport()).supported) {
+  await startImmersiveVideo(videoElement, video.vr, { onEnd: () => setInVr(false) });
+}
+```
+
+An extension that opens its own session (a 3D gallery, say) requests it with `immersiveSessionInit()`
+so media layers are available, then hands a video off with
+`playVideoInSession(session, videoElement, video.vr, { onExit })`. The video replaces the session's
+layers until the viewer presses B/Y, then the previous layers are restored and `onExit` runs. Pause
+your own rendering meanwhile (with three.js, `renderer.setAnimationLoop(null)`).
+
+To open a video's page in the browser while the headset keeps the session, hand the session over instead:
+`offerSessionHandoff(session, { onReturn })`, then navigate to the video (`onNavigate({ page: "video", id })`).
+The page's player claims the session and plays into it; when the viewer presses back (B or the stick click) it restores the
+session's previous layers and calls `onReturn("exit")`, where the extension resumes rendering and navigates
+back. If the browser leaves the video's page instead, the player returns the session with `"abandoned"`:
+resume rendering, but leave the browser where it is.
+An offer nobody claims (the page had no VR player) times out into `onTimeout`.
+
+Lend your renderer with the offer's `presenter` (your XR-compatible WebGL 2 context, the layer that is the
+session's base layer, your reference space, and a `setFrameRenderer` slot you call from inside your own XR
+animation frame, resetting your GL state afterwards). The player then draws into your layer from your
+loop and never touches the session's render state. Without a presenter the player installs its own base
+layer and frame loop, which leaves a three.js loop that is still running against a layer that is no
+longer the base layer, and that loop does not survive it.
+
+`playVideoInSession` accepts a `transport` (`currentTime`, `duration`, `seek`) for players whose element
+does not hold the whole video, such as a transcode, and an `element` getter for players that replace
+their element mid-playback. Use
+`requestImmersiveSession()` rather than `navigator.xr.requestSession` so a session the page still has
+is ended first; a second concurrent request otherwise fails or hangs on desktop OpenXR.
+
+WebXR needs a secure context. `localhost` qualifies; a headset reaching Cove by LAN address needs
+Cove's HTTPS listener (`Cove:HttpsPort`). `getImmersiveVrSupport()` reports
+`reason: "insecure-context"` when that is what is missing.
 
 ## Authenticated API requests
 

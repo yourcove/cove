@@ -74,6 +74,20 @@ public class FfmpegArgFormattingTests
         Assert.Contains("-frames:v 1 -vf \"scale=160:-2\" -threads 1", args);
     }
 
+    /// <summary>
+    /// A VR sprite sheet flattens one eye before scaling; the reprojection goes ahead of the scale in
+    /// the same filter chain, and callers that pass nothing (pHash) get the pinned scale-only chain.
+    /// </summary>
+    [Fact]
+    public void FrameExtractArgs_PutThePreFilterAheadOfTheScale()
+    {
+        var args = VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/vr.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 160,
+            preFilter: "v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90");
+
+        Assert.Contains("-vf \"v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90,scale=160:-2\"", args);
+    }
+
     /// <summary>A non-positive scale width keeps the source resolution (used by thumbnails).</summary>
     [Fact]
     public void FrameExtractArgs_OmitScaleFilterWhenWidthIsNotPositive()

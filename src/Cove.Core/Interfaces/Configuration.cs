@@ -231,6 +231,9 @@ public class UiConfig
     public bool ShowAbLoopControls { get; set; } = true;
     // Preview
     public bool SoundOnPreview { get; set; }
+    /// <summary>How VR videos' covers and previews are rendered for flat screens: "flat" (one eye,
+    /// reprojected) or "stereo" (both eyes side by side, for browsers running on a headset).</summary>
+    public string VrMediaStyle { get; set; } = "flat";
     public double PreviewSegmentDuration { get; set; } = 0.75;
     public int PreviewSegments { get; set; } = 12;
     public string PreviewExcludeStart { get; set; } = "0";

@@ -67,6 +67,7 @@ import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { useAppConfig } from "../state/AppConfigContext";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -702,6 +703,25 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, galleryId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                objectFilter: withRequiredMultiId(
+                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                  "galleriesCriterion",
+                  galleryId,
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "galleriesCriterion", galleryId)}
       selectedIds={selectedIds}
       filter={filter}

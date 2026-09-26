@@ -11,6 +11,8 @@ import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../comp
 import { EntityReferenceMultiSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 import { videoEditClearFields } from "../utils/videoEditClearFields";
+import { VrLayoutFields, detectedVrLayout, explicitVrLayout } from "../components/VrLayoutFields";
+import type { VrDescriptor } from "../vr/immersiveVideo";
 
 interface Props {
   video: Video;
@@ -28,6 +30,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const [director, setDirector] = useState(video.director || "");
   const [date, setDate] = useState(video.date || "");
   const [isVr, setIsVr] = useState(video.isVr ?? false);
+  const [vrLayout, setVrLayout] = useState<VrDescriptor | null>(explicitVrLayout(video));
   const [rating, setRating] = useState<number | undefined>(undefined);
   const [urls, setUrls] = useState<string[]>(video.urls.length > 0 ? video.urls : [""]);
   const addUrl = () => setUrls([...urls, ""]);
@@ -57,6 +60,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
     setDirector(video.director || "");
     setDate(video.date || "");
     setIsVr(video.isVr ?? false);
+    setVrLayout(explicitVrLayout(video));
     setRating(undefined);
     setUrls(video.urls.length > 0 ? video.urls : [""]);
     setStudioId(video.studioId ?? undefined);
@@ -92,6 +96,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const handleSave = () => {
     const urlList = urls.map((u) => u.trim()).filter(Boolean);
     const clearFields = videoEditClearFields(date, studioId);
+    if (!vrLayout && explicitVrLayout(video)) clearFields.push("vr");
     mutation.mutate({
       title: title,
       code: code,
@@ -100,6 +105,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       director: director,
       date: date || undefined,
       isVr,
+      vr: isVr && vrLayout ? vrLayout : undefined,
       rating,
       studioId,
       urls: urlList,
@@ -187,6 +193,16 @@ export function VideoEditModal({ video, open, onClose }: Props) {
           </label>
         </Field>
       </div>
+      {isVr ? (
+        <div className="mb-4">
+          <VrLayoutFields
+            value={vrLayout}
+            detected={detectedVrLayout(video)}
+            onChange={setVrLayout}
+            inputClassName="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+          />
+        </div>
+      ) : null}
 
       <Field label="Studio" fieldProvenance={video.fieldProvenance} fieldKey={["studio", "studioId"]}>
         <StudioSelector value={studioId} onChange={setStudioId} />

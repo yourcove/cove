@@ -521,6 +521,18 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
         if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
+        if (dto.Vr != null)
+        {
+            video.VrProjection = dto.Vr.Projection;
+            video.VrFieldOfView = dto.Vr.FieldOfView;
+            video.VrStereoMode = dto.Vr.StereoMode;
+        }
+        if (clearFields.Contains("vr"))
+        {
+            video.VrProjection = null;
+            video.VrFieldOfView = null;
+            video.VrStereoMode = null;
+        }
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
         if (dto.Captions != null) video.Captions = string.IsNullOrWhiteSpace(dto.Captions) ? null : dto.Captions;
         if (clearFields.Contains("date")) video.Date = null;
@@ -1035,6 +1047,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     )
     {
         PrimaryFileId = s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId,
+        Vr = ResolveVr(s),
     };
 
     private VideoDto MapListToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null) => new(
@@ -1077,6 +1090,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     )
     {
         PrimaryFileId = s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId,
+        Vr = ResolveVr(s),
     };
 
     private static List<TagDto> GetEffectiveTags(Video video, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId)
@@ -1104,6 +1118,14 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             counts?.TextCount ?? 0,
             performer.Country,
             PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision));
+    }
+
+    private static VrDescriptorDto? ResolveVr(Video video)
+    {
+        if (!video.IsVr)
+            return null;
+        var file = EffectiveFiles(video).FirstOrDefault();
+        return VrDescriptorDetector.Resolve(true, video.VrProjection, video.VrFieldOfView, video.VrStereoMode, file?.Path, file?.Width ?? 0, file?.Height ?? 0);
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)

@@ -2409,6 +2409,16 @@ export function SettingsPage() {
                         { value: "veryslow", label: "Very Slow" },
                       ]}
                     />
+                    <SelectField
+                      label="VR covers and previews"
+                      description="How VR videos look on a flat screen: one eye reprojected (2D), or both eyes side by side (3D, for a browser running on a headset). Regenerate covers and previews for VR videos after changing this."
+                      value={draft.ui.vrMediaStyle === "stereo" ? "stereo" : "flat"}
+                      onChange={(value) => updateDraft((d) => ({ ...d, ui: { ...d.ui, vrMediaStyle: value } }))}
+                      options={[
+                        { value: "flat", label: "2D — one eye" },
+                        { value: "stereo", label: "3D — side by side" },
+                      ]}
+                    />
                     <CheckboxLabel
                       label="Include audio in previews"
                       description="Keep the audio track in generated preview files when the source has audio."

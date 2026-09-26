@@ -136,6 +136,11 @@ async function main() {
     "Re-exports Cove's authenticated fetch helper for extensions.",
     'export { extensionFetch, type ExtensionFetchOptions } from "../../../../extensions/extension-api";',
   );
+  await writeLocalRuntimeModule(
+    "webxr",
+    "Re-exports Cove's immersive (WebXR) video playback so extensions share the player's VR path.",
+    'export * from "../../../../vr/immersiveVideo";',
+  );
 
   await generateContractModule();
   console.log(`Generated Cove extension runtime modules in ${runtimeDir}`);

@@ -8,6 +8,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { ViewInVrButton } from "./ViewInVrButton";
+import type { VrListSource } from "../vr/vrListRegistry";
 import {
   LayoutGrid,
   List,
@@ -116,6 +118,9 @@ export interface ListPageProps {
   metadataByline?: ReactNode;
   onNew?: () => void;
   renderOperations?: () => ReactNode;
+  /** When set, a "View in VR" button shows this list in a headset. */
+  vrListSource?: VrListSource;
+  onNavigate?: (route: any) => void;
   filterMode?: string;
   savedFilterScope?: string;
   cardSizeEntityType?: string;
@@ -284,6 +289,8 @@ export function ListPage({
   metadataByline,
   onNew,
   renderOperations,
+  vrListSource,
+  onNavigate,
   filterMode,
   savedFilterScope,
   cardSizeEntityType: requestedCardSizeEntityType,
@@ -1050,6 +1057,7 @@ export function ListPage({
 
         {/* Operations */}
         <div className="list-page-operations ml-auto flex flex-wrap items-center justify-end gap-2 sm:ml-0 lg:flex-1 lg:basis-0 lg:min-w-fit">
+          {vrListSource && onNavigate ? <ViewInVrButton source={vrListSource} onNavigate={onNavigate} /> : null}
           {renderOperations?.()}
           <ExtensionSlot slot="list-page-toolbar-end" context={slotContext} />
           {pageKey && <ExtensionSlot slot={`${pageKey}-list-toolbar-end`} context={slotContext} />}
