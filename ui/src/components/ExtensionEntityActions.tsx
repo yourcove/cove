@@ -95,7 +95,13 @@ function getActionManualContexts(action: ExtensionAction) {
   ];
 }
 
-export function ExtensionEntityActions({ entityType, entityId, pageType, renderMode = "toolbar", onInvoked }: ExtensionEntityActionsProps) {
+export function ExtensionEntityActions({
+  entityType,
+  entityId,
+  pageType,
+  renderMode = "toolbar",
+  onInvoked,
+}: ExtensionEntityActionsProps) {
   const normalizedEntityType = normalizeEntityType(entityType);
   const normalizedPageType = normalizeEntityType(pageType ?? entityType);
   const queryClient = useQueryClient();
