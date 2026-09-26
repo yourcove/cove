@@ -1,13 +1,34 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@microsoft/signalr", () => {
+  const connection = { on: vi.fn(), start: vi.fn(() => Promise.resolve()), stop: vi.fn() };
+  class HubConnectionBuilder {
+    withUrl() {
+      return this;
+    }
+    withAutomaticReconnect() {
+      return this;
+    }
+    configureLogging() {
+      return this;
+    }
+    build() {
+      return connection;
+    }
+  }
+  return { HubConnectionBuilder, LogLevel: { Warning: 3 } };
+});
 import { jobs } from "../api/client";
 import type { JobInfo } from "../api/types";
 import {
   applyJobUpdate,
   collectUnseenTerminalJobs,
   invalidateContentForTerminalJob,
+  isContentQueryKey,
+  JobDrawer,
   jobHistoryPollingInterval,
   useJobCount,
 } from "../components/JobDrawer";
@@ -24,13 +45,101 @@ function job(status: JobInfo["status"], id: string = status): JobInfo {
   };
 }
 
-describe("bulk deletion job cache invalidation", () => {
-  it.each(["completed", "failed", "cancelled"] as const)("invalidates content for a %s bulk deletion", (status) => {
-    const queryClient = new QueryClient();
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+function cachedQueryClient() {
+  const queryClient = new QueryClient();
+  for (const key of [["tags"], ["studios"], ["tag-videos", 1], ["video", 2], ["stats"], ["system-config"], ["jobs"]]) {
+    queryClient.setQueryData(key, []);
+  }
+  return queryClient;
+}
 
-    expect(invalidateContentForTerminalJob(queryClient, job(status))).toBe(true);
-    expect(invalidate).toHaveBeenCalledWith();
+function invalidatedRoots(queryClient: QueryClient) {
+  return queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((query) => query.state.isInvalidated)
+    .map((query) => query.queryKey[0]);
+}
+
+describe("job cache invalidation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "invalidates every content query when a job is %s",
+    (status) => {
+      for (const type of ["scan", "identify", "plugin:com.example.task"]) {
+        const queryClient = cachedQueryClient();
+
+        expect(invalidateContentForTerminalJob(queryClient, { ...job(status), type })).toBe(true);
+        expect(invalidatedRoots(queryClient)).toEqual(["tags", "studios", "tag-videos", "video", "stats"]);
+      }
+    },
+  );
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "invalidates everything when a bulk deletion is %s",
+    (status) => {
+      const queryClient = cachedQueryClient();
+
+      expect(invalidateContentForTerminalJob(queryClient, { ...job(status), type: "tag-bulk-delete" })).toBe(true);
+      expect(invalidatedRoots(queryClient)).toEqual([
+        "tags",
+        "studios",
+        "tag-videos",
+        "video",
+        "stats",
+        "system-config",
+        "jobs",
+      ]);
+    },
+  );
+
+  it.each(["backup", "export"])("leaves the cache alone when a %s job ends", (type) => {
+    const queryClient = cachedQueryClient();
+
+    expect(invalidateContentForTerminalJob(queryClient, { ...job("completed"), type })).toBe(false);
+    expect(invalidatedRoots(queryClient)).toEqual([]);
+  });
+
+  it.each(["pending", "running"] as const)("leaves the cache alone while a job is %s", (status) => {
+    const queryClient = cachedQueryClient();
+
+    expect(invalidateContentForTerminalJob(queryClient, job(status))).toBe(false);
+    expect(invalidatedRoots(queryClient)).toEqual([]);
+  });
+
+  it("treats settings, extension and job state as non-content", () => {
+    expect(isContentQueryKey(["tag-studios", 3])).toBe(true);
+    expect(isContentQueryKey(["system-config"])).toBe(false);
+    expect(isContentQueryKey(["extensions-list"])).toBe(false);
+    expect(isContentQueryKey(["jobs-history"])).toBe(false);
+  });
+
+  it("does not invalidate content for jobs that ended before the drawer loaded history", async () => {
+    const earlier = job("completed", "earlier");
+    const later = job("failed", "later");
+    vi.spyOn(jobs, "list").mockResolvedValue([]);
+    const history = vi.spyOn(jobs, "history").mockResolvedValue([earlier]);
+    const queryClient = cachedQueryClient();
+
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(JobDrawer, { open: false, onClose: vi.fn() }),
+      ),
+    );
+    await waitFor(() => expect(history).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queryClient.getQueryData(["jobs-history"])).toEqual([earlier]));
+    // Let the drawer's history effect run before checking that it invalidated nothing.
+    await act(async () => {});
+    expect(invalidatedRoots(queryClient)).not.toContain("tags");
+
+    history.mockResolvedValue([later, earlier]);
+    await act(() => queryClient.refetchQueries({ queryKey: ["jobs-history"] }));
+    await waitFor(() => expect(invalidatedRoots(queryClient)).toContain("tags"));
   });
 
   it("detects a terminal job first observed by history polling after reconnect", () => {
@@ -54,7 +163,7 @@ describe("bulk deletion job cache invalidation", () => {
   });
 
   it("counts running and pending jobs from the shared job list for the navbar badge", async () => {
-    const list = vi.spyOn(jobs, "list").mockResolvedValue([job("running", "a"), job("completed", "b")]);
+    vi.spyOn(jobs, "list").mockResolvedValue([job("running", "a"), job("completed", "b")]);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client: queryClient }, children);
@@ -66,6 +175,5 @@ describe("bulk deletion job cache invalidation", () => {
       queryClient.setQueryData<JobInfo[]>(["jobs"], (cached) => applyJobUpdate(cached, job("pending", "c")));
     });
     await waitFor(() => expect(result.current).toBe(2));
-    list.mockRestore();
   });
 });

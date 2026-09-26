@@ -27,19 +27,59 @@ export function collectUnseenTerminalJobs(jobsToInspect: readonly JobInfo[], see
   return unseen;
 }
 
+// Query roots holding settings, extension state or job state, which jobs do not change. Refetching them
+// could also disturb a settings form mid-edit. Every other root is content a job may have changed.
+const NON_CONTENT_QUERY_ROOTS = new Set([
+  "admin",
+  "auth",
+  "custom-fields",
+  "dashboard-page",
+  "display-profiles",
+  "ext-config",
+  "extensions-list",
+  "ffmpeg-capabilities",
+  "filesystem-policy",
+  "job",
+  "jobs",
+  "jobs-history",
+  "library-folders",
+  "logs",
+  "plugins",
+  "registry-categories",
+  "registry-search",
+  "registry-updates",
+  "saved-filter",
+  "saved-filters",
+  "scrapers",
+  "segment-display-profile",
+  "segment-display-profiles",
+  "settings",
+  "setup",
+  "system-config",
+  "system-downloaders",
+  "system-status",
+  "video-conversion-encoders",
+]);
+
+export function isContentQueryKey(queryKey: readonly unknown[]): boolean {
+  return !NON_CONTENT_QUERY_ROOTS.has(String(queryKey[0]));
+}
+
+// Job types that write files outside the library and change no content.
+const JOB_TYPES_WITHOUT_CONTENT_CHANGES = new Set(["backup", "export"]);
+
+/**
+ * Any job can commit part of its work before it fails or is cancelled, and job types range from scans
+ * and identify to plugin tasks, so every terminal outcome invalidates all content queries. Bulk
+ * deletions also invalidate settings data: deleting a tag, for example, clears it from display rules.
+ */
 export function invalidateContentForTerminalJob(queryClient: QueryClient, job: JobInfo): boolean {
-  if (!isTerminalJob(job)) return false;
+  if (!isTerminalJob(job) || JOB_TYPES_WITHOUT_CONTENT_CHANGES.has(job.type)) return false;
   if (job.type.endsWith("-bulk-delete")) {
     void queryClient.invalidateQueries();
-    return true;
+  } else {
+    void queryClient.invalidateQueries({ predicate: (query) => isContentQueryKey(query.queryKey) });
   }
-  if (job.status !== "completed") return false;
-
-  void queryClient.invalidateQueries({ queryKey: ["videos"] });
-  void queryClient.invalidateQueries({ queryKey: ["images"] });
-  void queryClient.invalidateQueries({ queryKey: ["galleries"] });
-  void queryClient.invalidateQueries({ queryKey: ["performers"] });
-  void queryClient.invalidateQueries({ queryKey: ["stats"] });
   return true;
 }
 
@@ -114,12 +154,17 @@ export function JobDrawer({ open, onClose }: Props) {
     };
   }, [observeTerminalJob, queryClient]);
 
-  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. Bulk jobs can
-  // commit some units before failing or being cancelled, so every terminal outcome invalidates content.
+  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. The first
+  // response only records the baseline: those jobs ended before this page loaded its data.
+  const historyBaselineRecordedRef = useRef(false);
   useEffect(() => {
-    for (const job of collectUnseenTerminalJobs(jobHistory ?? [], observedTerminalJobsRef.current)) {
-      invalidateContentForTerminalJob(queryClient, job);
+    if (!jobHistory) return;
+    const unseen = collectUnseenTerminalJobs(jobHistory, observedTerminalJobsRef.current);
+    if (!historyBaselineRecordedRef.current) {
+      historyBaselineRecordedRef.current = true;
+      return;
     }
+    for (const job of unseen) invalidateContentForTerminalJob(queryClient, job);
   }, [jobHistory, queryClient]);
 
   const handleCancel = useCallback(
