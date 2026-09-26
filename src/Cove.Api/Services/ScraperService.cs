@@ -1183,8 +1183,14 @@ public partial class ScraperService
             if (scraped == null || scraped.Count == 0)
                 return merged;
 
+            // Extension search results are the extension's own answer for the chosen candidate, so
+            // the detail scrape only fills fields they left empty (it must not rename the match).
+            var fillMissingOnly = searchUrl == null;
             foreach (var (field, value) in scraped)
-                merged[field] = value;
+            {
+                if (!fillMissingOnly || !merged.TryGetValue(field, out var existing) || IsEmptyCandidateValue(existing))
+                    merged[field] = value;
+            }
         }
         catch (Exception ex)
         {
@@ -1193,6 +1199,17 @@ public partial class ScraperService
 
         return merged;
     }
+
+    private static bool IsEmptyCandidateValue(object? value) => value switch
+    {
+        null => true,
+        string text => string.IsNullOrWhiteSpace(text),
+        JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => true,
+        JsonElement { ValueKind: JsonValueKind.String } element => string.IsNullOrWhiteSpace(element.GetString()),
+        JsonElement { ValueKind: JsonValueKind.Array } element => element.GetArrayLength() == 0,
+        System.Collections.ICollection collection => collection.Count == 0,
+        _ => false,
+    };
 
     private static string? ExtractCandidateUrl(IReadOnlyDictionary<string, object> candidate)
     {

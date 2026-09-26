@@ -117,7 +117,7 @@ public class ScraperServiceTests
     }
 
     [Fact]
-    public async Task ScrapeNameAsync_ExtensionScraper_EnrichesCandidatesFromUrlScrape()
+    public async Task ScrapeNameAsync_ExtensionScraper_FillsMissingCandidateFieldsFromUrlScrape()
     {
         var service = CreateService(scraperProvider: new FakeAudioSearchScraperProvider());
 
@@ -127,7 +127,9 @@ public class ScraperServiceTests
         Assert.Equal(2, results.Count);
         var first = results[0];
         Assert.Equal("Example One", Assert.IsType<JsonElement>(first["title"]).GetString());
-        Assert.Equal("Full details for one", Assert.IsType<JsonElement>(first["details"]).GetString());
+        // Values the search result already had win; empty ones are filled from the detail scrape.
+        Assert.Equal("Snippet for one", Assert.IsType<JsonElement>(first["details"]).GetString());
+        Assert.Equal("2024-01-02", Assert.IsType<JsonElement>(first["date"]).GetString());
         Assert.Equal(["Tag A", "Tag B"], Assert.IsType<JsonElement>(first["tagNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
         Assert.Equal(["Performer"], Assert.IsType<JsonElement>(first["performerNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
         Assert.False(first.ContainsKey("URL"));
@@ -571,6 +573,7 @@ public class ScraperServiceTests
                 {
                     Title = "Example One",
                     Details = "Full details for one",
+                    Date = "2024-01-02",
                     Urls = ["https://audio.example.net/file/1"],
                     PerformerNames = ["Performer"],
                     TagNames = ["Tag A", "Tag B"],
