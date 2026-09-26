@@ -915,7 +915,14 @@ public partial class ScraperService
         GetScrapers();
 
         if (TryGetExtensionScraperRegistration(scraperId, entityType, out var extensionRegistration))
-            return await ScrapeNameWithExtensionAsync(extensionRegistration, name, ct);
+        {
+            // Extension search results are usually built from listing pages and omit detail-only
+            // fields (tags, performers, full details); fill them in from each candidate's page.
+            var extensionCandidates = await ScrapeNameWithExtensionAsync(extensionRegistration, name, ct);
+            return extensionCandidates is { Count: > 0 } && extensionRegistration.Descriptor.Capabilities.HasFlag(ScraperCapabilities.ByUrl)
+                ? await EnrichNameSearchCandidatesAsync(scraperId, entityType, extensionCandidates, searchUrl: null, ct)
+                : extensionCandidates;
+        }
 
         var baseId = GetBaseScraperId(scraperId);
 
@@ -1125,7 +1132,7 @@ public partial class ScraperService
         string scraperId,
         string entityType,
         List<Dictionary<string, object>> candidates,
-        string searchUrl,
+        string? searchUrl,
         CancellationToken ct)
     {
         if (candidates.Count == 0)
@@ -1153,17 +1160,22 @@ public partial class ScraperService
         string scraperId,
         string entityType,
         Dictionary<string, object> candidate,
-        string searchUrl,
+        string? searchUrl,
         CancellationToken ct)
     {
         var merged = new Dictionary<string, object>(candidate, StringComparer.OrdinalIgnoreCase);
-        var candidateUrl = ExtractCandidateUrl(candidate);
+        var candidateUrl = ExtractCandidateUrl(merged);
         if (string.IsNullOrWhiteSpace(candidateUrl))
             return merged;
 
-        var absoluteUrl = ResolveCandidateUrl(searchUrl, candidateUrl);
-        if (!string.IsNullOrWhiteSpace(absoluteUrl))
-            merged["URL"] = absoluteUrl;
+        // Extension candidates (no search URL) already carry absolute URLs in their own shape.
+        string? absoluteUrl = null;
+        if (searchUrl != null)
+        {
+            absoluteUrl = ResolveCandidateUrl(searchUrl, candidateUrl);
+            if (!string.IsNullOrWhiteSpace(absoluteUrl))
+                merged["URL"] = absoluteUrl;
+        }
 
         try
         {
@@ -1186,12 +1198,34 @@ public partial class ScraperService
     {
         foreach (var field in new[] { "URL", "Url" })
         {
-            if (candidate.TryGetValue(field, out var value) && value is string text && !string.IsNullOrWhiteSpace(text))
+            if (!candidate.TryGetValue(field, out var value))
+                continue;
+
+            var text = value switch
+            {
+                string stringValue => stringValue,
+                JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+                _ => null,
+            };
+            if (!string.IsNullOrWhiteSpace(text))
                 return text.Trim();
         }
 
-        if (candidate.TryGetValue("URLs", out var urlsValue) && urlsValue is List<string> urls && urls.Count > 0)
-            return urls[0];
+        if (candidate.TryGetValue("URLs", out var urlsValue))
+        {
+            if (urlsValue is List<string> urls && urls.Count > 0)
+                return urls[0];
+
+            // Extension results are round-tripped through JSON, so list values arrive as JsonElement.
+            if (urlsValue is JsonElement { ValueKind: JsonValueKind.Array } urlArray)
+            {
+                foreach (var item in urlArray.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        return item.GetString()!.Trim();
+                }
+            }
+        }
 
         return null;
     }
