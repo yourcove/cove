@@ -321,7 +321,11 @@ describe("choosing how a video is drawn in a session it owns", () => {
     return { session: session as unknown as XRSessionLike, renderStates };
   }
 
-  const video = { style: { visibility: "" }, play: () => Promise.resolve(), paused: true } as unknown as HTMLVideoElement;
+  const video = {
+    style: { visibility: "" },
+    play: () => Promise.resolve(),
+    paused: true,
+  } as unknown as HTMLVideoElement;
   const equirect: VrDescriptor = { projection: "equirectangular", fieldOfView: 180, stereoMode: "sideBySide" };
   const projectionLayer = { kind: "projection" };
   const mediaLayer = { kind: "equirect" };
