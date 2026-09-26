@@ -1844,7 +1844,7 @@ function TagGroupsPanel({
     fetchAllIds,
     loadMore,
   } = useDetailListQuery<Group>({
-    queryKey: ["tag-groups", tagId, objectFilter, includeSubTags],
+    queryKey: ["tag-linked-groups", tagId, objectFilter, includeSubTags],
     filter,
     queryFn: (nextFilter) =>
       hasObjectFilter || includeSubTags

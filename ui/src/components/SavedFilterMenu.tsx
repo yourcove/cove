@@ -301,7 +301,7 @@ export function SavedFilterMenu({
           currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
       setSaveName("");
       setShowSave(false);
     },
@@ -316,7 +316,7 @@ export function SavedFilterMenu({
         uiOptions: JSON.stringify(currentUIOptions ?? {}),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
       setOpen(false);
     },
   });
@@ -324,7 +324,7 @@ export function SavedFilterMenu({
   const deleteMut = useMutation({
     mutationFn: (id: number) => savedFilters.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
     },
   });
 

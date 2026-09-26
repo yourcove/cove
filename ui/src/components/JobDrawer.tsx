@@ -43,6 +43,13 @@ export function invalidateContentForTerminalJob(queryClient: QueryClient, job: J
   return true;
 }
 
+/** Replaces the job in the cached list, or appends it. Leaves an unloaded list for the first fetch. */
+export function applyJobUpdate(list: JobInfo[] | undefined, job: JobInfo): JobInfo[] | undefined {
+  if (!list) return list;
+  const index = list.findIndex((existing) => existing.id === job.id);
+  return index === -1 ? [...list, job] : list.map((existing, i) => (i === index ? job : existing));
+}
+
 export function jobHistoryPollingInterval(drawerOpen: boolean): number {
   return drawerOpen ? 3000 : 15000;
 }
@@ -54,7 +61,7 @@ export function JobDrawer({ open, onClose }: Props) {
   const observedTerminalJobsRef = useRef(new Set<string>());
 
   const { data: activeJobs } = useQuery({
-    queryKey: ["jobs-active"],
+    queryKey: ["jobs"],
     queryFn: jobs.list,
     refetchInterval: open ? 3000 : false,
   });
@@ -90,9 +97,12 @@ export function JobDrawer({ open, onClose }: Props) {
         next.set(job.id, job);
         return next;
       });
-      // Invalidate queries to stay in sync
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
+      // Apply the event to the cached job list so the badge and queue update at once. Updates arrive up
+      // to ten times a second per job, so the follow-up refetch must not cancel one already in flight,
+      // or no refetch would ever finish while jobs run.
+      queryClient.setQueryData<JobInfo[]>(["jobs"], (list) => applyJobUpdate(list, job));
+      queryClient.invalidateQueries({ queryKey: ["jobs"] }, { cancelRefetch: false });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] }, { cancelRefetch: false });
       observeTerminalJob(job);
     });
 
@@ -115,7 +125,7 @@ export function JobDrawer({ open, onClose }: Props) {
   const handleCancel = useCallback(
     async (id: string) => {
       await jobs.cancel(id);
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
     },
     [queryClient],
@@ -211,43 +221,9 @@ export function JobDrawer({ open, onClose }: Props) {
   );
 }
 
-// Export a hook for the navbar badge
+// Export a hook for the navbar badge. It shares the drawer's active-job query; the drawer stays mounted
+// next to the badge and invalidates that query on every SignalR job update.
 export function useJobCount() {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    const connection = new HubConnectionBuilder()
-      .withUrl("/hubs/jobs")
-      .withAutomaticReconnect()
-      .configureLogging(LogLevel.None)
-      .build();
-
-    let activeIds = new Set<string>();
-
-    connection.on("JobUpdated", (job: JobInfo) => {
-      if (job.status === "running" || job.status === "pending") {
-        activeIds.add(job.id);
-      } else {
-        activeIds.delete(job.id);
-      }
-      setCount(activeIds.size);
-    });
-
-    // Also poll once on mount
-    jobs
-      .list()
-      .then((list) => {
-        activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
-        setCount(activeIds.size);
-      })
-      .catch(() => {});
-
-    connection.start().catch(() => {});
-
-    return () => {
-      connection.stop();
-    };
-  }, []);
-
-  return count;
+  const { data } = useQuery({ queryKey: ["jobs"], queryFn: jobs.list });
+  return data?.filter((job) => job.status === "running" || job.status === "pending").length ?? 0;
 }

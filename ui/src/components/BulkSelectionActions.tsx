@@ -525,7 +525,6 @@ export function BulkSelectionActions({
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
       queryClient.invalidateQueries();
       window.alert(formatBatchDownloadSummary(downloadEntity!.toLowerCase(), result));

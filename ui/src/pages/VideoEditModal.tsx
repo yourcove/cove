@@ -87,7 +87,6 @@ export function VideoEditModal({ video, open, onClose }: Props) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["tagapplications"] });
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       onClose();
     },

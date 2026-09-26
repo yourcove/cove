@@ -156,7 +156,6 @@ export function GalleriesPage({ onNavigate }: Props) {
       queueBatchDownloads("Gallery", selectedDownloadTargets, options),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
       queryClient.invalidateQueries({ queryKey: ["galleries"] });
       window.alert(formatBatchDownloadSummary("gallery", result));

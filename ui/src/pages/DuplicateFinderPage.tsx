@@ -309,7 +309,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
       }),
     onSuccess: (result) => {
       openSearch(result.searchId);
-      void queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       void queryClient.invalidateQueries({ queryKey: ["duplicate-searches"] });
     },
   });
@@ -416,7 +416,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
           message: `Queued ${result.queuedGroupCount.toLocaleString()} groups. They resolve in the background — keep working.`,
         });
       }
-      void queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["duplicate-search", searchId] }),
         queryClient.invalidateQueries({ queryKey: ["duplicate-search-groups", searchId] }),

@@ -1402,7 +1402,7 @@ export function SettingsPage() {
   });
 
   const { data: availableScrapers = [] } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: canWriteSystemSettings && activeTab === "data-sources-scrapers",
   });
@@ -1611,7 +1611,7 @@ export function SettingsPage() {
       savingRef.current = true;
       queryClient.setQueriesData({ queryKey: ["system-config"] }, savedConfig);
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
-      queryClient.invalidateQueries({ queryKey: ["system-scrapers"] });
+      queryClient.invalidateQueries({ queryKey: ["scrapers"] });
       setError(null);
     },
     onError: (err: Error) => setError(err.message),
@@ -1672,7 +1672,7 @@ export function SettingsPage() {
     isLoading: scrapersLoading,
     error: scrapersError,
   } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: canWriteSystemSettings && activeTab === "data-sources-scrapers",
   });
@@ -1680,7 +1680,7 @@ export function SettingsPage() {
   const reloadScrapersMutation = useMutation({
     mutationFn: system.reloadScrapers,
     onSuccess: (nextScrapers) => {
-      queryClient.setQueryData(["system-scrapers"], nextScrapers);
+      queryClient.setQueryData(["scrapers"], nextScrapers);
     },
   });
 
@@ -7864,7 +7864,11 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(["plugins"], ctx.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["plugins"] }),
+    onSettled: () => {
+      // Plugin settings enable and disable extensions, which the extension list also shows.
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+    },
   });
 
   const enableMut = useMutation({
@@ -7872,6 +7876,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       import("../api/client").then((m) => (args.enable ? m.extensions.enable(args.id) : m.extensions.disable(args.id))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       void refreshManifest();
     },
   });
@@ -7900,6 +7905,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 
       setPendingDependencyInstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8632,6 +8638,7 @@ export function FindAndInstallExtensions() {
       setPendingDeps(null);
       setPendingDependencyInstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8665,6 +8672,7 @@ export function FindAndInstallExtensions() {
       setShowUrlInstallForm(false);
       setUrlInstallUrl("");
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8695,6 +8703,7 @@ export function FindAndInstallExtensions() {
       setShowZipInstallForm(false);
       setZipInstallFile(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8727,6 +8736,7 @@ export function FindAndInstallExtensions() {
 
       setExtensionToUninstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       void refreshManifest();
     },

@@ -206,7 +206,7 @@ export function ConvertVideosDialog({
     mutationFn: () => videoConversion.start({ ...settings, videoIds }),
     onSuccess: () => {
       saveSettings(settings);
-      for (const key of ["jobs", "jobs-active", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
+      for (const key of ["jobs", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
       setSubmitted(true);
       onStarted?.();
     },

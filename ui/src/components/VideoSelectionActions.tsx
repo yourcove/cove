@@ -139,7 +139,7 @@ export function VideoSelectionActions({
     meta: { suppressGlobalError: true },
     mutationFn: async (options: BatchDownloadOptions) => queueBatchDownloads("Video", selectedDownloadTargets, options),
     onSuccess: (result) => {
-      for (const key of ["jobs", "jobs-active", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
+      for (const key of ["jobs", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
       invalidate();
       window.alert(formatBatchDownloadSummary("video", result));
       onSelectNone();

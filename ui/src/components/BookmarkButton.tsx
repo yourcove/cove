@@ -47,10 +47,17 @@ export function BookmarkButton({
     },
     onSuccess: (state) => {
       queryClient.setQueryData(queryKey, [state]);
-      queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
+      // Save for Later is a dynamic group, so refresh every view that pages a group's items.
       queryClient.invalidateQueries({ queryKey: ["groups"] });
       queryClient.invalidateQueries({ queryKey: ["group-items"] });
-      queryClient.invalidateQueries({ queryKey: ["group-items-page"] });
+      queryClient.invalidateQueries({ queryKey: ["group-mixed-items"] });
+      queryClient.invalidateQueries({ queryKey: ["group-items-page-all"] });
+      queryClient.invalidateQueries({ queryKey: ["group-items-popover"] });
+      // Feed widgets also cache their host entities under group-feed; those don't change here.
+      queryClient.invalidateQueries({
+        queryKey: ["group-feed"],
+        predicate: (query) => query.queryKey[2] === "group" || query.queryKey[2] === "items",
+      });
       queryClient.invalidateQueries({ queryKey: ["front-page-group-items"] });
     },
   });

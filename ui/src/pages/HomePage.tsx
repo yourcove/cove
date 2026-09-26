@@ -896,7 +896,7 @@ function DashboardEditor({
   const busy = saving || operation !== null;
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
   const { data: allSavedFilters } = useQuery({
-    queryKey: ["saved-filters-all", "dashboard", user ? `${user.kind}:${user.id}` : "anonymous"],
+    queryKey: ["saved-filters", "all", principalKey],
     queryFn: () => savedFilters.list(),
   });
   const { data: dynamicGroups } = useQuery({

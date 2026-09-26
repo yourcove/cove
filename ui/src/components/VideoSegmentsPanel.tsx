@@ -129,7 +129,7 @@ export function VideoSegmentsPanel({
 
   // All tag groups are offered as filter chips; the parent expands a selected group to its
   // member tags so segments tagged within that group match.
-  const { data: allTagGroups = [] } = useQuery({ queryKey: ["taggroups"], queryFn: () => tagGroupsApi.list() });
+  const { data: allTagGroups = [] } = useQuery({ queryKey: ["tag-groups"], queryFn: () => tagGroupsApi.list() });
 
   const [prevSelectionScope, setPrevSelectionScope] = useState({ currentProfileId, videoId });
   if (currentProfileId !== prevSelectionScope.currentProfileId || videoId !== prevSelectionScope.videoId) {

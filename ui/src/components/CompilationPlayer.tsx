@@ -116,7 +116,7 @@ export function CompilationPlayer({
     isLoading: currentTextLoading,
     isError: currentTextError,
   } = useQuery({
-    queryKey: ["text-content", currentTextId],
+    queryKey: ["text", currentTextId, "content"],
     queryFn: () => texts.content(currentTextId!),
     enabled: currentTextId != null,
   });
@@ -133,7 +133,7 @@ export function CompilationPlayer({
     staleTime: 60_000,
   });
   useQuery({
-    queryKey: ["text-content", nextTextId],
+    queryKey: ["text", nextTextId, "content"],
     queryFn: () => texts.content(nextTextId!),
     enabled: nextTextId != null,
     staleTime: 60_000,

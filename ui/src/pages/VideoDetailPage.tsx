@@ -3230,7 +3230,6 @@ function VideoEditPanel({
     onSuccess: (_updated, data) => {
       setSubmittedSave(pendingSave.current);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["tagapplications"] });
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       // Links may have changed elsewhere since the edit started, so compare against both copies.
       if (data.galleryIds) {

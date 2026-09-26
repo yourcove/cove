@@ -365,7 +365,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   const [error, setError] = useState<string | null>(null);
 
   const { data: scrapers = [] } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: open,
   });
