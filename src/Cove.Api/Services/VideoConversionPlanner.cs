@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 
 namespace Cove.Api.Services;
@@ -211,7 +210,7 @@ public sealed record ProbedMedia(double Duration, IReadOnlyList<ProbedStream> St
 
 /// <summary>The ffmpeg run that converts one file, and what it will produce.</summary>
 public sealed record VideoConversionPlan(
-    string Arguments,
+    IReadOnlyList<string> Arguments,
     bool CopiesVideo,
     string ExpectedVideoCodec,
     int AudioStreamCount,
@@ -384,29 +383,29 @@ public static class VideoConversionPlanner
         }
 
 
-        var args = new StringBuilder("-hide_banner -nostdin -y -v error -nostats -progress pipe:1");
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-v", "error", "-nostats", "-progress", "pipe:1" };
         if (!copyVideo)
         {
-            Append(args, FfmpegHwAccel.InputArgsForEncoder(encoder!));
-            Append(args, decodeInputArgs);
+            args.AddRange(FfmpegHwAccel.InputArgsForEncoder(encoder!));
+            args.AddRange(FfmpegArgumentTokenizer.Split(decodeInputArgs?.Trim()));
         }
-        args.Append(" -i ").Append(Quote(inputPath));
+        args.AddRange(["-i", inputPath]);
 
-        args.Append(" -map 0:").Append(video.Index.ToString(CultureInfo.InvariantCulture));
+        args.AddRange(["-map", "0:" + video.Index.ToString(CultureInfo.InvariantCulture)]);
 
         var audio = source.Audio.ToList();
         for (var ordinal = 0; ordinal < audio.Count; ordinal++)
         {
-            args.Append(" -map 0:").Append(audio[ordinal].Index.ToString(CultureInfo.InvariantCulture));
+            args.AddRange(["-map", "0:" + audio[ordinal].Index.ToString(CultureInfo.InvariantCulture)]);
             var ordinalText = ordinal.ToString(CultureInfo.InvariantCulture);
             if (mp4 && !Mp4AudioCodecs.Contains(audio[ordinal].CodecName))
             {
-                args.Append(" -c:a:").Append(ordinalText).Append(" aac -b:a:").Append(ordinalText).Append(" 192k");
+                args.AddRange(["-c:a:" + ordinalText, "aac", "-b:a:" + ordinalText, "192k"]);
                 notes.Add($"Audio track {ordinal + 1} ({audio[ordinal].CodecName}) was re-encoded to AAC because MP4 cannot hold it.");
             }
             else
             {
-                args.Append(" -c:a:").Append(ordinalText).Append(" copy");
+                args.AddRange(["-c:a:" + ordinalText, "copy"]);
             }
         }
 
@@ -420,19 +419,19 @@ public static class VideoConversionPlanner
                 continue;
             }
 
-            args.Append(" -map 0:").Append(subtitle.Index.ToString(CultureInfo.InvariantCulture));
-            args.Append(" -c:s:").Append(subtitleOrdinal.ToString(CultureInfo.InvariantCulture)).Append(mp4 ? " mov_text" : " copy");
+            args.AddRange(["-map", "0:" + subtitle.Index.ToString(CultureInfo.InvariantCulture)]);
+            args.AddRange(["-c:s:" + subtitleOrdinal.ToString(CultureInfo.InvariantCulture), mp4 ? "mov_text" : "copy"]);
             subtitleOrdinal++;
         }
         if (droppedSubtitles > 0)
             notes.Add($"{droppedSubtitles} image-based subtitle track(s) were dropped because MP4 cannot hold them.");
 
         if (!mp4)
-            args.Append(" -map 0:t? -c:t copy");
+            args.AddRange(["-map", "0:t?", "-c:t", "copy"]);
 
         if (copyVideo)
         {
-            args.Append(" -c:v copy");
+            args.AddRange(["-c:v", "copy"]);
         }
         else
         {
@@ -440,11 +439,11 @@ public static class VideoConversionPlanner
 
             // Constant quality at the level the sample search settled on, so every scene keeps the quality
             // the samples were measured at rather than sharing out an average bitrate.
-            Append(args, FfmpegHwAccel.ConversionQualityArgs(encoder!, qualityLevel, settings.Effort, tenBit, maxKbps));
+            args.AddRange(FfmpegHwAccel.ConversionQualityArgs(encoder!, qualityLevel, settings.Effort, tenBit, maxKbps));
             // Dropping frame rate is the one size lever that costs no per-frame fidelity, and it lowers
             // the bitrate target too since that is derived from the output's frame rate. It is a filter
             // rather than -r: see ConversionVideoFilter for the 50 ms shift -r introduced.
-            Append(args, FfmpegHwAccel.ConversionVideoFilter(encoder!, tenBit, outputFrameRate is > 0 ? outputFrameRate : null));
+            args.AddRange(FfmpegHwAccel.ConversionVideoFilter(encoder!, tenBit, outputFrameRate is > 0 ? outputFrameRate : null));
 
             // Carry the colour description over explicitly so HDR and wide-gamut sources are not tagged as
             // (and then displayed as) plain BT.709.
@@ -455,19 +454,19 @@ public static class VideoConversionPlanner
             // Keep timestamps exactly as they leave the filter chain - the source's own, or the fps
             // filter's when the rate is lowered - so markers and sprites stay aligned and the muxer
             // never drops or duplicates a frame of its own accord.
-            args.Append(" -fps_mode passthrough");
+            args.AddRange(["-fps_mode", "passthrough"]);
         }
 
         var outputVideoCodec = copyVideo ? video.CodecName : CodecName(settings.Codec);
         // Apple players and browsers only play HEVC in MP4 when it is tagged hvc1 (ffmpeg defaults to hev1).
         if (mp4 && outputVideoCodec == "hevc")
-            args.Append(" -tag:v hvc1");
+            args.AddRange(["-tag:v", "hvc1"]);
 
-        args.Append(" -map_metadata 0 -map_chapters 0");
-        args.Append(mp4 ? " -movflags +faststart -f mp4 " : " -f matroska ");
-        args.Append(Quote(outputPath));
+        args.AddRange(["-map_metadata", "0", "-map_chapters", "0"]);
+        args.AddRange(mp4 ? ["-movflags", "+faststart", "-f", "mp4"] : ["-f", "matroska"]);
+        args.Add(outputPath);
 
-        return new VideoConversionPlan(args.ToString(), copyVideo, outputVideoCodec, audio.Count, notes);
+        return new VideoConversionPlan(args, copyVideo, outputVideoCodec, audio.Count, notes);
     }
 
     /// <summary>
@@ -475,10 +474,15 @@ public static class VideoConversionPlanner
     /// sample encode and its reference are both taken from this one clip, which is what makes them
     /// select exactly the same frames. Matroska holds any codec the source might be in.
     /// </summary>
-    public static string SampleClipArguments(string sourcePath, int videoStreamIndex, double start, double length, string clipPath)
-        => string.Create(CultureInfo.InvariantCulture,
-            $"-hide_banner -nostdin -y -v error -ss {start:0.###} -i {Quote(sourcePath)} -t {length:0.###} "
-            + $"-map 0:{videoStreamIndex} -c copy -avoid_negative_ts make_zero -f matroska {Quote(clipPath)}");
+    public static IReadOnlyList<string> SampleClipArguments(string sourcePath, int videoStreamIndex, double start, double length, string clipPath)
+        =>
+        [
+            "-hide_banner", "-nostdin", "-y", "-v", "error",
+            "-ss", start.ToString("0.###", CultureInfo.InvariantCulture), "-i", sourcePath,
+            "-t", length.ToString("0.###", CultureInfo.InvariantCulture),
+            "-map", "0:" + videoStreamIndex.ToString(CultureInfo.InvariantCulture),
+            "-c", "copy", "-avoid_negative_ts", "make_zero", "-f", "matroska", clipPath,
+        ];
 
     /// <summary>
     /// Encodes one sample clip exactly as the whole video would be: same encoder, same quality level,
@@ -487,35 +491,39 @@ public static class VideoConversionPlanner
     /// Writes -progress to stdout like the full encode does. The process runner treats a quiet stdout as
     /// a hung ffmpeg, and a software sample of 8K footage can legitimately run for minutes.
     /// </summary>
-    public static string SampleEncodeArguments(
+    public static IReadOnlyList<string> SampleEncodeArguments(
         string clipPath, string outputPath, string encoder, double qualityLevel, VideoConversionEffort effort,
         bool tenBit, int maxKbps, double? outputFrameRate, string? decodeInputArgs)
-    {
-        var args = new StringBuilder("-hide_banner -nostdin -y -v error -nostats -progress pipe:1");
-        Append(args, FfmpegHwAccel.InputArgsForEncoder(encoder));
-        Append(args, decodeInputArgs);
-        args.Append(" -i ").Append(Quote(clipPath)).Append(" -map 0:v:0 -an");
-        Append(args, FfmpegHwAccel.ConversionQualityArgs(encoder, qualityLevel, effort, tenBit, maxKbps));
-        Append(args, FfmpegHwAccel.ConversionVideoFilter(encoder, tenBit, outputFrameRate is > 0 ? outputFrameRate : null));
-        args.Append(" -fps_mode passthrough -f matroska ").Append(Quote(outputPath));
-        return args.ToString();
-    }
+        =>
+        [
+            "-hide_banner", "-nostdin", "-y", "-v", "error", "-nostats", "-progress", "pipe:1",
+            .. FfmpegHwAccel.InputArgsForEncoder(encoder),
+            .. FfmpegArgumentTokenizer.Split(decodeInputArgs?.Trim()),
+            "-i", clipPath, "-map", "0:v:0", "-an",
+            .. FfmpegHwAccel.ConversionQualityArgs(encoder, qualityLevel, effort, tenBit, maxKbps),
+            .. FfmpegHwAccel.ConversionVideoFilter(encoder, tenBit, outputFrameRate is > 0 ? outputFrameRate : null),
+            "-fps_mode", "passthrough", "-f", "matroska", outputPath,
+        ];
 
     /// <summary>Scores an encoded sample against the clip it was made from (see <see cref="VideoQualitySearch.ScoreFilter"/>).</summary>
-    public static string SampleScoreArguments(
+    public static IReadOnlyList<string> SampleScoreArguments(
         string encodedPath, string clipPath, int width, int height, double outputFrameRate, bool frameRateChanged, bool isVr, string logPath)
-        => "-hide_banner -nostdin -v error -nostats -progress pipe:1 -i " + Quote(encodedPath) + " -i " + Quote(clipPath)
-         + " -filter_complex \"" + VideoQualitySearch.ScoreFilter(width, height, outputFrameRate, frameRateChanged, isVr, logPath)
-         + "\" -f null -";
+        =>
+        [
+            "-hide_banner", "-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1",
+            "-i", encodedPath, "-i", clipPath,
+            "-filter_complex", VideoQualitySearch.ScoreFilter(width, height, outputFrameRate, frameRateChanged, isVr, logPath),
+            "-f", "null", "-",
+        ];
 
     /// <summary>The full-decode check a converted file must pass before it can replace the original.</summary>
-    public static string DecodeCheckArguments(string path, string? decodeInputArgs)
-    {
-        var args = new StringBuilder("-hide_banner -nostdin -v error -nostats -progress pipe:1");
-        Append(args, decodeInputArgs);
-        args.Append(" -i ").Append(Quote(path)).Append(" -map 0:v:0 -map 0:a? -f null -");
-        return args.ToString();
-    }
+    public static IReadOnlyList<string> DecodeCheckArguments(string path, string? decodeInputArgs)
+        =>
+        [
+            "-hide_banner", "-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1",
+            .. FfmpegArgumentTokenizer.Split(decodeInputArgs?.Trim()),
+            "-i", path, "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-",
+        ];
 
     /// <summary>Checks a converted file's streams and length against the plan and the original. Returns the problem, or null.</summary>
     public static string? VerifyOutput(ProbedMedia source, ProbedMedia output, VideoConversionPlan plan)
@@ -562,18 +570,10 @@ public static class VideoConversionPlanner
         => video.BitsPerRawSample > 8
             || (video.PixelFormat is { } format && (format.Contains("10", StringComparison.Ordinal) || format.Contains("12", StringComparison.Ordinal)));
 
-    private static void AppendColor(StringBuilder args, string option, string? value)
+    private static void AppendColor(List<string> args, string option, string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value is "unknown" or "reserved")
             return;
-        args.Append(' ').Append(option).Append(' ').Append(value);
+        args.AddRange([option, value]);
     }
-
-    private static void Append(StringBuilder args, string? fragment)
-    {
-        if (!string.IsNullOrWhiteSpace(fragment))
-            args.Append(' ').Append(fragment.Trim());
-    }
-
-    private static string Quote(string path) => "\"" + path.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 }

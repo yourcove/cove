@@ -48,16 +48,16 @@ public class VideoConversionPlannerTests
 
         var copied = VideoConversionPlanner.Build(source, "in.mp4", "out.mp4", HevcMp4, encoder: null, null);
         Assert.True(copied.CopiesVideo);
-        Assert.Contains("-c:v copy", copied.Arguments, StringComparison.Ordinal);
+        Assert.Contains("-c:v copy", Line(copied), StringComparison.Ordinal);
 
         var encoded = VideoConversionPlanner.Build(
             source, "in.mp4", "out.mp4", HevcMp4, "hevc_nvenc", null, qualityLevel: 26.5, maxKbps: 150_000, outputFrameRate: 30);
 
         Assert.False(encoded.CopiesVideo);
-        Assert.DoesNotContain("-c:v copy", encoded.Arguments, StringComparison.Ordinal);
-        Assert.Contains("-c:v hevc_nvenc", encoded.Arguments, StringComparison.Ordinal);
-        Assert.Contains("-cq 26.5", encoded.Arguments, StringComparison.Ordinal);
-        Assert.Contains("fps=30", encoded.Arguments, StringComparison.Ordinal);
+        Assert.DoesNotContain("-c:v copy", Line(encoded), StringComparison.Ordinal);
+        Assert.Contains("-c:v hevc_nvenc", Line(encoded), StringComparison.Ordinal);
+        Assert.Contains("-cq 26.5", Line(encoded), StringComparison.Ordinal);
+        Assert.Contains("fps=30", Line(encoded), StringComparison.Ordinal);
         Assert.Equal("hevc", encoded.ExpectedVideoCodec);
     }
 
@@ -85,9 +85,9 @@ public class VideoConversionPlannerTests
             source, "/in.mp4", "/out.mp4", HevcMp4 with { OutputFrameRate = 30 }, "hevc_nvenc", null,
             qualityLevel: 26, maxKbps: 40_000, outputFrameRate: 30);
 
-        Assert.Contains("-vf \"fps=30\"", plan.Arguments);
-        Assert.DoesNotContain(" -r ", plan.Arguments);
-        Assert.Contains("-fps_mode passthrough", plan.Arguments);
+        Assert.Contains("-vf fps=30", Line(plan));
+        Assert.DoesNotContain(" -r ", Line(plan));
+        Assert.Contains("-fps_mode passthrough", Line(plan));
     }
 
     /// <summary>Without a frame-rate change the source's timestamps pass through untouched, so markers and sprites stay aligned.</summary>
@@ -99,9 +99,9 @@ public class VideoConversionPlannerTests
 
         var plan = VideoConversionPlanner.Build(source, "/in.mp4", "/out.mp4", HevcMp4, "hevc_nvenc", null, qualityLevel: 26, maxKbps: 40_000);
 
-        Assert.Contains("-fps_mode passthrough", plan.Arguments);
-        Assert.DoesNotContain("fps=", plan.Arguments);
-        Assert.DoesNotContain(" -r ", plan.Arguments);
+        Assert.Contains("-fps_mode passthrough", Line(plan));
+        Assert.DoesNotContain("fps=", Line(plan));
+        Assert.DoesNotContain(" -r ", Line(plan));
     }
 
     [Fact]
@@ -164,16 +164,16 @@ public class VideoConversionPlannerTests
         Assert.False(plan.CopiesVideo);
         Assert.Equal("hevc", plan.ExpectedVideoCodec);
         Assert.Equal(2, plan.AudioStreamCount);
-        Assert.Contains("-map 0:1 ", plan.Arguments); // the real video, not the cover art
-        Assert.DoesNotContain("-map 0:0 ", plan.Arguments);
-        Assert.Contains("-c:a:0 aac -b:a:0 192k", plan.Arguments);
-        Assert.Contains("-c:a:1 copy", plan.Arguments);
-        Assert.Contains("-map 0:4 -c:s:0 mov_text", plan.Arguments);
-        Assert.DoesNotContain("-map 0:5", plan.Arguments);
-        Assert.Contains("-c:v libx265", plan.Arguments);
-        Assert.Contains("-tag:v hvc1", plan.Arguments);
-        Assert.Contains("-fps_mode passthrough", plan.Arguments);
-        Assert.Contains("-f mp4 \"out.mp4\"", plan.Arguments);
+        Assert.Contains("-map 0:1 ", Line(plan)); // the real video, not the cover art
+        Assert.DoesNotContain("-map 0:0 ", Line(plan));
+        Assert.Contains("-c:a:0 aac -b:a:0 192k", Line(plan));
+        Assert.Contains("-c:a:1 copy", Line(plan));
+        Assert.Contains("-map 0:4 -c:s:0 mov_text", Line(plan));
+        Assert.DoesNotContain("-map 0:5", Line(plan));
+        Assert.Contains("-c:v libx265", Line(plan));
+        Assert.Contains("-tag:v hvc1", Line(plan));
+        Assert.Contains("-fps_mode passthrough", Line(plan));
+        Assert.Contains("-f mp4 out.mp4", Line(plan));
         Assert.Equal(2, plan.Notes.Count);
     }
 
@@ -185,12 +185,12 @@ public class VideoConversionPlannerTests
         var plan = VideoConversionPlanner.Build(source, "in.mkv", "out.mkv", HevcMp4 with { Container = VideoConversionContainer.Mkv }, encoder: null, decodeInputArgs: "-hwaccel cuda");
 
         Assert.True(plan.CopiesVideo);
-        Assert.Contains("-c:v copy", plan.Arguments);
-        Assert.Contains("-map 0:2 -c:s:0 copy", plan.Arguments);
-        Assert.Contains("-map 0:t? -c:t copy", plan.Arguments);
-        Assert.DoesNotContain("-hwaccel", plan.Arguments); // nothing is decoded in a remux
-        Assert.DoesNotContain("hvc1", plan.Arguments);
-        Assert.Contains("-f matroska", plan.Arguments);
+        Assert.Contains("-c:v copy", Line(plan));
+        Assert.Contains("-map 0:2 -c:s:0 copy", Line(plan));
+        Assert.Contains("-map 0:t? -c:t copy", Line(plan));
+        Assert.DoesNotContain("-hwaccel", Line(plan)); // nothing is decoded in a remux
+        Assert.DoesNotContain("hvc1", Line(plan));
+        Assert.Contains("-f matroska", Line(plan));
         Assert.Empty(plan.Notes);
     }
 
@@ -211,16 +211,16 @@ public class VideoConversionPlannerTests
 
         var plan = VideoConversionPlanner.Build(source, "in.webm", "out.mp4", HevcMp4, "hevc_nvenc", decodeInputArgs: null, qualityLevel: 26, maxKbps: 40_000);
 
-        Assert.Contains("-pix_fmt p010le -profile:v main10", plan.Arguments);
-        Assert.Contains("-color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc", plan.Arguments);
+        Assert.Contains("-pix_fmt p010le -profile:v main10", Line(plan));
+        Assert.Contains("-color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc", Line(plan));
     }
 
     [Fact]
     public void ConversionVideoFilter_UploadsFramesOnlyForVaapi()
     {
-        Assert.Equal("-vf \"format=p010,hwupload\"", FfmpegHwAccel.ConversionVideoFilter("hevc_vaapi", tenBit: true));
-        Assert.Equal("-vf \"format=nv12,hwupload\"", FfmpegHwAccel.ConversionVideoFilter("h264_vaapi", tenBit: true));
-        Assert.Equal(string.Empty, FfmpegHwAccel.ConversionVideoFilter("hevc_nvenc", tenBit: true));
+        Assert.Equal(["-vf", "format=p010,hwupload"], FfmpegHwAccel.ConversionVideoFilter("hevc_vaapi", tenBit: true));
+        Assert.Equal(["-vf", "format=nv12,hwupload"], FfmpegHwAccel.ConversionVideoFilter("h264_vaapi", tenBit: true));
+        Assert.Empty(FfmpegHwAccel.ConversionVideoFilter("hevc_nvenc", tenBit: true));
     }
 
     /// <summary>
@@ -230,8 +230,8 @@ public class VideoConversionPlannerTests
     [Fact]
     public void ConversionVideoFilter_PutsTheFrameRateChangeInTheSameChain()
     {
-        Assert.Equal("-vf \"fps=30\"", FfmpegHwAccel.ConversionVideoFilter("hevc_nvenc", tenBit: false, frameRate: 30));
-        Assert.Equal("-vf \"fps=24,format=nv12,hwupload\"", FfmpegHwAccel.ConversionVideoFilter("hevc_vaapi", tenBit: false, frameRate: 24));
+        Assert.Equal(["-vf", "fps=30"], FfmpegHwAccel.ConversionVideoFilter("hevc_nvenc", tenBit: false, frameRate: 30));
+        Assert.Equal(["-vf", "fps=24,format=nv12,hwupload"], FfmpegHwAccel.ConversionVideoFilter("hevc_vaapi", tenBit: false, frameRate: 24));
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class VideoConversionPlannerTests
     public void VerifyOutput_RejectsAWrongCodecMissingAudioOrDifferentLength()
     {
         var source = new ProbedMedia(100, [Video("h264"), Stream(1, "audio", "aac")]);
-        var plan = new VideoConversionPlan("", CopiesVideo: false, ExpectedVideoCodec: "hevc", AudioStreamCount: 1, Notes: []);
+        var plan = new VideoConversionPlan([], CopiesVideo: false, ExpectedVideoCodec: "hevc", AudioStreamCount: 1, Notes: []);
 
         Assert.Null(VideoConversionPlanner.VerifyOutput(source, new ProbedMedia(100.4, [Video("hevc"), Stream(1, "audio", "aac")]), plan));
         Assert.NotNull(VideoConversionPlanner.VerifyOutput(source, new ProbedMedia(100, [Video("h264"), Stream(1, "audio", "aac")]), plan));
@@ -290,7 +290,7 @@ public class VideoConversionPlannerTests
     [Fact]
     public async Task RealFfmpeg_ConvertsVerifiesAndDecodeChecksASoftwareHevcEncode()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(null);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
         Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
         var ffprobe = Path.Combine(Path.GetDirectoryName(ffmpeg!)!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
         Assert.SkipWhen(!File.Exists(ffprobe), "Requires ffprobe next to ffmpeg.");
@@ -303,8 +303,8 @@ public class VideoConversionPlannerTests
         {
             var sourcePath = Path.Combine(root, "clip.mkv");
             var make = await FfmpegProcessRunner.RunAsync(ffmpeg!,
-                $"-hide_banner -v error -f lavfi -i testsrc=size=160x120:rate=25:duration=3 -f lavfi -i sine=frequency=440:duration=3 "
-                + $"-c:v libx264 -preset ultrafast -c:a pcm_s16le -shortest \"{sourcePath}\"",
+                ["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                 "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "pcm_s16le", "-shortest", sourcePath],
                 TimeSpan.FromMinutes(1), ct);
             Assert.Equal(0, make.ExitCode);
 
@@ -345,7 +345,7 @@ public class VideoConversionPlannerTests
     [Fact]
     public async Task RealFfmpeg_QualitySamplesScoreInTheRightOrder()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(null);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
         Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
         Assert.SkipWhen(!FfmpegHwAccel.ListEncoders(ffmpeg!).Contains("libx265"), "Requires an ffmpeg build with libx265.");
         Assert.SkipWhen(!FfmpegHwAccel.HasQualityMeasurement(ffmpeg!), "Requires an ffmpeg build with libvmaf.");
@@ -357,7 +357,7 @@ public class VideoConversionPlannerTests
         {
             var sourcePath = Path.Combine(root, "source.mkv");
             var make = await FfmpegProcessRunner.RunAsync(ffmpeg!,
-                $"-hide_banner -v error -f lavfi -i testsrc2=size=640x360:rate=50:duration=4 -c:v libx264 -preset ultrafast -crf 12 \"{sourcePath}\"",
+                ["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=50:duration=4", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", sourcePath],
                 TimeSpan.FromMinutes(1), ct);
             Assert.Equal(0, make.ExitCode);
 
@@ -397,7 +397,7 @@ public class VideoConversionPlannerTests
     [Fact]
     public async Task RealFfmpeg_DecodeCheckReportsATruncatedFile()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(null);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
         Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
 
         var ct = TestContext.Current.CancellationToken;
@@ -407,7 +407,7 @@ public class VideoConversionPlannerTests
         {
             var path = Path.Combine(root, "clip.mkv");
             var make = await FfmpegProcessRunner.RunAsync(ffmpeg!,
-                $"-hide_banner -v error -f lavfi -i testsrc=size=320x240:rate=25:duration=4 -c:v libx264 -preset ultrafast \"{path}\"",
+                ["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4", "-c:v", "libx264", "-preset", "ultrafast", path],
                 TimeSpan.FromMinutes(1), ct);
             Assert.Equal(0, make.ExitCode);
 
@@ -432,12 +432,14 @@ public class VideoConversionPlannerTests
     [Fact]
     public void SelectConversionEncoder_HonoursHardwareAccelerationOff()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(null);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
         Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
         Assert.SkipWhen(!FfmpegHwAccel.ListEncoders(ffmpeg!).Contains("libx265"), "Requires an ffmpeg build with libx265.");
 
         Assert.Equal("libx265", FfmpegHwAccel.SelectConversionEncoder(ffmpeg!, VideoConversionCodec.Hevc, "off", preferHardware: true, NullLogger.Instance));
     }
+
+    private static string Line(VideoConversionPlan plan) => string.Join(" ", plan.Arguments);
 
     private static async Task<string> ProbeAsync(string ffprobe, string path, CancellationToken ct)
     {

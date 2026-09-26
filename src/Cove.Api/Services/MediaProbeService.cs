@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Services;
@@ -35,7 +34,6 @@ public interface IMediaProbeService
 public sealed class FfprobeMediaProbeService : IMediaProbeService
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(2);
 
     private readonly CoveConfiguration _config;
     private readonly ILogger<FfprobeMediaProbeService> _logger;
@@ -67,90 +65,35 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         if (ffprobePath == null)
             return MediaProbeResult.ToolUnavailable("FFprobe is unavailable");
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ffprobePath,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffprobePath);
-        using var process = new Process { StartInfo = startInfo };
-
-        process.StartInfo.ArgumentList.Add("-v");
-        process.StartInfo.ArgumentList.Add("error");
-        process.StartInfo.ArgumentList.Add("-print_format");
-        process.StartInfo.ArgumentList.Add("json");
-        process.StartInfo.ArgumentList.Add("-show_error");
-        process.StartInfo.ArgumentList.Add("-show_format");
-        process.StartInfo.ArgumentList.Add("-show_streams");
-        // Cove does not import embedded chapters. Asking the MOV demuxer to inspect them can turn a
-        // dangling chapter-track reference into stderr that rejects otherwise valid audio metadata.
-        process.StartInfo.ArgumentList.Add("-ignore_chapters");
-        process.StartInfo.ArgumentList.Add("1");
-        process.StartInfo.ArgumentList.Add(path);
-
+        FfmpegProcessResult result;
         try
         {
-            process.Start();
+            result = await FfmpegProcessRunner.RunAsync(ffprobePath,
+            [
+                "-v", "error", "-print_format", "json", "-show_error", "-show_format", "-show_streams",
+                // Cove does not import embedded chapters. Asking the MOV demuxer to inspect them can turn a
+                // dangling chapter-track reference into stderr that rejects otherwise valid audio metadata.
+                "-ignore_chapters", "1",
+                path,
+            ], _timeout, ct);
         }
         catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or DirectoryNotFoundException)
         {
             _logger.LogWarning(ex, "Unable to start FFprobe at {FfprobePath}", ffprobePath);
             return MediaProbeResult.ToolUnavailable("FFprobe could not be started");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Failed to start FFprobe for {Path}", path);
-            return MediaProbeResult.Failure(ex.Message);
-        }
-
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(_timeout);
-
-        try
-        {
-            await process.WaitForExitAsync(timeoutCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            KillProcessTree(process);
-            await AwaitProcessExitAsync(process);
-            await ObserveOutputTasksAsync(outputTask, errorTask);
-            return MediaProbeResult.Timeout($"FFprobe exceeded the {_timeout.TotalSeconds:N0}-second timeout");
-        }
-        catch (OperationCanceledException)
-        {
-            KillProcessTree(process);
-            await AwaitProcessExitAsync(process);
-            await ObserveOutputTasksAsync(outputTask, errorTask);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            KillProcessTree(process);
-            await AwaitProcessExitAsync(process);
-            await ObserveOutputTasksAsync(outputTask, errorTask);
             _logger.LogWarning(ex, "FFprobe process failed for {Path}", path);
             return MediaProbeResult.Failure(ex.Message);
         }
 
-        string json;
-        string error;
-        try
-        {
-            json = await outputTask;
-            error = await errorTask;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed reading FFprobe output for {Path}", path);
-            return MediaProbeResult.Failure(ex.Message);
-        }
-        if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(json))
+        if (result.TimedOut)
+            return MediaProbeResult.Timeout($"FFprobe exceeded the {_timeout.TotalSeconds:N0}-second timeout");
+
+        var json = result.StandardOutput;
+        var error = result.StandardError;
+        if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(json))
             return MediaProbeResult.Rejected(CondenseFailure(error));
 
         // FFprobe can report a MOV sample-count mismatch while still returning usable metadata for
@@ -177,83 +120,9 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
             if (_ffprobeResolved)
                 return _cachedFfprobePath;
 
-            _cachedFfprobePath = ResolveFfprobePath();
+            _cachedFfprobePath = FfmpegExecutableLocator.FindFfprobe(_config);
             _ffprobeResolved = true;
             return _cachedFfprobePath;
-        }
-    }
-
-    private string? ResolveFfprobePath()
-    {
-        if (!string.IsNullOrWhiteSpace(_config.FfprobePath) && File.Exists(_config.FfprobePath))
-            return _config.FfprobePath;
-
-        if (!string.IsNullOrWhiteSpace(_config.FfmpegPath))
-        {
-            var directory = Path.GetDirectoryName(_config.FfmpegPath);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                var sibling = Path.Combine(directory, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
-                if (File.Exists(sibling))
-                    return sibling;
-            }
-        }
-
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(directory, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
-    }
-
-    private static void KillProcessTree(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException)
-        {
-            // It exited between HasExited and Kill.
-        }
-        catch (Win32Exception)
-        {
-            // Best effort during timeout/cancellation cleanup.
-        }
-    }
-
-    private static async Task AwaitProcessExitAsync(Process process)
-    {
-        using var cleanupCts = new CancellationTokenSource(CleanupTimeout);
-        try
-        {
-            await process.WaitForExitAsync(cleanupCts.Token);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
-        {
-            // Cleanup is best effort and must never turn a bounded probe into an unbounded wait.
-        }
-    }
-
-    private static async Task ObserveOutputTasksAsync(Task<string> outputTask, Task<string> errorTask)
-    {
-        var outputs = Task.WhenAll(outputTask, errorTask);
-        var completed = await Task.WhenAny(outputs, Task.Delay(CleanupTimeout));
-        if (completed != outputs)
-            return;
-
-        try
-        {
-            await outputs;
-        }
-        catch
-        {
-            // Cleanup path: output is intentionally discarded.
         }
     }
 

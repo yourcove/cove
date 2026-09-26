@@ -406,7 +406,10 @@ public class PluginsController(
         process.StartInfo = new System.Diagnostics.ProcessStartInfo
         {
             FileName = pythonPath,
+            // Not yet moved to ArgumentList; tracked separately from the ffmpeg process changes.
+#pragma warning disable RS0030
             Arguments = $"\"{scriptPath}\"",
+#pragma warning restore RS0030
             WorkingDirectory = Path.GetDirectoryName(scriptPath),
             RedirectStandardOutput = true,
             RedirectStandardError = true,

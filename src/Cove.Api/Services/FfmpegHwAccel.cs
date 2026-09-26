@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 
 namespace Cove.Api.Services;
@@ -241,7 +242,7 @@ internal static class FfmpegHwAccel
     {
         try
         {
-            var output = RunFfmpegInfoQuery(ffmpegPath, "-hide_banner -hwaccels");
+            var output = RunFfmpegInfoQuery(ffmpegPath, ["-hide_banner", "-hwaccels"]);
 
             // Output is a header line "Hardware acceleration methods:" followed by one method per line.
             return output
@@ -261,23 +262,24 @@ internal static class FfmpegHwAccel
     /// a libx264 preset name like <c>veryfast</c> is an <i>invalid</i> NVENC preset that aborts the
     /// encode — so the correct constant-quality knob is selected per encoder family. <paramref name="quality"/>
     /// follows the libx264 CRF convention (lower = better) and is mapped to each encoder's scale.</summary>
-    public static string VideoEncodeArgs(string encoder, int quality, string softwarePreset)
+    public static IReadOnlyList<string> VideoEncodeArgs(string encoder, int quality, string softwarePreset)
     {
+        var q = quality.ToString(CultureInfo.InvariantCulture);
         return encoder switch
         {
             // Constant-quality VBR with no bitrate cap. No explicit preset: the libx264 preset
             // vocabulary is not valid here, and NVENC's default preset is a sane medium.
-            "h264_nvenc" => $"-c:v h264_nvenc -rc vbr -cq {quality} -b:v 0",
-            "h264_qsv" => $"-c:v h264_qsv -global_quality {quality}",
-            "h264_amf" => $"-c:v h264_amf -rc cqp -qp_i {quality} -qp_p {quality} -qp_b {quality}",
+            "h264_nvenc" => ["-c:v", "h264_nvenc", "-rc", "vbr", "-cq", q, "-b:v", "0"],
+            "h264_qsv" => ["-c:v", "h264_qsv", "-global_quality", q],
+            "h264_amf" => ["-c:v", "h264_amf", "-rc", "cqp", "-qp_i", q, "-qp_p", q, "-qp_b", q],
             // VAAPI encodes from GPU surfaces, so the caller must also upload frames
             // (see VideoFilterForEncoder) and set a -vaapi_device on the input.
-            "h264_vaapi" => $"-c:v h264_vaapi -rc_mode CQP -qp {quality}",
-            "h264_videotoolbox" => $"-c:v h264_videotoolbox -q:v {Math.Clamp(65 - quality, 1, 100)}",
+            "h264_vaapi" => ["-c:v", "h264_vaapi", "-rc_mode", "CQP", "-qp", q],
+            "h264_videotoolbox" => ["-c:v", "h264_videotoolbox", "-q:v", Math.Clamp(65 - quality, 1, 100).ToString(CultureInfo.InvariantCulture)],
             // Force 8-bit 4:2:0 output: a 10-bit source (common for HEVC) would otherwise yield
             // High 10 H.264, which Safari's hardware decoder rejects even though Chromium software-
             // decodes it.
-            _ => $"-c:v libx264 -preset {softwarePreset} -crf {quality} -pix_fmt yuv420p",
+            _ => ["-c:v", "libx264", "-preset", softwarePreset, "-crf", q, "-pix_fmt", "yuv420p"],
         };
     }
 
@@ -322,45 +324,49 @@ internal static class FfmpegHwAccel
     /// peak rate of its own, which measured at about 51 Mbit/s on 8K: every CQ from 18 to 24 produced
     /// the same file, so a search could never raise quality past that point.
     /// </summary>
-    public static string ConversionQualityArgs(string encoder, double level, VideoConversionEffort effort, bool tenBit, int maxKbps)
+    public static IReadOnlyList<string> ConversionQualityArgs(string encoder, double level, VideoConversionEffort effort, bool tenBit, int maxKbps)
     {
         var profile = VideoConversionPlanner.Profile(effort);
         var preset = encoder.EndsWith("_nvenc", StringComparison.Ordinal) ? profile.HardwarePreset : profile.SoftwarePreset;
         var pix = tenBit && !encoder.StartsWith("h264", StringComparison.Ordinal) ? "yuv420p10le" : "yuv420p";
         var hwPix = tenBit && !encoder.StartsWith("h264", StringComparison.Ordinal) ? "p010le" : "nv12";
-        var q = level.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-        var whole = ((int)Math.Round(level)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var q = level.ToString("0.##", CultureInfo.InvariantCulture);
+        var whole = ((int)Math.Round(level)).ToString(CultureInfo.InvariantCulture);
         if (encoder.EndsWith("_nvenc", StringComparison.Ordinal) && maxKbps <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxKbps), maxKbps, "NVENC constant quality needs an explicit peak rate.");
 
+        string[] nvencPixelFormat = tenBit && !encoder.StartsWith("h264", StringComparison.Ordinal)
+            ? ["-pix_fmt", "p010le", "-profile:v", "main10"]
+            : ["-pix_fmt", "yuv420p"];
+        var tenBitHevc = tenBit && encoder.StartsWith("hevc", StringComparison.Ordinal);
+
         return encoder switch
         {
-            "libx264" or "libx265" =>
-                $"-c:v {encoder} -preset {preset} -crf {q}"
-                + (encoder == "libx265" ? " -x265-params log-level=error" : string.Empty)
-                + $" -pix_fmt {pix}",
+            "libx264" => ["-c:v", encoder, "-preset", preset, "-crf", q, "-pix_fmt", pix],
+            "libx265" => ["-c:v", encoder, "-preset", preset, "-crf", q, "-x265-params", "log-level=error", "-pix_fmt", pix],
             // SVT-AV1's presets matter far more than x265's. At the same measured quality on 1080p,
             // preset 7 needed 711 MB, 6 608 MB, 5 493 MB and 4 466 MB, running at 74, 66, 49 and 38 fps.
             // Preset 7 made AV1 44% larger than HEVC; 5 and 4 match or beat it.
-            "libsvtav1" => $"-c:v libsvtav1 -preset {(preset == "slow" ? 4 : 5)} -crf {whole} -pix_fmt {pix}",
+            "libsvtav1" => ["-c:v", "libsvtav1", "-preset", preset == "slow" ? "4" : "5", "-crf", whole, "-pix_fmt", pix],
             _ when encoder.EndsWith("_nvenc", StringComparison.Ordinal) =>
-                $"-c:v {encoder} -preset {preset} -tune hq -rc vbr -cq {q} -b:v 0"
-                + $" -maxrate {maxKbps}k -bufsize {maxKbps * 2}k"
-                + (tenBit && !encoder.StartsWith("h264", StringComparison.Ordinal)
-                    ? " -pix_fmt p010le -profile:v main10"
-                    : " -pix_fmt yuv420p"),
+            [
+                "-c:v", encoder, "-preset", preset, "-tune", "hq", "-rc", "vbr", "-cq", q, "-b:v", "0",
+                "-maxrate", string.Create(CultureInfo.InvariantCulture, $"{maxKbps}k"),
+                "-bufsize", string.Create(CultureInfo.InvariantCulture, $"{maxKbps * 2}k"),
+                .. nvencPixelFormat,
+            ],
             _ when encoder.EndsWith("_qsv", StringComparison.Ordinal) =>
-                $"-c:v {encoder} -preset {preset} -global_quality {whole} -pix_fmt {hwPix}",
+                ["-c:v", encoder, "-preset", preset, "-global_quality", whole, "-pix_fmt", hwPix],
             _ when encoder.EndsWith("_amf", StringComparison.Ordinal) =>
-                $"-c:v {encoder} -quality {(preset == "slow" ? "quality" : "balanced")} -rc cqp -qp_i {whole} -qp_p {whole} -qp_b {whole} -pix_fmt {hwPix}",
-            _ when encoder.EndsWith("_vaapi", StringComparison.Ordinal) =>
-                $"-c:v {encoder} -rc_mode CQP -qp {whole}"
-                + (tenBit && encoder.StartsWith("hevc", StringComparison.Ordinal) ? " -profile:v main10" : string.Empty),
+                ["-c:v", encoder, "-quality", preset == "slow" ? "quality" : "balanced", "-rc", "cqp", "-qp_i", whole, "-qp_p", whole, "-qp_b", whole, "-pix_fmt", hwPix],
+            _ when encoder.EndsWith("_vaapi", StringComparison.Ordinal) => tenBitHevc
+                ? ["-c:v", encoder, "-rc_mode", "CQP", "-qp", whole, "-profile:v", "main10"]
+                : ["-c:v", encoder, "-rc_mode", "CQP", "-qp", whole],
             _ when encoder.EndsWith("_videotoolbox", StringComparison.Ordinal) =>
-                $"-c:v {encoder} -q:v {Math.Clamp(100 - (int)Math.Round(level), 1, 100)}"
-                + (tenBit && encoder.StartsWith("hevc", StringComparison.Ordinal)
-                    ? " -pix_fmt p010le -profile:v main10"
-                    : " -pix_fmt yuv420p"),
+            [
+                "-c:v", encoder, "-q:v", Math.Clamp(100 - (int)Math.Round(level), 1, 100).ToString(CultureInfo.InvariantCulture),
+                .. tenBitHevc ? ["-pix_fmt", "p010le", "-profile:v", "main10"] : (string[])["-pix_fmt", "yuv420p"],
+            ],
             _ => throw new ArgumentOutOfRangeException(nameof(encoder), encoder, "Not an encoder Cove converts with."),
         };
     }
@@ -378,11 +384,11 @@ internal static class FfmpegHwAccel
     /// VAAPI encodes from GPU surfaces, so its frames are converted and uploaded last, after any
     /// frame-rate change has already been made on the CPU side.
     /// </summary>
-    public static string ConversionVideoFilter(string encoder, bool tenBit, double? frameRate = null)
+    public static IReadOnlyList<string> ConversionVideoFilter(string encoder, bool tenBit, double? frameRate = null)
     {
         var chain = new List<string>();
         if (frameRate is > 0)
-            chain.Add("fps=" + frameRate.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+            chain.Add("fps=" + frameRate.Value.ToString("0.###", CultureInfo.InvariantCulture));
 
         if (encoder.EndsWith("_vaapi", StringComparison.Ordinal))
         {
@@ -391,68 +397,34 @@ internal static class FfmpegHwAccel
             chain.Add("hwupload");
         }
 
-        return chain.Count == 0 ? string.Empty : $"-vf \"{string.Join(',', chain)}\"";
+        return chain.Count == 0 ? [] : ["-vf", string.Join(',', chain)];
     }
 
     /// <summary>Returns extra input-side arguments required by the chosen encoder (e.g. the VAAPI
-    /// device), or an empty string. Decoding stays in software by default; only the encoder's own
+    /// device), or none. Decoding stays in software by default; only the encoder's own
     /// device setup is added here.</summary>
-    public static string InputArgsForEncoder(string encoder) =>
-        encoder.EndsWith("_vaapi", StringComparison.Ordinal) ? "-vaapi_device /dev/dri/renderD128" : string.Empty;
+    public static IReadOnlyList<string> InputArgsForEncoder(string encoder) =>
+        encoder.EndsWith("_vaapi", StringComparison.Ordinal) ? ["-vaapi_device", "/dev/dri/renderD128"] : [];
 
     /// <summary>Builds the <c>-vf</c> argument for a software-decoded → hardware-encoded pipeline.
     /// <paramref name="scaleChain"/> is the software filter chain (may be empty). VAAPI requires the
     /// frames to be uploaded to a GPU surface before the encoder can consume them; the other HW
     /// encoders accept system-memory frames directly.</summary>
-    public static string VideoFilterForEncoder(string encoder, string scaleChain)
+    public static IReadOnlyList<string> VideoFilterForEncoder(string encoder, string scaleChain)
     {
         var chain = scaleChain;
         if (encoder == "h264_vaapi")
             chain = string.IsNullOrEmpty(chain) ? "format=nv12,hwupload" : $"{chain},format=nv12,hwupload";
 
-        return string.IsNullOrEmpty(chain) ? string.Empty : $"-vf \"{chain}\"";
-    }
-
-    /// <summary>Resolve the ffmpeg executable: the configured path if it exists, otherwise search PATH.
-    /// Centralizes the lookup that several services otherwise duplicate.</summary>
-    public static string? FindFfmpeg(string? configuredPath)
-    {
-        if (!string.IsNullOrEmpty(configuredPath) && File.Exists(configuredPath))
-            return configuredPath;
-
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var dir in pathEnv.Split(Path.PathSeparator))
-        {
-            if (string.IsNullOrWhiteSpace(dir)) continue;
-            var candidate = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
-            if (File.Exists(candidate)) return candidate;
-        }
-        return null;
+        return string.IsNullOrEmpty(chain) ? [] : ["-vf", chain];
     }
 
     /// <summary>Runs a quick ffmpeg build-info query (e.g. <c>-encoders</c>/<c>-hwaccels</c>) and returns
-    /// stdout. The process is always disposed and is killed if it overruns the timeout, so a stuck child
-    /// is never orphaned (matching <see cref="ProbeEncoder"/>'s cleanup).</summary>
-    private static string RunFfmpegInfoQuery(string ffmpegPath, string arguments, int timeoutMs = 5000)
+    /// stdout, or nothing if it did not finish in time.</summary>
+    private static string RunFfmpegInfoQuery(string ffmpegPath, IReadOnlyList<string> arguments)
     {
-        var startInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = arguments,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
-        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
-        process.Start();
-        var output = process.StandardOutput.ReadToEnd();
-        if (!process.WaitForExit(timeoutMs))
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-        }
-        return output;
+        var result = FfmpegProcessRunner.Run(ffmpegPath, arguments, TimeSpan.FromSeconds(5));
+        return result.TimedOut ? string.Empty : result.StandardOutput;
     }
 
     /// <summary>
@@ -467,30 +439,17 @@ internal static class FfmpegHwAccel
     /// </summary>
     public static bool HasQualityMeasurement(string ffmpegPath)
     {
-        var startInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = "-hide_banner -nostdin -v error -f lavfi -i testsrc2=size=64x64:rate=1:duration=1 "
-                + "-f lavfi -i testsrc2=size=64x64:rate=1:duration=1 "
-                + "-lavfi \"[0:v][1:v]libvmaf=model=version=vmaf_v0.6.1:feature=name=psnr_hvs\" -f null -",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
-        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
         try
         {
-            process.Start();
-            process.StandardOutput.ReadToEnd();
-            process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(15000))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return false;
-            }
-            return process.ExitCode == 0;
+            var result = FfmpegProcessRunner.Run(ffmpegPath,
+            [
+                "-hide_banner", "-nostdin", "-v", "error",
+                "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=1:duration=1",
+                "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=1:duration=1",
+                "-lavfi", "[0:v][1:v]libvmaf=model=version=vmaf_v0.6.1:feature=name=psnr_hvs",
+                "-f", "null", "-",
+            ], TimeSpan.FromSeconds(15));
+            return !result.TimedOut && result.ExitCode == 0;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
@@ -501,7 +460,7 @@ internal static class FfmpegHwAccel
     /// <summary>Returns the set of encoder NAMES available in this ffmpeg build.</summary>
     public static IReadOnlyCollection<string> ListEncoders(string ffmpegPath)
     {
-        var output = RunFfmpegInfoQuery(ffmpegPath, "-hide_banner -encoders");
+        var output = RunFfmpegInfoQuery(ffmpegPath, ["-hide_banner", "-encoders"]);
 
         // `ffmpeg -encoders` prints one encoder per row as: " V....D h264_nvenc   NVIDIA NVENC H.264 encoder".
         // The encoder NAME is the second whitespace-delimited token on rows whose first token is the
@@ -523,32 +482,24 @@ internal static class FfmpegHwAccel
     public static bool ProbeEncoder(string ffmpegPath, string encoder, out string error)
     {
         error = string.Empty;
-        var startInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            // 256x256, not 64x64: some NVENC generations reject very small frames, which would make a
-            // perfectly working encoder fail the probe. This size is comfortably above all encoders' minimums.
-            Arguments = $"-hide_banner -v error -f lavfi -i color=size=256x256:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
-        var process = new System.Diagnostics.Process { StartInfo = startInfo };
         try
         {
-            process.Start();
-            var stderr = process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(10000))
+            // 256x256, not 64x64: some NVENC generations reject very small frames, which would make a
+            // perfectly working encoder fail the probe. This size is comfortably above all encoders' minimums.
+            var result = FfmpegProcessRunner.Run(ffmpegPath,
+            [
+                "-hide_banner", "-v", "error",
+                "-f", "lavfi", "-i", "color=size=256x256:rate=1:duration=0.1",
+                "-c:v", encoder, "-frames:v", "1", "-f", "null", "-",
+            ], TimeSpan.FromSeconds(10));
+            if (result.TimedOut)
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
                 error = "timed out";
                 return false;
             }
-            if (process.ExitCode == 0)
+            if (result.ExitCode == 0)
                 return true;
-            error = stderr.Length > 200 ? stderr[..200] : stderr;
+            error = result.StandardError.Length > 200 ? result.StandardError[..200] : result.StandardError;
             return false;
         }
         catch (Exception ex)

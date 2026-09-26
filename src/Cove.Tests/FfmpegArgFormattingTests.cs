@@ -22,8 +22,8 @@ public class FfmpegArgFormattingTests
         {
             CultureInfo.CurrentCulture = new CultureInfo(culture);
 
-            var args = VideoFrameBatchExtractor.BuildBatchArguments(
-                "/media/clip.mp4", "/tmp/frames", [697.91, 1234.5], start: 0, count: 2, scaleWidth: 320);
+            var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+                "/media/clip.mp4", "/tmp/frames", [697.91, 1234.5], start: 0, count: 2, scaleWidth: 320));
 
             Assert.Contains("-ss 697.910", args);
             Assert.Contains("-ss 1234.500", args);
@@ -44,10 +44,10 @@ public class FfmpegArgFormattingTests
     [Fact]
     public void FrameExtractArgs_MapEachInputToItsOwnSingleFrameOutput()
     {
-        var args = VideoFrameBatchExtractor.BuildBatchArguments(
-            "/media/clip.mp4", "/tmp/frames", [10, 20, 30], start: 0, count: 3, scaleWidth: 160);
+        var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [10, 20, 30], start: 0, count: 3, scaleWidth: 160));
 
-        Assert.Equal(3, Occurrences(args, "-i \"/media/clip.mp4\""));
+        Assert.Equal(3, Occurrences(args, "-i /media/clip.mp4"));
         Assert.Contains("-map 0:v:0", args);
         Assert.Contains("-map 1:v:0", args);
         Assert.Contains("-map 2:v:0", args);
@@ -63,15 +63,15 @@ public class FfmpegArgFormattingTests
     [Fact]
     public void FrameExtractArgs_PinTheOutputFormatThatPhashesDependOn()
     {
-        var args = VideoFrameBatchExtractor.BuildBatchArguments(
-            "/media/clip.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 160);
+        var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 160));
 
-        Assert.Contains("-vf \"scale=160:-2\"", args);
+        Assert.Contains("-vf scale=160:-2", args);
         Assert.Contains("-q:v 3", args);
         Assert.Contains("-pix_fmt yuvj420p", args);
         // Caps the per-output mjpeg encoder. Without it a 24-output batch spawns hundreds of
         // encoder threads and blows past whatever concurrency the user configured.
-        Assert.Contains("-frames:v 1 -vf \"scale=160:-2\" -threads 1", args);
+        Assert.Contains("-frames:v 1 -vf scale=160:-2 -threads 1", args);
     }
 
     /// <summary>
@@ -81,19 +81,19 @@ public class FfmpegArgFormattingTests
     [Fact]
     public void FrameExtractArgs_PutThePreFilterAheadOfTheScale()
     {
-        var args = VideoFrameBatchExtractor.BuildBatchArguments(
+        var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
             "/media/vr.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 160,
-            preFilter: "v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90");
+            preFilter: "v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90"));
 
-        Assert.Contains("-vf \"v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90,scale=160:-2\"", args);
+        Assert.Contains("-vf v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90,scale=160:-2", args);
     }
 
     /// <summary>A non-positive scale width keeps the source resolution (used by thumbnails).</summary>
     [Fact]
     public void FrameExtractArgs_OmitScaleFilterWhenWidthIsNotPositive()
     {
-        var args = VideoFrameBatchExtractor.BuildBatchArguments(
-            "/media/clip.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 0);
+        var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 0));
 
         Assert.DoesNotContain("scale=", args);
     }
@@ -112,9 +112,10 @@ public class FfmpegArgFormattingTests
             .ToList();
 
         var timestamps = Enumerable.Range(0, 81).Select(i => (double)i).ToArray();
+        // Windows joins the list into one command line: at worst two quotes and a space per argument.
         Assert.All(plans, plan => Assert.True(
             VideoFrameBatchExtractor.BuildBatchArguments(
-                longPath, "/tmp/frames", timestamps, plan.Start, plan.Count, 160).Length < 32767));
+                longPath, "/tmp/frames", timestamps, plan.Start, plan.Count, 160).Sum(argument => argument.Length + 3) < 32767));
         Assert.Equal(81, plans.Sum(plan => plan.Count));
         Assert.True(
             plans.Max(plan => plan.Count) < VideoFrameBatchExtractor.DefaultBatchSize,

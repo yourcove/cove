@@ -30,10 +30,12 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
     // If the binary exists but this marker is absent the install is a legacy standalone
     // build and we re-download to get the shared libraries.
 
+    private static readonly TimeSpan ExtractTimeout = TimeSpan.FromMinutes(5);
+
     private static string ManagedDir => CoveDefaultPaths.GetDataSubdirectory("ffmpeg");
 
-    private static string FfmpegExe  => OperatingSystem.IsWindows() ? "ffmpeg.exe"  : "ffmpeg";
-    private static string FfprobeExe => OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe";
+    private static string FfmpegExe  => FfmpegExecutableLocator.FfmpegFileName;
+    private static string FfprobeExe => FfmpegExecutableLocator.FfprobeFileName;
 
     public async Task StartAsync(CancellationToken ct)
     {
@@ -46,7 +48,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
         }
 
         // 2. In PATH — use it but don't try to replace it.
-        var pathResult = FindInPath(FfmpegExe);
+        var pathResult = FfmpegExecutableLocator.FindOnPath(FfmpegExe);
         if (pathResult != null)
         {
             config.FfmpegPath = pathResult;
@@ -168,18 +170,9 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
             await DownloadFileAsync(url, archivePath, ct);
 
             Directory.CreateDirectory(tempExtract);
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "/bin/tar",
-                Arguments = $"xf \"{archivePath}\" -C \"{tempExtract}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            using (var proc = System.Diagnostics.Process.Start(psi))
-            {
-                if (proc != null) await proc.WaitForExitAsync(ct);
-            }
+            var tar = await FfmpegProcessRunner.RunSystemToolAsync("/bin/tar", ["xf", archivePath, "-C", tempExtract], ExtractTimeout, ct);
+            if (tar.TimedOut || tar.ExitCode != 0)
+                throw new InvalidOperationException($"Extracting the FFmpeg archive failed (exit {tar.ExitCode}): {tar.StandardError.Trim()}");
 
             // Copy bin/ executables and lib/ shared libraries flat into ManagedDir
             foreach (var subDir in new[] { "bin", "lib" })
@@ -190,8 +183,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
                     {
                         var dest = Path.Combine(ManagedDir, Path.GetFileName(file));
                         File.Copy(file, dest, overwrite: true);
-                        var chmod = System.Diagnostics.Process.Start("/bin/chmod", $"+x \"{dest}\"");
-                        chmod?.WaitForExit();
+                        MakeExecutable(dest);
                     }
                     break; // only the first match per subDir name
                 }
@@ -220,10 +212,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
             {
                 var path = Path.Combine(ManagedDir, name);
                 if (File.Exists(path))
-                {
-                    var chmod = System.Diagnostics.Process.Start("/bin/chmod", $"+x \"{path}\"");
-                    chmod?.WaitForExit();
-                }
+                    MakeExecutable(path);
             }
         }
         finally
@@ -246,19 +235,16 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
         await stream.CopyToAsync(file, ct);
     }
 
-    private static string? FindInPath(string exe)
+    /// <summary>Adds execute permission wherever read permission is granted, like <c>chmod +x</c> under the usual umask.</summary>
+    private static void MakeExecutable(string path)
     {
-        var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
-        foreach (var dir in pathDirs)
-        {
-            try
-            {
-                var candidate = Path.Combine(dir, exe);
-                if (File.Exists(candidate)) return candidate;
-            }
-            catch { /* skip invalid path entries */ }
-        }
-        return null;
+        if (OperatingSystem.IsWindows())
+            return;
+        var mode = File.GetUnixFileMode(path);
+        if (mode.HasFlag(UnixFileMode.UserRead)) mode |= UnixFileMode.UserExecute;
+        if (mode.HasFlag(UnixFileMode.GroupRead)) mode |= UnixFileMode.GroupExecute;
+        if (mode.HasFlag(UnixFileMode.OtherRead)) mode |= UnixFileMode.OtherExecute;
+        File.SetUnixFileMode(path, mode);
     }
 }
 

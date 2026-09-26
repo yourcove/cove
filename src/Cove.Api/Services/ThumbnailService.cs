@@ -291,7 +291,12 @@ public class ThumbnailService(
             if (seekSeconds <= 0) seekSeconds = 1;
             Directory.CreateDirectory(Path.GetDirectoryName(cardPath)!);
             var tempPath = Path.Combine(Path.GetDirectoryName(cardPath)!, $"{videoId}.{Guid.NewGuid():N}.tmp.jpg");
-            var args = $"{GetFfmpegDecodeArgs()} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -vf \"{filter}\" -vframes 1 -q:v 3 -f image2 \"{tempPath}\"";
+            IReadOnlyList<string> args =
+            [
+                .. GetFfmpegDecodeArgs(), "-v", "error", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-y",
+                "-ss", seekSeconds.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath,
+                "-vf", filter, "-vframes", "1", "-q:v", "3", "-f", "image2", tempPath,
+            ];
 
             var sem = GetFfmpegSemaphore();
             await sem.WaitAsync(ct);
@@ -635,11 +640,11 @@ public class ThumbnailService(
             try
             {
                 var scaleFilter = $"scale='min(iw,{maxDimension})':'min(ih,{maxDimension})':force_original_aspect_ratio=decrease";
-                var args = thumbnailOutput.ContentType == "image/png"
-                    ? $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -f image2 \"{tempOutputPath}\""
+                IReadOnlyList<string> args = thumbnailOutput.ContentType == "image/png"
+                    ? ["-v", "error", "-y", "-i", inputPath, "-vf", scaleFilter, "-frames:v", "1", "-f", "image2", tempOutputPath]
                     // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
                     // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
-                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{tempOutputPath}\"";
+                    : ["-v", "error", "-y", "-i", inputPath, "-vf", scaleFilter, "-frames:v", "1", "-q:v", "3", "-pix_fmt", "yuvj420p", "-f", "image2", tempOutputPath];
                 if (!await TryRunFfmpegAsync(ffmpegPath, args, ImageThumbnailFfmpegTimeout, ct))
                     return false;
 
@@ -709,11 +714,11 @@ public class ThumbnailService(
                 }
 
                 var scaleFilter = $"scale='min(iw,{maxDimension})':'min(ih,{maxDimension})':force_original_aspect_ratio=decrease";
-                var args = thumbnailOutput.ContentType == "image/png"
-                    ? $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 \"{tempOutputPath}\""
+                IReadOnlyList<string> args = thumbnailOutput.ContentType == "image/png"
+                    ? ["-v", "error", "-y", "-i", inputPath, "-vf", scaleFilter, "-frames:v", "1", tempOutputPath]
                     // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
                     // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
-                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p \"{tempOutputPath}\"";
+                    : ["-v", "error", "-y", "-i", inputPath, "-vf", scaleFilter, "-frames:v", "1", "-q:v", "3", "-pix_fmt", "yuvj420p", tempOutputPath];
                 if (!await TryRunFfmpegAsync(ffmpegPath, args, ImageThumbnailFfmpegTimeout, ct) || !File.Exists(tempOutputPath))
                 {
                     await thumbnailStream.DisposeAsync();
@@ -1103,7 +1108,13 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                string ThumbnailArgs(string? filter) => $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\"{(filter != null ? $" -vf \"{filter}\"" : string.Empty)} -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
+                IReadOnlyList<string> ThumbnailArgs(string? filter) =>
+                [
+                    .. decodeArgs, "-v", "error", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-y",
+                    "-ss", seekSeconds.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath!,
+                    .. filter != null ? ["-vf", filter] : Array.Empty<string>(),
+                    "-vframes", "1", "-q:v", "2", "-f", "image2", tempPath,
+                ];
 
                 // One input, but it still comes out of the same budget: a run generating thumbnails
                 // alongside sprites would otherwise add a decode per video on top of a sprite's batch.
@@ -1284,7 +1295,13 @@ public class ThumbnailService(
                 var frameFilter = segmentFilter != null
                     ? $"fps={SegmentPreviewFps},{segmentFilter}"
                     : $"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos";
-                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"{frameFilter}\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
+                IReadOnlyList<string> args =
+                [
+                    .. decodeArgs, "-v", "error", "-y",
+                    "-ss", clampedStart.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath,
+                    "-t", previewDuration.ToString("F2", CultureInfo.InvariantCulture),
+                    "-vf", frameFilter, "-loop", "0", "-an", "-quality", "75", "-compression_level", "4", tempPath,
+                ];
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
                 if (!File.Exists(tempPath))
@@ -1378,7 +1395,7 @@ public class ThumbnailService(
             var segmentDuration = Math.Clamp(config.Ui.PreviewSegmentDuration <= 0 ? DefaultPreviewSegmentDuration : config.Ui.PreviewSegmentDuration, 0.1, 30d);
             var preset = NormalizePreviewPreset(config.PreviewPreset);
             var includeAudio = string.Equals(config.PreviewAudio, "true", StringComparison.OrdinalIgnoreCase);
-            var audioArg = includeAudio ? string.Empty : "-an";
+            string[] audioArgs = includeAudio ? [] : ["-an"];
             var excludeStart = ParsePreviewExclusion(config.Ui.PreviewExcludeStart, duration);
             var excludeEnd = ParsePreviewExclusion(config.Ui.PreviewExcludeEnd, duration);
             var usableStart = Math.Min(excludeStart, Math.Max(0, duration - 0.1));
@@ -1392,14 +1409,19 @@ public class ThumbnailService(
             // If video is too short for all segments, use a single full-video preview
             if (usableDuration < segmentDuration * segmentCount)
             {
-                var seekArgs = usableStart > 0 ? $"-ss {usableStart.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
-                var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
+                string[] seekArgs = usableStart > 0 ? ["-ss", usableStart.ToString("F2", CultureInfo.InvariantCulture)] : [];
+                string[] durationArgs = usableDuration < duration ? ["-t", usableDuration.ToString("F2", CultureInfo.InvariantCulture)] : [];
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
+                    encoder =>
+                    [
+                        .. decodeArgs, "-v", "error", "-y", .. FfmpegHwAccel.InputArgsForEncoder(encoder),
+                        .. seekArgs, "-i", filePath, .. durationArgs, "-max_muxing_queue_size", "1024",
+                        .. PreviewEncodeArgs(encoder, preset), "-vf", previewScale + PreviewUploadChain(encoder),
+                        "-profile:v", "high", "-level", "4.2", .. audioArgs, generatedPreviewPath,
+                    ],
                     generatedPreviewPath,
                     TimeSpan.FromMinutes(5),
-                    preset,
                     inputCount: 1,
                     ct);
                 var committed = TryCommitGeneratedFile(generatedPreviewPath, previewPath, ct);
@@ -1429,13 +1451,16 @@ public class ThumbnailService(
             // produced is simply left out of the concatenation.
             if (!includeAudio)
             {
-                var inputs = new StringBuilder();
+                var inputs = new List<string>();
                 var filter = new StringBuilder();
                 foreach (var seekTime in seekTimes)
                 {
-                    inputs.Append(" -ss ").Append(seekTime.ToString("F2", CultureInfo.InvariantCulture))
-                          .Append(" -t ").Append(segmentDuration.ToString("F2", CultureInfo.InvariantCulture))
-                          .Append(" -i \"").Append(filePath).Append('"');
+                    inputs.AddRange(
+                    [
+                        "-ss", seekTime.ToString("F2", CultureInfo.InvariantCulture),
+                        "-t", segmentDuration.ToString("F2", CultureInfo.InvariantCulture),
+                        "-i", filePath,
+                    ]);
                 }
                 for (var i = 0; i < segmentCount; i++)
                 {
@@ -1451,14 +1476,19 @@ public class ThumbnailService(
                 // The graph ends at [spliced]; the tail is filled in per encoder, because a VAAPI
                 // encode has to upload to a GPU surface first and a software encode must not.
                 filter.Append("concat=n=").Append(segmentCount.ToString(CultureInfo.InvariantCulture))
-                      .Append(":v=1:a=0[spliced];[spliced]null").Append(HwUploadPlaceholder).Append("[preview]");
+                      .Append(":v=1:a=0[spliced];[spliced]null");
+                var splicedFilter = filter.ToString();
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder}{inputs} -max_muxing_queue_size 1024 -filter_complex \"{filter}\" -map \"[preview]\" {VideoCodecPlaceholder} -profile:v high -level 4.2 -an \"{generatedPreviewPath}\"",
+                    encoder =>
+                    [
+                        .. decodeArgs, "-v", "error", "-y", .. FfmpegHwAccel.InputArgsForEncoder(encoder), .. inputs,
+                        "-max_muxing_queue_size", "1024", "-filter_complex", splicedFilter + PreviewUploadChain(encoder) + "[preview]",
+                        "-map", "[preview]", .. PreviewEncodeArgs(encoder, preset), "-profile:v", "high", "-level", "4.2", "-an", generatedPreviewPath,
+                    ],
                     generatedPreviewPath,
                     TimeSpan.FromMinutes(5),
-                    preset,
                     inputCount: segmentCount,
                     ct);
 
@@ -1477,13 +1507,19 @@ public class ThumbnailService(
                 ct.ThrowIfCancellationRequested();
                 var chunkPath = Path.Combine(tmpDir, $"chunk_{i:D3}.mp4");
                 chunkFiles.Add(chunkPath);
+                var seekTime = seekTimes[i].ToString("F2", CultureInfo.InvariantCulture);
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {HwDevicePlaceholder} -ss {seekTimes[i].ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewScale}{HwUploadPlaceholder}\" -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
+                    encoder =>
+                    [
+                        .. decodeArgs, "-v", "error", "-y", .. FfmpegHwAccel.InputArgsForEncoder(encoder),
+                        "-ss", seekTime, "-i", filePath, "-t", segmentDuration.ToString("F2", CultureInfo.InvariantCulture),
+                        "-max_muxing_queue_size", "1024", .. PreviewEncodeArgs(encoder, preset), "-vf", previewScale + PreviewUploadChain(encoder),
+                        "-profile:v", "high", "-level", "4.2", .. audioArgs, chunkPath,
+                    ],
                     chunkPath,
                     TimeSpan.FromSeconds(60),
-                    preset,
                     inputCount: 1,
                     ct);
             }
@@ -1500,14 +1536,15 @@ public class ThumbnailService(
                 return false;
             }
 
-            // Create concat file — use forward slashes for FFmpeg compatibility on all platforms
+            // Create concat file — use forward slashes for FFmpeg compatibility on all platforms. A quote
+            // would end the quoted path in the list syntax, so it is written as '\'' (close, escaped quote, reopen).
             var concatListPath = Path.Combine(tmpDir, "concat.txt");
-            var concatLines = validChunks.Select(f => $"file '{Path.GetFullPath(f).Replace('\\', '/')}'");
+            var concatLines = validChunks.Select(f => $"file '{Path.GetFullPath(f).Replace('\\', '/').Replace("'", @"'\''", StringComparison.Ordinal)}'");
             await File.WriteAllTextAsync(concatListPath, string.Join("\n", concatLines), ct);
 
             // Concatenate chunks into final preview
             await RunFfmpegAsync(ffmpegPath,
-                $"-v error -y -f concat -safe 0 -i \"{concatListPath}\" -c:v copy \"{generatedPreviewPath}\"",
+                ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", concatListPath, "-c:v", "copy", generatedPreviewPath],
                 TimeSpan.FromSeconds(30), ct);
 
             if (!TryCommitGeneratedFile(generatedPreviewPath, previewPath, ct))
@@ -1544,18 +1581,13 @@ public class ThumbnailService(
         return true;
     }
 
-    // Sentinel token for the video codec args slot in preview encode templates. A plain
-    // string replace is used instead of string.Format so that file paths containing literal
-    // '{' or '}' characters don't get misinterpreted as format placeholders (FormatException).
-    private const string VideoCodecPlaceholder = "__COVE_VCODEC__";
-
     // Some hardware encoders need more than a codec swap. VAAPI encodes from GPU surfaces, so it
     // needs a device on the input side and an hwupload at the end of the filter chain; the others
-    // take system-memory frames as-is. Both are placeholders rather than interpolated up front
-    // because RunPreviewEncodeAsync may fall back from the hardware encoder to libx264, and the
-    // device and upload MUST disappear with it - a leftover hwupload fails a libx264 encode.
-    private const string HwDevicePlaceholder = "__COVE_HWDEV__";
-    private const string HwUploadPlaceholder = "__COVE_HWUPLOAD__";
+    // take system-memory frames as-is. Preview commands are therefore built per encoder rather than
+    // up front, because RunPreviewEncodeAsync may fall back from the hardware encoder to libx264, and
+    // the device and upload MUST disappear with it - a leftover hwupload fails a libx264 encode.
+    private static IReadOnlyList<string> PreviewEncodeArgs(string encoder, string softwarePreset)
+        => FfmpegHwAccel.VideoEncodeArgs(encoder, PreviewCrf, softwarePreset);
 
     /// <summary>
     /// Filter-chain tail a preview encode needs for the chosen encoder. VAAPI consumes GPU surfaces,
@@ -1566,28 +1598,25 @@ public class ThumbnailService(
     private static string PreviewUploadChain(string encoder)
         => encoder == "h264_vaapi" ? ",format=nv12,hwupload" : ",format=yuv420p";
 
+    /// <param name="buildArgs">
+    /// Builds the whole command for one encoder, so a hardware attempt and its libx264 retry each get a
+    /// fully consistent command line.
+    /// </param>
     /// <param name="inputCount">
     /// How many inputs this command opens. A spliced preview seeks the source once per segment, so
     /// it decodes that many streams at once and must reserve that much of the decode budget - the
     /// setting is denominated in decode inputs, not in processes.
     /// </param>
-    private async Task RunPreviewEncodeAsync(string ffmpegPath, string argsTemplate, string outputPath, TimeSpan timeout, string softwarePreset, int inputCount, CancellationToken ct)
-
+    private async Task RunPreviewEncodeAsync(string ffmpegPath, Func<string, IReadOnlyList<string>> buildArgs, string outputPath, TimeSpan timeout, int inputCount, CancellationToken ct)
     {
         var encoder = GetH264Encoder();
 
-        // Fills in every encoder-dependent slot at once, so a hardware attempt and its libx264
-        // retry each get a fully consistent command line.
-        string Compose(string chosen) => argsTemplate
-            .Replace(VideoCodecPlaceholder, FfmpegHwAccel.VideoEncodeArgs(chosen, PreviewCrf, softwarePreset), StringComparison.Ordinal)
-            .Replace(HwDevicePlaceholder, FfmpegHwAccel.InputArgsForEncoder(chosen), StringComparison.Ordinal)
-            .Replace(HwUploadPlaceholder, PreviewUploadChain(chosen), StringComparison.Ordinal);
         // Build the codec args per encoder family. libx264 honors -preset/-crf; the hardware encoders
         // need their own constant-quality knobs (NVENC/QSV/AMF ignore -crf, and a libx264 preset name
         // like "veryfast" is an invalid NVENC preset that aborts the encode).
         if (encoder != "libx264")
         {
-            var hwArgs = Compose(encoder);
+            var hwArgs = buildArgs(encoder);
             bool ok;
             // Two separate budgets: the GPU's encode-session limit (shared with library conversion)
             // and Cove's decode-input budget. A preview needs one of each.
@@ -1607,7 +1636,7 @@ public class ThumbnailService(
         }
 
         await using var softwareSlots = await ffmpegConcurrency.AcquireAsync(inputCount, ct);
-        await RunFfmpegAsync(ffmpegPath, Compose("libx264"), timeout, ct);
+        await RunFfmpegAsync(ffmpegPath, buildArgs("libx264"), timeout, ct);
     }
 
     private static double ParsePreviewExclusion(string? value, double duration)
@@ -2012,12 +2041,12 @@ public class ThumbnailService(
         return File.Exists(filePath) ? (filePath, videoFile.Duration) : (null, 0);
     }
 
-    private async Task RunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
+    private async Task RunFfmpegAsync(string ffmpegPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
     {
         var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
         if (result.TimedOut)
         {
-            logger.LogWarning("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            logger.LogWarning("FFmpeg timed out: {Args}", FfmpegProcessRunner.Describe(args));
             return;
         }
 
@@ -2025,13 +2054,13 @@ public class ThumbnailService(
             logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", result.ExitCode, result.StandardError[..Math.Min(500, result.StandardError.Length)]);
     }
 
-    private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
+    private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
     {
         var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
         if (result.TimedOut)
         {
             if (logger.IsEnabled(LogLevel.Trace))
-                logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+                logger.LogTrace("FFmpeg timed out: {Args}", FfmpegProcessRunner.Describe(args));
             return false;
         }
 
@@ -2129,21 +2158,7 @@ public class ThumbnailService(
         return _cachedFfmpegPath;
     }
 
-    private string? FindFfmpeg()
-    {
-        if (!string.IsNullOrEmpty(config.FfmpegPath) && File.Exists(config.FfmpegPath))
-            return config.FfmpegPath;
-
-        // Search PATH
-        var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
-        foreach (var dir in pathDirs)
-        {
-            var ffmpeg = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
-            if (File.Exists(ffmpeg)) return ffmpeg;
-        }
-
-        return null;
-    }
+    private string? FindFfmpeg() => FfmpegExecutableLocator.FindFfmpeg(config);
 
     /// <summary>
     /// Input-side decode arguments. Deliberately empty: frame extraction decodes on the CPU.
@@ -2168,10 +2183,7 @@ public class ThumbnailService(
     ///
     /// A power user can still force input arguments via the FfmpegInputArgs setting.
     /// </summary>
-    private string GetFfmpegDecodeArgs()
-    {
-        return !string.IsNullOrWhiteSpace(config.FfmpegInputArgs) ? config.FfmpegInputArgs : string.Empty;
-    }
+    private IReadOnlyList<string> GetFfmpegDecodeArgs() => FfmpegArgumentTokenizer.Split(config.FfmpegInputArgs);
 
     /// <summary>Get the H.264 encoder to use for generation, honoring the configured hardware
     /// acceleration preference. The probe result is cached, but the cache is keyed on the

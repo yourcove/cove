@@ -66,7 +66,7 @@ public sealed class VideoConversionJobService(
     /// <summary>The encoder each codec would use under the current settings. Probes run once per ffmpeg/setting combination.</summary>
     public IReadOnlyList<VideoConversionEncoderInfo> DescribeEncoders()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(config.FfmpegPath);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg(config);
         return [.. new[] { VideoConversionCodec.H264, VideoConversionCodec.Hevc, VideoConversionCodec.Av1 }
             .Select(codec =>
             {
@@ -122,7 +122,7 @@ public sealed class VideoConversionJobService(
 
     private async Task RunAsync(int[] ids, VideoConversionSettings settings, IJobProgress progress, CancellationToken ct)
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(config.FfmpegPath)
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg(config)
             ?? throw new InvalidOperationException("FFmpeg was not found. Set its path in Settings before converting videos.");
 
         string? encoder = null;
@@ -655,7 +655,7 @@ public sealed class VideoConversionJobService(
         return (VideoQualitySearch.RoundScore(values), seconds > 0 ? bytes / seconds : 0);
     }
 
-    private async Task<double?> ScoreSampleAsync(string ffmpeg, string arguments, string logPath, CancellationToken ct)
+    private async Task<double?> ScoreSampleAsync(string ffmpeg, IReadOnlyList<string> arguments, string logPath, CancellationToken ct)
     {
         FfmpegProcessResult result;
         // Scoring decodes two inputs, the sample and its reference.
@@ -752,7 +752,7 @@ public sealed class VideoConversionJobService(
 
     private async Task<FfmpegProcessResult> RunTrackedAsync(
         string ffmpeg,
-        string arguments,
+        IReadOnlyList<string> arguments,
         double duration,
         string message,
         double start,
@@ -785,9 +785,10 @@ public sealed class VideoConversionJobService(
     /// Cove decodes at once. A hardware encode also holds one of the GPU's encode sessions.
     /// </summary>
     private async Task<FfmpegProcessResult> RunGatedAsync(
-        string ffmpeg, string arguments, string? encoder, Action<string> onProgress, CancellationToken ct)
+        string ffmpeg, IReadOnlyList<string> arguments, string? encoder, Action<string> onProgress, CancellationToken ct)
     {
-        logger.LogDebug("Running ffmpeg {Arguments}", arguments);
+        if (logger.IsEnabled(LogLevel.Debug))
+            logger.LogDebug("Running ffmpeg {Arguments}", FfmpegProcessRunner.Describe(arguments, int.MaxValue));
 
         if (encoder is null || FfmpegHwAccel.IsSoftwareEncoder(encoder))
         {

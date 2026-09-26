@@ -261,7 +261,7 @@ public class VideoQualitySearchTests
     [Fact]
     public void NvencConstantQualityCarriesAnExplicitPeakRate()
     {
-        var args = FfmpegHwAccel.ConversionQualityArgs("hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, tenBit: false, maxKbps: 150_000);
+        var args = string.Join(" ", FfmpegHwAccel.ConversionQualityArgs("hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, tenBit: false, maxKbps: 150_000));
 
         Assert.Contains("-rc vbr -cq 26.5 -b:v 0", args);
         Assert.Contains("-maxrate 150000k -bufsize 300000k", args);
@@ -278,7 +278,7 @@ public class VideoQualitySearchTests
     public void EachFamilyGetsItsOwnConstantQualityControl(string encoder, string expected)
     {
         var knob = FfmpegHwAccel.ConversionQualityKnob(encoder);
-        var args = FfmpegHwAccel.ConversionQualityArgs(encoder, 22, VideoConversionEffort.HighHardware, tenBit: false, maxKbps: 50_000);
+        var args = string.Join(" ", FfmpegHwAccel.ConversionQualityArgs(encoder, 22, VideoConversionEffort.HighHardware, tenBit: false, maxKbps: 50_000));
 
         Assert.Contains(expected, args);
         Assert.InRange(knob.Start, knob.Min, knob.Max);
@@ -289,23 +289,23 @@ public class VideoQualitySearchTests
     [Fact]
     public void SampleClipCopiesTheWindowWithoutDecoding()
     {
-        var args = VideoConversionPlanner.SampleClipArguments("/lib/in.mp4", 0, 120.5, 4, "/tmp/clip0.mkv");
+        var args = string.Join(" ", VideoConversionPlanner.SampleClipArguments("/lib/in.mp4", 0, 120.5, 4, "/tmp/clip0.mkv"));
 
-        Assert.Contains("-ss 120.5 -i \"/lib/in.mp4\" -t 4", args);
+        Assert.Contains("-ss 120.5 -i /lib/in.mp4 -t 4", args);
         Assert.Contains("-map 0:0 -c copy", args);
-        Assert.Contains("-f matroska \"/tmp/clip0.mkv\"", args);
+        Assert.EndsWith("-f matroska /tmp/clip0.mkv", args);
     }
 
     /// <summary>A sample is encoded exactly as the whole video will be: same encoder, level and frame-rate filter.</summary>
     [Fact]
     public void SampleEncodeMatchesTheFullEncode()
     {
-        var sample = VideoConversionPlanner.SampleEncodeArguments(
-            "/tmp/clip0.mkv", "/tmp/s.mkv", "hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, false, 150_000, 30, null);
-        var quality = FfmpegHwAccel.ConversionQualityArgs("hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, false, 150_000);
+        var sample = string.Join(" ", VideoConversionPlanner.SampleEncodeArguments(
+            "/tmp/clip0.mkv", "/tmp/s.mkv", "hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, false, 150_000, 30, null));
+        var quality = string.Join(" ", FfmpegHwAccel.ConversionQualityArgs("hevc_nvenc", 26.5, VideoConversionEffort.HighHardware, false, 150_000));
 
         Assert.Contains(quality, sample);
-        Assert.Contains("-vf \"fps=30\"", sample);
+        Assert.Contains("-vf fps=30", sample);
         Assert.Contains("-map 0:v:0 -an", sample);
         Assert.Contains("-fps_mode passthrough", sample);
     }
@@ -317,9 +317,9 @@ public class VideoQualitySearchTests
     [Fact]
     public void SampleCommandsReportProgressSoTheyAreNotMistakenForHung()
     {
-        var encode = VideoConversionPlanner.SampleEncodeArguments(
-            "/tmp/clip0.mkv", "/tmp/s.mkv", "libx265", 22, VideoConversionEffort.HighSoftware, false, 0, null, null);
-        var score = VideoConversionPlanner.SampleScoreArguments("/tmp/s.mkv", "/tmp/clip0.mkv", 1920, 1080, 30, false, false, "/tmp/l.json");
+        var encode = string.Join(" ", VideoConversionPlanner.SampleEncodeArguments(
+            "/tmp/clip0.mkv", "/tmp/s.mkv", "libx265", 22, VideoConversionEffort.HighSoftware, false, 0, null, null));
+        var score = string.Join(" ", VideoConversionPlanner.SampleScoreArguments("/tmp/s.mkv", "/tmp/clip0.mkv", 1920, 1080, 30, false, false, "/tmp/l.json"));
 
         Assert.Contains("-progress pipe:1", encode);
         Assert.Contains("-progress pipe:1", score);

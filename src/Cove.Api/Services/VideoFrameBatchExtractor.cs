@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -174,7 +173,7 @@ internal static class VideoFrameBatchExtractor
     /// The output options per frame mirror the historical single-frame command exactly so that
     /// frames (and pHashes derived from them) do not change.
     /// </summary>
-    internal static string BuildBatchArguments(
+    internal static IReadOnlyList<string> BuildBatchArguments(
         string videoPath,
         string tmpDir,
         IReadOnlyList<double> timestamps,
@@ -183,7 +182,7 @@ internal static class VideoFrameBatchExtractor
         int scaleWidth,
         string? preFilter = null)
     {
-        var builder = new StringBuilder("-v error -y");
+        var args = new List<string> { "-v", "error", "-y" };
 
         for (var offset = 0; offset < count; offset++)
         {
@@ -191,27 +190,20 @@ internal static class VideoFrameBatchExtractor
             // decoding from the start. The invariant culture is mandatory - a comma decimal
             // separator makes ffmpeg reject the option outright.
             var seconds = Math.Max(0, timestamps[start + offset]);
-            builder.Append(" -threads 1 -ss ")
-                   .Append(seconds.ToString("F3", CultureInfo.InvariantCulture))
-                   .Append(" -i \"").Append(videoPath).Append('"');
+            args.AddRange(["-threads", "1", "-ss", seconds.ToString("F3", CultureInfo.InvariantCulture), "-i", videoPath]);
         }
+
+        var filters = new List<string>();
+        if (preFilter != null)
+            filters.Add(preFilter);
+        if (scaleWidth > 0)
+            filters.Add("scale=" + scaleWidth.ToString(CultureInfo.InvariantCulture) + ":-2");
 
         for (var offset = 0; offset < count; offset++)
         {
-            builder.Append(" -map ").Append(offset.ToString(CultureInfo.InvariantCulture)).Append(":v:0")
-                   .Append(" -an -frames:v 1");
-            if (preFilter != null || scaleWidth > 0)
-            {
-                builder.Append(" -vf \"");
-                if (preFilter != null)
-                {
-                    builder.Append(preFilter);
-                    if (scaleWidth > 0) builder.Append(',');
-                }
-                if (scaleWidth > 0)
-                    builder.Append("scale=").Append(scaleWidth.ToString(CultureInfo.InvariantCulture)).Append(":-2");
-                builder.Append('"');
-            }
+            args.AddRange(["-map", offset.ToString(CultureInfo.InvariantCulture) + ":v:0", "-an", "-frames:v", "1"]);
+            if (filters.Count > 0)
+                args.AddRange(["-vf", string.Join(',', filters)]);
             // -threads 1 on the OUTPUT caps the mjpeg encoder. The -threads 1 before each input only
             // caps that input's decoder; each output encoder otherwise defaults to frame threading
             // across every core, so a 24-output batch spawned ~770 threads on a 32-core host. Capping
@@ -220,11 +212,10 @@ internal static class VideoFrameBatchExtractor
             // from them.
             // -pix_fmt yuvj420p forces full-range JPEG so the mjpeg encoder accepts limited-range
             // YUV sources instead of failing with "Non full-range YUV is non-standard".
-            builder.Append(" -threads 1 -q:v 3 -pix_fmt yuvj420p \"")
-                   .Append(FramePath(tmpDir, start + offset)).Append('"');
+            args.AddRange(["-threads", "1", "-q:v", "3", "-pix_fmt", "yuvj420p", FramePath(tmpDir, start + offset)]);
         }
 
-        return builder.ToString();
+        return args;
     }
 
     private static string Summarize(string? stderr)

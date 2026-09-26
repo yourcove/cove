@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Cove.Core.Common;
 using Cove.Core.Services;
@@ -53,41 +52,21 @@ public sealed class VideoAlignmentExtractor(CoveConfiguration config)
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
             var token = timeout.Token;
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = ResolveFfmpeg(),
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var arg in new[]
-            {
+            await using var process = FfmpegProcessRunner.Start(ResolveFfmpeg(),
+            [
                 "-nostdin", "-v", "error", "-threads", "2", "-ss", Math.Max(0, timeSec).ToString("R", CultureInfo.InvariantCulture),
                 "-i", path, "-map", "0:v:0", "-an", "-sn", "-frames:v", "1", "-vf", "scale=480:270:force_original_aspect_ratio=decrease:force_divisible_by=2", "-c:v", "mjpeg", "-q:v", "3", "-f", "image2pipe", "pipe:1",
-            }) startInfo.ArgumentList.Add(arg);
-            FfmpegProcessEnvironment.Apply(startInfo, startInfo.FileName);
-            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start alignment preview extraction.");
-            var outputTask = ReadLimitedBytesAsync(process.StandardOutput.BaseStream, 1_000_000, token);
-            var errorTask = ReadLimitedTextAsync(process.StandardError, 16_384, token);
+            ], redirectStandardOutput: true, token, maxStandardErrorChars: 16_384);
             try
             {
-                await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync(token));
-                var (bytes, exceededLimit) = await outputTask;
-                var error = await errorTask;
+                var (bytes, exceededLimit) = await ReadLimitedBytesAsync(process.StandardOutput, 1_000_000, token);
+                await process.WaitForExitAsync(token);
+                var error = await process.ReadStandardErrorTailAsync();
                 if (process.ExitCode != 0 || bytes.Length == 0 || exceededLimit)
                     throw new InvalidOperationException(exceededLimit ? "The alignment preview frame exceeded its size limit." : string.IsNullOrWhiteSpace(error) ? "Could not extract an alignment preview frame." : error);
                 return Convert.ToBase64String(bytes);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new TimeoutException("Alignment preview extraction timed out."); }
-            finally
-            {
-                if (!process.HasExited)
-                {
-                    try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                    await process.WaitForExitAsync(CancellationToken.None);
-                }
-            }
         }
         finally { slots.Release(); }
     }
@@ -107,80 +86,40 @@ public sealed class VideoAlignmentExtractor(CoveConfiguration config)
         return (output.ToArray(), exceeded);
     }
 
-    private static async Task<string> ReadLimitedTextAsync(StreamReader reader, int limit, CancellationToken ct)
-    {
-        var output = new System.Text.StringBuilder(Math.Min(limit, 1024));
-        var buffer = new char[1024];
-        int read;
-        while ((read = await reader.ReadAsync(buffer.AsMemory(), ct)) > 0)
-            if (output.Length < limit) output.Append(buffer, 0, Math.Min(read, limit - output.Length));
-        return output.ToString();
-    }
-
     private string ResolveFfmpeg()
-        => !string.IsNullOrWhiteSpace(config.FfmpegPath) && File.Exists(config.FfmpegPath)
-            ? config.FfmpegPath
-            : (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Select(directory => Path.Combine(directory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg"))
-                .FirstOrDefault(File.Exists) ?? throw new InvalidOperationException("FFmpeg is unavailable. Configure it in Settings before capturing a reference.");
+        => FfmpegExecutableLocator.FindFfmpeg(config)
+           ?? throw new InvalidOperationException("FFmpeg is unavailable. Configure it in Settings before capturing a reference.");
 
     private static async Task<List<AlignmentSample>> ExtractWindowAsync(
         string executable, string path, AlignedRange window, int windowIndex, double step, CancellationToken token)
     {
         var frameCount = Math.Min(MaximumSamples, (int)Math.Ceiling((window.EndSec - window.StartSec) / step));
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-        };
-        foreach (var arg in new[]
-        {
+        await using var process = FfmpegProcessRunner.Start(executable,
+        [
             "-nostdin", "-v", "error", "-threads", "2",
             "-ss", window.StartSec.ToString("R", CultureInfo.InvariantCulture), "-i", path,
             "-map", "0:v:0", "-an", "-sn", "-t", (window.EndSec - window.StartSec).ToString("R", CultureInfo.InvariantCulture),
             "-vf", $"setpts=PTS-STARTPTS,fps=fps=1/{step.ToString("R", CultureInfo.InvariantCulture)}:start_time=0,scale={Width}:{Height},format=gray",
             "-frames:v", frameCount.ToString(CultureInfo.InvariantCulture), "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1",
-        })
-            startInfo.ArgumentList.Add(arg);
-        FfmpegProcessEnvironment.Apply(startInfo, startInfo.FileName);
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start alignment extraction.");
-        var errors = Task.Run(async () =>
-        {
-            var buffer = new char[4096];
-            while (await process.StandardError.ReadAsync(buffer, token) > 0) { }
-        }, CancellationToken.None);
+        ], redirectStandardOutput: true, token);
         var samples = new List<AlignmentSample>(frameCount);
-        try
+        var frame = new byte[Width * Height];
+        while (samples.Count < frameCount)
         {
-            var frame = new byte[Width * Height];
-            while (samples.Count < frameCount)
+            var filled = 0;
+            while (filled < frame.Length)
             {
-                var filled = 0;
-                while (filled < frame.Length)
-                {
-                    var read = await process.StandardOutput.BaseStream.ReadAsync(frame.AsMemory(filled), token);
-                    if (read == 0) break;
-                    filled += read;
-                }
-                if (filled == 0) break;
-                if (filled != frame.Length) throw new InvalidOperationException("Incomplete alignment frame.");
-                samples.Add(DescribeFrame(window.StartSec + samples.Count * step, frame) with { Window = windowIndex });
+                var read = await process.StandardOutput.ReadAsync(frame.AsMemory(filled), token);
+                if (read == 0) break;
+                filled += read;
             }
-            await process.WaitForExitAsync(token);
-            await errors;
-            if (process.ExitCode != 0) throw new InvalidOperationException("Could not extract video frames for alignment.");
-            return samples;
+            if (filled == 0) break;
+            if (filled != frame.Length) throw new InvalidOperationException("Incomplete alignment frame.");
+            samples.Add(DescribeFrame(window.StartSec + samples.Count * step, frame) with { Window = windowIndex });
         }
-        finally
-        {
-            if (!process.HasExited)
-            {
-                try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
-            try { await errors; } catch (OperationCanceledException) { }
-        }
+        await process.WaitForExitAsync(token);
+        if (process.ExitCode != 0) throw new InvalidOperationException("Could not extract video frames for alignment.");
+        return samples;
     }
 
     public static AlignmentSample DescribeFrame(double time, byte[] frame)

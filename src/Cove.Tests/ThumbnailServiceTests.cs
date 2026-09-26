@@ -621,6 +621,147 @@ public class ThumbnailServiceTests
         }
     }
 
+    public static bool IsUnix => !OperatingSystem.IsWindows();
+
+    [Fact(Skip = "Requires Unix shell fixtures", SkipUnless = nameof(IsUnix))]
+    public async Task VideoThumbnail_PassesInputPathAsOneArgument()
+    {
+        using var ffmpeg = new ArgvRecordingExecutable(touchLastArgument: true);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var input = Path.Combine(tempRoot, FfmpegPathArgumentTests.AwkwardFileName);
+            await File.WriteAllBytesAsync(input, [0], TestContext.Current.CancellationToken);
+
+            var services = new ServiceCollection();
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            await using var provider = services.BuildServiceProvider();
+
+            int videoId;
+            int fileId;
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = new Video { Title = "thumbnail" };
+                var file = new VideoFile
+                {
+                    Basename = Path.GetFileName(input),
+                    ParentFolder = new Folder { Path = tempRoot },
+                    Duration = 10,
+                };
+                video.Files.Add(file);
+                db.Videos.Add(video);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                videoId = video.Id;
+                fileId = file.Id;
+            }
+
+            var service = new ThumbnailService(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                new StubJobService(),
+                new CoveConfiguration { GeneratedPath = Path.Combine(tempRoot, "generated"), FfmpegPath = ffmpeg.ExecutablePath },
+                new ZipFileReader(),
+                new NullBlobService(),
+                NullLogger<ThumbnailService>.Instance);
+
+            await service.GenerateThumbnailFromFileAsync(videoId, fileId, atSeconds: null, TestContext.Current.CancellationToken);
+
+            var argv = Assert.Single(ffmpeg.Invocations);
+            FfmpegPathArgumentTests.AssertSingleInput(argv, input);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A silent preview is one ffmpeg run that seeks the source once per segment and splices the segments
+    /// with a filter graph. The software encode must get a complete, encoder-consistent command: every
+    /// segment input, the graph ending in the software pixel-format tail, and no VAAPI device or upload.
+    /// </summary>
+    [Fact(Skip = "Requires Unix shell fixtures", SkipUnless = nameof(IsUnix))]
+    public async Task SplicedPreview_BuildsTheSoftwareEncodeCommand()
+    {
+        using var ffmpeg = new ArgvRecordingExecutable(touchLastArgument: true);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-preview-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var input = Path.Combine(tempRoot, FfmpegPathArgumentTests.AwkwardFileName);
+            await File.WriteAllBytesAsync(input, [0], TestContext.Current.CancellationToken);
+            await using var provider = await CreateSingleVideoProviderAsync(tempRoot, input, duration: 100);
+            var config = new CoveConfiguration
+            {
+                GeneratedPath = Path.Combine(tempRoot, "generated"),
+                FfmpegPath = ffmpeg.ExecutablePath,
+                HardwareAcceleration = "off",
+                PreviewAudio = "false",
+            };
+            config.Ui.PreviewSegments = 3;
+            config.Ui.PreviewSegmentDuration = 2;
+            var service = new ThumbnailService(
+                provider.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
+                new StubJobService(),
+                config,
+                new ZipFileReader(),
+                new NullBlobService(),
+                NullLogger<ThumbnailService>.Instance);
+
+            await service.GeneratePreviewFromFileAsync(provider.VideoId, provider.FileId, overwrite: true, TestContext.Current.CancellationToken);
+
+            var argv = Assert.Single(ffmpeg.Invocations).ToList();
+            var inputs = argv.Select((argument, index) => (argument, index)).Where(item => item.argument == "-i").ToList();
+            Assert.Equal(3, inputs.Count);
+            Assert.All(inputs, item => Assert.Equal(input, argv[item.index + 1]));
+
+            var graph = argv[argv.IndexOf("-filter_complex") + 1];
+            Assert.StartsWith("[0:v:0]", graph, StringComparison.Ordinal);
+            Assert.EndsWith("concat=n=3:v=1:a=0[spliced];[spliced]null,format=yuv420p[preview]", graph, StringComparison.Ordinal);
+            Assert.Equal("[preview]", argv[argv.IndexOf("-map") + 1]);
+            Assert.Equal("libx264", argv[argv.IndexOf("-c:v") + 1]);
+            Assert.DoesNotContain("-vaapi_device", argv);
+            Assert.DoesNotContain(argv, argument => argument.Contains("hwupload", StringComparison.Ordinal) || argument.Contains("__COVE", StringComparison.Ordinal));
+            Assert.EndsWith(".mp4", argv[^1], StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed record SingleVideoProvider(ServiceProvider ServiceProvider, int VideoId, int FileId) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => ServiceProvider.DisposeAsync();
+    }
+
+    private static async Task<SingleVideoProvider> CreateSingleVideoProviderAsync(string folder, string filePath, double duration)
+    {
+        var services = new ServiceCollection();
+        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        services.AddSingleton(dbOptions);
+        services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+        var provider = services.BuildServiceProvider();
+
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        var video = new Video { Title = "video" };
+        var file = new VideoFile { Basename = Path.GetFileName(filePath), ParentFolder = new Folder { Path = folder }, Duration = duration };
+        video.Files.Add(file);
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        video.PrimaryFileId = file.Id;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return new SingleVideoProvider(provider, video.Id, file.Id);
+    }
+
     private sealed class StubJobService : IJobService
     {
         public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true)

@@ -35,7 +35,7 @@ public class FfmpegCapabilitiesService(CoveConfiguration config, ILogger<FfmpegC
 
     public FfmpegCapabilities Get(bool refresh = false)
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(config.FfmpegPath);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg(config);
         lock (_lock)
         {
             if (!refresh && _cached != null && _cachedForPath == ffmpeg)
