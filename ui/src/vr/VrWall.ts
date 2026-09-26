@@ -313,6 +313,7 @@ export class VrWall {
     this.session = session;
     session.addEventListener("end", () => this.dispose());
     await this.renderer.xr.setSession(session);
+    connectExistingControllers(session);
     this.renderer.setAnimationLoop(this.renderFrame);
     this.buildToolbar();
     await this.loadPage(this.page, false);
@@ -1138,6 +1139,18 @@ function createFloorRing(colour: string) {
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = -1.5;
   return ring;
+}
+
+/**
+ * three.js connects its controllers only when the session reports input sources being added. A
+ * session taken over from a video page already has its controllers, so that report never comes and
+ * the pointers stay hidden and deaf to the trigger; replaying it for the sources already there
+ * connects them. Harmless on a new session, whose sources arrive later. Exported for tests.
+ */
+export function connectExistingControllers(session: Pick<XRSession, "inputSources" | "dispatchEvent">) {
+  const added = [...session.inputSources];
+  if (added.length === 0) return;
+  session.dispatchEvent(Object.assign(new Event("inputsourceschange"), { added, removed: [] }));
 }
 
 function createPointerRay(colour: string) {

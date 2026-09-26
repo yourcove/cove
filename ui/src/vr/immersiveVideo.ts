@@ -1,14 +1,16 @@
 /**
  * Immersive (WebXR) playback of a VR video element.
  *
- * Two paths, chosen per session:
- * - **Media layer** (Quest Browser, and any runtime with WebXR Layers): the video element is bound to an
- *   equirect layer that the compositor samples directly. No per-frame texture upload, so 8K plays as well as
- *   in a native player. Equirectangular only. No zoom or on-screen timeline yet: those need a second layer.
- * - **WebGL** (desktop Chrome/Edge driving SteamVR through OpenXR, which ship WebXR without media layers):
- *   the frame is uploaded as a texture every frame and a full-screen shader reprojects it per eye. Handles
- *   fisheye and MKX200 too, but costs a texture upload per frame, which is fine on a PC GPU and heavy on a
- *   standalone headset. Draws a timeline in the room while seeking or paused, and supports zoom.
+ * Two paths:
+ * - **WebGL** (the default, everywhere): the frame is uploaded as a texture every frame and a full-screen
+ *   shader reprojects it per eye, into a projection layer where the browser has the Layers module (Quest
+ *   Browser) and a plain `XRWebGLLayer` otherwise. Handles every layout, draws a timeline in the room while
+ *   seeking or paused, zooms and recentres, the same whether playback started on the video's page or in a
+ *   gallery that lent its renderer.
+ * - **Media layer** (only on request, with {@link InSessionVideoOptions.preferMediaLayer}): the video
+ *   element is bound to an equirect layer that the compositor samples directly. No per-frame texture
+ *   upload, so 8K plays as well as in a native player, but equirectangular only and with no zoom,
+ *   recentre or timeline.
  *
  * Controls are controller-only: trigger or A/X toggles play, stick left/right seeks, stick up/down
  * zooms, and B/Y or clicking the stick leaves the video (ending the session, or handing back to
@@ -87,7 +89,12 @@ export interface InSessionVideoOptions {
   presenter?: SessionPresenter;
   /** Seconds skipped per thumbstick flick. Defaults to 10. */
   seekStepSeconds?: number;
-  /** Force the WebGL path even when media layers are available. Mostly for debugging. */
+  /**
+   * Hand an equirectangular video to the compositor as a media layer where the browser supports one,
+   * for the smoothest 8K, at the cost of zoom, recentre and the timeline. Ignored with a presenter.
+   */
+  preferMediaLayer?: boolean;
+  /** @deprecated WebGL is the default now; kept so extensions that pass it keep compiling. */
   preferWebGl?: boolean;
   /** Shown on the in-headset timeline. */
   title?: string;
@@ -172,10 +179,11 @@ interface XRViewSubImageLike {
   colorTexture: WebGLTexture;
   viewport: { x: number; y: number; width: number; height: number };
 }
-type XRWebGlBindingCtor = new (
-  session: XRSessionLike,
-  gl: WebGL2RenderingContext,
-) => { getViewSubImage(layer: object, view: XRViewLike): XRViewSubImageLike };
+interface XRWebGlBindingLike {
+  getViewSubImage(layer: object, view: XRViewLike): XRViewSubImageLike;
+  createProjectionLayer?(init: Record<string, unknown>): object;
+}
+type XRWebGlBindingCtor = new (session: XRSessionLike, gl: WebGL2RenderingContext) => XRWebGlBindingLike;
 
 function isWebGlLayer(layer: object): layer is XRWebGlLayerLike {
   return typeof (layer as XRWebGlLayerLike).getViewport === "function";
@@ -399,6 +407,7 @@ export async function playVideoInSession(
   const previousRenderState = presenter ? null : snapshotRenderState(xrSession);
   const useLayer =
     !presenter &&
+    options.preferMediaLayer === true &&
     !options.preferWebGl &&
     canUseMediaLayer(vr) &&
     xrGlobal<XRMediaBindingCtor>("XRMediaBinding") != null &&
@@ -1160,16 +1169,23 @@ function createWebGlRenderer(
   // projection layer (WebXR Layers module, which three.js prefers where available) hands out a
   // colour texture per view through a binding, which we attach to a framebuffer of our own.
   let layer: object;
-  let binding: { getViewSubImage(layer: object, view: XRViewLike): XRViewSubImageLike } | null = null;
+  let binding: XRWebGlBindingLike | null = null;
   let ownFramebuffer: WebGLFramebuffer | null = null;
+  const Binding = xrGlobal<XRWebGlBindingCtor>("XRWebGLBinding");
   if (borrowed) {
     layer = borrowed.layer;
     if (!isWebGlLayer(layer)) {
-      const Binding = xrGlobal<XRWebGlBindingCtor>("XRWebGLBinding");
       if (!Binding) throw new Error("This browser lent a projection layer but has no XRWebGLBinding to draw into it.");
       binding = new Binding(session, gl);
       ownFramebuffer = gl.createFramebuffer();
     }
+  } else if (Binding && "createProjectionLayer" in Binding.prototype) {
+    // Where the Layers module exists, draw the way a gallery's three.js renderer does: into a
+    // projection layer, which is what the Quest Browser composites best.
+    binding = new Binding(session, gl);
+    layer = binding.createProjectionLayer!({ colorFormat: gl.RGBA8, depthFormat: 0, scaleFactor: 1 });
+    session.updateRenderState({ layers: [layer] });
+    ownFramebuffer = gl.createFramebuffer();
   } else {
     const webGlLayer = new WebGlLayer(session, gl);
     session.updateRenderState({ baseLayer: webGlLayer });

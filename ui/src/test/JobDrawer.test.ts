@@ -158,8 +158,11 @@ describe("job cache invalidation", () => {
   it("applies a job event to the cached list without waiting for a fetch", () => {
     const running = job("running", "a");
     expect(applyJobUpdate(undefined, running)).toBeUndefined();
-    expect(applyJobUpdate([running], job("completed", "a"))).toEqual([job("completed", "a")]);
-    expect(applyJobUpdate([running], job("pending", "b"))).toEqual([running, job("pending", "b")]);
+    // Built once each: two calls a millisecond apart would stamp different times.
+    const completed = job("completed", "a");
+    const pending = job("pending", "b");
+    expect(applyJobUpdate([running], completed)).toEqual([completed]);
+    expect(applyJobUpdate([running], pending)).toEqual([running, pending]);
   });
 
   it("counts running and pending jobs from the shared job list for the navbar badge", async () => {
