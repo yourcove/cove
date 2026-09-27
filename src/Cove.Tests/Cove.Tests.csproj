@@ -30,6 +30,8 @@
     <ProjectReference Include="..\Cove.Api\Cove.Api.csproj" />
     <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
     <ProjectReference Include="..\Cove.Data\Cove.Data.csproj" />
+    <!-- Aliased: the manager and Cove.Api both compile top-level statements into a global Program. -->
+    <ProjectReference Include="..\Cove.InstanceManager\Cove.InstanceManager.csproj" Aliases="InstanceManager" />
   </ItemGroup>
 
 </Project>
