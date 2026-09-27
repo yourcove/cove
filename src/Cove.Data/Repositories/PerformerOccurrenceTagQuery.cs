@@ -26,6 +26,14 @@ public static class PerformerOccurrenceTagQuery
         if (criterion == null)
             return query;
 
+        if (criterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull)
+        {
+            var presence = PerformerApplications(db, hostType, performerIds);
+            return criterion.Modifier == CriterionModifier.IsNull
+                ? ExcludeHosts(query, presence)
+                : query.Where(host => presence.Any(application => application.HostId == host.Id));
+        }
+
         var groups = (valueGroups ?? criterion.Value.Select(tagId => new[] { tagId }).ToArray())
             .Select(group => group.Where(tagId => tagId > 0).Distinct().ToArray())
             .Where(group => group.Length > 0)
@@ -35,6 +43,37 @@ public static class PerformerOccurrenceTagQuery
         if (tagIds.Length == 0 && excludedTagIds.Length == 0)
             return query;
 
+        var applications = PerformerApplications(db, hostType, performerIds);
+
+        if (tagIds.Length > 0)
+        {
+            query = criterion.Modifier switch
+            {
+                CriterionModifier.Excludes => ExcludeHosts(query, applications.Where(application => tagIds.Contains(application.TagId))),
+                CriterionModifier.ExcludesAll => ApplyExcludesAll(query, applications, groups),
+                CriterionModifier.IncludesAll => ApplyIncludesAll(query, applications, groups),
+                _ => query.Where(host => applications.Any(application => application.HostId == host.Id && tagIds.Contains(application.TagId))),
+            };
+        }
+
+        if (excludedTagIds.Length > 0)
+            query = ExcludeHosts(query, applications.Where(application => excludedTagIds.Contains(application.TagId)));
+
+        return query;
+    }
+
+    /// <summary>
+    /// Keeps hosts with none of <paramref name="applications"/>. PostgreSQL treats the correlated HostType, ContextType and
+    /// TagId predicates as independent and estimates a row or two, which turns a correlated NOT EXISTS into a nested-loop
+    /// anti join that rescans the applications for every host. NOT IN plans as a hashed subplan whenever the estimated host-id
+    /// set fits in hash_mem, which that same underestimate keeps true.
+    /// </summary>
+    private static IQueryable<THost> ExcludeHosts<THost>(IQueryable<THost> query, IQueryable<TagApplication> applications)
+        where THost : BaseEntity
+        => query.Where(host => !applications.Select(application => application.HostId).Contains(host.Id));
+
+    private static IQueryable<TagApplication> PerformerApplications(CoveContext db, AffinityHostType hostType, IReadOnlyCollection<int> performerIds)
+    {
         var applications = db.TagApplications.AsNoTracking()
             .Where(application => application.HostType == hostType
                 && application.ContextType == "performer"
@@ -46,21 +85,7 @@ public static class PerformerOccurrenceTagQuery
             applications = applications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
         }
 
-        if (tagIds.Length > 0)
-        {
-            query = criterion.Modifier switch
-            {
-                CriterionModifier.Excludes => query.Where(host => !applications.Any(application => application.HostId == host.Id && tagIds.Contains(application.TagId))),
-                CriterionModifier.ExcludesAll => ApplyExcludesAll(query, applications, groups),
-                CriterionModifier.IncludesAll => ApplyIncludesAll(query, applications, groups),
-                _ => query.Where(host => applications.Any(application => application.HostId == host.Id && tagIds.Contains(application.TagId))),
-            };
-        }
-
-        if (excludedTagIds.Length > 0)
-            query = query.Where(host => !applications.Any(application => application.HostId == host.Id && excludedTagIds.Contains(application.TagId)));
-
-        return query;
+        return applications;
     }
 
     private static IQueryable<THost> ApplyIncludesAll<THost>(IQueryable<THost> query, IQueryable<TagApplication> applications, IReadOnlyList<int[]> groups)

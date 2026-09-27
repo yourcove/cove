@@ -47,6 +47,31 @@ public sealed class VideoSearchQueryShapeTests
         Assert.Contains("TagId", sql, StringComparison.Ordinal);
     }
 
+    public static TheoryData<MultiIdCriterion, string> PerformerOccurrenceTagCriteria => new()
+    {
+        { new MultiIdCriterion { Modifier = CriterionModifier.IsNull }, "v.\"Id\" NOT IN (" },
+        { new MultiIdCriterion { Modifier = CriterionModifier.Excludes, Value = [21] }, "v.\"Id\" NOT IN (" },
+        { new MultiIdCriterion { Modifier = CriterionModifier.IncludesAll, Excludes = [21] }, "v.\"Id\" NOT IN (" },
+        { new MultiIdCriterion { Modifier = CriterionModifier.NotNull }, "AND EXISTS (" },
+    };
+
+    // Correlated NOT EXISTS over tag_applications is estimated at a row or two and plans as a nested-loop anti join;
+    // exclusions must stay NOT IN so PostgreSQL hashes the application host ids instead.
+    [Theory]
+    [MemberData(nameof(PerformerOccurrenceTagCriteria))]
+    public void PerformerOccurrenceTagCriterion_TranslatesExclusionsToHashableNotIn(MultiIdCriterion criterion, string expectedPredicate)
+    {
+        using var db = CreatePostgresContext();
+        var sql = PerformerOccurrenceTagQuery.Apply(db, db.Videos, Cove.Core.Entities.AffinityHostType.Video, criterion, [])
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains(expectedPredicate, sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOT EXISTS", sql, StringComparison.Ordinal);
+        Assert.Contains("FROM tag_applications AS", sql, StringComparison.Ordinal);
+        Assert.Contains("\"ContextType\" = 'performer'", sql, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task DistinctRelatedPerformerFilter_TranslatesForPostgres()
     {
