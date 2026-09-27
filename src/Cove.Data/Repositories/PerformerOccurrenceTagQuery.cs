@@ -26,6 +26,14 @@ public static class PerformerOccurrenceTagQuery
         if (criterion == null)
             return query;
 
+        if (criterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull)
+        {
+            var presence = PerformerApplications(db, hostType, performerIds);
+            return criterion.Modifier == CriterionModifier.IsNull
+                ? query.Where(host => !presence.Any(application => application.HostId == host.Id))
+                : query.Where(host => presence.Any(application => application.HostId == host.Id));
+        }
+
         var groups = (valueGroups ?? criterion.Value.Select(tagId => new[] { tagId }).ToArray())
             .Select(group => group.Where(tagId => tagId > 0).Distinct().ToArray())
             .Where(group => group.Length > 0)
@@ -35,16 +43,7 @@ public static class PerformerOccurrenceTagQuery
         if (tagIds.Length == 0 && excludedTagIds.Length == 0)
             return query;
 
-        var applications = db.TagApplications.AsNoTracking()
-            .Where(application => application.HostType == hostType
-                && application.ContextType == "performer"
-                && application.ContextId != null);
-
-        if (performerIds.Count > 0)
-        {
-            var performerIdArray = performerIds.ToArray();
-            applications = applications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
-        }
+        var applications = PerformerApplications(db, hostType, performerIds);
 
         if (tagIds.Length > 0)
         {
@@ -61,6 +60,22 @@ public static class PerformerOccurrenceTagQuery
             query = query.Where(host => !applications.Any(application => application.HostId == host.Id && excludedTagIds.Contains(application.TagId)));
 
         return query;
+    }
+
+    private static IQueryable<TagApplication> PerformerApplications(CoveContext db, AffinityHostType hostType, IReadOnlyCollection<int> performerIds)
+    {
+        var applications = db.TagApplications.AsNoTracking()
+            .Where(application => application.HostType == hostType
+                && application.ContextType == "performer"
+                && application.ContextId != null);
+
+        if (performerIds.Count > 0)
+        {
+            var performerIdArray = performerIds.ToArray();
+            applications = applications.Where(application => application.ContextId != null && performerIdArray.Contains(application.ContextId.Value));
+        }
+
+        return applications;
     }
 
     private static IQueryable<THost> ApplyIncludesAll<THost>(IQueryable<THost> query, IQueryable<TagApplication> applications, IReadOnlyList<int[]> groups)
