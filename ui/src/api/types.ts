@@ -183,6 +183,48 @@ export interface PerformerSummary {
   textCount?: number;
 }
 
+/** One of a performer's videos with at least one other visible performer, with its whole visible cast. */
+export interface PerformerPairingVideo {
+  id: number;
+  title?: string | null;
+  /** A partial date: "yyyy", "yyyy-MM" or "yyyy-MM-dd". */
+  date?: string | null;
+  studioId?: number | null;
+  studioName?: string | null;
+  /** Seconds; 0 when the video has no files. */
+  duration: number;
+  /** The primary file's frame; 0 when the video has no files. */
+  width: number;
+  height: number;
+  updatedAt: string;
+  /** The visible cast, the performer included, in ascending id order. */
+  performerIds: number[];
+}
+
+/** GET /performers/{id}/pairings: the rows the Appears With tab derives its counts from. */
+export interface PerformerPairings {
+  performerId: number;
+  /** Every video the performer is in, with or without co-stars. */
+  videoCount: number;
+  /** Dated videos without a co-star, per year. */
+  soloVideoYears: Record<string, number>;
+  /** Newest first, undated last. */
+  videos: PerformerPairingVideo[];
+  coStars: PerformerPairingCoStar[];
+}
+
+/** A co-star as the Appears With tab needs it. */
+export interface PerformerPairingCoStar {
+  id: number;
+  name: string;
+  disambiguation?: string | null;
+  gender?: string | null;
+  favorite: boolean;
+  imagePath?: string | null;
+  /** Every video they are in; only given for co-stars with two or more videos together. */
+  videoCount?: number | null;
+}
+
 export interface PerformerCreate {
   name: string;
   disambiguation?: string;

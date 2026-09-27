@@ -90,7 +90,8 @@ import { GalleryScrubThumbnail, type GalleryScrubThumbnailHandle } from "./Galle
 import { getAgeAtDate, getPerformerAge, hasDeathOccurred } from "../utils/performerAge";
 import { CountryFlag } from "./Country";
 
-function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+/** An image that follows the viewer's "cover" or "contain" image-fit setting. */
+export function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
   return <img {...props} className={`${className} ${fitClass}`.trim()} />;
 }
@@ -1490,7 +1491,12 @@ const performerGenderIcons: Record<string, { icon: LucideIcon; label: string; co
   NonBinary: { icon: NonBinary, label: "Non-binary", colorClass: "text-orange-400" },
 };
 
-function PerformerGenderIcon({ gender }: { gender?: string }) {
+// The label a performer's gender is shown with, or null when it is unset or unrecognised.
+export function performerGenderLabel(gender?: string | null) {
+  return (gender ? performerGenderIcons[gender]?.label : undefined) ?? null;
+}
+
+export function PerformerGenderIcon({ gender }: { gender?: string }) {
   const definition = gender ? performerGenderIcons[gender] : undefined;
   if (!definition) return null;
   const Icon = definition.icon;

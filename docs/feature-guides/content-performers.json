@@ -31,7 +31,7 @@
           "type": "list",
           "items": [
             "Content tabs divide appearances by media type and show a count for each.",
-            "Appears With lists people who share library items with this performer.",
+            "Appears With ranks the people this performer shares videos with by how many videos they have together.",
             "Similar suggests other performers based on Cove's available similarity data.",
             "Edit updates identity, descriptive metadata, images, tags, and other fields when your role permits it."
           ]
@@ -41,6 +41,21 @@
           "items": [
             { "label": "Organizing your library", "href": "/docs/user/library/organizing/", "topicId": "organizing" },
             { "label": "Metadata provenance", "href": "/docs/user/metadata/provenance/", "topicId": "metadata-provenance" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "appears-with",
+      "title": "See who a performer works with",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Frequent partners share five or more videos with the performer, recurring co-stars two to four, and one-time co-stars one. The Frequent, Recurring and One-time filters show one group at a time, with a count on each.",
+            "Each co-star shows the years and studios of their videos together and the latest of them. The play button queues those videos, and the arrow opens them in the Videos tab, or opens the video itself when there is only one.",
+            "Duos only counts just the videos with the two of them. The gender and Favorites filters narrow the list, and Sort orders it by videos together, the most recent or first video together, the longest partnership, or name.",
+            "Tick co-stars to build a lineup. It counts the videos with all of them and with any of them, and opens either list."
           ]
         }
       ]

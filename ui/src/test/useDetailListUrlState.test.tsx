@@ -6,7 +6,9 @@ import {
   DetailListStateCacheProvider,
   useDetailListUrlState,
   useDetailTabUrlState,
+  useRememberDetailTabUrlParams,
 } from "../hooks/useDetailListUrlState";
+import { registerNavigationBlocker } from "../router/location";
 
 function DetailListProbe({ stateKey = "videos" }: { stateKey?: string }) {
   const [, forceRender] = useState(0);
@@ -39,8 +41,16 @@ function DetailListProbe({ stateKey = "videos" }: { stateKey?: string }) {
   );
 }
 
-function TabProbe({ defaultTab = "videos" }: { defaultTab?: "videos" | "galleries" }) {
-  const { activeTab, setActiveTab } = useDetailTabUrlState<"videos" | "galleries">(defaultTab);
+const TAB_URL_KEYS = ["awTier", "awDuo"];
+
+function TabProbe({
+  defaultTab = "videos",
+  tabUrlKeys,
+}: {
+  defaultTab?: "videos" | "galleries";
+  tabUrlKeys?: readonly string[];
+}) {
+  const { activeTab, setActiveTab } = useDetailTabUrlState<"videos" | "galleries">(defaultTab, tabUrlKeys);
   return (
     <div>
       <div data-testid="tab">{activeTab}</div>
@@ -141,6 +151,104 @@ describe("detail list URL state", () => {
 
     await user.click(screen.getByRole("button", { name: "Videos" }));
     await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("drops a tab's own URL keys when switching tabs, including to the default tab", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/performer/477?tab=galleries&awTier=frequent&awDuo=true&keep=1");
+    render(<TabProbe tabUrlKeys={TAB_URL_KEYS} />);
+
+    await user.click(screen.getByRole("button", { name: "Videos" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tab")).toHaveTextContent("videos");
+      expect(window.location.search).toBe("?keep=1");
+    });
+  });
+
+  it("brings a tab's own URL keys back when the tab is picked again", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/performer/477?tab=galleries&awTier=frequent&keep=1");
+    render(
+      <DetailListStateCacheProvider>
+        <TabProbe tabUrlKeys={TAB_URL_KEYS} />
+      </DetailListStateCacheProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Videos" }));
+    await waitFor(() => expect(window.location.search).toBe("?keep=1"));
+
+    await user.click(screen.getByRole("button", { name: "Galleries" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("tab")).toHaveTextContent("galleries");
+      expect(new URLSearchParams(window.location.search).get("awTier")).toBe("frequent");
+      expect(new URLSearchParams(window.location.search).get("tab")).toBe("galleries");
+    });
+  });
+
+  it("brings back what a tab remembered when it was left some other way", async () => {
+    const user = userEvent.setup();
+    function Rememberer() {
+      useRememberDetailTabUrlParams("galleries", "awTier=once&awDuo=true");
+      return null;
+    }
+    const { rerender } = render(
+      <DetailListStateCacheProvider>
+        <Rememberer />
+        <TabProbe tabUrlKeys={TAB_URL_KEYS} />
+      </DetailListStateCacheProvider>,
+    );
+    rerender(
+      <DetailListStateCacheProvider>
+        <TabProbe tabUrlKeys={TAB_URL_KEYS} />
+      </DetailListStateCacheProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Galleries" }));
+
+    await waitFor(() => expect(window.location.search).toBe("?awTier=once&awDuo=true&tab=galleries"));
+  });
+
+  it("stays on the tab when a navigation blocker refuses the switch", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/performer/477?tab=galleries&awTier=frequent");
+    const unregister = registerNavigationBlocker(() => false);
+    try {
+      render(<TabProbe tabUrlKeys={TAB_URL_KEYS} />);
+
+      await user.click(screen.getByRole("button", { name: "Videos" }));
+
+      expect(screen.getByTestId("tab")).toHaveTextContent("galleries");
+      expect(window.location.search).toBe("?tab=galleries&awTier=frequent");
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps the open tab's own URL keys when that tab is picked again", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/performer/477?tab=galleries&awTier=frequent");
+    function StaleRememberer() {
+      useRememberDetailTabUrlParams("galleries", "awTier=once");
+      return null;
+    }
+    const { rerender } = render(
+      <DetailListStateCacheProvider>
+        <StaleRememberer />
+        <TabProbe tabUrlKeys={TAB_URL_KEYS} />
+      </DetailListStateCacheProvider>,
+    );
+    rerender(
+      <DetailListStateCacheProvider>
+        <TabProbe tabUrlKeys={TAB_URL_KEYS} />
+      </DetailListStateCacheProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Galleries" }));
+
+    expect(screen.getByTestId("tab")).toHaveTextContent("galleries");
+    expect(window.location.search).toBe("?tab=galleries&awTier=frequent");
   });
 
   it("adopts a changed default when the URL does not select a tab", async () => {

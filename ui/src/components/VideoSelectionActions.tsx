@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useVideoQueue } from "../state/VideoQueueContext";
+import { videoQueueItem } from "../hooks/useVideoQueueNavigation";
 import { BulkEditDialog, VIDEO_BULK_FIELDS } from "./BulkEditDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExtensionSelectionActions } from "./ExtensionSelectionActions";
@@ -156,12 +157,7 @@ export function VideoSelectionActions({
     setQueue(
       ids,
       ids[0],
-      selectedVideos.map((video) => ({
-        id: video.id,
-        title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-        subtitle: video.studioName || video.date || undefined,
-        imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-      })),
+      selectedVideos.map((video) => videoQueueItem(video)),
       { autoplay: continuePlaylistDefault },
     );
     onSelectNone();

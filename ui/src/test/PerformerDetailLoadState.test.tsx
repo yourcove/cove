@@ -67,6 +67,9 @@ vi.mock("../hooks/useDetailListUrlState", () => ({
     setDisplayMode: vi.fn(),
     availableDisplayModes: ["grid"],
   }),
+  useDetailBooleanUrlState: () => [false, vi.fn()],
+  useDetailStringUrlState: () => [null, vi.fn()],
+  useRememberDetailTabUrlParams: vi.fn(),
 }));
 
 vi.mock("../hooks/useDetailListQuery", () => ({

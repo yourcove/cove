@@ -13,10 +13,18 @@ interface UseVideoQueueNavigationOptions {
   onNavigate: (route: any) => void;
 }
 
-function toQueueItem(video: Video) {
+/** How a video appears in the play queue: its title or first file name, studio or date, and cover. */
+export function videoQueueItem(video: {
+  id: number;
+  title?: string | null;
+  files?: ReadonlyArray<{ basename?: string | null }>;
+  studioName?: string | null;
+  date?: string | null;
+  updatedAt?: string;
+}) {
   return {
     id: video.id,
-    title: video.title || video.files[0]?.basename || `Video ${video.id}`,
+    title: video.title || video.files?.[0]?.basename || `Video ${video.id}`,
     subtitle: video.studioName || video.date || undefined,
     imagePath: videos.screenshotUrl(video.id, video.updatedAt),
   };
@@ -46,7 +54,7 @@ export function useVideoQueueNavigation({
         setQueue(
           ids,
           videoId,
-          items.map(toQueueItem),
+          items.map(videoQueueItem),
           !infinitePageSize
             ? {
                 autoplay,
@@ -58,7 +66,7 @@ export function useVideoQueueNavigation({
                         const page = firstPage - 1;
                         const response = await queryPage({ ...filter, page });
                         firstPage = page;
-                        return { items: response.items.map(toQueueItem), hasMore: page > 1 };
+                        return { items: response.items.map(videoQueueItem), hasMore: page > 1 };
                       }
                     : undefined,
                 loadNext:
@@ -68,7 +76,7 @@ export function useVideoQueueNavigation({
                         const response = await queryPage({ ...filter, page });
                         lastPage = page;
                         return {
-                          items: response.items.map(toQueueItem),
+                          items: response.items.map(videoQueueItem),
                           hasMore: page * pageSize < response.totalCount,
                         };
                       }

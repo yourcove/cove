@@ -17,6 +17,7 @@ import type {
   VideoListEntry,
   Performer,
   PerformerCreate,
+  PerformerPairings,
   PerformerUpdate,
   PerformerCountryOption,
   Tag,
@@ -1172,8 +1173,7 @@ export const performers = {
   countries: () => request<PerformerCountryOption[]>("/performers/countries"),
   groups: (id: number, filter?: FindFilter) =>
     request<PaginatedResponse<Group>>(`/performers/${id}/groups${buildQuery(filter)}`),
-  appearsWith: (id: number, filter?: FindFilter) =>
-    request<PaginatedResponse<Performer>>(`/performers/${id}/appears-with${buildQuery(filter)}`),
+  pairings: (id: number) => request<PerformerPairings>(`/performers/${id}/pairings`),
   create: (data: PerformerCreate) => request<Performer>("/performers", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: PerformerUpdate) =>
     request<Performer>(`/performers/${id}`, { method: "PUT", body: JSON.stringify(data) }),

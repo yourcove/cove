@@ -45,7 +45,6 @@ import {
   Sparkles,
   ThumbsUp,
   Trash2,
-  Users,
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +70,8 @@ import {
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
+import { PerformerPairingsPanel } from "../components/pairings/PerformerPairingsPanel";
+import { PAIRING_URL_KEYS } from "../utils/performerPairings";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import {
@@ -91,7 +92,6 @@ import { PerformerMetadataTaggerDialog } from "../components/MetadataTaggerDialo
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useKeySequence } from "../hooks/useKeySequence";
-import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -159,6 +159,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       ["videos", "galleries", "images", "audios", "texts", "groups", "faces", "appearsWith", "similar"],
       config?.interface?.menuItems,
     ) ?? "videos",
+    PAIRING_URL_KEYS,
   );
   const {
     allTabs: performerTabs,
@@ -207,7 +208,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       texts: "texts.read",
       groups: "groups.read",
       faces: "faces.read",
-      appearsWith: "performers.read",
+      // Built from the videos the performer shares with others.
+      appearsWith: "videos.read",
       similar: "performers.read",
     },
     hasPermission,
@@ -691,7 +693,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
           {activeTab === "faces" && (
             <PerformerFacesPanel performerId={id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
-          {activeTab === "appearsWith" && <PerformerAppearsWithPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "appearsWith" && (
+            <PerformerPairingsPanel performer={{ id: performer.id, name: performer.name }} onNavigate={onNavigate} />
+          )}
           {activeTab === "similar" && (
             <PerformerSimilarPanel performer={performer} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
@@ -2124,119 +2128,6 @@ function PerformerGroupsPanel({ performerId, onNavigate }: { performerId: number
       {toolbar}
       <RelatedEntityListView
         entityType="groups"
-        items={items}
-        displayMode={displayMode}
-        zoomLevel={zoomLevel}
-        selectedIds={selectedIds}
-        selecting={selecting}
-        onToggle={toggle}
-        onNavigate={onNavigate}
-        infinitePageSize={infinitePageSize}
-        hasNextPage={infiniteQuery.hasNextPage}
-        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
-        loadMore={loadMore}
-      />
-      <DetailListPagination
-        filter={filter}
-        onFilterChange={setFilter}
-        totalCount={data.totalCount}
-        allowInfinitePageSize
-      />
-    </>
-  );
-}
-
-function PerformerAppearsWithPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
-  const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({
-    stateKey: "appearsWith",
-    resetKey: "performer-appears-with",
-    entityType: "performers",
-    builtInFilter: { page: 1, perPage: 18, direction: "asc" },
-  });
-  const {
-    data,
-    isLoading,
-    loadError,
-    retry,
-    infinitePageSize,
-    infiniteQuery,
-    infiniteFilterKey,
-    fetchAllIds,
-    loadMore,
-  } = useDetailListQuery<PerformerModel>({
-    queryKey: ["performer-appears-with", performerId, filter],
-    filter,
-    queryFn: (nextFilter) => performers.appearsWith(performerId, nextFilter),
-  });
-  const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
-    items,
-    infinitePageSize,
-    infiniteFilterKey,
-    fetchAllIds,
-  });
-  const selecting = selectedIds.size > 0;
-  const toolbar = (
-    <DetailListToolbar
-      filter={filter}
-      onFilterChange={setFilter}
-      totalCount={data?.totalCount ?? 0}
-      sortOptions={[
-        { value: "co_video_count", label: "Shared Videos" },
-        { value: "name", label: "Name" },
-        { value: "random", label: "Random" },
-      ]}
-      zoomLevel={zoomLevel}
-      onZoomChange={setZoomLevel}
-      showSearch
-      selectedCount={selectedIds.size}
-      onSelectAll={selectAll}
-      selectAllPending={selectAllPending}
-      onSelectAllMatching={selectShown}
-      selectAllMatchingLabel="Select shown"
-      onSelectNone={selectNone}
-      selectionActions={
-        <BulkSelectionActions
-          entityType="performers"
-          selectedIds={selectedIds}
-          mergeItems={items}
-          onDone={selectNone}
-        />
-      }
-      // No listEntityType: the appears-with endpoint ranks by shared-video count and ignores
-      // sort=relevance, so offering it here would quietly reorder by something else.
-      allowInfinitePageSize
-      displayMode={displayMode}
-      onDisplayModeChange={setDisplayMode}
-      availableDisplayModes={availableDisplayModes}
-    />
-  );
-
-  if (loadError)
-    return (
-      <ListLoadError
-        error={loadError}
-        onRetry={() => {
-          void retry();
-        }}
-        className="mt-3"
-      />
-    );
-  if (isLoading) return <LoadingPanel icon={<Users className="h-10 w-10" />} message="Loading co-stars..." />;
-  if (!data || items.length === 0)
-    return (
-      <>
-        {toolbar}
-        <EmptyPanel icon={<Users className="h-12 w-12" />} message="No co-stars found" />
-      </>
-    );
-
-  return (
-    <>
-      {toolbar}
-      <RelatedEntityListView
-        entityType="performers"
         items={items}
         displayMode={displayMode}
         zoomLevel={zoomLevel}
