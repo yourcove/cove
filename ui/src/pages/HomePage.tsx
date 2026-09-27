@@ -73,7 +73,7 @@ import { canReadEntity } from "../auth/visibility";
 import { resolveGroupFeedHost } from "../components/GroupItemFeed";
 import { canAccessExtensionContribution } from "../extensions/extension-permissions";
 import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
-import { emitLocationChange, registerNavigationBlocker } from "../router/location";
+import { emitLocationChange, registerNavigationBlocker, type Route } from "../router/location";
 import { buildSpanSearchRequest } from "./segments/useDerivedSpansQuery";
 import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
 import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
@@ -634,43 +634,28 @@ function DashboardHeader({
   };
   return (
     <div className="space-y-2">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-foreground">Cove</h1>
-          <select
-            aria-label="Dashboard"
-            value={dashboard.id}
-            disabled={readOnly || creating}
-            onChange={(event) => {
-              const selected = items.find((item) => item.id === Number(event.target.value));
-              onNavigate(selected?.isDefault ? { page: "home" } : { page: "dashboard", id: selected?.id });
-            }}
-            className="min-w-40 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-          >
-            {items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="sr-only">{dashboard.name}</h1>
+        <DashboardTabs current={dashboard.id} dashboards={items} onNavigate={onNavigate} disabled={creating} />
         {!readOnly ? (
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <button
               disabled={creating}
               onClick={createDashboard}
-              className="rounded-md border border-accent/60 px-3 py-2 text-sm text-accent hover:bg-accent/10 disabled:opacity-50"
+              title="New Dashboard"
+              className="rounded-md border border-accent/60 px-2.5 py-2 text-sm text-accent hover:bg-accent/10 disabled:opacity-50 sm:px-3"
             >
-              <Plus className="mr-1 inline h-4 w-4" />
-              {creating ? "Creating…" : "New Dashboard"}
+              <Plus className="inline h-4 w-4 sm:mr-1" />
+              <span className="sr-only sm:not-sr-only">{creating ? "Creating…" : "New Dashboard"}</span>
             </button>
             <button
               disabled={creating}
               onClick={onEdit}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent/60 disabled:opacity-50"
+              title="Customize"
+              className="rounded-md border border-border bg-card px-2.5 py-2 text-sm text-foreground hover:border-accent/60 disabled:opacity-50 sm:px-3"
             >
-              <Settings2 className="mr-1 inline h-4 w-4" />
-              Customize
+              <Settings2 className="inline h-4 w-4 sm:mr-1" />
+              <span className="sr-only sm:not-sr-only">Customize</span>
             </button>
           </div>
         ) : null}
@@ -681,6 +666,101 @@ function DashboardHeader({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Inline dashboard switcher: names separated by dots, the current one emphasized. Wide screens
+ * wrap the names; narrow screens keep one swipeable line with the current name scrolled into view.
+ */
+function DashboardTabs({
+  current,
+  dashboards: items,
+  onNavigate,
+  disabled,
+}: {
+  current: number;
+  dashboards: DashboardSummary[];
+  onNavigate: (route: any) => void;
+  disabled: boolean;
+}) {
+  const scroller = useRef<HTMLElement>(null);
+  const currentLink = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    const container = scroller.current;
+    const link = currentLink.current;
+    if (!container || !link) return;
+    // Keep the scroll-padding clear so the current name never sits under the edge fade.
+    const padding = parseFloat(getComputedStyle(container).scrollPaddingLeft) || 0;
+    // The nav is `relative`, so it is the offsetParent that offsetLeft measures from.
+    const start = link.offsetLeft - padding;
+    const end = link.offsetLeft + link.offsetWidth + padding;
+    // Too tight to clear both fades: centre the name so they overlap it evenly.
+    if (end - start > container.clientWidth) container.scrollLeft = (start + end - container.clientWidth) / 2;
+    else if (start < container.scrollLeft) container.scrollLeft = start;
+    else if (end > container.scrollLeft + container.clientWidth) container.scrollLeft = end - container.clientWidth;
+  }, [current, items]);
+
+  const [fade, setFade] = useState({ start: false, end: false });
+  useEffect(() => {
+    const container = scroller.current;
+    if (!container) return;
+    const update = () => {
+      const start = container.scrollLeft > 1;
+      const end = container.scrollLeft + container.clientWidth < container.scrollWidth - 1;
+      setFade((previous) => (previous.start === start && previous.end === end ? previous : { start, end }));
+    };
+    update();
+    container.addEventListener("scroll", update, { passive: true });
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    // Watch the names too: their widths can change (fonts loading) without the nav resizing.
+    for (const element of [container, ...container.querySelectorAll("li")]) resizeObserver?.observe(element);
+    return () => {
+      container.removeEventListener("scroll", update);
+      resizeObserver?.disconnect();
+    };
+  }, [items]);
+
+  return (
+    <nav
+      ref={scroller}
+      aria-label="Dashboards"
+      data-fade-start={fade.start || undefined}
+      data-fade-end={fade.end || undefined}
+      className="dashboard-tabs-fade scrollbar-hide relative min-w-0 flex-1 overflow-x-auto sm:overflow-visible"
+    >
+      <ol className="flex items-center whitespace-nowrap py-1 text-lg sm:flex-wrap sm:text-xl">
+        {items.map((item, index) => {
+          const isCurrent = item.id === current;
+          const route: Route = item.isDefault ? { page: "home" } : { page: "dashboard", id: item.id };
+          return (
+            <li key={item.id} className="flex items-center">
+              {index > 0 ? (
+                <span aria-hidden="true" className="px-2 text-muted sm:px-2.5">
+                  ·
+                </span>
+              ) : null}
+              <a
+                ref={isCurrent ? currentLink : undefined}
+                aria-current={isCurrent ? "page" : undefined}
+                aria-disabled={disabled && !isCurrent ? true : undefined}
+                title={item.name}
+                {...createRouteLinkProps(route, () => {
+                  if (!disabled && !isCurrent) onNavigate(route);
+                })}
+                className={
+                  isCurrent
+                    ? "max-w-[16rem] truncate py-1 font-semibold text-foreground"
+                    : `max-w-[16rem] truncate py-1 text-muted transition-colors hover:text-foreground ${disabled ? "pointer-events-none opacity-50" : ""}`
+                }
+              >
+                {item.name}
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 

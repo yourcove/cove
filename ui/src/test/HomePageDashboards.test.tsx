@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Suspense, useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AppRoutes } from "../App";
 import { getCarouselPageDestinations, getWidgetRevealScrollDelta, HomePage } from "../pages/HomePage";
 import { navigateToUrl } from "../router/location";
@@ -159,6 +159,10 @@ function renderHome(
   };
 }
 
+function findCurrentDashboard(name: string) {
+  return screen.findByRole("link", { name, current: "page" });
+}
+
 describe("HomePage dashboards", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -288,16 +292,82 @@ describe("HomePage dashboards", () => {
     state.dashboards = [summary(1, "Home", true), summary(2, "Research")];
     const { onNavigate } = renderHome();
 
-    fireEvent.change(await screen.findByRole("combobox", { name: "Dashboard" }), { target: { value: "2" } });
+    const research = await screen.findByRole("link", { name: "Research" });
+    expect(await findCurrentDashboard("Home")).toHaveAttribute("href", "/");
+    expect(research).toHaveAttribute("href", "/dashboard/2");
+    expect(research).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("heading", { name: "Cove" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
 
+    fireEvent.click(await findCurrentDashboard("Home"));
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    fireEvent.click(research);
     expect(onNavigate).toHaveBeenCalledWith({ page: "dashboard", id: 2 });
+  });
+
+  it("fades the switcher edges that have dashboards scrolled out of view", async () => {
+    state.dashboards = [summary(1, "Home", true), summary(2, "Research"), summary(3, "Archive")];
+    renderHome();
+
+    const nav = await screen.findByRole("navigation", { name: "Dashboards" });
+    expect(nav).not.toHaveAttribute("data-fade-start");
+    expect(nav).not.toHaveAttribute("data-fade-end");
+
+    Object.defineProperty(nav, "clientWidth", { configurable: true, value: 200 });
+    Object.defineProperty(nav, "scrollWidth", { configurable: true, value: 300 });
+    fireEvent.scroll(nav);
+    expect(nav).not.toHaveAttribute("data-fade-start");
+    expect(nav).toHaveAttribute("data-fade-end");
+
+    nav.scrollLeft = 50;
+    fireEvent.scroll(nav);
+    expect(nav).toHaveAttribute("data-fade-start");
+    expect(nav).toHaveAttribute("data-fade-end");
+
+    nav.scrollLeft = 100;
+    fireEvent.scroll(nav);
+    expect(nav).toHaveAttribute("data-fade-start");
+    expect(nav).not.toHaveAttribute("data-fade-end");
+  });
+
+  it("scrolls the current dashboard clear of the switcher's edge", async () => {
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
+    // Each name is 100px wide and starts every 100px; the nav shows 200px of them.
+    const layout = (element: HTMLElement) => {
+      const index = ["Home", "Research", "Archive", "Later"].indexOf(element.textContent ?? "");
+      return element.tagName === "A" && index >= 0 ? { offsetLeft: index * 100, offsetWidth: 100 } : null;
+    };
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+      return layout(this)?.offsetLeft ?? 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return layout(this)?.offsetWidth ?? 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const style = getComputedStyle(element, pseudo);
+      if (element.tagName === "NAV") Object.defineProperty(style, "scrollPaddingLeft", { value: "32px" });
+      return style;
+    });
+    state.dashboards = [summary(1, "Home", true), summary(2, "Research"), summary(3, "Archive"), summary(4, "Later")];
+    state.active = dashboard(3, "Archive");
+
+    renderHome(vi.fn(), 3);
+
+    await findCurrentDashboard("Archive");
+    // Archive spans 200–300px; with 32px kept clear it needs to end at 332px of a 200px view.
+    expect(screen.getByRole("navigation", { name: "Dashboards" }).scrollLeft).toBe(132);
   });
 
   it("falls back to the default dashboard when a requested dashboard is missing", async () => {
     const { onNavigate } = renderHome(vi.fn(), 404);
 
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ page: "home" }));
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("1");
+    expect(await findCurrentDashboard("Home")).toBeInTheDocument();
   });
 
   it("keeps an anonymous standard dashboard read-only", async () => {
@@ -308,8 +378,7 @@ describe("HomePage dashboards", () => {
 
     renderHome();
 
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("0");
-    expect(screen.getByRole("combobox", { name: "Dashboard" })).toBeDisabled();
+    expect(await findCurrentDashboard("Standard")).toHaveAttribute("href", "/");
     expect(screen.queryByRole("button", { name: /Customize/ })).not.toBeInTheDocument();
   });
 
@@ -318,7 +387,7 @@ describe("HomePage dashboards", () => {
       defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
     });
     const first = renderHome(vi.fn(), undefined, client);
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("1");
+    expect(await findCurrentDashboard("Home")).toBeInTheDocument();
     first.unmount();
 
     state.userId = "8";
@@ -326,7 +395,7 @@ describe("HomePage dashboards", () => {
     state.active = dashboard(2, "Second Home", true);
     renderHome(vi.fn(), undefined, client);
 
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("2");
+    expect(await findCurrentDashboard("Second Home")).toBeInTheDocument();
     expect(mocks.get).toHaveBeenLastCalledWith(2);
   });
 
@@ -1340,10 +1409,11 @@ describe("HomePage dashboards", () => {
       state.dashboards = [summary(1, "Home", true), summary(2, "New Dashboard")];
       return created;
     });
-    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({
-      ...created,
-      name: request.name,
-    }));
+    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => {
+      created.name = request.name;
+      state.dashboards = [summary(1, "Home", true), summary(2, request.name)];
+      return { ...created };
+    });
     mocks.get.mockImplementation(async (id: number) => (id === created.id ? created : dashboard(1, "Home", true)));
     const onNavigate = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -1390,12 +1460,11 @@ describe("HomePage dashboards", () => {
     expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Test go home" }));
-    const dashboardPicker = await screen.findByRole("combobox", { name: "Dashboard" });
-    expect(dashboardPicker).toHaveValue("1");
+    expect(await findCurrentDashboard("Home")).toBeInTheDocument();
     expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
 
-    fireEvent.change(dashboardPicker, { target: { value: "2" } });
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("2");
+    fireEvent.click(screen.getByRole("link", { name: "Discovery" }));
+    expect(await findCurrentDashboard("Discovery")).toBeInTheDocument();
     expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
   });
 
@@ -1416,7 +1485,7 @@ describe("HomePage dashboards", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
 
-    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("2");
+    expect(await findCurrentDashboard("Fallback")).toBeInTheDocument();
     expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
   });
 
