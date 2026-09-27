@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -30,6 +31,16 @@ public class PostgresManagerService : IHostedService
     private const string WinUrl = "https://sbp.enterprisedb.com/getfile.jsp?fileid=1260146";
     // macOS: EDB portable binaries
     private const string MacUrl = "https://sbp.enterprisedb.com/getfile.jsp?fileid=1260163";
+
+    // Bounds for the tools whose work does not grow with the library: they finish in seconds, and the
+    // extraction handles a fixed set of PostgreSQL packages. pg_ctl gets no bound here, because it bounds
+    // itself (start -t 300; stop waits PGCTLTIMEOUT, 60 s unless the user raised it) and a shutdown
+    // checkpoint or crash recovery legitimately takes longer on a large database.
+    private static readonly TimeSpan NoTimeout = Timeout.InfiniteTimeSpan;
+    private static readonly TimeSpan ClientToolTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ExtractionTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan KillWaitTimeout = TimeSpan.FromSeconds(5);
 
     public PostgresManagerService(IOptions<PostgresConfig> config, ILogger<PostgresManagerService> logger)
     {
@@ -65,6 +76,7 @@ public class PostgresManagerService : IHostedService
         }
 
         _logger.LogInformation("Managed PostgreSQL mode enabled");
+        ValidateDatabaseName(_config.Database);
 
         // 1. On Linux/macOS, check if a system postgres is already available in PATH
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -105,7 +117,7 @@ public class PostgresManagerService : IHostedService
 
         // 4. Start PostgreSQL
         _logger.LogInformation("Starting PostgreSQL on port {Port}", _config.Port);
-        await PgCtlAsync($"start -D \"{DataDir}\" -l \"{LogFile}\" -w -t 300 -o \"-p {_config.Port}\"", ct);
+        await StartPostgresAsync(ct);
         _started = true;
 
         // 5. Wait for ready
@@ -117,6 +129,32 @@ public class PostgresManagerService : IHostedService
         _logger.LogInformation("Managed PostgreSQL is ready (port {Port}, database '{Db}')", _config.Port, _config.Database);
     }
 
+    private Task StartPostgresAsync(CancellationToken ct)
+        => PgCtlAsync(["start", "-D", DataDir, "-l", LogFile, "-w", "-t", "300", "-o", $"-p {PortArgument}"], NoTimeout, ct);
+
+    private string PortArgument => _config.Port.ToString(CultureInfo.InvariantCulture);
+
+    private string[] ConnectionArguments => ["-h", "127.0.0.1", "-p", PortArgument, "-U", "postgres"];
+
+    /// <summary>
+    /// The database name reaches psql and createdb as its own argument, but psql still reads a -d value
+    /// that contains '=' or starts with a URI prefix as a connection string, and both tools read a leading
+    /// '-' as an option. Such a name would not name a database, so it is rejected before PostgreSQL starts.
+    /// </summary>
+    internal static void ValidateDatabaseName(string database)
+    {
+        if (string.IsNullOrWhiteSpace(database)
+            || database.StartsWith('-')
+            || database.Contains('=')
+            || database.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase)
+            || database.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"The managed PostgreSQL database name '{database}' is not supported. Set Cove:Postgres:Database to a name " +
+                "that is not empty, does not start with '-' or a postgres:// URI prefix, and does not contain '='.");
+        }
+    }
+
     public async Task StopAsync(CancellationToken ct)
     {
         if (!_config.Managed || !_started) return;
@@ -124,7 +162,7 @@ public class PostgresManagerService : IHostedService
         _logger.LogInformation("Stopping managed PostgreSQL");
         try
         {
-            await PgCtlAsync($"stop -D \"{DataDir}\" -m fast", ct);
+            await PgCtlAsync(["stop", "-D", DataDir, "-m", "fast"], NoTimeout, ct);
         }
         catch (Exception ex)
         {
@@ -171,11 +209,11 @@ public class PostgresManagerService : IHostedService
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            await DownloadAndExtractArchiveAsync(WinUrl, ".zip", ct);
+            await DownloadAndExtractZipAsync(WinUrl, ct);
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            await DownloadAndExtractArchiveAsync(MacUrl, ".zip", ct);
+            await DownloadAndExtractZipAsync(MacUrl, ct);
         }
         else
         {
@@ -192,33 +230,23 @@ public class PostgresManagerService : IHostedService
         _logger.LogInformation("PostgreSQL {Version} binaries ready at {BinDir}", PgFullVersion, BinDir);
     }
 
-    private async Task DownloadAndExtractArchiveAsync(string url, string ext, CancellationToken ct)
+    private async Task DownloadAndExtractZipAsync(string url, CancellationToken ct)
     {
-        string archivePath = Path.Combine(CoveDir, $"postgresql{ext}");
+        string archivePath = Path.Combine(CoveDir, "postgresql.zip");
 
         await DownloadFileAsync(url, archivePath, ct);
 
         _logger.LogDebug("Extracting PostgreSQL binaries to {BinDir}", BinDir);
 
-        if (ext == ".zip")
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var exitCode = await RunAsync("/usr/bin/unzip", $"-q -o \"{archivePath}\" -d \"{CoveDir}\"", CoveDir, ct);
-                if (exitCode != 0)
-                    throw new InvalidOperationException("Failed to extract PostgreSQL archive");
-            }
-            else
-            {
-                ZipFile.ExtractToDirectory(archivePath, CoveDir, overwriteFiles: true);
-            }
+            var exitCode = await RunAsync("/usr/bin/unzip", ["-q", "-o", archivePath, "-d", CoveDir], CoveDir, ExtractionTimeout, ct);
+            if (exitCode != 0)
+                throw new InvalidOperationException("Failed to extract PostgreSQL archive");
         }
         else
         {
-            var exitCode = await RunAsync("/bin/tar", $"xzf \"{archivePath}\" -C \"{CoveDir}\"", CoveDir, ct);
-            if (exitCode != 0)
-                throw new InvalidOperationException("Failed to extract PostgreSQL archive");
-            await RunAsync("/bin/chmod", $"-R +x \"{BinDir}\"", CoveDir, ct);
+            ZipFile.ExtractToDirectory(archivePath, CoveDir, overwriteFiles: true);
         }
 
         File.Delete(archivePath);
@@ -307,7 +335,7 @@ public class PostgresManagerService : IHostedService
         try
         {
             var workDir = Path.GetDirectoryName(pgCtlPath) ?? "/";
-            var (exitCode, stdout) = await RunWithOutputAsync(pgCtlPath, "--version", workDir, ct);
+            var (exitCode, stdout) = await RunWithOutputAsync(pgCtlPath, ["--version"], workDir, ProbeTimeout, ct);
             if (exitCode != 0)
                 return false;
 
@@ -503,16 +531,16 @@ public class PostgresManagerService : IHostedService
             foreach (var debFile in Directory.GetFiles(tempDir, "*.deb"))
             {
                 _logger.LogTrace("Extracting {File}", Path.GetFileName(debFile));
-                var exitCode = await RunAsync("/usr/bin/dpkg-deb", $"-x \"{debFile}\" \"{extractDir}\"", tempDir, ct);
+                var exitCode = await RunAsync("/usr/bin/dpkg-deb", ["-x", debFile, extractDir], tempDir, ExtractionTimeout, ct);
                 if (exitCode != 0)
                 {
-                    exitCode = await RunAsync("/usr/bin/ar", $"x \"{debFile}\"", tempDir, ct);
+                    exitCode = await RunAsync("/usr/bin/ar", ["x", debFile], tempDir, ExtractionTimeout, ct);
                     if (exitCode != 0)
                         throw new InvalidOperationException($"Failed to extract {debFile}");
 
                     var dataTar = Directory.GetFiles(tempDir, "data.tar.*").FirstOrDefault()
                         ?? throw new FileNotFoundException("data.tar not found in .deb package");
-                    exitCode = await RunAsync("/bin/tar", $"xf \"{dataTar}\" -C \"{extractDir}\"", tempDir, ct);
+                    exitCode = await RunAsync("/bin/tar", ["xf", dataTar, "-C", extractDir], tempDir, ExtractionTimeout, ct);
                     if (exitCode != 0)
                         throw new InvalidOperationException($"Failed to extract {dataTar}");
                 }
@@ -533,7 +561,7 @@ public class PostgresManagerService : IHostedService
 
             CopyLinuxRuntimeLibraries(extractDir, PgLibDir);
 
-            await RunAsync("/bin/chmod", $"-R +x \"{BinDir}\"", CoveDir, ct);
+            MakeExecutable(BinDir);
         }
         finally
         {
@@ -726,7 +754,7 @@ public class PostgresManagerService : IHostedService
         if (!File.Exists(pgConfig))
             return null;
 
-        var (exitCode, stdout) = await RunWithOutputAsync(pgConfig, argument, BinDir, ct);
+        var (exitCode, stdout) = await RunWithOutputAsync(pgConfig, [argument], BinDir, ProbeTimeout, ct);
         return exitCode == 0 ? stdout.Trim() : null;
     }
 
@@ -1055,9 +1083,9 @@ public class PostgresManagerService : IHostedService
     private static string ToPostgresConfigPath(string path)
         => Path.GetFullPath(path).Replace('\\', '/');
 
-    private async Task PgCtlAsync(string args, CancellationToken ct)
+    private async Task PgCtlAsync(IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
     {
-        var exitCode = await RunAsync(Exe("pg_ctl"), args, BinDir, ct);
+        var exitCode = await RunAsync(Exe("pg_ctl"), args, BinDir, timeout, ct);
         if (exitCode != 0)
         {
             var lastLines = await ReadLogTailAsync(20, ct);
@@ -1091,7 +1119,7 @@ public class PostgresManagerService : IHostedService
         _logger.LogInformation("Found stale postmaster.pid — stopping previous instance");
         try
         {
-            await RunAsync(Exe("pg_ctl"), $"stop -D \"{DataDir}\" -m fast", BinDir, ct);
+            await RunAsync(Exe("pg_ctl"), ["stop", "-D", DataDir, "-m", "fast"], BinDir, NoTimeout, ct);
         }
         catch (Exception ex)
         {
@@ -1120,8 +1148,7 @@ public class PostgresManagerService : IHostedService
         for (int i = 0; i < 240; i++)
         {
             ct.ThrowIfCancellationRequested();
-            var exitCode = await RunAsync(Exe("pg_isready"),
-                $"-h 127.0.0.1 -p {_config.Port} -U postgres", BinDir, ct);
+            var exitCode = await RunAsync(Exe("pg_isready"), ConnectionArguments, BinDir, ProbeTimeout, ct);
             if (exitCode == 0)
             {
                 _logger.LogTrace("PostgreSQL is accepting connections");
@@ -1139,8 +1166,8 @@ public class PostgresManagerService : IHostedService
     {
         // Check if database exists via psql
         var (exitCode, stdout) = await RunWithOutputAsync(Exe("psql"),
-            $"-h 127.0.0.1 -p {_config.Port} -U postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='{_config.Database}'\"",
-            BinDir, ct);
+            [.. ConnectionArguments, "-d", "postgres", "-tAc", $"SELECT 1 FROM pg_database WHERE datname={QuoteSqlLiteral(_config.Database)}"],
+            BinDir, ClientToolTimeout, ct);
 
         if (stdout.Trim() == "1")
         {
@@ -1148,24 +1175,23 @@ public class PostgresManagerService : IHostedService
 
             // Ensure pgvector extension is created
             var vectorExitCode = await RunAsync(Exe("psql"),
-                $"-h 127.0.0.1 -p {_config.Port} -U postgres -d {_config.Database} -c \"CREATE EXTENSION IF NOT EXISTS vector\"",
-                BinDir, ct);
+                [.. ConnectionArguments, "-d", _config.Database, "-c", "CREATE EXTENSION IF NOT EXISTS vector"],
+                BinDir, ClientToolTimeout, ct);
             if (vectorExitCode != 0)
                 throw new InvalidOperationException(BuildPgvectorCreateExtensionFailureMessage(_config.Database));
             return;
         }
 
         _logger.LogInformation("Creating database '{Db}'", _config.Database);
-        exitCode = await RunAsync(Exe("createdb"),
-            $"-h 127.0.0.1 -p {_config.Port} -U postgres {_config.Database}", BinDir, ct);
+        exitCode = await RunAsync(Exe("createdb"), [.. ConnectionArguments, _config.Database], BinDir, ClientToolTimeout, ct);
 
         if (exitCode != 0)
             throw new InvalidOperationException($"createdb failed (exit code {exitCode})");
 
         // Try to create pgvector extension (will fail silently if not available)
         var extResult = await RunAsync(Exe("psql"),
-            $"-h 127.0.0.1 -p {_config.Port} -U postgres -d {_config.Database} -c \"CREATE EXTENSION IF NOT EXISTS vector\"",
-            BinDir, ct);
+            [.. ConnectionArguments, "-d", _config.Database, "-c", "CREATE EXTENSION IF NOT EXISTS vector"],
+            BinDir, ClientToolTimeout, ct);
 
         if (extResult != 0)
             throw new InvalidOperationException(BuildPgvectorCreateExtensionFailureMessage(_config.Database));
@@ -1173,49 +1199,95 @@ public class PostgresManagerService : IHostedService
 
     // ─── Process helpers ────────────────────────────────────────────
 
-    private async Task<int> RunAsync(string exe, string args, string workDir, CancellationToken ct)
+    /// <summary>Runs a tool to completion without capturing its output. See <see cref="RunCoreAsync"/>.</summary>
+    private async Task<int> RunAsync(string exe, IReadOnlyList<string> args, string workDir, TimeSpan timeout, CancellationToken ct)
+        => (await RunCoreAsync(exe, args, workDir, timeout, captureOutput: false, ct)).exitCode;
+
+    /// <summary>Runs a tool to completion, capturing its standard output. See <see cref="RunCoreAsync"/>.</summary>
+    private Task<(int exitCode, string stdout)> RunWithOutputAsync(
+        string exe, IReadOnlyList<string> args, string workDir, TimeSpan timeout, CancellationToken ct)
+        => RunCoreAsync(exe, args, workDir, timeout, captureOutput: true, ct);
+
+    /// <summary>
+    /// Starts <paramref name="exe"/> with each argument passed separately through
+    /// <see cref="ProcessStartInfo.ArgumentList"/>, so a path or name reaches the tool unchanged whatever
+    /// characters it holds. On timeout or cancellation the tool is killed before this returns; a timeout
+    /// then throws <see cref="TimeoutException"/>. Only the tool itself is killed, not its process tree:
+    /// the child of pg_ctl start is the postmaster, which the stale-instance stop on the next start shuts
+    /// down cleanly rather than it being killed mid-startup.
+    /// </summary>
+    private async Task<(int exitCode, string stdout)> RunCoreAsync(
+        string exe, IReadOnlyList<string> args, string workDir, TimeSpan timeout, bool captureOutput, CancellationToken ct)
     {
         _logger.LogDebug("Exec: {Exe} {Args}", Path.GetFileName(exe), args);
 
-        var psi = new ProcessStartInfo
+        // Output is only redirected when it is read: pg_ctl start leaves the postmaster holding any pipe
+        // it inherits, so reading one to the end would wait for PostgreSQL to shut down.
+        var psi = new ProcessStartInfo(exe, args)
         {
-            FileName = exe,
-            Arguments = args,
             WorkingDirectory = workDir,
             UseShellExecute = false,
+            RedirectStandardOutput = captureOutput,
+            RedirectStandardError = captureOutput,
             CreateNoWindow = true,
         };
 
         ApplyPostgresProcessEnvironment(psi);
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {exe}");
-        await proc.WaitForExitAsync(ct);
-        return proc.ExitCode;
-    }
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+        var stdoutTask = captureOutput ? proc.StandardOutput.ReadToEndAsync(timeoutCts.Token) : Task.FromResult(string.Empty);
+        var stderrTask = captureOutput ? proc.StandardError.ReadToEndAsync(timeoutCts.Token) : Task.FromResult(string.Empty);
 
-    private async Task<(int exitCode, string stdout)> RunWithOutputAsync(
-        string exe, string args, string workDir, CancellationToken ct)
-    {
-        var psi = new ProcessStartInfo
+        try
         {
-            FileName = exe,
-            Arguments = args,
-            WorkingDirectory = workDir,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
+            await Task.WhenAll(stdoutTask, stderrTask, proc.WaitForExitAsync(timeoutCts.Token));
+        }
+        catch (OperationCanceledException)
+        {
+            await KillAsync(proc);
+            ct.ThrowIfCancellationRequested();
+            throw new TimeoutException(
+                $"{Path.GetFileName(exe)} did not finish within {timeout.TotalSeconds:0.#} seconds and was stopped.");
+        }
 
-        ApplyPostgresProcessEnvironment(psi);
-
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {exe}");
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-        await proc.WaitForExitAsync(ct);
-        await Task.WhenAll(stdoutTask, stderrTask);
         return (proc.ExitCode, await stdoutTask);
     }
+
+    private async Task KillAsync(Process proc)
+    {
+        try
+        {
+            proc.Kill(entireProcessTree: false);
+            await proc.WaitForExitAsync(CancellationToken.None).WaitAsync(KillWaitTimeout);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            // Already exited, or not stopped within the wait; either way nothing more can be done here.
+            _logger.LogDebug(ex, "Could not confirm that {Exe} (PID {Pid}) stopped", proc.StartInfo.FileName, proc.Id);
+        }
+    }
+
+    /// <summary>
+    /// Adds execute permission for owner, group and others to every regular file below
+    /// <paramref name="directory"/>, as <c>chmod -R +x</c> did. Like chmod -R, symbolic links are left alone.
+    /// </summary>
+    internal static void MakeExecutable(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        foreach (var file in new DirectoryInfo(directory).EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            if (file.LinkTarget != null)
+                continue;
+            file.UnixFileMode |= UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+        }
+    }
+
+    private static string QuoteSqlLiteral(string value)
+        => "'" + value.Replace("'", "''") + "'";
 
     private async Task<string> ResolveManagedPgLibDirAsync(CancellationToken ct)
     {

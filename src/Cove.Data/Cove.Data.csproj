@@ -27,4 +27,16 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!--
+    Child processes take their arguments as a list (ProcessStartInfo.ArgumentList), never as one
+    command-line string, so a path can never be split into extra arguments. See BannedSymbols.txt.
+  -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
+
 </Project>
