@@ -141,7 +141,9 @@ export { useAppConfig } from "../state/AppConfigContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 export type { FindFilter } from "../api/types";
-export { ENTITY_MEDIA_TARGET } from "./EntityMedia";
+// The entity.media boundary native cards and heroes render through, so extension surfaces that show an entity's
+// primary media also get contributed replacements such as animated tag previews, with the host's fallback.
+export { ENTITY_MEDIA_TARGET, EntityMedia } from "./EntityMedia";
 export { getActiveMedia, useActiveMedia } from "./ActiveMedia";
 export type { ActiveMediaContext } from "./ActiveMedia";
 export type { EntityMediaFit, EntityMediaRenderProps, EntityMediaSurface } from "./EntityMedia";

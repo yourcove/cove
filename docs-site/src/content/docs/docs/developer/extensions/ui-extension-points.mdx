@@ -261,6 +261,8 @@ The component receives `EntityMediaRenderProps`: the entity type and id, surface
 
 Cove orders overrides by descending priority and isolates every layer in an error boundary. A failed contribution falls through without hiding lower-priority contributions or native media. Navigation, selection, cover controls, card overlays, and preview playback remain outside the replacement boundary.
 
+An extension that shows an entity's primary media itself, such as a dashboard widget that features a tag, can render the same boundary with `EntityMedia` from `@cove/runtime/components`. Pass the props a native card would pass, including a `renderDefault` that draws the static image, so that media contributed by other extensions, such as animated previews, also appears there. Frame it the way the matching native surface does: Cove's cards keep their own 16:9 media frame, and only a hover-style frame follows the `data-entity-media-aspect-ratio` declaration described below. `EntityMedia` is not in older hosts' runtimes, so import the barrel as a namespace and fall back to your own image when it is missing. An `entity.media` override itself must call `renderDefault()` to show the native media, never `EntityMedia` for the same entity and surface, which would render the override again.
+
 Hover previews use a `4:3` frame by default. When contributed hover media has another intrinsic shape, put `data-entity-media-aspect-ratio="width:height"` on an element rendered by the override. Cove validates positive numeric values and uses the declaration to size its host-owned hover frame.
 
 ## Page overrides
