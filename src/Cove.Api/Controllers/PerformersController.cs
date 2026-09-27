@@ -166,6 +166,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         return Ok(new PaginatedResponse<GroupDto>(groups.Select(group => MapGroupToDto(group, GetCustomFields(customFieldValues, group.Id))).ToList(), totalCount, page, perPage));
     }
 
+    // A page of co-stars as full performers, kept for API clients; the Appears With tab reads /pairings.
     [HttpGet("{id:int}/appears-with")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<PaginatedResponse<PerformerDto>>> GetAppearsWith(
@@ -237,6 +238,137 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             .ToList();
 
         return Ok(new PaginatedResponse<PerformerDto>(dtos, totalCount, page, perPage));
+    }
+
+    // Everything here comes from videos, so a caller who cannot read videos is refused rather than
+    // shown an empty list.
+    [HttpGet("{id:int}/pairings")]
+    [OutputCache(PolicyName = "ShortCache")]
+    [RequiresPermission(Permissions.PerformersRead, Permissions.VideosRead)]
+    public async Task<ActionResult<PerformerPairingsDto>> GetPairings(int id, CancellationToken ct = default)
+    {
+        var performerExists = await db.Performers.AsNoTracking().AnyAsync(performer => performer.Id == id, ct);
+        if (!performerExists)
+            return NotFound();
+
+        // Casts come from the join table rather than Video.PerformerIds: the join is filtered on both the
+        // video and the performer, so a co-star the caller cannot read never shows up, not even as an id.
+        var castRows = await (
+            from own in db.Set<VideoPerformer>().AsNoTracking()
+            join cast in db.Set<VideoPerformer>().AsNoTracking() on own.VideoId equals cast.VideoId
+            where own.PerformerId == id
+            select new { cast.VideoId, cast.PerformerId }
+        ).ToListAsync(ct);
+        var castsByVideoId = castRows
+            .GroupBy(row => row.VideoId)
+            .ToDictionary(group => group.Key, group => group.Select(row => row.PerformerId).Distinct().Order().ToArray());
+        var sharedVideoIds = castsByVideoId.Where(entry => entry.Value.Length > 1).Select(entry => entry.Key).ToArray();
+        var soloVideoIds = castsByVideoId.Where(entry => entry.Value.Length == 1).Select(entry => entry.Key).ToArray();
+        var soloVideoDates = await db.Videos
+            .AsNoTracking()
+            .Where(video => soloVideoIds.Contains(video.Id) && video.Date != null)
+            .Select(video => video.Date!.Value)
+            .ToListAsync(ct);
+        var soloVideoYears = soloVideoDates
+            .GroupBy(date => date.Year)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        var videoRows = await db.Videos
+            .AsNoTracking()
+            .Where(video => sharedVideoIds.Contains(video.Id))
+            .Select(video => new
+            {
+                video.Id,
+                video.Title,
+                video.Date,
+                video.DatePrecision,
+                StudioId = video.Studio != null ? video.StudioId : null,
+                StudioName = video.Studio != null ? video.Studio.Name : null,
+                video.MaxDuration,
+                // The file a video's card describes: its primary file, or its parent's for a clip
+                // without files of its own. It names an untitled video and gives the resolution
+                // badge a real width, which the MaxResolution/MaxHeight summary loses for portraits.
+                OwnFile = video.Files
+                    .OrderByDescending(file => file.Id == video.PrimaryFileId)
+                    .ThenBy(file => file.Id)
+                    .Select(file => new { file.Width, file.Height, file.Basename, file.Path })
+                    .FirstOrDefault(),
+                ParentFile = video.ParentVideo!.Files
+                    .OrderByDescending(file => file.Id == video.ParentVideo.PrimaryFileId)
+                    .ThenBy(file => file.Id)
+                    .Select(file => new { file.Width, file.Height, file.Basename, file.Path })
+                    .FirstOrDefault(),
+                video.UpdatedAt,
+            })
+            .ToListAsync(ct);
+        var videos = videoRows
+            .OrderByDescending(video => video.Date.HasValue)
+            .ThenByDescending(video => video.Date)
+            .ThenByDescending(video => video.Id)
+            .Select(video =>
+            {
+                var file = video.OwnFile ?? video.ParentFile;
+                return new PerformerPairingVideoDto(
+                    video.Id,
+                    !string.IsNullOrWhiteSpace(video.Title)
+                        ? video.Title
+                        : file != null ? VideosController.GetVisibleBasename(file.Path, file.Basename) : null,
+                    PartialDate.Format(video.Date, video.DatePrecision),
+                    video.StudioId,
+                    video.StudioName,
+                    video.MaxDuration,
+                    file?.Width ?? 0,
+                    file?.Height ?? 0,
+                    video.UpdatedAt.ToString("o"),
+                    castsByVideoId[video.Id]);
+            })
+            .ToList();
+
+        var sharedVideoCounts = castsByVideoId.Values
+            .SelectMany(cast => cast)
+            .Where(performerId => performerId != id)
+            .CountBy(performerId => performerId)
+            .ToArray();
+        var coStarIds = sharedVideoCounts.Select(entry => entry.Key).ToArray();
+        // A co-star's own video total only reads as a signal ("all 12 videos they appear in") for a
+        // repeat partner, so the count over their whole catalogue is skipped for one-time co-stars.
+        var repeatCoStarIds = sharedVideoCounts.Where(entry => entry.Value > 1).Select(entry => entry.Key).ToArray();
+        var coStarRows = await db.Performers
+            .AsNoTracking()
+            .Where(performer => coStarIds.Contains(performer.Id))
+            .Select(performer => new
+            {
+                performer.Id,
+                performer.Name,
+                performer.Disambiguation,
+                performer.Gender,
+                performer.Favorite,
+                // Only what EntityImageUrls needs to decide on and build the image URL.
+                Image = new Performer
+                {
+                    Id = performer.Id,
+                    ImageBlobId = performer.ImageBlobId,
+                    ImageOverrideBlobId = performer.ImageOverrideBlobId,
+                    UpdatedAt = performer.UpdatedAt,
+                },
+                // Counted through the same filtered join, so it only covers videos the caller can see.
+                VideoCount = repeatCoStarIds.Contains(performer.Id)
+                    ? db.Set<VideoPerformer>().Count(videoPerformer => videoPerformer.PerformerId == performer.Id)
+                    : (int?)null,
+            })
+            .ToListAsync(ct);
+        var coStars = coStarRows
+            .Select(performer => new PerformerPairingCoStarDto(
+                performer.Id,
+                performer.Name,
+                performer.Disambiguation,
+                performer.Gender?.ToString(),
+                performer.Favorite,
+                EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer.Image),
+                performer.VideoCount))
+            .ToList();
+
+        return Ok(new PerformerPairingsDto(id, castsByVideoId.Count, soloVideoYears, videos, coStars));
     }
 
     [HttpPost]
@@ -952,3 +1084,38 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
 }
+
+// Everything the Appears With tab needs, in one response: the performer's videos that have at least
+// one other visible performer, each with its full visible cast, plus a summary of every co-star. The
+// client derives counts, tiers and lineups from these rows, so a filter change never needs a request.
+public sealed record PerformerPairingsDto(
+    int PerformerId,
+    int VideoCount,
+    IReadOnlyDictionary<int, int> SoloVideoYears,
+    IReadOnlyList<PerformerPairingVideoDto> Videos,
+    IReadOnlyList<PerformerPairingCoStarDto> CoStars);
+
+/// <summary>
+/// A co-star as the Appears With tab needs it. VideoCount counts every video of theirs the caller can
+/// see, and is only filled in for co-stars who share two or more videos with the performer.
+/// </summary>
+public sealed record PerformerPairingCoStarDto(
+    int Id,
+    string Name,
+    string? Disambiguation,
+    string? Gender,
+    bool Favorite,
+    string? ImagePath,
+    int? VideoCount);
+
+public sealed record PerformerPairingVideoDto(
+    int Id,
+    string? Title,
+    string? Date,
+    int? StudioId,
+    string? StudioName,
+    double Duration,
+    int Width,
+    int Height,
+    string UpdatedAt,
+    IReadOnlyList<int> PerformerIds);
