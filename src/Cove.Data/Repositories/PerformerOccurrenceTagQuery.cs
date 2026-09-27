@@ -30,7 +30,7 @@ public static class PerformerOccurrenceTagQuery
         {
             var presence = PerformerApplications(db, hostType, performerIds);
             return criterion.Modifier == CriterionModifier.IsNull
-                ? query.Where(host => !presence.Any(application => application.HostId == host.Id))
+                ? ExcludeHosts(query, presence)
                 : query.Where(host => presence.Any(application => application.HostId == host.Id));
         }
 
@@ -49,7 +49,7 @@ public static class PerformerOccurrenceTagQuery
         {
             query = criterion.Modifier switch
             {
-                CriterionModifier.Excludes => query.Where(host => !applications.Any(application => application.HostId == host.Id && tagIds.Contains(application.TagId))),
+                CriterionModifier.Excludes => ExcludeHosts(query, applications.Where(application => tagIds.Contains(application.TagId))),
                 CriterionModifier.ExcludesAll => ApplyExcludesAll(query, applications, groups),
                 CriterionModifier.IncludesAll => ApplyIncludesAll(query, applications, groups),
                 _ => query.Where(host => applications.Any(application => application.HostId == host.Id && tagIds.Contains(application.TagId))),
@@ -57,10 +57,20 @@ public static class PerformerOccurrenceTagQuery
         }
 
         if (excludedTagIds.Length > 0)
-            query = query.Where(host => !applications.Any(application => application.HostId == host.Id && excludedTagIds.Contains(application.TagId)));
+            query = ExcludeHosts(query, applications.Where(application => excludedTagIds.Contains(application.TagId)));
 
         return query;
     }
+
+    /// <summary>
+    /// Keeps hosts with none of <paramref name="applications"/>. PostgreSQL treats the correlated HostType, ContextType and
+    /// TagId predicates as independent and estimates a row or two, which turns a correlated NOT EXISTS into a nested-loop
+    /// anti join that rescans the applications for every host. NOT IN plans as a hashed subplan whenever the estimated host-id
+    /// set fits in hash_mem, which that same underestimate keeps true.
+    /// </summary>
+    private static IQueryable<THost> ExcludeHosts<THost>(IQueryable<THost> query, IQueryable<TagApplication> applications)
+        where THost : BaseEntity
+        => query.Where(host => !applications.Select(application => application.HostId).Contains(host.Id));
 
     private static IQueryable<TagApplication> PerformerApplications(CoveContext db, AffinityHostType hostType, IReadOnlyCollection<int> performerIds)
     {
