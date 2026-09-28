@@ -1062,6 +1062,44 @@ public class ScanServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StartScan_MakesStereoscopicVrAssetsOnlyWhenAskedAndOnlyForVrVideos(bool vrStereo)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "headset_180_sbs.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "flat.mp4"), minimumLength: 5000);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+
+            // The 2D cover and preview are asked for either way; they must not bring the 3D ones along.
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateVrStereo = vrStereo,
+            });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var vrVideoId = (await verificationDb.Videos.SingleAsync(video => video.IsVr, TestContext.Current.CancellationToken)).Id;
+            int[] expected = vrStereo ? [vrVideoId] : [];
+
+            Assert.Equal(2, environment.ThumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(2, environment.ThumbnailService.VideoPreviewCallCount);
+            Assert.Equal(expected, environment.ThumbnailService.VrCardVideoIds);
+            Assert.Equal(expected, environment.ThumbnailService.VrPreviewVideoIds);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task StartScan_ExplicitUnchangedAssetGenerationBypassesVerifiedDirectory()
     {
@@ -2883,6 +2921,20 @@ public class ScanServiceTests
         public int VideoThumbnailCallCount => Volatile.Read(ref _videoThumbnailCallCount);
         public int VideoPreviewCallCount => Volatile.Read(ref _videoPreviewCallCount);
         public int VideoSpriteCallCount => Volatile.Read(ref _videoSpriteCallCount);
+        public List<int> VrCardVideoIds { get; } = [];
+        public List<int> VrPreviewVideoIds { get; } = [];
+
+        public Task<bool> GenerateVrCardAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        {
+            lock (VrCardVideoIds) VrCardVideoIds.Add(videoId);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> GenerateVrPreviewAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        {
+            lock (VrPreviewVideoIds) VrPreviewVideoIds.Add(videoId);
+            return Task.FromResult(true);
+        }
         public int ImageThumbnailCallCount => Volatile.Read(ref _imageThumbnailCallCount);
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);

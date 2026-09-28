@@ -2317,6 +2317,7 @@ public partial class DownloaderService(
             GenerateCovers = generate.Thumbnails,
             GeneratePreviews = generate.Previews,
             GenerateSprites = generate.Sprites,
+            GenerateVrStereo = generate.VrStereo,
             GeneratePhashes = generate.Phashes,
             GenerateMd5 = generate.Md5,
             GenerateImageThumbnails = generate.ImageThumbnails,
@@ -2332,6 +2333,7 @@ public partial class DownloaderService(
         return generate.Thumbnails
             || generate.Previews
             || generate.Sprites
+            || generate.VrStereo
             || generate.Phashes
             || generate.Md5
             || generate.ImageThumbnails

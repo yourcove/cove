@@ -1561,7 +1561,6 @@ public record UiConfigDto
     public bool ContinuePlaylistDefault { get; init; }
     public bool ShowAbLoopControls { get; init; } = true;
     public bool SoundOnPreview { get; init; }
-    public string VrMediaStyle { get; init; } = "flat";
     public double PreviewSegmentDuration { get; init; } = 0.75;
     public int PreviewSegments { get; init; } = 12;
     public string PreviewExcludeStart { get; init; } = "0";
@@ -2496,6 +2495,8 @@ public record ScanOptionsDto
     public bool ScanGenerateCovers { get; init; }
     public bool ScanGeneratePreviews { get; init; }
     public bool ScanGenerateSprites { get; init; }
+    /// <summary>For VR videos, also make the stereoscopic cover and preview clip a headset shows.</summary>
+    public bool ScanGenerateVrStereo { get; init; }
     public bool ScanGeneratePhashes { get; init; }
     public bool ScanGenerateMd5 { get; init; }
     public bool ScanGenerateThumbnails { get; init; }
@@ -2510,6 +2511,9 @@ public record GenerateOptionsDto
     public bool Thumbnails { get; init; } = true;
     public bool Previews { get; init; }
     public bool Sprites { get; init; }
+    /// <summary>For VR videos, also make the stereoscopic (both eyes) cover and preview clip a headset shows.
+    /// The ordinary cover, preview and sprites of a VR video are always one eye, for flat screens.</summary>
+    public bool VrStereo { get; init; }
     public bool Segments { get; init; }
     public bool SegmentThumbnails { get; init; }
     public bool SegmentPreviews { get; init; }

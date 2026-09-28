@@ -1977,6 +1977,8 @@ export interface ScanOptions {
   scanGenerateCovers?: boolean;
   scanGeneratePreviews?: boolean;
   scanGenerateSprites?: boolean;
+  /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
+  scanGenerateVrStereo?: boolean;
   scanGeneratePhashes?: boolean;
   scanGenerateMd5?: boolean;
   scanGenerateThumbnails?: boolean;
@@ -1990,6 +1992,8 @@ export interface GenerateOptions {
   thumbnails?: boolean;
   previews?: boolean;
   sprites?: boolean;
+  /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
+  vrStereo?: boolean;
   segments?: boolean;
   segmentThumbnails?: boolean;
   segmentPreviews?: boolean;

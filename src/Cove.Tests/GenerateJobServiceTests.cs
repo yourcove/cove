@@ -156,6 +156,81 @@ public class GenerateJobServiceTests
         Assert.Equal(expected, GeneratePathFilter.Resolve(file));
     }
 
+    [Theory]
+    [InlineData(true, false, 1)]
+    [InlineData(true, true, 0)]
+    [InlineData(false, false, 0)]
+    public async Task Start_MakesStereoscopicVrAssetsOnlyWhenAskedAndOnlyForVrVideos(
+        bool vrStereo,
+        bool flatVideo,
+        int expectedRequests)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "vr.mp4"), [1], TestContext.Current.CancellationToken);
+
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var services = new ServiceCollection();
+            services.AddScoped(_ => new CoveContext(dbOptions));
+            await using var provider = services.BuildServiceProvider();
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = CreateVideoWithFiles((1, tempRoot, "vr.mp4"));
+                video.IsVr = !flatVideo;
+                db.Videos.Add(video);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                video.PrimaryFileId = video.Files.Single().Id;
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            var jobs = new CapturingJobService();
+            var thumbnails = new CapturingThumbnailService(tempRoot);
+            var fingerprints = new NullFingerprintService();
+            var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+            var fingerprintWriter = new FileFingerprintWriter(scopeFactory);
+            var nonVideoGeneration = new NonVideoGenerationService(
+                thumbnails,
+                fingerprints,
+                fingerprintWriter,
+                NullLogger<NonVideoGenerationService>.Instance);
+            var service = new GenerateJobService(
+                jobs,
+                thumbnails,
+                thumbnails,
+                fingerprints,
+                new AlwaysReadableSourceHealthProbe(),
+                fingerprintWriter,
+                nonVideoGeneration,
+                scopeFactory,
+                new CoveConfiguration { MaxParallelTasks = 1 },
+                NullLogger<GenerateJobService>.Instance);
+
+            // The 2D cover and preview are asked for either way; they must not bring the 3D ones along.
+            service.Start(new GenerateOptionsDto
+            {
+                Thumbnails = true,
+                Previews = true,
+                VrStereo = vrStereo,
+            });
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.NotNull(thumbnails.PreviewSourceFileId);
+            Assert.Equal(expectedRequests, thumbnails.VrCardRequests);
+            Assert.Equal(expectedRequests, thumbnails.VrPreviewRequests);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingPrimaryFile()
     {
@@ -544,6 +619,25 @@ public class GenerateJobServiceTests
         public string GetSpriteVttPath(int videoId) => Path.Combine(generatedRoot, $"{videoId}.vtt");
 
         public string StartGenerateAllThumbnails() => "generate-thumbnails";
+
+        public int VrCardRequests { get; private set; }
+        public int VrPreviewRequests { get; private set; }
+
+        public bool HasVrCard(int videoId) => false;
+
+        public bool HasVrPreview(int videoId) => false;
+
+        public Task<bool> GenerateVrCardFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
+        {
+            VrCardRequests++;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> GenerateVrPreviewFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
+        {
+            VrPreviewRequests++;
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class NullFingerprintService : IFingerprintService

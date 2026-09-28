@@ -41,6 +41,12 @@ public interface IThumbnailService
         return true;
     }
     Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default);
+    /// <summary>The stereoscopic card of a VR video, from its primary file. False when it could not be made.</summary>
+    Task<bool> GenerateVrCardAsync(int videoId, bool overwrite, CancellationToken ct = default) => Task.FromResult(false);
+    /// <summary>The stereoscopic preview clip of a VR video, from its primary file. False when it could not be made.</summary>
+    Task<bool> GenerateVrPreviewAsync(int videoId, bool overwrite, CancellationToken ct = default) => Task.FromResult(false);
+    bool HasVrCard(int videoId) => false;
+    bool HasVrPreview(int videoId) => false;
     Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default);
     async Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
     {
@@ -231,6 +237,9 @@ public class ThumbnailService(
     public Task<bool> GenerateVrPreviewFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
         => GenerateVrPreviewCoreAsync(videoId, sourceFileId, overwrite, ct);
 
+    public Task<bool> GenerateVrPreviewAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        => GenerateVrPreviewCoreAsync(videoId, sourceFileId: null, overwrite, ct);
+
     private async Task<bool> GenerateVrPreviewCoreAsync(int videoId, int? sourceFileId, bool overwrite, CancellationToken ct)
     {
         var vr = await GetVideoVrAsync(videoId, ct);
@@ -243,15 +252,6 @@ public class ThumbnailService(
             ct);
     }
 
-    /// <summary>
-    /// The filter that turns a VR frame into what generated covers and previews should show on a flat
-    /// screen: one eye reprojected, or both eyes side by side when the VR media style is "stereo".
-    /// </summary>
-    private string? VrGeneratedFilter(VrDescriptorDto? vr, int width, int stereoEyeWidth)
-        => string.Equals(config.Ui.VrMediaStyle, "stereo", StringComparison.OrdinalIgnoreCase)
-            ? VrFrameFilter.StereoFlat(vr, stereoEyeWidth)
-            : VrFrameFilter.OneEyeFlat(vr, width);
-
     /// <summary>Where a VR video's stereoscopic card image lives; see <see cref="GenerateVrCardFromFileAsync"/>.</summary>
     public string GetVrCardPath(int videoId)
     {
@@ -263,6 +263,9 @@ public class ThumbnailService(
 
     public Task<bool> GenerateVrCardFromFileAsync(int videoId, int sourceFileId, bool overwrite, CancellationToken ct = default)
         => GenerateVrCardCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    public Task<bool> GenerateVrCardAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        => GenerateVrCardCoreAsync(videoId, sourceFileId: null, overwrite, ct);
 
     /// <summary>
     /// A flat view of the scene's centre for each eye, side by side, taken from the same moment as the
@@ -1097,7 +1100,7 @@ public class ThumbnailService(
 
         var seekSeconds = atSeconds ?? duration * 0.2;
         if (seekSeconds <= 0) seekSeconds = 1;
-        var vrFilter = VrGeneratedFilter(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth, VrThumbnailWidth / 2);
+        var vrFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth);
 
         // Limit concurrent FFmpeg processes
         var sem = GetFfmpegSemaphore();
@@ -1366,7 +1369,7 @@ public class ThumbnailService(
         var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (filePath == null || duration <= 0) return false;
         var previewScale = scaleFilter
-            ?? VrGeneratedFilter(await GetVideoVrAsync(videoId, ct), PreviewWidth, PreviewWidth)
+            ?? VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), PreviewWidth)
             ?? $"scale={PreviewWidth}:-2";
 
         var ffmpegPath = GetCachedFfmpegPath();

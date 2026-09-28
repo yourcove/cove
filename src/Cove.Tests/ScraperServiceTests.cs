@@ -117,6 +117,30 @@ public class ScraperServiceTests
     }
 
     [Fact]
+    public async Task ScrapeNameAsync_ExtensionScraper_FillsMissingCandidateFieldsFromUrlScrape()
+    {
+        var service = CreateService(scraperProvider: new FakeAudioSearchScraperProvider());
+
+        var results = await service.ScrapeNameAsync("fake.audio/audio", "audio", "Example", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(results);
+        Assert.Equal(2, results.Count);
+        var first = results[0];
+        Assert.Equal("Example One", Assert.IsType<JsonElement>(first["title"]).GetString());
+        // Values the search result already had win; empty ones are filled from the detail scrape.
+        Assert.Equal("Snippet for one", Assert.IsType<JsonElement>(first["details"]).GetString());
+        Assert.Equal("2024-01-02", Assert.IsType<JsonElement>(first["date"]).GetString());
+        Assert.Equal(["Tag A", "Tag B"], Assert.IsType<JsonElement>(first["tagNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
+        Assert.Equal(["Performer"], Assert.IsType<JsonElement>(first["performerNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
+        Assert.False(first.ContainsKey("URL"));
+
+        // A candidate whose detail scrape returns nothing keeps its search-result data.
+        var second = results[1];
+        Assert.Equal("Snippet for two", Assert.IsType<JsonElement>(second["details"]).GetString());
+        Assert.Empty(Assert.IsType<JsonElement>(second["tagNames"]).EnumerateArray());
+    }
+
+    [Fact]
     public async Task ScrapeUrlAutoAsync_AudioUrlWithoutExtensionScraper_ReturnsNull()
     {
         var service = CreateService();
@@ -510,5 +534,50 @@ public class ScraperServiceTests
         }
 
         public IReadOnlyList<ScraperDescriptor> GetScrapers() => [Descriptor];
+    }
+
+    private sealed class FakeAudioSearchScraperProvider : IScraperProvider
+    {
+        private static readonly ScraperDescriptor Descriptor = new(
+            "fake.audio/audio",
+            "Fake Audio",
+            ScraperEntity.Audio,
+            ScraperCapabilities.ByUrl | ScraperCapabilities.ByName,
+            ["audio.example.net/*"],
+            ScraperRiskLevel.NetworkOnly);
+
+        public string Id => "fake.audio";
+        public string Name => "Fake Audio";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+        }
+
+        public IReadOnlyList<ScraperDescriptor> GetScrapers() => [Descriptor];
+
+        public Task<IReadOnlyList<ScrapedAudioDto>> SearchAudiosAsync(ScraperRequest<string> request, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<ScrapedAudioDto>>(
+            [
+                new ScrapedAudioDto { Title = "Example One", Details = "Snippet for one", Urls = ["https://audio.example.net/file/1"] },
+                new ScrapedAudioDto { Title = "Example Two", Details = "Snippet for two", Urls = ["https://audio.example.net/file/2"] },
+            ]);
+
+        public Task<ScrapedAudioDto?> ScrapeAudioAsync(ScraperRequest<AudioScrapeInput> request, CancellationToken ct)
+            => Task.FromResult(request.Input.Url == "https://audio.example.net/file/1"
+                ? new ScrapedAudioDto
+                {
+                    Title = "Example One",
+                    Details = "Full details for one",
+                    Date = "2024-01-02",
+                    Urls = ["https://audio.example.net/file/1"],
+                    PerformerNames = ["Performer"],
+                    TagNames = ["Tag A", "Tag B"],
+                }
+                : null);
     }
 }

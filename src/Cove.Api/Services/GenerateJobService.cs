@@ -39,7 +39,7 @@ public sealed class GenerateJobService(
 
     /// <summary>Work that needs frames decoded out of the source file. MD5 does not.</summary>
     private static bool NeedsDecodableSource(GenerateOptionsDto options)
-        => options.Thumbnails || options.Previews || options.Sprites
+        => options.Thumbnails || options.Previews || options.Sprites || options.VrStereo
             || options.SegmentThumbnails || options.SegmentPreviews || options.Segments
             || options.Phashes;
 
@@ -229,9 +229,9 @@ public sealed class GenerateJobService(
         var generatedFileWork =
             (ShouldGenerateDefaultVideoThumbnail(options.Thumbnails, item.Video.ImageBlobId)
                 && (options.Overwrite || !item.HasThumbnail))
-            || (options.Thumbnails && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
+            || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
             || (options.Previews && (options.Overwrite || !item.HasPreview))
-            || (options.Previews && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
+            || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
             || (options.Sprites && (options.Overwrite || !item.HasSprite))
             || options.SegmentThumbnails
             || options.SegmentPreviews
@@ -472,8 +472,8 @@ public sealed class GenerateJobService(
                     "Thumbnail generation failed");
         }
 
-        // VR videos also get a stereoscopic card, so galleries can show their covers in 3D.
-        if (options.Thumbnails && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
+        // The stereoscopic card a headset shows, beside the one-eye cover flat screens show.
+        if (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
         {
             await ReportGenerateResultAsync(
                 unit,
@@ -497,8 +497,8 @@ public sealed class GenerateJobService(
                 "Preview generation failed");
         }
 
-        // VR videos also get a stereoscopic clip, so galleries can show their previews in 3D.
-        if (options.Previews && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
+        // The stereoscopic clip a headset shows, beside the one-eye preview flat screens show.
+        if (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
         {
             await ReportGenerateResultAsync(
                 unit,
