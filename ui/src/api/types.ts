@@ -2264,8 +2264,6 @@ export interface UiConfig {
   continuePlaylistDefault: boolean;
   showAbLoopControls: boolean;
   soundOnPreview: boolean;
-  /** "flat" (one eye) or "stereo" (both eyes side by side) for VR videos' covers and previews. */
-  vrMediaStyle: string;
   previewSegmentDuration: number;
   previewSegments: number;
   previewExcludeStart: string;

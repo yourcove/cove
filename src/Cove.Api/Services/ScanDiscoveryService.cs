@@ -502,6 +502,7 @@ internal sealed class ScanDiscoveryService(
             || options.GenerateCovers
             || options.GeneratePreviews
             || options.GenerateSprites
+            || options.GenerateVrStereo
             || options.GeneratePhashes
             || options.GenerateMd5
             || options.GenerateImageThumbnails

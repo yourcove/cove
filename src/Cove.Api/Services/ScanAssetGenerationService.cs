@@ -29,7 +29,7 @@ internal sealed class ScanAssetGenerationService(
         int maxParallelism,
         CancellationToken ct)
     {
-        var generateVideoAssets = options.GenerateCovers || options.GeneratePreviews || options.GenerateSprites || options.GeneratePhashes || options.GenerateMd5;
+        var generateVideoAssets = options.GenerateCovers || options.GeneratePreviews || options.GenerateSprites || options.GenerateVrStereo || options.GeneratePhashes || options.GenerateMd5;
         var generateImageAssets = options.GenerateImagePhashes || options.GenerateImageThumbnails || options.GenerateMd5;
         var generateAudioAssets = options.GenerateAudioPhashes || options.GenerateMd5;
         var generateTextAssets = options.GenerateTextPhashes || options.GenerateMd5;
@@ -68,6 +68,8 @@ internal sealed class ScanAssetGenerationService(
                                 && (contentChanged || !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId))))
                             || (isRepresentative && options.GeneratePreviews && (contentChanged || !File.Exists(thumbnailService.GetPreviewPath(videoId))))
                             || (isRepresentative && options.GenerateSprites && (contentChanged || !File.Exists(thumbnailService.GetSpritePath(videoId)) || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))))
+                            || (isRepresentative && options.GenerateVrStereo && file.Video?.IsVr == true
+                                && (contentChanged || !thumbnailService.HasVrCard(videoId) || !thumbnailService.HasVrPreview(videoId)))
                             || (options.GeneratePhashes && !file.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                             || (options.GenerateMd5 && !file.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value)));
                     })
@@ -92,6 +94,9 @@ internal sealed class ScanAssetGenerationService(
                         && (contentChanged || !File.Exists(thumbnailPath));
                     var needsPreview = isRepresentative && options.GeneratePreviews && (contentChanged || !File.Exists(previewPath));
                     var needsSprite = isRepresentative && options.GenerateSprites && (contentChanged || !File.Exists(spritePath) || !File.Exists(spriteVttPath));
+                    var wantsVrStereo = isRepresentative && options.GenerateVrStereo && videoFile.Video?.IsVr == true;
+                    var needsVrCard = wantsVrStereo && (contentChanged || !thumbnailService.HasVrCard(videoId));
+                    var needsVrPreview = wantsVrStereo && (contentChanged || !thumbnailService.HasVrPreview(videoId));
                     var failedThisVideo = false;
 
                     progress.Report(0.92 + (0.06 * done / total), $"Generating video assets ({done}/{videoFiles.Count})");
@@ -133,6 +138,11 @@ internal sealed class ScanAssetGenerationService(
                                     await thumbnailService.GenerateVideoSpriteAsync(videoId, token);
                             }
                         }
+                        // The stereoscopic card and clip a headset shows, beside the one-eye ones above.
+                        if (needsVrCard)
+                            failedThisVideo |= !await thumbnailService.GenerateVrCardAsync(videoId, overwrite: contentChanged, token);
+                        if (needsVrPreview)
+                            failedThisVideo |= !await thumbnailService.GenerateVrPreviewAsync(videoId, overwrite: contentChanged, token);
                         if (options.GeneratePhashes
                             && !videoFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                         {

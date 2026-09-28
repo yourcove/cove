@@ -319,6 +319,8 @@ public sealed class ScanOperationOptions
     public bool GenerateCovers { get; init; }
     public bool GeneratePreviews { get; init; }
     public bool GenerateSprites { get; init; }
+    /// <summary>For VR videos, also make the stereoscopic cover and preview clip a headset shows.</summary>
+    public bool GenerateVrStereo { get; init; }
     public bool GeneratePhashes { get; init; }
     public bool GenerateMd5 { get; init; }
     public bool GenerateImageThumbnails { get; init; }

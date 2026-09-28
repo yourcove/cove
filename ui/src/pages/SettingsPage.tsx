@@ -612,6 +612,7 @@ const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   scanGenerateCovers: true,
   scanGeneratePreviews: false,
   scanGenerateSprites: false,
+  scanGenerateVrStereo: false,
   scanGeneratePhashes: false,
   scanGenerateMd5: false,
   scanGenerateThumbnails: false,
@@ -625,6 +626,7 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   thumbnails: true,
   previews: false,
   sprites: false,
+  vrStereo: false,
   segments: false,
   segmentThumbnails: false,
   segmentPreviews: false,
@@ -2407,16 +2409,6 @@ export function SettingsPage() {
                         { value: "slow", label: "Slow" },
                         { value: "slower", label: "Slower" },
                         { value: "veryslow", label: "Very Slow" },
-                      ]}
-                    />
-                    <SelectField
-                      label="VR covers and previews"
-                      description="How VR videos look on a flat screen: one eye reprojected (2D), or both eyes side by side (3D, for a browser running on a headset). Regenerate covers and previews for VR videos after changing this."
-                      value={draft.ui.vrMediaStyle === "stereo" ? "stereo" : "flat"}
-                      onChange={(value) => updateDraft((d) => ({ ...d, ui: { ...d.ui, vrMediaStyle: value } }))}
-                      options={[
-                        { value: "flat", label: "2D — one eye" },
-                        { value: "stereo", label: "3D — side by side" },
                       ]}
                     />
                     <CheckboxLabel
@@ -5745,6 +5737,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateSprites: c })}
                     />
                     <CheckboxLabel
+                      label="VR 3D covers and previews"
+                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
+                      checked={!!scanOpts.scanGenerateVrStereo}
+                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateVrStereo: c })}
+                    />
+                    <CheckboxLabel
                       label="Perceptual hashes (phash)"
                       checked={!!scanOpts.scanGeneratePhashes}
                       onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePhashes: c })}
@@ -5849,6 +5847,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       label="Sprite sheets"
                       checked={!!genOpts.sprites}
                       onChange={(c) => setGenOpts({ ...genOpts, sprites: c })}
+                    />
+                    <CheckboxLabel
+                      label="VR 3D covers and previews"
+                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
+                      checked={!!genOpts.vrStereo}
+                      onChange={(c) => setGenOpts({ ...genOpts, vrStereo: c })}
                     />
                     <CheckboxLabel
                       label="Segment thumbnails"
