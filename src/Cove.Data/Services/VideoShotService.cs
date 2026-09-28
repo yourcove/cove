@@ -8,6 +8,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Npgsql;
 
 namespace Cove.Data.Services;
 
@@ -406,6 +407,108 @@ public sealed class VideoShotService(CoveContext db) : IVideoShotService
             await db.SaveChangesAsync(cancellationToken);
             return new VideoShotEditResult { Status = VideoShotEditStatus.Deleted };
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves a file's set onto another file, for a caller that is about to delete the first file in
+    /// favour of the second and has established that both show the same footage on the same timeline.
+    /// The set stays behind, to be deleted with its file, when it no longer describes that file's
+    /// contents, or when the target has a set of its own that is not an unedited analysis losing to a
+    /// hand-edited set. Frames are dropped when the frame rates differ. Runs in the caller's
+    /// transaction, inside a savepoint, and leaves the change tracker alone.
+    /// </summary>
+    /// <returns>Whether the set moved.</returns>
+    internal static async Task<bool> MoveSetToFileAsync(CoveContext db, int fromFileId, int toFileId, CancellationToken cancellationToken)
+    {
+        if (fromFileId == toFileId)
+            return false;
+        if (db.Database.IsNpgsql())
+        {
+            // The per-file mutex every write takes, on both files and in id order, so that moves
+            // between the same two files cannot deadlock.
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM files WHERE \"Id\" IN ({fromFileId}, {toFileId}) ORDER BY \"Id\" FOR NO KEY UPDATE", cancellationToken);
+        }
+
+        var sets = await db.VideoShotSets
+            .AsNoTracking()
+            .Where(set => set.FileId == fromFileId || set.FileId == toFileId)
+            .Select(set => new { set.Id, set.FileId, set.Fps, set.FileSize, set.EditedAt })
+            .ToListAsync(cancellationToken);
+        var moving = sets.FirstOrDefault(set => set.FileId == fromFileId);
+        var existing = sets.FirstOrDefault(set => set.FileId == toFileId);
+        if (moving is null || existing is not null && (moving.EditedAt is null || existing.EditedAt is not null))
+            return false;
+
+        var files = await db.VideoFiles
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(file => file.Id == fromFileId || file.Id == toFileId)
+            .Select(file => new { file.Id, file.Size, file.FrameRate })
+            .ToListAsync(cancellationToken);
+        var source = files.FirstOrDefault(file => file.Id == fromFileId);
+        var target = files.FirstOrDefault(file => file.Id == toFileId);
+        // A set measured on older contents of its file must not look current on the target.
+        if (source is null || target is null || source.Size != moving.FileSize)
+            return false;
+
+        var dropFrames = moving.Fps is { } fps && (target.FrameRate <= 0 || Math.Abs(target.FrameRate - fps) > FrameRateTolerance);
+        var transaction = db.Database.CurrentTransaction;
+        var savepoint = "video_shots_move_" + Guid.NewGuid().ToString("n")[..12];
+        if (transaction is not null)
+            await transaction.CreateSavepointAsync(savepoint, cancellationToken);
+        try
+        {
+            if (existing is not null)
+                await db.VideoShotSets.Where(set => set.Id == existing.Id).ExecuteDeleteAsync(cancellationToken);
+            if (dropFrames)
+            {
+                await db.VideoShots
+                    .Where(shot => shot.SetId == moving.Id)
+                    .ExecuteUpdateAsync(update => update
+                        .SetProperty(shot => shot.StartFrame, (int?)null)
+                        .SetProperty(shot => shot.EndFrame, (int?)null), cancellationToken);
+            }
+
+            var now = DateTime.UtcNow;
+            await db.VideoShotSets
+                .Where(set => set.Id == moving.Id)
+                .ExecuteUpdateAsync(update =>
+                {
+                    update.SetProperty(set => set.FileId, toFileId)
+                        .SetProperty(set => set.FileSize, target.Size)
+                        .SetProperty(set => set.Revision, set => set.Revision + 1)
+                        .SetProperty(set => set.UpdatedAt, now);
+                    if (dropFrames)
+                    {
+                        update.SetProperty(set => set.Fps, (double?)null)
+                            .SetProperty(set => set.FrameCount, (int?)null);
+                    }
+                }, cancellationToken);
+            if (transaction is not null)
+                await transaction.ReleaseSavepointAsync(savepoint, cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (transaction is not null && IsUniqueViolation(exception))
+        {
+            // The target gained a set that this transaction's snapshot could not see: it keeps it.
+            await transaction.RollbackToSavepointAsync(savepoint, CancellationToken.None);
+            return false;
+        }
+    }
+
+    // Frame rates within this of each other keep a set's frame numbers valid on the other file.
+    private const double FrameRateTolerance = 0.01;
+
+    private static bool IsUniqueViolation(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+                return true;
+        }
+
+        return false;
     }
 
     // ── edits ────────────────────────────────────────────────────────────

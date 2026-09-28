@@ -60,6 +60,8 @@ public class CleanService(
 
             // Finish all filesystem/archive inspection before changing the destination. Deleting a
             // backing archive early would otherwise change decisions for later virtual entries.
+            // Shot boundaries of pruned files go with them: a file that vanished from disk may have been
+            // replaced or lost, and nothing here can tell which.
             var pruned = 0;
             await foreach (var ids in plan.ReadAsync("files", ct))
                 pruned += await db.Set<BaseFileEntity>().Where(file => ids.Contains(file.Id)).ExecuteDeleteAsync(ct);

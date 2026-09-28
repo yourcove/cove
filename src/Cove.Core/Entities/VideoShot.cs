@@ -9,8 +9,9 @@ namespace Cove.Core.Entities;
 /// <remarks>
 /// A file has at most one set. Timestamps belong to the analysed file, so a set follows its file
 /// through merges and file moves, stays with it when another file becomes the video's primary file,
-/// and is deleted with it. Write sets through <c>IVideoShotService</c>, which keeps the partition
-/// intact; the entities are public so extensions can query them.
+/// and is deleted with it, unless Cove deletes the file in favour of another copy of the same footage
+/// on the same timeline, which then receives the set. Write sets through <c>IVideoShotService</c>,
+/// which keeps the partition intact; the entities are public so extensions can query them.
 /// </remarks>
 public class VideoShotSet : BaseEntity
 {

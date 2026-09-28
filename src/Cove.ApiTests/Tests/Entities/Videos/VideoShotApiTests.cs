@@ -111,6 +111,24 @@ public sealed class VideoShotApiTests(
     }
 
     [Fact]
+    public async Task GivenShotsOnAnEquivalentDuplicate_WhenItIsDeletedFromTheFilesTab_ThenTheShotsMoveToThePrimaryFile()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = AsUser();
+        var video = await owner.CreateVideoAsync($"Shots {Guid.NewGuid():N}", ct);
+        var fingerprints = new Dictionary<string, string> { ["phash"] = "00ff00ff00ff00ff" };
+        var primaryFileId = await AsDbUser().AttachVideoFileAsync(video.Id, duration: 10, size: 1_000, fingerprints, ct);
+        var duplicateFileId = await AsDbUser().AttachVideoFileAsync(video.Id, duration: 10, size: 1_000, fingerprints, ct);
+        await AsDbUser().SetVideoPrimaryFileAsync(video.Id, primaryFileId, ct);
+        await WriteShotsAsync(duplicateFileId, (0, 4, null, null), (4, 10, null, null));
+
+        await owner.DeleteFilesAsync(new DeleteFilesDto([duplicateFileId], DeleteFromDisk: false), ct);
+
+        var set = await owner.GetVideoShotsAsync(video, cancellationToken: ct);
+        (set.FileId, set.IsPrimaryFile, set.ShotCount, set.Revision).Should().Be((primaryFileId, true, 2, 2));
+    }
+
+    [Fact]
     public async Task GivenShotSets_WhenPurgedAsAiData_ThenOnlyTheSelectedSourceIsRemoved()
     {
         var ct = TestContext.Current.CancellationToken;

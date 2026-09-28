@@ -8,6 +8,7 @@ using Cove.Data.Auth;
 using Cove.Data.Services;
 using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -584,6 +585,52 @@ public sealed class DatabaseClient
                 await transaction.RollbackAsync(cancellationToken);
             return result.Outcome;
         });
+    }
+
+    /// <summary>
+    /// Writes shots in a transaction that stays open, holding the file's row lock, until the returned
+    /// write is committed or disposed. The context does not retry, since a retrying strategy cannot
+    /// run a transaction that outlives one callback.
+    /// </summary>
+    public async Task<OpenVideoShotWrite> BeginVideoShotsWriteAsync(
+        VideoShotSetWrite write,
+        CancellationToken cancellationToken = default)
+    {
+        var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options);
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var result = await new VideoShotService(db).WriteSetAsync(write, cancellationToken);
+        return new OpenVideoShotWrite(db, transaction, result);
+    }
+
+    /// <summary>Waits until some session of this database is blocked on a lock.</summary>
+    public async Task WaitForLockWaitAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'", connection);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while ((long)(await command.ExecuteScalarAsync(cancellationToken))! == 0)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException("No session started waiting on a lock.");
+            await Task.Delay(50, cancellationToken);
+        }
+    }
+
+    public sealed class OpenVideoShotWrite(CoveContext db, IDbContextTransaction transaction, VideoShotWriteResult result) : IAsyncDisposable
+    {
+        public VideoShotWriteResult Result { get; } = result;
+
+        public Task CommitAsync(CancellationToken cancellationToken = default) => transaction.CommitAsync(cancellationToken);
+
+        public async ValueTask DisposeAsync()
+        {
+            await transaction.DisposeAsync();
+            await db.DisposeAsync();
+        }
     }
 
     private CoveContext CreateCoveContext()

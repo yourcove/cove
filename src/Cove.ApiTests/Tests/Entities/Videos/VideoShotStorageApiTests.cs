@@ -112,6 +112,29 @@ public sealed class VideoShotStorageApiTests(
         reread.Set!.EditedAt.Should().Be(local.ToUniversalTime());
     }
 
+    [Fact]
+    public async Task GivenAWriteInProgressOnThePrimary_WhenADuplicateWithShotsIsDeleted_ThenTheMoveWaitsAndThePrimaryKeepsItsShots()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = AsUser();
+        var video = await owner.CreateVideoAsync($"Shots {Guid.NewGuid():N}", ct);
+        var fingerprints = new Dictionary<string, string> { ["phash"] = "00ff00ff00ff00ff" };
+        var primaryId = await AsDbUser().AttachVideoFileAsync(video.Id, duration: 10, size: 1_000, fingerprints, ct);
+        var duplicateId = await AsDbUser().AttachVideoFileAsync(video.Id, duration: 10, size: 1_000, fingerprints, ct);
+        await AsDbUser().SetVideoPrimaryFileAsync(video.Id, primaryId, ct);
+        await AsDbUser().WriteVideoShotsAsync(Write(duplicateId, 5), ct);
+
+        await using var write = await AsDbUser().BeginVideoShotsWriteAsync(Write(primaryId, 3), ct);
+        var deletion = owner.DeleteFilesAsync(new DeleteFilesDto([duplicateId], DeleteFromDisk: false), ct);
+        await AsDbUser().WaitForLockWaitAsync(ct);
+        await write.CommitAsync(ct);
+        await deletion;
+
+        write.Result.Outcome.Should().Be(VideoShotWriteOutcome.Written);
+        (await owner.ListVideoShotSetsAsync(video, ct)).Should().ContainSingle().Which.FileId.Should().Be(primaryId);
+        (await owner.GetVideoShotsAsync(video, cancellationToken: ct)).Shots!.Select(shot => shot.StartSec).Should().Equal(0, 3);
+    }
+
     private async Task<int> CreateFileAsync(CancellationToken ct)
     {
         var video = await AsUser().CreateVideoAsync($"Shots {Guid.NewGuid():N}", ct);

@@ -173,11 +173,17 @@ persists nor authorizes the underlying mutation.
 ## Shot boundaries
 
 Cove stores the shot boundaries of video files: for each file, at most one `VideoShotSet`, a
-contiguous, gapless partition of the file's timeline into `VideoShot` rows. Sets belong to files, not
-videos, because timestamps belong to the file that was analysed; a set follows its file through
-merges and file moves and is deleted with it. Resolve `Cove.Core.Interfaces.IVideoShotService` to
-read and write them; it is the only writer, and the entities are public so you can query them.
-They arrive in the first release after Cove 1.5.1; set `minCoveVersion` to that release.
+contiguous, gapless partition of the file's timeline into `VideoShot` rows. Sets belong to files,
+not videos, because timestamps belong to the file that was analysed; a set follows its file through
+merges and file moves and is deleted with it. When Cove deletes a file in favour of another copy of
+the same footage (a converted copy's original, a duplicate deleted in file review or from the Files
+tab, a copy a merge removes), the set moves to the video's primary file instead (for a merge, the
+kept video's), provided both files have matching stored perceptual hashes, their running times agree
+to within two frames or 0.1 s, and the set was measured on the file's current contents. A primary
+file that has a set of its own keeps it, unless that set is an unedited analysis and the moving set
+was edited by hand. Resolve `Cove.Core.Interfaces.IVideoShotService` to read and write them; it is
+the only writer, and the entities are public so you can query them. They arrive in the first release
+after Cove 1.5.1; set `minCoveVersion` to that release.
 
 - **Invariants.** Every set holds 1 to `VideoShotRules.MaxShotsPerSet` shots, ordered by start; the
   first starts at 0, each starts where the previous ended, and the last ends at the set's
