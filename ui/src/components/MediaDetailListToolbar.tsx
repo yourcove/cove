@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { audios, galleries, images, texts, videos } from "../api/client";
-import type { FindFilter } from "../api/types";
+import type { FilterExpression, FindFilter } from "../api/types";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { DetailListToolbar, type DetailListToolbarProps } from "./DetailListToolbar";
 import { MediaAggregateMetadata } from "./MediaAggregateMetadata";
 
@@ -14,7 +15,12 @@ interface Props extends DetailListToolbarProps {
 
 function aggregate(
   mediaType: MediaType,
-  request: { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; ids?: number[] },
+  request: {
+    findFilter?: FindFilter;
+    objectFilter?: Record<string, unknown>;
+    filterExpression?: FilterExpression<Record<string, unknown>>;
+    ids?: number[];
+  },
 ): Promise<{ count: number; fileSize: number; duration?: number }> {
   switch (mediaType) {
     case "videos":
@@ -40,7 +46,7 @@ export function MediaDetailListToolbar({ mediaType, aggregateObjectFilter, selec
     queryFn: () =>
       aggregate(mediaType, {
         findFilter: aggregateFilter,
-        objectFilter: aggregateObjectFilter,
+        ...splitFilterExpression(aggregateObjectFilter),
       }),
   });
   const ids = [...selectedIds].sort((left, right) => left - right);

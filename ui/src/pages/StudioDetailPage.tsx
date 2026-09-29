@@ -102,6 +102,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import {
   useDetailBooleanUrlState,
@@ -886,11 +887,13 @@ function StudioVideosPanel({
       hasObjectFilter || includeSubStudios
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredSingleId(
-              objectFilter as VideoFilterCriteria,
-              "studiosCriterion",
-              studioId,
-              includeSubStudios ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredSingleId(
+                objectFilter as VideoFilterCriteria,
+                "studiosCriterion",
+                studioId,
+                includeSubStudios ? -1 : undefined,
+              ),
             ),
           })
         : videos.find(nextFilter, { studioId: String(studioId) }),
@@ -934,11 +937,13 @@ function StudioVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredSingleId(
-                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
-                  "studiosCriterion",
-                  studioId,
-                  includeSubStudios ? -1 : undefined,
+                ...splitFilterExpression(
+                  withRequiredSingleId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "studiosCriterion",
+                    studioId,
+                    includeSubStudios ? -1 : undefined,
+                  ),
                 ),
               })
             : queryPage({ ...filter, page, perPage }),
@@ -978,6 +983,7 @@ function StudioVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1375,11 +1381,13 @@ function StudioAudiosPanel({
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(
-          objectFilter as AudioFilterCriteria,
-          "studiosCriterion",
-          studioId,
-          includeSubStudios ? -1 : undefined,
+        ...splitFilterExpression(
+          withRequiredMultiId(
+            objectFilter as AudioFilterCriteria,
+            "studiosCriterion",
+            studioId,
+            includeSubStudios ? -1 : undefined,
+          ),
         ),
       }),
   });
@@ -1430,6 +1438,7 @@ function StudioAudiosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1785,11 +1794,13 @@ function StudioPerformersPanel({
       hasObjectFilter || includeSubStudios
         ? performers.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as PerformerFilterCriteria,
-              "studiosCriterion",
-              studioId,
-              includeSubStudios ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as PerformerFilterCriteria,
+                "studiosCriterion",
+                studioId,
+                includeSubStudios ? -1 : undefined,
+              ),
             ),
           })
         : performers.find(nextFilter, { studioId: String(studioId) }),
@@ -1830,6 +1841,7 @@ function StudioPerformersPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="performers"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}

@@ -107,6 +107,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import {
   useDetailBooleanUrlState,
@@ -682,11 +683,13 @@ function TagVideosPanel({
       hasObjectFilter || includeSubTags
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as VideoFilterCriteria,
-              "tagsCriterion",
-              tagId,
-              includeSubTags ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as VideoFilterCriteria,
+                "tagsCriterion",
+                tagId,
+                includeSubTags ? -1 : undefined,
+              ),
             ),
           })
         : videos.find(nextFilter, { tagIds: String(tagId) }),
@@ -730,11 +733,13 @@ function TagVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(
-                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
-                  "tagsCriterion",
-                  tagId,
-                  includeSubTags ? -1 : undefined,
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "tagsCriterion",
+                    tagId,
+                    includeSubTags ? -1 : undefined,
+                  ),
                 ),
               })
             : queryPage({ ...filter, page, perPage }),
@@ -769,6 +774,7 @@ function TagVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -858,11 +864,13 @@ function TagPerformersPanel({
       hasObjectFilter || includeSubTags
         ? performers.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as PerformerFilterCriteria,
-              "tagsCriterion",
-              tagId,
-              includeSubTags ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as PerformerFilterCriteria,
+                "tagsCriterion",
+                tagId,
+                includeSubTags ? -1 : undefined,
+              ),
             ),
           })
         : performers.find(nextFilter, { tagIds: String(tagId) }),
@@ -904,6 +912,7 @@ function TagPerformersPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="performers"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1260,11 +1269,13 @@ function TagAudiosPanel({
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(
-          objectFilter as AudioFilterCriteria,
-          "tagsCriterion",
-          tagId,
-          includeSubTags ? -1 : undefined,
+        ...splitFilterExpression(
+          withRequiredMultiId(
+            objectFilter as AudioFilterCriteria,
+            "tagsCriterion",
+            tagId,
+            includeSubTags ? -1 : undefined,
+          ),
         ),
       }),
   });
@@ -1310,6 +1321,7 @@ function TagAudiosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}

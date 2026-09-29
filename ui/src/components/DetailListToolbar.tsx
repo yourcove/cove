@@ -105,6 +105,8 @@ export interface DetailListToolbarProps {
   criteriaDefinitions?: CriterionDefinition[];
   objectFilter?: Record<string, unknown>;
   onObjectFilterChange?: (filter: Record<string, unknown>) => void;
+  /** Set when this list's query sends the filter expression to the API, so the dialog can repeat and combine conditions. */
+  supportsFilterExpressions?: boolean;
   /**
    * Entity whose filterable custom fields become a "Custom Fields" section in the filter dialog and chips, the same
    * one the top-level list pages generate. Defaults to the entity behind `filterMode`; without either, custom field
@@ -212,6 +214,7 @@ export function DetailListToolbar({
   criteriaDefinitions,
   objectFilter,
   onObjectFilterChange,
+  supportsFilterExpressions = false,
   customFieldEntityType,
   allowInfinitePageSize = false,
   infinitePageSizeOnly = false,
@@ -661,7 +664,7 @@ export function DetailListToolbar({
           initialView={filterDialogInitialView}
           initialExpressionPath={filterDialogExpressionPath}
           openAtRoot={filterDialogOpenAtRoot}
-          supportsFilterExpressions={Boolean(activeObjectFilter._filterExpression)}
+          supportsFilterExpressions={supportsFilterExpressions || Boolean(activeObjectFilter._filterExpression)}
         />
       ) : null}
     </>

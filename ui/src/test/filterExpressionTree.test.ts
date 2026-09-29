@@ -7,6 +7,7 @@ import {
   remapExpressionLeafPath,
   removeExpressionLeafAndPrune,
   repairRelatedScopes,
+  splitFilterExpression,
   updateExpressionLeaf,
   type EditableFilterExpression,
 } from "../utils/filterExpressionTree";
@@ -230,5 +231,19 @@ describe("filterExpressionTree", () => {
       _moveTarget: true,
     });
     expect(isComplexFilterExpression(expression)).toBe(false);
+  });
+
+  it("moves the stored expression into its own request field without mutating the filter", () => {
+    const expression = { operator: "AND" as const, children: [{ filter: { favoriteCriterion: { value: true } } }] };
+    const filter = { ratingCriterion: { modifier: "GREATER_THAN", value: 3 }, _filterExpression: expression };
+
+    expect(splitFilterExpression(filter)).toEqual({
+      objectFilter: { ratingCriterion: { modifier: "GREATER_THAN", value: 3 } },
+      filterExpression: expression,
+    });
+    expect(filter._filterExpression).toBe(expression);
+    expect(splitFilterExpression({ ratingCriterion: { value: 3 } })).toEqual({
+      objectFilter: { ratingCriterion: { value: 3 } },
+    });
   });
 });

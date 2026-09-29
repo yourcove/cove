@@ -103,6 +103,7 @@ import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
@@ -2751,7 +2752,9 @@ function GroupVideosPanel({
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+            ),
           })
         : videos.find(nextFilter, { groupId: String(groupId) }),
     [groupId, hasObjectFilter, objectFilter],
@@ -2829,10 +2832,8 @@ function GroupVideosPanel({
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(
-                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
-                  "groupsCriterion",
-                  groupId,
+                ...splitFilterExpression(
+                  withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "groupsCriterion", groupId),
                 ),
               })
             : queryPage({ ...filter, page, perPage }),
@@ -2867,6 +2868,7 @@ function GroupVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       listEntityType="videos"
+      supportsFilterExpressions
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

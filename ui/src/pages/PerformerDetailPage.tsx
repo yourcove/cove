@@ -102,6 +102,7 @@ import {
   hasAnyPermission,
 } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
@@ -1318,7 +1319,9 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
+            ),
           })
         : videos.find(nextFilter, { performerIds: String(performerId) }),
     [hasObjectFilter, objectFilter, performerId],
@@ -1370,10 +1373,12 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(
-                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
-                  "performersCriterion",
-                  performerId,
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "performersCriterion",
+                    performerId,
+                  ),
                 ),
               })
             : queryPage({ ...filter, page, perPage }),
@@ -1408,6 +1413,7 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1786,7 +1792,9 @@ function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
+        ...splitFilterExpression(
+          withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
+        ),
       }),
   });
   const selectionResetKey = useMemo(
@@ -1840,6 +1848,7 @@ function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}

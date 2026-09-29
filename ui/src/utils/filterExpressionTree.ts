@@ -18,6 +18,17 @@ export interface ExpressionGroupDestination {
   childCount: number;
 }
 
+/** Moves the dialog's stored expression out of an object filter into the separate request field the API reads. */
+export function splitFilterExpression<T extends object>(
+  filter: T,
+): { objectFilter: T; filterExpression?: FilterExpression<T> } {
+  const { [FILTER_EXPRESSION_STATE_KEY]: expression, ...objectFilter } = filter as Record<string, unknown>;
+  return {
+    objectFilter: objectFilter as T,
+    ...(expression ? { filterExpression: expression as FilterExpression<T> } : {}),
+  };
+}
+
 export function isFilterEligibleForRelatedScope(filter: Record<string, unknown> | undefined, filterKey: string) {
   const related = filter?.[filterKey];
   if (!related || typeof related !== "object") return false;

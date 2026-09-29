@@ -57,6 +57,7 @@ import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
@@ -670,7 +671,9 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+            ),
           })
         : videos.find(nextFilter, { galleryId: String(galleryId) }),
     [galleryId, hasObjectFilter, objectFilter],
@@ -713,10 +716,12 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
           vrOnly
             ? videos.findFiltered({
                 findFilter: { ...filter, page, perPage },
-                objectFilter: withRequiredMultiId(
-                  vrOnlyFilter(objectFilter) as VideoFilterCriteria,
-                  "galleriesCriterion",
-                  galleryId,
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "galleriesCriterion",
+                    galleryId,
+                  ),
                 ),
               })
             : queryPage({ ...filter, page, perPage }),
@@ -752,6 +757,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       filterDefaultKey={GALLERY_VIDEOS_DEFAULT_FILTER_KEY}
       defaultFilterResolved
       allowInfinitePageSize

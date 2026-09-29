@@ -196,6 +196,53 @@ describe("StudioDetailPage", () => {
     expect(new URLSearchParams(window.location.search).get("includeSubStudios")).toBe("true");
   });
 
+  it("offers another related performer condition on the videos tab", async () => {
+    const user = userEvent.setup();
+    const performerFilter = { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } };
+    window.history.replaceState(null, "", `/studio/25?filters=${encodeURIComponent(JSON.stringify(performerFilter))}`);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /^Filters/ }));
+    await user.click(await screen.findByRole("tab", { name: /Related Performers/ }));
+
+    expect(await screen.findByRole("button", { name: "Add another performer condition" })).toBeInTheDocument();
+  });
+
+  it("sends a filter expression separately from the studio-scoped object filter", async () => {
+    const expression = {
+      operator: "AND",
+      children: [
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } } },
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } },
+      ],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/studio/25?filters=${encodeURIComponent(JSON.stringify({ _filterExpression: expression }))}`,
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(videos.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectFilter: { studiosCriterion: { value: [], modifier: "INCLUDES", requiredIds: [25] } },
+          filterExpression: expression,
+        }),
+      ),
+    );
+  });
+
   it("offers the matching saved-filter library on every relation tab", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
