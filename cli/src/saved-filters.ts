@@ -75,6 +75,8 @@ export async function addVideoIdsToFilter(client: CoveClient, name: string, ids:
   if (!saved) {
     return client.post<SavedFilter>("savedfilters", {
       mode: "videos", name: normalizedName,
+      // Store the default video sort explicitly so the worklist carries find options like UI-saved filters.
+      findFilter: JSON.stringify({ sort: savedFilterDefaultSort("videos"), direction: "desc" }),
       objectFilter: JSON.stringify({ ids: [...new Set(ids)] }),
     });
   }

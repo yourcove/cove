@@ -1257,7 +1257,9 @@ test("add-ids creates a worklist, extends it without duplicates, and rejects inv
   expect(created.exitCode).toBe(0);
   expect(created.stderr).toBe("");
   expect(JSON.parse(created.stdout)).toMatchObject({ id: 42, mode: "videos", name: "Selected videos", objectFilter: '{"ids":[12,34]}' });
-  expect(writes).toEqual([{ method: "POST", body: { mode: "videos", name: "Selected videos", objectFilter: '{"ids":[12,34]}' } }]);
+  expect(writes).toEqual([{ method: "POST", body: {
+    mode: "videos", name: "Selected videos", findFilter: '{"sort":"date","direction":"desc"}', objectFilter: '{"ids":[12,34]}',
+  } }]);
 
   filter!.findFilter = '{"sort":"date"}';
   const updated = await run("selected VIDEOS", ["34", "56"]);

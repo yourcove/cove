@@ -329,11 +329,11 @@ export function SavedFilterMenu({
   });
 
   const applyFilter = (findFilterJson: string | undefined, objectFilterJson?: string, uiOptionsJson?: string) => {
-    if (!findFilterJson) return;
     try {
-      const parsed = normalizeSavedFindFilter(mode, JSON.parse(findFilterJson) as FindFilter);
-      if (!parsed) return;
-      onApplyFilter(parsed);
+      // Filters created through the API (such as CLI video ID worklists) may omit find options entirely; treat
+      // them like an empty find filter so the mode's default sort applies and the object filter still loads.
+      const parsed = normalizeSavedFindFilter(mode, JSON.parse(findFilterJson || "{}") as FindFilter);
+      if (parsed) onApplyFilter(parsed);
     } catch {
       // ignore invalid JSON
     }
