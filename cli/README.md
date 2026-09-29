@@ -42,6 +42,16 @@ cove-cli help <command> <subcommand>
 
 For example, use `cove-cli help videos list` to see the available video filters, sorting, pagination, and output options.
 
+Create and update a video worklist:
+
+```sh
+cove-cli videos filters add-ids "Selected videos" 42 67 91
+cove-cli videos list --saved-filter "Selected videos"
+cove-cli videos filters remove-ids "Selected videos" 42
+```
+
+Removing the last video ID deletes the saved filter.
+
 Authenticate interactively with a Cove server:
 
 ```sh

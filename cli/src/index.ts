@@ -17,7 +17,7 @@ import { renderApiTokenRevoked, renderApiTokens, renderAudio, renderAudios, rend
 import type { CatalogEntityKind, RenderContext } from "./output";
 import { resolveResultWindow } from "./pagination";
 import type { ResultWindowOptions } from "./pagination";
-import { defaultSavedFilter, listSavedFilters, queryForSavedFilter, resolveSavedFilter, savedFilterSummary } from "./saved-filters";
+import { addVideoIdsToFilter, defaultSavedFilter, listSavedFilters, queryForSavedFilter, removeVideoIdsFromFilter, resolveSavedFilter, savedFilterSummary } from "./saved-filters";
 import { isSegmentRecord, listSegments } from "./segments";
 import { heldPermissions, parseScope, SCOPE_PRESET_NAMES, SCOPE_PRESETS, unheldScope } from "./tokens";
 import type { ScopeSelection } from "./tokens";
@@ -651,6 +651,28 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const item = await client.post<SavedFilter>("savedfilters", { mode, name: options.name, findFilter: jsonObjectOption(options.findFilter, "--find-filter"), objectFilter: jsonObjectOption(options.objectFilter, "--object-filter"), uiOptions: jsonObjectOption(options.uiOptions, "--ui-options") });
       print(item, global, () => renderSavedFilters([item], renderFor(global), `Saved ${singular} filter`));
     });
+    if (mode === "videos") {
+      withExamples(filters.command("add-ids <name> <ids...>").description("Add videos to a worklist, creating it when needed"), [
+        'cove-cli videos filters add-ids "Selected videos" 42 67 91',
+      ]).action(async (name: string, references: string[], _options, command: Command) => {
+        const global = globals(command);
+        const ids = references.map(entityId);
+        const { client } = await clientFor(store, global);
+        const item = await addVideoIdsToFilter(client, name, ids);
+        print(item, global, () => renderSavedFilters([item], renderFor(global), "Saved video filter"));
+      });
+      withExamples(filters.command("remove-ids <id-or-name> <ids...>").description("Remove completed videos from a saved video filter"), [
+        'cove-cli videos filters remove-ids "Selected videos" 42 67',
+      ]).action(async (reference: string, references: string[], _options, command: Command) => {
+        const global = globals(command);
+        const ids = references.map(entityId);
+        const { client } = await clientFor(store, global);
+        const result = await removeVideoIdsFromFilter(client, reference, ids);
+        print(result, global, () => "deleted" in result
+          ? `Deleted saved video filter ${result.id}; its last video was removed.`
+          : renderSavedFilters([result], renderFor(global), "Saved video filter"));
+      });
+    }
     withExamples(filters.command("update <id>").description(`Update a saved ${singular} filter`)
       .option("--name <name>", "new saved-filter name")
       .option("--find-filter <json>", "replacement find-filter JSON")

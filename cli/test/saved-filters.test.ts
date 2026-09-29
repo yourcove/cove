@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CoveClient } from "../src/client";
 import { ConfigStore } from "../src/config";
 import { CliError } from "../src/errors";
-import { defaultSavedFilters, listSavedFilters, queryForSavedFilter, resolveSavedFilter, savedFilterSummary } from "../src/saved-filters";
+import { addVideoIdsToFilter, defaultSavedFilters, listSavedFilters, queryForSavedFilter, removeVideoIdsFromFilter, resolveSavedFilter, savedFilterSummary } from "../src/saved-filters";
 import type { SavedFilter } from "../src/types";
 import { json, startServer } from "./helpers";
 
@@ -27,6 +27,27 @@ async function clientWith(handler: (request: Request) => Response | Promise<Resp
 function savedFilter(overrides: Partial<SavedFilter> = {}): SavedFilter {
   return { id: 12, mode: "videos", name: "Recently Added", ...overrides };
 }
+
+test("adding video IDs rejects empty and out-of-range arrays", async () => {
+  const unusedClient = {} as CoveClient;
+  await expect(addVideoIdsToFilter(unusedClient, "Selected videos", [])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+  await expect(addVideoIdsToFilter(unusedClient, "Selected videos", [2_147_483_648])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+});
+
+test("video ID removal rejects filters without an ID worklist", async () => {
+  const client = await clientWith(() => json(savedFilter({ objectFilter: '{"tagsCriterion":{"value":[1]}}' })));
+  await expect(removeVideoIdsFromFilter(client, "12", [1])).rejects.toMatchObject({ code: "UNSUPPORTED_SAVED_FILTER" });
+});
+
+test("adding IDs does not replace a saved filter that is not an ID worklist", async () => {
+  let writes = 0;
+  const client = await clientWith(request => {
+    if (request.method !== "GET") writes++;
+    return json([savedFilter({ name: "To review", objectFilter: '{"tagsCriterion":{"value":[1]}}' })]);
+  });
+  await expect(addVideoIdsToFilter(client, "To review", [12])).rejects.toMatchObject({ code: "UNSUPPORTED_SAVED_FILTER" });
+  expect(writes).toBe(0);
+});
 
 describe("saved filter discovery", () => {
   test("reads account-backed defaults per view", async () => {
