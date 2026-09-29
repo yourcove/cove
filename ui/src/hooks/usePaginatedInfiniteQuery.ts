@@ -74,8 +74,10 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
   const pages = query.data?.pages ?? [];
   const lastPage = pages[pages.length - 1];
   const loadedThrough = lastPage ? (lastPage.page - 1) * lastPage.perPage + lastPage.items.length : 0;
-  // An uncounted list whose total is not known yet reports what it has loaded so far.
-  const totalCount = pages[0] ? (resolveTotalCount(pages[0].totalCount, knownTotalCount) ?? loadedThrough) : 0;
+  // Prefer the known total, then the newest counted page (pages fetched while no total was known count
+  // again). An uncounted list without either reports what it has loaded so far.
+  const countedPage = [...pages].reverse().find((page) => page.totalCount !== UNCOUNTED_TOTAL);
+  const totalCount = pages.length > 0 ? (knownTotalCount ?? countedPage?.totalCount ?? loadedThrough) : 0;
   const loadedThroughCount = Math.min(totalCount, loadedThrough);
 
   return {

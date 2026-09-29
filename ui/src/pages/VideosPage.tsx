@@ -555,6 +555,8 @@ export function VideosPage({ onNavigate }: Props) {
   // A total the aggregate already delivered stays in use if a later refetch of it fails, so an error
   // after an edit does not switch the page query and drop the loaded page and its selection.
   const countFromAggregate = aggregateEnabled && (filteredAggregate !== undefined || !filteredAggregateFailed);
+  // Paged lists wait for the aggregate total before paging by it; infinite scroll follows full pages.
+  const totalCountPending = countFromAggregate && !infinitePageSize && filteredAggregateLoading;
 
   useEffect(() => {
     if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
@@ -643,18 +645,13 @@ export function VideosPage({ onNavigate }: Props) {
   });
 
   const infiniteVideosQuery = usePaginatedInfiniteQuery<Video>({
-    queryKey: [
-      "videos",
-      "infinite",
-      infiniteFilterKey,
-      backendObjectFilter,
-      filterExpression,
-      searchMode,
-      countFromAggregate,
-    ],
+    // countFromAggregate stays out of the key: if the aggregate fails, later chunks count for themselves
+    // instead of the list restarting from the top.
+    queryKey: ["videos", "infinite", infiniteFilterKey, backendObjectFilter, filterExpression, searchMode],
     enabled: infinitePageSize,
     chunkSize: infiniteChunkSize,
-    knownTotalCount: countFromAggregate ? filteredAggregate?.count : undefined,
+    // A total the aggregate already delivered stays valid if a later refetch of it fails.
+    knownTotalCount: aggregateEnabled ? filteredAggregate?.count : undefined,
     queryFn: (page, perPage) => {
       const nextFilter = { ...filter, page, perPage };
       if (visualSearchActive) {
@@ -823,7 +820,7 @@ export function VideosPage({ onNavigate }: Props) {
   const { openVideo: navigateToVideo, navigateFromList: navigateFromVideoList } = useVideoQueueNavigation({
     items,
     filter,
-    totalCount: totalCount ?? items.length,
+    totalCount: totalCountPending ? undefined : (totalCount ?? items.length),
     infinitePageSize,
     queryPage: queryVideoQueuePage,
     onNavigate,
@@ -948,7 +945,7 @@ export function VideosPage({ onNavigate }: Props) {
           ) : undefined
         }
         summaryLoading={!visualSearchActive && !canShowCompilationGroups && filteredAggregateLoading}
-        totalCountPending={countFromAggregate && !infinitePageSize && filteredAggregateLoading}
+        totalCountPending={totalCountPending}
         pageKey="videos"
         filterMode="videos"
         filter={filter}

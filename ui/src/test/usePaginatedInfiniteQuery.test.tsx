@@ -102,6 +102,25 @@ describe("usePaginatedInfiniteQuery", () => {
     expect(result.current.hasNextPage).toBe(true);
   });
 
+  it("takes the total from a counted page when the known total is unavailable", async () => {
+    // The Videos list counts again when its aggregate fails, without restarting the loaded pages.
+    const queryFn = (page: number, perPage: number) => pagedItems(10, page > 1)(page, perPage);
+    const { result } = renderHook(
+      () => usePaginatedInfiniteQuery<Item>({ queryKey: ["recount"], queryFn, chunkSize: 4 }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.totalCount).toBe(4);
+
+    await result.current.fetchNextPage();
+
+    await waitFor(() => expect(result.current.items).toHaveLength(8));
+    expect(result.current.totalCount).toBe(10);
+    expect(result.current.loadedThroughCount).toBe(8);
+    expect(result.current.hasNextPage).toBe(true);
+  });
+
   it("stops after a short uncounted page", async () => {
     const { result } = renderHook(
       () =>
