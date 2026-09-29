@@ -1,5 +1,12 @@
-import type { PerformerPairingCoStar, PerformerPairingVideo, PerformerPairings } from "../api/types";
+import type {
+  FilterExpression,
+  FilterExpressionNode,
+  PerformerPairingCoStar,
+  PerformerPairingVideo,
+  PerformerPairings,
+} from "../api/types";
 import type { Route } from "../router/location";
+import { FILTER_EXPRESSION_STATE_KEY } from "./filterExpressionTree";
 import { compareNatural } from "./naturalCompare";
 
 // Everything the Appears With tab shows is derived here from one /pairings response, so filters,
@@ -19,6 +26,7 @@ export const PAIRING_URL_PARAMS = {
   lineup: "awLineup",
   page: "awPage",
   perPage: "awPerPage",
+  videoFilter: "awFilters",
 } as const;
 
 /** Co-stars shown per page unless the viewer picks another page size. */
@@ -342,14 +350,56 @@ export function lineupVideos(data: PerformerPairings, coStarIds: readonly number
 export function sharedVideosRoute(
   performerId: number,
   coStarIds: readonly number[],
-  options: { match?: "all" | "any"; duoOnly?: boolean } = {},
+  options: { match?: "all" | "any"; duoOnly?: boolean; videoFilter?: Record<string, unknown> } = {},
 ): Route {
   const modifier = coStarIds.length > 1 && options.match !== "any" ? "INCLUDES_ALL" : "INCLUDES";
-  const listObjectFilter: Record<string, unknown> = {
-    performersCriterion: { value: [...coStarIds], modifier },
-  };
-  if (options.duoOnly) listObjectFilter.performerCountCriterion = { value: 2, modifier: "EQUALS" };
+  let listObjectFilter = withCondition(options.videoFilter ?? {}, "performersCriterion", {
+    value: [...coStarIds],
+    modifier,
+  });
+  if (options.duoOnly) {
+    listObjectFilter = withCondition(listObjectFilter, "performerCountCriterion", { value: 2, modifier: "EQUALS" });
+  }
   return { page: "performer", id: performerId, detailTab: "videos", listFilter: { q: "", page: 1 }, listObjectFilter };
+}
+
+/**
+ * Adds a condition every video must also meet. It takes its own filter key when that is free, so it
+ * shows as the chip a person would pick by hand; when the filter already uses the key, the condition
+ * joins the filter expression instead, which applies together with the plain conditions.
+ */
+function withCondition(filter: Record<string, unknown>, key: string, criterion: unknown): Record<string, unknown> {
+  if (!(key in filter)) return { ...filter, [key]: criterion };
+  const condition: FilterExpressionNode = { filter: { [key]: criterion } };
+  const existing = filter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression | undefined;
+  const expression: FilterExpression = !existing
+    ? { operator: "AND", children: [condition] }
+    : existing.operator === "AND" && !existing.relatedScope
+      ? { ...existing, children: [...existing.children, condition] }
+      : { operator: "AND", children: [{ group: existing }, condition] };
+  return { ...filter, [FILTER_EXPRESSION_STATE_KEY]: expression };
+}
+
+/**
+ * The Videos-list filter the tab counts shared videos by, as the URL keeps it. Anything but a JSON
+ * object reads as no filter.
+ */
+export function parseVideoFilter(value: string | null | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The response with only the shared videos the Videos-list filter matched. */
+export function scopePairingsToVideos(
+  data: PerformerPairings,
+  matchingVideoIds: ReadonlySet<number>,
+): PerformerPairings {
+  return { ...data, videos: data.videos.filter((video) => matchingVideoIds.has(video.id)) };
 }
 
 export function pairingVideoTitle(video: Pick<PerformerPairingVideo, "id" | "title">) {

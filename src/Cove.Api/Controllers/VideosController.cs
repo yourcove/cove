@@ -296,21 +296,9 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
                     items = [.. pageItems.OrderBy(video => order.GetValueOrDefault(video.Id, int.MaxValue))];
                 }
             }
-            catch (ExtensionEntityFilterValidationException ex)
+            catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
             {
-                return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
-            }
-            catch (ExtensionEntityFilterLimitException ex)
-            {
-                return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
-            }
-            catch (ExtensionEntityFilterProviderException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message });
+                return problem;
             }
         }
 
@@ -348,23 +336,60 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             var matchingIds = await ApplyExtensionCriteriaAsync(filter!, req.FindFilter ?? new FindFilter(), req.FilterExpression, ct);
             return Ok(await videoRepo.AggregateAsync(new VideoFilter { Ids = [.. matchingIds] }, req.FindFilter, ct));
         }
-        catch (ExtensionEntityFilterValidationException ex)
+        catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
         {
-            return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
-        }
-        catch (ExtensionEntityFilterLimitException ex)
-        {
-            return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
-        }
-        catch (ExtensionEntityFilterProviderException ex)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message });
+            return problem;
         }
     }
+
+    /// <summary>
+    /// The ids of the videos a /find request matches, in its order, without loading them: the same object
+    /// filter, expression, search and extension criteria as the list, for a client that derives its own view
+    /// from the matching set. A request matching more than the candidate limit is refused.
+    /// </summary>
+    [HttpPost("find-ids")]
+    public async Task<ActionResult<VideoIdsDto>> FindIds([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
+    {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
+
+        var filter = req.ObjectFilter ?? new VideoFilter();
+        var findFilter = req.FindFilter ?? new FindFilter();
+        IReadOnlyList<int> ids;
+        if ((filter.ExtensionCriteria ?? []).Count == 0)
+        {
+            ids = await videoRepo.FindIdsAsync(filter, findFilter, ExtensionFilterCandidateLimit + 1, ct, req.FilterExpression);
+        }
+        else
+        {
+            try
+            {
+                ids = await ApplyExtensionCriteriaAsync(filter, findFilter, req.FilterExpression, ct);
+            }
+            catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
+            {
+                return problem;
+            }
+        }
+        if (ids.Count > ExtensionFilterCandidateLimit)
+        {
+            return UnprocessableEntity(new ProblemDetails
+            {
+                Title = "Too many matching videos.",
+                Detail = $"At most {ExtensionFilterCandidateLimit:N0} video ids are returned per query. Narrow the filters first.",
+            });
+        }
+        return Ok(new VideoIdsDto(ids));
+    }
+
+    private ObjectResult? ExtensionFilterProblem(Exception ex) => ex switch
+    {
+        ExtensionEntityFilterValidationException => UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message }),
+        ExtensionEntityFilterLimitException => UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message }),
+        ExtensionEntityFilterProviderException => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message }),
+        InvalidOperationException => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message }),
+        _ => null,
+    };
 
     /// <summary>
     /// Runs the core query first, then hands the authorized candidate ids to the owning extensions. The
@@ -1888,3 +1913,5 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);
+
+public sealed record VideoIdsDto(IReadOnlyList<int> Ids);

@@ -54,6 +54,7 @@
           "items": [
             "Co-stars are listed in one ranked list, a page at a time. Frequent partners share five or more videos with the performer, recurring co-stars two to four, and one-time co-stars one; the Frequent, Recurring and One-time filters show just one of these, with a count on each.",
             "Each co-star shows the years and studios of their videos together and the latest of them. The play button queues those videos, and the arrow opens them in the Videos tab, or opens the video itself when there is only one.",
+            "Filters offers the same video filters as the Videos tab. Only the shared videos they match count, so filtering by a tag shows who the performer appears with in videos with that tag, ranked by those videos, and the links to those videos keep the filter.",
             "Duos only counts just the videos with the two of them. The gender and Favorites filters narrow the list, and Sort orders it by videos together, the most recent or first video together, the longest partnership, or name.",
             "Tick co-stars to build a lineup. It counts the videos with all of them and with any of them, and opens either list."
           ]

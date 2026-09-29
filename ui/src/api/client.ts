@@ -598,6 +598,12 @@ export const videos = {
       method: "POST",
       body: JSON.stringify(normalizeCriterionPayload(req)),
     }),
+  /** The ids of every video a /find request matches, in its order. */
+  findIds: (req: VideoFilteredQueryRequest) =>
+    request<{ ids: number[] }>("/videos/find-ids", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: VideoFilteredQueryRequest) =>
     request<VideoAggregate>("/videos/aggregate", {
       method: "POST",

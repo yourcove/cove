@@ -22,6 +22,8 @@ interface RankedPairingsViewProps {
   performerId: number;
   /** The current page of the sorted list, already narrowed by every filter. */
   pairings: Pairing[];
+  /** The Videos-list filter the pairings were counted with, carried into the links to their videos. */
+  videoFilter: Record<string, unknown>;
   /** The rank of the first co-star on this page, so the list numbers on from the previous page. */
   firstRank: number;
   duoOnly: boolean;
@@ -72,6 +74,7 @@ const PairingRow = memo(function PairingRow({
   performerId,
   pairing,
   duoOnly,
+  videoFilter,
   selected,
   onToggleSelected,
   onPlay,
@@ -82,6 +85,7 @@ const PairingRow = memo(function PairingRow({
   performerId: number;
   pairing: Pairing;
   duoOnly: boolean;
+  videoFilter: Record<string, unknown>;
   selected: boolean;
   onToggleSelected: (coStarId: number) => void;
   onPlay: (videos: PerformerPairingVideo[]) => void;
@@ -176,7 +180,9 @@ const PairingRow = memo(function PairingRow({
             </button>
             <RouteLink
               route={
-                single ? videoRoute(pairing.videos[0].id) : sharedVideosRoute(performerId, [coStar.id], { duoOnly })
+                single
+                  ? videoRoute(pairing.videos[0].id)
+                  : sharedVideosRoute(performerId, [coStar.id], { duoOnly, videoFilter })
               }
               onNavigate={onNavigate}
               title={viewLabel}
@@ -200,6 +206,7 @@ const PairingRow = memo(function PairingRow({
 export function RankedPairingsView({
   performerId,
   pairings,
+  videoFilter,
   firstRank,
   duoOnly,
   careerFirstYear,
@@ -217,6 +224,7 @@ export function RankedPairingsView({
             performerId={performerId}
             pairing={pairing}
             duoOnly={duoOnly}
+            videoFilter={videoFilter}
             selected={selectedIds.has(pairing.coStar.id)}
             onToggleSelected={onToggleSelected}
             onPlay={onPlay}

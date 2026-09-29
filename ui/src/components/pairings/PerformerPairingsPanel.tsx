@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Heart, Play, Search, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { performers } from "../../api/client";
-import type { PerformerPairingCoStar, PerformerPairingVideo } from "../../api/types";
+import { performers, videos } from "../../api/client";
+import type { PerformerPairingCoStar, PerformerPairingVideo, VideoFilterCriteria } from "../../api/types";
 import {
   useDetailBooleanUrlState,
   useDetailStringUrlState,
@@ -27,17 +27,23 @@ import {
   PAIRING_URL_PARAMS,
   parseIdList,
   parsePositiveInt,
+  parseVideoFilter,
+  scopePairingsToVideos,
   sharedVideosRoute,
   sortPairings,
   summarizePairings,
   UNKNOWN_GENDER,
 } from "../../utils/performerPairings";
+import { withRequiredMultiId } from "../../utils/detailRelationFilters";
+import { splitFilterExpression } from "../../utils/filterExpressionTree";
 import { getLoadError } from "../../utils/queryLoadState";
 import { performerGenderLabel } from "../EntityCards";
 import { ListLoadError } from "../ListLoadError";
 import { toolbarSelectClass } from "../listToolbarStyles";
 import { PageSizeSelect } from "../PageSizeSelect";
 import { PaginationControls } from "../PaginationControls";
+import { VIDEO_CRITERIA } from "../filterCriteriaCatalogs";
+import { useObjectFilterControls } from "../useObjectFilterControls";
 import { CoStarPortrait, FilterChip, RouteLink, type PairingNavigate } from "./pairingParts";
 import { RankedPairingsView } from "./RankedPairingsView";
 
@@ -72,6 +78,20 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
   const [queryParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.query);
   const [pageParam, setPageParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.page);
   const [perPageParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.perPage);
+  // The Videos-list filter, as the performer's Videos tab offers it: only shared videos it matches count.
+  const [videoFilterParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.videoFilter);
+  const videoFilter = useMemo(() => parseVideoFilter(videoFilterParam), [videoFilterParam]);
+  const hasVideoFilter = Object.keys(videoFilter).length > 0;
+  const { filterButton, filterChips, filterDialog } = useObjectFilterControls({
+    criteriaDefinitions: VIDEO_CRITERIA,
+    objectFilter: videoFilter,
+    onObjectFilterChange: (next) =>
+      changeListParams({
+        [PAIRING_URL_PARAMS.videoFilter]: Object.keys(next).length > 0 ? JSON.stringify(next) : null,
+      }),
+    filterMode: "videos",
+    supportsFilterExpressions: true,
+  });
   const query = queryParam ?? "";
   // The box shows what is typed at once; the URL, and so the list, follow when typing pauses. When the
   // URL changes by other means (Back, Clear filters), the box takes the new search.
@@ -102,10 +122,36 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
     refetchOnMount: "always",
   });
   const data = pairingsQuery.data;
+  // The same request the Videos tab sends for this filter, so both agree on which videos match.
+  const matchingQuery = useQuery({
+    queryKey: ["performer-appears-with", performer.id, "matching-videos", videoFilter],
+    queryFn: () =>
+      videos.findIds(
+        splitFilterExpression(
+          withRequiredMultiId(videoFilter as VideoFilterCriteria, "performersCriterion", performer.id),
+        ),
+      ),
+    enabled: hasVideoFilter,
+    // Refreshed with the pairings, so a video tagged or added since the last visit counts on both sides.
+    refetchOnMount: "always",
+  });
+  const matchingIds = useMemo(
+    () => (hasVideoFilter && matchingQuery.data ? new Set(matchingQuery.data.ids) : null),
+    [hasVideoFilter, matchingQuery.data],
+  );
+  // What the list counts: every shared video, or those the filter matched once they are known.
+  const listData = useMemo(
+    () =>
+      !data ? undefined : !hasVideoFilter ? data : matchingIds ? scopePairingsToVideos(data, matchingIds) : undefined,
+    [data, hasVideoFilter, matchingIds],
+  );
   // A failed refetch keeps the list already shown; only a first load that fails shows the error.
-  const loadError = getLoadError(data, pairingsQuery.error);
+  const loadError =
+    getLoadError(data, pairingsQuery.error) ??
+    (hasVideoFilter ? getLoadError(matchingQuery.data, matchingQuery.error) : null);
+  // The career strip spans every video of the performer, whatever the filter.
   const summary = useMemo(() => (data ? summarizePairings(data) : null), [data]);
-  const allPairings = useMemo(() => (data ? buildPairings(data, duoOnly) : []), [data, duoOnly]);
+  const allPairings = useMemo(() => (listData ? buildPairings(listData, duoOnly) : []), [listData, duoOnly]);
   const pairings = useMemo(
     () => filterPairings(allPairings, { favoritesOnly, query }),
     [allPairings, favoritesOnly, query],
@@ -125,10 +171,10 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
   // Once the co-stars are in, the URL follows the clamped page, so a later refetch that adds co-stars
   // does not move the list to the page the URL still asked for.
   useEffect(() => {
-    if (data && urlPage != null && urlPage !== page) setPageParam(page > 1 ? String(page) : null);
-  }, [data, page, setPageParam, urlPage]);
+    if (listData && urlPage != null && urlPage !== page) setPageParam(page > 1 ? String(page) : null);
+  }, [listData, page, setPageParam, urlPage]);
   // The same paging keys as the other lists; the most recently mounted list handles them.
-  const pagingKeyboardEnabled = Boolean(data) && totalPages > 1;
+  const pagingKeyboardEnabled = Boolean(listData) && totalPages > 1;
   const pagingKeyboardActions = useMemo<KeyboardActionRegistration[]>(() => {
     const goTo = (nextPage: number) => {
       const target = Math.max(1, Math.min(totalPages, nextPage));
@@ -162,8 +208,8 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
   const lineupIds = useMemo(() => lineupCoStars.map((coStar) => coStar.id), [lineupCoStars]);
   const selectedSet = useMemo(() => new Set(lineupIds), [lineupIds]);
   const lineup = useMemo(
-    () => (data ? lineupVideos(data, lineupIds, duoOnly) : { all: [], any: [] }),
-    [data, lineupIds, duoOnly],
+    () => (listData ? lineupVideos(listData, lineupIds, duoOnly) : { all: [], any: [] }),
+    [listData, lineupIds, duoOnly],
   );
 
   // setQueue is stable while the queue context object is not, and rows compare their callbacks.
@@ -208,6 +254,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
       PAIRING_URL_PARAMS.gender,
       PAIRING_URL_PARAMS.duoOnly,
       PAIRING_URL_PARAMS.favoritesOnly,
+      PAIRING_URL_PARAMS.videoFilter,
       PAIRING_URL_PARAMS.page,
     ]) {
       params.delete(key);
@@ -224,15 +271,33 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
     if (duoOnly) params.set(PAIRING_URL_PARAMS.duoOnly, "true");
     if (favoritesOnly) params.set(PAIRING_URL_PARAMS.favoritesOnly, "true");
     if (draft.trim()) params.set(PAIRING_URL_PARAMS.query, draft);
+    if (hasVideoFilter) params.set(PAIRING_URL_PARAMS.videoFilter, JSON.stringify(videoFilter));
     const lineupToKeep = data ? lineupIds : selectedIds;
     if (lineupToKeep.length > 0) params.set(PAIRING_URL_PARAMS.lineup, lineupToKeep.join(","));
     // Before the co-stars load there is nothing to clamp the page against, so the URL's is kept. A search
     // still being typed would have gone back to the first page, so it comes back on the first page.
-    const pageToKeep = draft.trim() !== query.trim() ? 1 : data ? page : (urlPage ?? 1);
+    const pageToKeep = draft.trim() !== query.trim() ? 1 : listData ? page : (urlPage ?? 1);
     if (pageToKeep > 1) params.set(PAIRING_URL_PARAMS.page, String(pageToKeep));
     if (perPage !== PAIRING_PER_PAGE_DEFAULT) params.set(PAIRING_URL_PARAMS.perPage, String(perPage));
     return params.toString();
-  }, [data, draft, duoOnly, favoritesOnly, gender, lineupIds, page, perPage, query, selectedIds, sort, tier, urlPage]);
+  }, [
+    data,
+    draft,
+    duoOnly,
+    favoritesOnly,
+    gender,
+    hasVideoFilter,
+    lineupIds,
+    listData,
+    page,
+    perPage,
+    query,
+    selectedIds,
+    sort,
+    tier,
+    urlPage,
+    videoFilter,
+  ]);
   useRememberDetailTabUrlParams(PAIRING_TAB_KEY, rememberedParams);
 
   return (
@@ -243,10 +308,12 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
             pressed={tier == null}
             onClick={() => changeListParams({ [PAIRING_URL_PARAMS.tier]: null })}
             title={
-              summary ? `In ${summary.sharedVideoCount} of ${performer.name}’s ${summary.videoCount} videos` : undefined
+              listData && summary
+                ? `In ${listData.videos.length} of ${performer.name}’s ${summary.videoCount} videos`
+                : undefined
             }
           >
-            All {data ? <span className="text-muted">{tierTotal}</span> : null}
+            All {listData ? <span className="text-muted">{tierTotal}</span> : null}
           </FilterChip>
           {PAIRING_TIERS.map((option) => (
             <FilterChip
@@ -257,7 +324,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
               }
               title={option.rule}
             >
-              {option.label} {data ? <span className="text-muted">{facets.tierCounts[option.value]}</span> : null}
+              {option.label} {listData ? <span className="text-muted">{facets.tierCounts[option.value]}</span> : null}
             </FilterChip>
           ))}
           <span className="flex-1" />
@@ -272,6 +339,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
               className="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-foreground outline-none"
             />
           </label>
+          {filterButton}
           <label className="flex items-center gap-2 text-xs text-muted">
             Sort
             <select
@@ -303,7 +371,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FilterChip pressed={gender == null} onClick={() => changeListParams({ [PAIRING_URL_PARAMS.gender]: null })}>
-            Everyone {data ? <span className="text-muted">{genderTotal}</span> : null}
+            Everyone {listData ? <span className="text-muted">{genderTotal}</span> : null}
           </FilterChip>
           {genderChips.map(({ gender: key, count }) => (
             <FilterChip
@@ -331,21 +399,24 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
             Favorites
           </FilterChip>
         </div>
+        {filterChips}
       </section>
+      {filterDialog}
 
       {loadError ? (
         <ListLoadError
           error={loadError}
           onRetry={() => {
-            void pairingsQuery.refetch();
+            if (pairingsQuery.isError) void pairingsQuery.refetch();
+            if (hasVideoFilter && matchingQuery.isError) void matchingQuery.refetch();
           }}
         />
-      ) : !data ? (
+      ) : !listData ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted">
           <Users aria-hidden="true" className="mb-3 h-10 w-10 animate-pulse" />
           <p>Loading co-stars…</p>
         </div>
-      ) : data.coStars.length === 0 ? (
+      ) : listData.coStars.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 py-12 text-muted">
           <Users aria-hidden="true" className="mb-3 h-12 w-12 opacity-60" />
           <p>{performer.name} has no videos with other performers yet.</p>
@@ -371,6 +442,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
           <RankedPairingsView
             performerId={performer.id}
             pairings={pagePairings}
+            videoFilter={videoFilter}
             firstRank={(page - 1) * perPage + 1}
             duoOnly={duoOnly}
             careerFirstYear={summary?.firstYear ?? null}
@@ -410,43 +482,50 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-secondary">
-              {lineupIds.length === 1 ? "Together" : "All of them"}:{" "}
-              <strong className="text-foreground">
-                {lineup.all.length} {lineup.all.length === 1 ? "video" : "videos"}
-              </strong>
-            </span>
-            {lineup.all.length > 0 ? (
-              <>
-                <RouteLink
-                  route={sharedVideosRoute(performer.id, lineupIds, { match: "all", duoOnly })}
-                  onNavigate={onNavigate}
-                  className="inline-flex h-9 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"
-                >
-                  Open
-                </RouteLink>
-                <button
-                  type="button"
-                  onClick={() => playVideos(lineup.all)}
-                  aria-label="Play the videos with all of them"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-semibold text-foreground hover:border-accent/60"
-                >
-                  <Play aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
-                  Play
-                </button>
-              </>
-            ) : (
-              <span className="text-xs text-muted">
-                {!duoOnly
-                  ? "Remove someone to widen the lineup"
-                  : lineupIds.length > 1
-                    ? "Duos only is on, so no video has all of them"
-                    : "Duos only is on, and they have no duos together"}
+          {!listData ? <span className="text-sm text-muted">Counting their videos…</span> : null}
+          {listData ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-secondary">
+                {lineupIds.length === 1 ? "Together" : "All of them"}:{" "}
+                <strong className="text-foreground">
+                  {lineup.all.length} {lineup.all.length === 1 ? "video" : "videos"}
+                </strong>
               </span>
-            )}
-          </div>
-          {lineupIds.length > 1 ? (
+              {lineup.all.length > 0 ? (
+                <>
+                  <RouteLink
+                    route={sharedVideosRoute(performer.id, lineupIds, { match: "all", duoOnly, videoFilter })}
+                    onNavigate={onNavigate}
+                    className="inline-flex h-9 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"
+                  >
+                    Open
+                  </RouteLink>
+                  <button
+                    type="button"
+                    onClick={() => playVideos(lineup.all)}
+                    aria-label="Play the videos with all of them"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-semibold text-foreground hover:border-accent/60"
+                  >
+                    <Play aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+                    Play
+                  </button>
+                </>
+              ) : (
+                <span className="text-xs text-muted">
+                  {duoOnly
+                    ? lineupIds.length > 1
+                      ? "Duos only is on, so no video has all of them"
+                      : "Duos only is on, and they have no duos together"
+                    : !hasVideoFilter
+                      ? "Remove someone to widen the lineup"
+                      : lineupIds.length > 1
+                        ? "No video with all of them matches the filters"
+                        : "No video of theirs together matches the filters"}
+                </span>
+              )}
+            </div>
+          ) : null}
+          {listData && lineupIds.length > 1 ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-secondary">
                 Any of them:{" "}
@@ -455,7 +534,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
                 </strong>
               </span>
               <RouteLink
-                route={sharedVideosRoute(performer.id, lineupIds, { match: "any", duoOnly })}
+                route={sharedVideosRoute(performer.id, lineupIds, { match: "any", duoOnly, videoFilter })}
                 onNavigate={onNavigate}
                 className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-sm font-semibold text-foreground hover:border-accent/60"
               >

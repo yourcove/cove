@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
@@ -329,6 +330,15 @@ public sealed partial class CoveClient
         => SendAsync<PaginatedResponse<VideoDto>>(
             HttpMethod.Post,
             "/api/videos/find",
+            request,
+            cancellationToken);
+
+    public Task<VideoIdsDto> FindVideoIdsAsync(
+        FilteredQueryRequest<VideoFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoIdsDto>(
+            HttpMethod.Post,
+            "/api/videos/find-ids",
             request,
             cancellationToken);
 

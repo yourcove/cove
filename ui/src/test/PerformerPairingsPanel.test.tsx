@@ -5,11 +5,15 @@ import type { PerformerPairings, PerformerPairingVideo } from "../api/types";
 import { PerformerPairingsPanel } from "../components/pairings/PerformerPairingsPanel";
 import { CareerStrip } from "../components/pairings/pairingParts";
 
-const { mockPairings } = vi.hoisted(() => ({ mockPairings: vi.fn() }));
+const { mockPairings, mockFindIds } = vi.hoisted(() => ({ mockPairings: vi.fn(), mockFindIds: vi.fn() }));
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
-  return { ...actual, performers: { ...actual.performers, pairings: mockPairings } };
+  return {
+    ...actual,
+    performers: { ...actual.performers, pairings: mockPairings },
+    videos: { ...actual.videos, findIds: mockFindIds },
+  };
 });
 
 function video(id: number, cast: number[], date: string): PerformerPairingVideo {
@@ -220,6 +224,116 @@ describe("PerformerPairingsPanel", () => {
 
     expect(screen.getByRole("button", { name: "Male 0" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("No co-stars match these filters.")).toBeInTheDocument();
+  });
+});
+
+describe("PerformerPairingsPanel video filter", () => {
+  const ratingFilter = { ratingCriterion: { value: 60, modifier: "GREATER_THAN" } };
+  const withRatingFilter = `/performer/1?tab=appearsWith&awPage=1&awFilters=${encodeURIComponent(JSON.stringify(ratingFilter))}`;
+
+  beforeEach(() => {
+    mockPairings.mockReset();
+    mockPairings.mockResolvedValue(pairings);
+    mockFindIds.mockReset();
+  });
+
+  it("counts only the shared videos the Videos-list filter matches, and carries it into the links", async () => {
+    window.history.replaceState(null, "", withRatingFilter);
+    // Video 12 has all three of them, 16 only Guest: Guest now leads with two videos to Partner's one.
+    mockFindIds.mockResolvedValue({ ids: [12, 16, 99] });
+    renderPanel();
+
+    const [first, second] = await findRows();
+
+    expect(rowNames()).toEqual(["Guest", "Partner"]);
+    expect(mockFindIds).toHaveBeenCalledWith({
+      objectFilter: { ...ratingFilter, performersCriterion: { value: [], modifier: "INCLUDES", requiredIds: [1] } },
+    });
+    expect(screen.getByRole("button", { name: "Filters, 1 active" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All 2" })).toBeInTheDocument();
+    expect(
+      filterFromHref(
+        within(first)
+          .getByRole("link", { name: /View all 2 videos/ })
+          .getAttribute("href"),
+      ),
+    ).toEqual({
+      tab: "videos",
+      filters: { ...ratingFilter, performersCriterion: { value: [3], modifier: "INCLUDES" } },
+    });
+    expect(within(second).getByRole("link", { name: /Open video/ })).toHaveAttribute("href", "/video/12");
+
+    fireEvent.click(screen.getByRole("button", { name: /Remove filter/ }));
+
+    expect(new URLSearchParams(window.location.search).get("awFilters")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("awPage")).toBeNull();
+    expect(rowNames()).toEqual(["Partner", "Guest"]);
+  });
+
+  it("opens a lineup's videos with the Videos-list filter, and says when the filter leaves none", async () => {
+    window.history.replaceState(null, "", withRatingFilter);
+    mockFindIds.mockResolvedValue({ ids: [12, 16] });
+    renderPanel();
+    await findRows();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Add Partner to the lineup" }));
+
+    const lineup = screen.getByRole("region", { name: "Lineup" });
+    expect(lineup).toHaveTextContent("Together: 1 video");
+    expect(filterFromHref(within(lineup).getByRole("link", { name: "Open" }).getAttribute("href")).filters).toEqual({
+      ...ratingFilter,
+      performersCriterion: { value: [2], modifier: "INCLUDES" },
+    });
+  });
+
+  it("counts a lineup only once the matching videos are known", async () => {
+    window.history.replaceState(null, "", `${withRatingFilter}&awLineup=2`);
+    let resolve: (value: { ids: number[] }) => void = () => {};
+    mockFindIds.mockReturnValue(new Promise((done) => (resolve = done)));
+    renderPanel();
+
+    const lineup = await screen.findByRole("region", { name: "Lineup" });
+    expect(lineup).toHaveTextContent("Counting their videos…");
+    expect(lineup).not.toHaveTextContent("Remove someone");
+
+    resolve({ ids: [16] });
+
+    await waitFor(() => expect(lineup).toHaveTextContent("Together: 0 videos"));
+    expect(lineup).toHaveTextContent("No video of theirs together matches the filters");
+  });
+
+  it("waits for the matching videos before listing co-stars", async () => {
+    window.history.replaceState(null, "", withRatingFilter);
+    mockFindIds.mockReturnValue(new Promise(() => {}));
+    renderPanel();
+
+    expect(await screen.findByText("Loading co-stars…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Co-stars" })).not.toBeInTheDocument();
+  });
+
+  it("clears the Videos-list filter with the other filters when nothing matches", async () => {
+    window.history.replaceState(null, "", withRatingFilter);
+    mockFindIds.mockResolvedValue({ ids: [] });
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear filters" }));
+
+    expect(new URLSearchParams(window.location.search).get("awFilters")).toBeNull();
+    expect(await findRows()).toHaveLength(2);
+  });
+
+  it("shows why the matching videos could not load, and retries", async () => {
+    window.history.replaceState(null, "", withRatingFilter);
+    mockFindIds
+      .mockRejectedValueOnce(new Error("API Error 422: Too many matching videos."))
+      .mockResolvedValue({ ids: [16] });
+    renderPanel();
+
+    const alert = await screen.findByRole("alert");
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(rowNames()).toEqual(["Guest"]));
   });
 });
 

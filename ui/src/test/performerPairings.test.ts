@@ -8,6 +8,8 @@ import {
   pairingTier,
   parseIdList,
   parsePositiveInt,
+  parseVideoFilter,
+  scopePairingsToVideos,
   sharedVideosRoute,
   sortPairings,
   summarizePairings,
@@ -231,5 +233,54 @@ describe("sharedVideosRoute", () => {
       performersCriterion: { value: [2], modifier: "INCLUDES" },
       performerCountCriterion: { value: 2, modifier: "EQUALS" },
     });
+  });
+
+  it("keeps the Videos-list filter, joining the co-star to its expression when it already filters performers", () => {
+    const tags = { tagsCriterion: { value: [9], modifier: "INCLUDES" } };
+    expect(sharedVideosRoute(FOCAL, [2], { videoFilter: tags }).listObjectFilter).toEqual({
+      ...tags,
+      performersCriterion: { value: [2], modifier: "INCLUDES" },
+    });
+
+    const coStar = { filter: { performersCriterion: { value: [2], modifier: "INCLUDES" } } };
+    const withPerformers = { performersCriterion: { value: [7], modifier: "EXCLUDES" } };
+    expect(sharedVideosRoute(FOCAL, [2], { videoFilter: withPerformers }).listObjectFilter).toEqual({
+      ...withPerformers,
+      _filterExpression: { operator: "AND", children: [coStar] },
+    });
+
+    const tagged = { filter: tags };
+    const andExpression = { operator: "AND", children: [tagged] };
+    expect(
+      sharedVideosRoute(FOCAL, [2], { videoFilter: { ...withPerformers, _filterExpression: andExpression } })
+        .listObjectFilter,
+    ).toEqual({ ...withPerformers, _filterExpression: { operator: "AND", children: [tagged, coStar] } });
+
+    const orExpression = { operator: "OR", children: [tagged] };
+    expect(
+      sharedVideosRoute(FOCAL, [2], { videoFilter: { ...withPerformers, _filterExpression: orExpression } })
+        .listObjectFilter,
+    ).toEqual({
+      ...withPerformers,
+      _filterExpression: { operator: "AND", children: [{ group: orExpression }, coStar] },
+    });
+  });
+});
+
+describe("video filter", () => {
+  it("reads a JSON object from the URL and anything else as no filter", () => {
+    expect(parseVideoFilter('{"tagsCriterion":{"value":[9],"modifier":"INCLUDES"}}')).toEqual({
+      tagsCriterion: { value: [9], modifier: "INCLUDES" },
+    });
+    for (const value of [null, "", "not json", "[1]", "3", "null"]) expect(parseVideoFilter(value)).toEqual({});
+  });
+
+  it("keeps only the matched shared videos", () => {
+    const scoped = scopePairingsToVideos(data, new Set([12, 16]));
+    expect(scoped.videos.map((item) => item.id)).toEqual([12, 16]);
+    expect(buildPairings(scoped, false).map((pairing) => [pairing.coStar.name, pairing.count])).toEqual([
+      ["Partner", 1],
+      ["Guest", 2],
+    ]);
   });
 });
