@@ -865,7 +865,7 @@ export function ListPage({
               : resolvedLoadState.status === "error"
                 ? "Unavailable"
                 : shownTotalCount > 0
-                  ? `${start}-${end} of ${shownTotalCount.toLocaleString()}`
+                  ? `${start.toLocaleString()}-${end.toLocaleString()} of ${shownTotalCount.toLocaleString()}`
                   : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">

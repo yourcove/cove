@@ -105,6 +105,21 @@ describe("DetailListToolbar", () => {
     expect(onDisplayModeChange).not.toHaveBeenCalled();
   });
 
+  it("formats the visible range with the same digit grouping as the total", () => {
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 810, perPage: 30 }}
+        onFilterChange={vi.fn()}
+        totalCount={24311}
+        sortOptions={[{ value: "title", label: "Title" }]}
+      />,
+    );
+
+    expect(
+      screen.getByText(`${(24271).toLocaleString()}–${(24300).toLocaleString()} of ${(24311).toLocaleString()}`),
+    ).toBeInTheDocument();
+  });
+
   it("applies search text after a short delay without requiring Enter", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();

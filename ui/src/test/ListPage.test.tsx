@@ -214,6 +214,30 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
   });
 
+  it("formats the visible range with the same digit grouping as the total", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1000, perPage: 28 }}
+            onFilterChange={vi.fn()}
+            totalCount={30606}
+            loadState={{ status: "success", data: {} }}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.getByText(`${(27973).toLocaleString()}-${(28000).toLocaleString()} of ${(30606).toLocaleString()}`),
+    ).toBeInTheDocument();
+  });
+
   it("withholds a loaded count while related summary metadata is still loading", () => {
     const queryClient = new QueryClient();
 
