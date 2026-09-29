@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 
@@ -762,6 +763,65 @@ public class SegmentConfiguration : IEntityTypeConfiguration<Segment>
         builder.HasIndex(segment => segment.SourceRunId);
         builder.HasIndex(segment => segment.Kind);
         builder.HasIndex(segment => new { segment.Kind, segment.RefId });
+    }
+}
+
+public class VideoShotSetConfiguration : IEntityTypeConfiguration<VideoShotSet>
+{
+    public void Configure(EntityTypeBuilder<VideoShotSet> builder)
+    {
+        // `< 'Infinity'` rejects NaN and ±Infinity on PostgreSQL, which sorts NaN above +Infinity.
+        // SQLite compares a REAL with TEXT as always smaller, so the same text is harmless there;
+        // the service enforces finiteness on both.
+        builder.ToTable("video_shot_sets", table =>
+        {
+            table.HasCheckConstraint("CK_video_shot_sets_duration", "\"DurationSec\" > 0 AND \"DurationSec\" < 'Infinity'");
+            table.HasCheckConstraint("CK_video_shot_sets_shot_count", "\"ShotCount\" > 0");
+            table.HasCheckConstraint("CK_video_shot_sets_revision", "\"Revision\" > 0");
+            table.HasCheckConstraint("CK_video_shot_sets_fps", "\"Fps\" IS NULL OR (\"Fps\" > 0 AND \"Fps\" < 'Infinity')");
+            table.HasCheckConstraint("CK_video_shot_sets_frame_count", "\"FrameCount\" IS NULL OR \"FrameCount\" > 0");
+        });
+        builder.HasKey(set => set.Id);
+        builder.Property(set => set.SourceKey).IsRequired().HasMaxLength(VideoShotRules.MaxKeyLength);
+        builder.Property(set => set.SourceRunId).HasMaxLength(VideoShotRules.MaxKeyLength);
+        builder.Property(set => set.Model).HasMaxLength(VideoShotRules.MaxKeyLength);
+        builder.Property(set => set.ModelVersion).HasMaxLength(VideoShotRules.MaxLabelLength);
+        builder.Property(set => set.Mode).HasMaxLength(VideoShotRules.MaxLabelLength);
+        builder.Property(set => set.DecodeBackend).HasMaxLength(VideoShotRules.MaxLabelLength);
+        builder.Property(set => set.Payload).HasColumnType("jsonb");
+        builder.Property(set => set.Revision).IsConcurrencyToken();
+
+        builder.HasOne(set => set.File)
+            .WithOne()
+            .HasForeignKey<VideoShotSet>(set => set.FileId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(set => set.Shots)
+            .WithOne(shot => shot.Set)
+            .HasForeignKey(shot => shot.SetId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(set => set.FileId).IsUnique();
+        builder.HasIndex(set => set.SourceKey);
+        builder.HasIndex(set => set.SourceRunId);
+    }
+}
+
+public class VideoShotConfiguration : IEntityTypeConfiguration<VideoShot>
+{
+    public void Configure(EntityTypeBuilder<VideoShot> builder)
+    {
+        builder.ToTable("video_shots", table =>
+        {
+            table.HasCheckConstraint("CK_video_shots_range", "\"StartSec\" >= 0 AND \"EndSec\" > \"StartSec\" AND \"EndSec\" < 'Infinity'");
+            table.HasCheckConstraint("CK_video_shots_frames", "(\"StartFrame\" IS NULL AND \"EndFrame\" IS NULL) OR (\"StartFrame\" IS NOT NULL AND \"EndFrame\" IS NOT NULL AND \"StartFrame\" >= 0 AND \"EndFrame\" > \"StartFrame\")");
+        });
+        builder.HasKey(shot => shot.Id);
+        builder.Property(shot => shot.ShotType).HasMaxLength(VideoShotRules.MaxLabelLength);
+        builder.Property(shot => shot.TransitionIn).HasMaxLength(VideoShotRules.MaxLabelLength);
+
+        // One shot per start: also the foreign-key index, and it lets a split or merge touch one or
+        // two rows instead of renumbering an ordinal.
+        builder.HasIndex(shot => new { shot.SetId, shot.StartSec }).IsUnique();
     }
 }
 

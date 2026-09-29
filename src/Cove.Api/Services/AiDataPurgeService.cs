@@ -28,6 +28,7 @@ public sealed class AiDataPurgeService(
         "segment",
         "tagapplication",
         "face",
+        "shotset",
     };
 
     private readonly CoveContext _db = db;
@@ -130,6 +131,9 @@ public sealed class AiDataPurgeService(
         if (selector.IncludesKind("face"))
             records.AddRange(await GetFaceSummaryRecordsAsync(selector, runModels, cancellationToken));
 
+        if (selector.IncludesKind("shotset"))
+            records.AddRange(await GetShotSetSummaryRecordsAsync(selector, runModels, cancellationToken));
+
         var items = records
             .GroupBy(record => new
             {
@@ -217,6 +221,9 @@ public sealed class AiDataPurgeService(
 
         if (selector.IncludesKind("tagapplication"))
             MergeRemovedCounts(removed, await PurgeTagApplicationsCoreAsync(selector, dryRun, cancellationToken));
+
+        if (selector.IncludesKind("shotset"))
+            AddRemovedCount(removed, "shotSet", await PurgeShotSetsCoreAsync(selector, runModels, dryRun, cancellationToken));
 
         if (affectedRunKeys.Count > 0)
             AddRemovedCount(removed, "aiRun", await PurgeUnreferencedAiRunsAsync(affectedRunKeys, dryRun, cancellationToken));
@@ -319,6 +326,9 @@ public sealed class AiDataPurgeService(
 
         if (selector.IncludesKind("tagapplication"))
             AddRunKeys(runKeys, (await QueryTagApplicationCandidatesAsync(selector, cancellationToken)).Select(candidate => candidate.SourceRunId));
+
+        if (selector.IncludesKind("shotset"))
+            AddRunKeys(runKeys, (await QueryShotSetCandidatesAsync(selector, runModels, cancellationToken)).Select(candidate => candidate.SourceRunId));
 
         if (faceIds.Count > 0)
         {
@@ -510,6 +520,59 @@ public sealed class AiDataPurgeService(
                 ResolveArtifactModel(ExtractModelKey(row.Payload), row.SourceRunId, runModels),
                 NormalizeEnumName(row.HostType)))
             .Where(record => MatchesOptional(record.Model, selector.Model))
+            .ToList();
+    }
+
+    private async Task<List<AiDataSummaryRecord>> GetShotSetSummaryRecordsAsync(AiDataSelector selector, IReadOnlyDictionary<string, string?> runModels, CancellationToken cancellationToken)
+        => (await QueryShotSetCandidatesAsync(selector, runModels, cancellationToken))
+            .Select(candidate => new AiDataSummaryRecord(
+                "shotSet",
+                candidate.Edited ? "edited" : null,
+                candidate.SourceKey,
+                Clean(candidate.SourceRunId),
+                ResolveArtifactModel(candidate.Model, candidate.SourceRunId, runModels),
+                "video"))
+            .ToList();
+
+    private async Task<int> PurgeShotSetsCoreAsync(AiDataSelector selector, IReadOnlyDictionary<string, string?> runModels, bool dryRun, CancellationToken cancellationToken)
+    {
+        var candidates = await QueryShotSetCandidatesAsync(selector, runModels, cancellationToken);
+        if (dryRun || candidates.Count == 0)
+            return candidates.Count;
+
+        // The database cascade removes each set's shots, so no shot rows are loaded.
+        var removed = 0;
+        foreach (var batch in candidates.Select(candidate => candidate.Id).Chunk(PurgeBatchSize))
+        {
+            var ids = batch.ToArray();
+            removed += await _db.VideoShotSets.Where(set => ids.Contains(set.Id)).ExecuteDeleteAsync(cancellationToken);
+        }
+
+        return removed;
+    }
+
+    private async Task<List<ShotSetCandidate>> QueryShotSetCandidatesAsync(AiDataSelector selector, IReadOnlyDictionary<string, string?> runModels, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(selector.HostType) && !string.Equals(selector.HostType, "video", StringComparison.OrdinalIgnoreCase))
+            return [];
+
+        var query = _db.ReadSet<VideoShotSet>().AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(selector.SourceKey))
+            query = query.Where(set => set.SourceKey == selector.SourceKey);
+
+        if (!string.IsNullOrWhiteSpace(selector.SourceRunId))
+            query = query.Where(set => set.SourceRunId == selector.SourceRunId);
+
+        if (selector.HostId.HasValue)
+            query = query.Where(set => set.File!.VideoId == selector.HostId.Value);
+
+        var rows = await query
+            .Select(set => new ShotSetCandidate(set.Id, set.SourceKey, set.SourceRunId, set.Model, set.EditedAt != null))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(candidate => MatchesOptional(ResolveArtifactModel(candidate.Model, candidate.SourceRunId, runModels), selector.Model))
             .ToList();
     }
 
@@ -745,6 +808,13 @@ public sealed class AiDataPurgeService(
             .AsNoTracking()
             .Where(appearance => appearance.SourceRunId != null && runKeyArray.Contains(appearance.SourceRunId))
             .Select(appearance => appearance.SourceRunId)
+            .Distinct()
+            .ToListAsync(cancellationToken));
+
+        AddRunKeys(referencedRunKeys, await _db.VideoShotSets
+            .AsNoTracking()
+            .Where(set => set.SourceRunId != null && runKeyArray.Contains(set.SourceRunId))
+            .Select(set => set.SourceRunId)
             .Distinct()
             .ToListAsync(cancellationToken));
 
@@ -1357,6 +1427,7 @@ public sealed class AiDataPurgeService(
             "face" => TryParseDetectionHostType(hostType, out _)
                 || TryParseSegmentHostType(hostType, out _)
                 || TryParseFaceAppearanceHostType(hostType, out _),
+            "shotset" => string.Equals(hostType, "video", StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }
@@ -1386,7 +1457,8 @@ public sealed class AiDataPurgeService(
             || IncludesKind("detection")
             || IncludesKind("segment")
             || IncludesKind("tagapplication")
-            || IncludesKind("face");
+            || IncludesKind("face")
+            || IncludesKind("shotset");
 
         public bool HasHostFilter => !string.IsNullOrWhiteSpace(HostType) || HostId.HasValue;
 
@@ -1404,6 +1476,8 @@ public sealed class AiDataPurgeService(
     private sealed record VideoSegmentCandidate(int HostId, string? SourceRunId, string? Model);
 
     private sealed record FaceAppearanceCandidate(int FaceId, string? SourceRunId);
+
+    private sealed record ShotSetCandidate(int Id, string SourceKey, string? SourceRunId, string? Model, bool Edited);
 
     private sealed record TagApplicationCandidate(int Id, AffinityHostType HostType, int HostId, int TagId, string? SourceRunId);
 

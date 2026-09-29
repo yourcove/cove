@@ -1873,7 +1873,7 @@ export interface FaceSuggestion {
   referenceExternalId?: string;
 }
 
-export type AiDataKind = "embedding" | "detection" | "segment" | "tagApplication" | "face";
+export type AiDataKind = "embedding" | "detection" | "segment" | "tagApplication" | "face" | "shotSet";
 
 export interface AiDataSelector {
   sourceKey?: string;

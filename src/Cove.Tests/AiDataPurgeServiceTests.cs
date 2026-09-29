@@ -690,6 +690,144 @@ public sealed class AiDataPurgeServiceTests
         Assert.Equal(3, saveChangesCounter.SaveChangesCalls);
     }
 
+    [Fact]
+    public async Task GetSummaryAsync_CountsShotSetsAndMarksEditedOnes()
+    {
+        await using var environment = await CreateShotEnvironmentAsync();
+        var db = environment.Context;
+        var video = await SeedVideoWithFilesAsync(db, 2);
+        AddShotSet(db, video.Files.ElementAt(0).Id, "ext:ai.shots", "run-shots", model: "omnishotcut");
+        AddShotSet(db, video.Files.ElementAt(1).Id, "ext:ai.shots", "run-shots", model: "omnishotcut", edited: true);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var summary = await CreateService(db).GetSummaryAsync(
+            new AiDataSelectorDto(null, null, null, null, null, null, ["shotSet"]), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, summary.Totals["shotSet"]);
+        Assert.Equal(
+            new (string?, int)[] { (null, 1), ("edited", 1) },
+            summary.Items.Select(item => (item.Detail, item.Count)));
+        Assert.All(summary.Items, item => Assert.Equal(("shotSet", "ext:ai.shots", "run-shots", "omnishotcut", "video"),
+            (item.Kind, item.SourceKey, item.SourceRunId, item.Model, item.HostType)));
+    }
+
+    [Fact]
+    public async Task PurgeAsync_RemovesShotSetsOfTheSelectedVideoWithTheirShots()
+    {
+        await using var environment = await CreateShotEnvironmentAsync();
+        var db = environment.Context;
+        var purged = await SeedVideoWithFilesAsync(db, 1);
+        var kept = await SeedVideoWithFilesAsync(db, 1);
+        AddShotSet(db, purged.Files.Single().Id, "ext:ai.shots", "run-a");
+        AddShotSet(db, kept.Files.Single().Id, "ext:ai.shots", "run-b");
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = CreateService(db);
+
+        var dryRun = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.shots", null, null, null, "video", purged.Id, ["shotSet"]), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, dryRun.RemovedCounts["shotSet"]);
+        Assert.Equal(2, await db.VideoShotSets.CountAsync(TestContext.Current.CancellationToken));
+
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.shots", null, null, null, "video", purged.Id, ["shotSet"]), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, result.RemovedCounts["shotSet"]);
+        var remaining = Assert.Single(await db.VideoShotSets.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(kept.Files.Single().Id, remaining.FileId);
+        Assert.All(await db.VideoShots.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken), shot => Assert.Equal(remaining.Id, shot.SetId));
+    }
+
+    [Fact]
+    public async Task PurgeAsync_KeepsAiRunStillReferencedByAShotSet()
+    {
+        await using var environment = await CreateShotEnvironmentAsync();
+        var db = environment.Context;
+        var video = await SeedVideoWithFilesAsync(db, 1);
+        db.AiRuns.Add(new AiRun
+        {
+            RunKey = "run-with-shots",
+            SourceKey = "ext:ai.core",
+            TargetType = AiRunTargetType.Video,
+            TargetId = video.Id,
+            Status = AiRunStatus.Completed,
+        });
+        db.Segments.Add(new Segment
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = 0,
+            EndSec = 5,
+            Kind = "tag",
+            SourceKey = "ext:ai.tagging",
+            SourceRunId = "run-with-shots",
+        });
+        AddShotSet(db, video.Files.Single().Id, "ext:ai.shots", "run-with-shots");
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = CreateService(db);
+
+        var segmentsPurge = await service.PurgeAsync(new AiDataSelectorDto(null, "run-with-shots", null, null, null, null, ["segment"]), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.False(segmentsPurge.RemovedCounts.ContainsKey("aiRun"));
+        Assert.Single(await db.AiRuns.ToListAsync(TestContext.Current.CancellationToken));
+
+        var shotsPurge = await service.PurgeAsync(new AiDataSelectorDto(null, "run-with-shots", null, null, null, null, ["shotSet"]), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, shotsPurge.RemovedCounts["shotSet"]);
+        Assert.Equal(1, shotsPurge.RemovedCounts["aiRun"]);
+        Assert.Empty(await db.AiRuns.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void TryValidateDestructiveSelector_ShotSetsBelongToVideosOnly()
+    {
+        Assert.False(AiDataPurgeService.TryValidateDestructiveSelector(
+            new AiDataSelectorDto(null, null, null, null, "image", null, ["shotSet"]), out var hostError));
+        Assert.Contains("shotset", hostError);
+        Assert.False(AiDataPurgeService.TryValidateDestructiveSelector(
+            new AiDataSelectorDto(null, null, null, "visual", null, null, ["shotSet"]), out var modalityError));
+        Assert.Contains("Modality", modalityError);
+        Assert.True(AiDataPurgeService.TryValidateDestructiveSelector(
+            new AiDataSelectorDto("ext:ai.shots", null, null, null, "video", 1, ["shotSet"]), out _));
+    }
+
+    private static async Task<TestEnvironment> CreateShotEnvironmentAsync()
+    {
+        // Shot sets rely on the database cascade from set to shots, so foreign keys are enforced.
+        var connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
+        await connection.OpenAsync();
+        var context = new AiDataTestContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
+        await context.Database.EnsureCreatedAsync();
+        return new TestEnvironment(connection, context);
+    }
+
+    private static async Task<Video> SeedVideoWithFilesAsync(CoveContext db, int fileCount)
+    {
+        var folder = new Folder { Path = $"/library/shots/{Guid.NewGuid():N}" };
+        var video = new Video
+        {
+            Title = "Shots",
+            Files = Enumerable.Range(0, fileCount)
+                .Select(index => new VideoFile { ParentFolder = folder, Basename = $"shots-{index}.mp4", Duration = 10 })
+                .ToList(),
+        };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return video;
+    }
+
+    private static void AddShotSet(CoveContext db, int fileId, string sourceKey, string? sourceRunId, string? model = null, bool edited = false)
+        => db.VideoShotSets.Add(new VideoShotSet
+        {
+            FileId = fileId,
+            SourceKey = sourceKey,
+            SourceRunId = sourceRunId,
+            Model = model,
+            DurationSec = 10,
+            ShotCount = 2,
+            EditedAt = edited ? DateTime.UtcNow : null,
+            Shots =
+            [
+                new VideoShot { StartSec = 0, EndSec = 4 },
+                new VideoShot { StartSec = 4, EndSec = 10 },
+            ],
+        });
+
     private static AiDataPurgeService CreateService(CoveContext context, SegmentSpanResolver? spanResolver = null)
         => new(context, [], new StubBlobService(), NullLogger<AiDataPurgeService>.Instance, spanResolver);
 

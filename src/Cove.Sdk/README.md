@@ -170,6 +170,56 @@ the invalidation happened.
 video-specific invalidation should be preferred. The service only invalidates projections; it neither
 persists nor authorizes the underlying mutation.
 
+## Shot boundaries
+
+Cove stores the shot boundaries of video files: for each file, at most one `VideoShotSet`, a
+contiguous, gapless partition of the file's timeline into `VideoShot` rows. Sets belong to files, not
+videos, because timestamps belong to the file that was analysed; a set follows its file through
+merges and file moves and is deleted with it. Resolve `Cove.Core.Interfaces.IVideoShotService` to
+read and write them; it is the only writer, and the entities are public so you can query them.
+They arrive in the first release after Cove 1.5.1; set `minCoveVersion` to that release.
+
+- **Invariants.** Every set holds 1 to `VideoShotRules.MaxShotsPerSet` shots, ordered by start; the
+  first starts at 0, each starts where the previous ended, and the last ends at the set's
+  `DurationSec`. Boundaries within `VideoShotRules.BoundaryToleranceSec` (1 ms) of where they belong
+  are snapped into place; anything further off is rejected, never repaired. Frames are optional and
+  half-open (`[StartFrame, EndFrame)`); either every shot gives them or none does, and with frames the
+  set needs `Fps`. Labels are trimmed and at most 100 characters; the first shot has no
+  `TransitionIn`. `VideoShotRules` holds these limits as read-only fields, not constants.
+- **Writing a whole set.** `WriteSetAsync` with `VideoShotWriteMode.SkipIfExists` (the default) leaves
+  a file that already has a set alone and reports `SkippedExisting`; `Replace` replaces the set as a
+  whole, hand edits included, and reports whether it overwrote an edited set. Pass `Expected` with
+  `Replace` to replace only the exact set you read. To catch a result written to the wrong file, the
+  analysed duration may run past the file's probed duration by at most 2 s or 1%, whichever is larger.
+  It may fall short of it down to half, because the probed duration is the container's and the video
+  stream can end before the audio does (`VideoShotRules.DurationSanity*`). Files without a probed
+  duration are not checked. `EditedAt` is stored in UTC, so give it in UTC or as local time. The
+  optional `Payload` is at most 64 KiB of UTF-8 and may not contain U+0000; only whole reads return
+  it, not summaries. Use `GetSummariesForFilesAsync` to find which files already have a set before
+  starting work.
+- **Editing.** `SplitAsync`, `MergeAsync`, `MoveCutAsync` and `ReplaceShotsAsync` (for undo) take the
+  `VideoShotSetVersion` (set id and revision) the edit started from and answer `Conflict`, with the
+  current set, when it no longer matches. Edits are checked against the set's own `DurationSec`, not
+  the file's. When the set has frames, a split or a moved cut lands on the nearest frame boundary,
+  and its time is that frame's. A split or replace without a version creates a set drawn by hand on
+  a file that has none. A replace sets the frame count from its own frames, and clears it when they
+  have none. Every change increments `Revision`, and edits set `EditedAt`.
+- **Transactions.** Every write that changes a set saves the scoped context's other pending changes
+  along with its own; an outcome that changes nothing (`SkippedExisting`, `Conflict`, `Invalid`,
+  `FileNotFound`, `NotFound`, or a moved cut that stays where it was) saves nothing. If you have
+  begun a transaction on the scoped Cove database context, a write joins it inside a savepoint; its
+  row locks are held until you commit, so keep such transactions short. Otherwise each write runs in
+  its own transaction, and a retry after a transient failure does not save your pending changes
+  again, so begin a transaction when they must commit with the shots. The locks assume READ
+  COMMITTED: in a REPEATABLE READ or SERIALIZABLE transaction, a write that had to wait for another
+  can fail instead, and the transaction should be retried.
+- **Tracking.** Read shots through the service rather than tracking the entities. A write sets aside
+  any instances of the file's set and shots that you track, and puts them back unchanged afterwards,
+  so they can be stale; instances of rows it deleted stay detached. Never modify them directly.
+- **Authorization.** The service authorizes nothing and publishes no events: check the caller's
+  permissions first. Cove's own endpoints use `segments.read` and `segments.delete`.
+- The service is implemented by Cove only; members added later arrive with default implementations.
+
 ## Host services and extension-container ownership
 
 Each runtime extension has a reloadable service container. Closed host singletons available through

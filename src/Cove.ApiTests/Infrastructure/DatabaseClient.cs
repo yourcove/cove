@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
@@ -469,7 +470,7 @@ public sealed class DatabaseClient
             .SingleAsync(cancellationToken);
     }
 
-    public async Task AttachVideoFileAsync(
+    public async Task<int> AttachVideoFileAsync(
         int videoId,
         double duration,
         long size,
@@ -506,7 +507,93 @@ public sealed class DatabaseClient
         }
         db.VideoFiles.Add(file);
         await db.SaveChangesAsync(cancellationToken);
+        return file.Id;
     }
+
+    // Shot boundaries have no public write endpoint: extensions write them in-process through
+    // IVideoShotService, so the tests write them through the same service.
+    public async Task<VideoShotWriteResult> WriteVideoShotsAsync(
+        VideoShotSetWrite write,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        return await new VideoShotService(db).WriteSetAsync(write, cancellationToken);
+    }
+
+    public async Task<VideoShotEditResult> SplitVideoShotsAsync(
+        VideoShotSplitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        return await new VideoShotService(db).SplitAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Files attached here to an existing video do not become its primary file (only a new video's
+    /// first file does), and the public API cannot pick one without an alignment.
+    /// </summary>
+    public async Task SetVideoPrimaryFileAsync(int videoId, int fileId, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        await db.Videos
+            .IgnoreQueryFilters()
+            .Where(video => video.Id == videoId)
+            .ExecuteUpdateAsync(update => update.SetProperty(video => video.PrimaryFileId, fileId), cancellationToken);
+    }
+
+    public async Task<int> CountVideoShotRowsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        return await db.VideoShotSets.CountAsync(cancellationToken) + await db.VideoShots.CountAsync(cancellationToken);
+    }
+
+    /// <summary>Runs <paramref name="sql"/> and returns the PostgreSQL error code it failed with, or null.</summary>
+    public async Task<string?> TryExecuteSqlAsync(string sql, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        try
+        {
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            return null;
+        }
+        catch (PostgresException exception)
+        {
+            return exception.SqlState;
+        }
+    }
+
+    /// <summary>
+    /// Writes shots inside a transaction the caller owns, the way an extension does when it records
+    /// its own state in the same transaction, then commits or rolls back.
+    /// </summary>
+    public async Task<VideoShotWriteOutcome> WriteVideoShotsInCallerTransactionAsync(
+        VideoShotSetWrite write,
+        bool commit,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var result = await new VideoShotService(db).WriteSetAsync(write, cancellationToken);
+            if (commit)
+                await transaction.CommitAsync(cancellationToken);
+            else
+                await transaction.RollbackAsync(cancellationToken);
+            return result.Outcome;
+        });
+    }
+
+    private CoveContext CreateCoveContext()
+        => new(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql =>
+            {
+                npgsql.UseVector();
+                npgsql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(1), null);
+            })
+            .Options);
 
     public async Task SetVideoParentAsync(
         int videoId,
