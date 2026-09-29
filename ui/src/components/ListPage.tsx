@@ -91,6 +91,11 @@ export interface ListPageProps {
   totalCount: number;
   isLoading?: boolean;
   summaryLoading?: boolean;
+  /**
+   * The total comes from a separate request that has not settled (the Videos aggregate). `totalCount`
+   * is not the result count yet, so paging neither clamps to it nor navigates by it until it arrives.
+   */
+  totalCountPending?: boolean;
   error?: Error | null;
   onRetry?: () => void;
   loadState?: QueryLoadState<unknown>;
@@ -262,6 +267,7 @@ export function ListPage({
   totalCount,
   isLoading = false,
   summaryLoading = false,
+  totalCountPending = false,
   error,
   onRetry,
   loadState,
@@ -650,10 +656,10 @@ export function ListPage({
   const goTo = useCallback(
     (p: number) => {
       // An unavailable result count is not a one-page collection.
-      if (resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
+      if (totalCountPending || resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
       onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) });
     },
-    [filter, onFilterChange, resolvedLoadState.status, totalPages],
+    [filter, onFilterChange, resolvedLoadState.status, totalCountPending, totalPages],
   );
 
   // List-page keyboard shortcuts
@@ -835,9 +841,12 @@ export function ListPage({
 
   useDocumentTitle(title, manageDocumentTitle);
 
+  // Pull a page past the end back to the last page, but not while a separately loaded total is
+  // pending: until it lands the list reports none, which would reset a deep page to the first one.
   useEffect(() => {
     if (
       infinitePageSize ||
+      totalCountPending ||
       resolvedLoadState.status === "pending" ||
       resolvedLoadState.status === "error" ||
       page <= totalPages
@@ -846,7 +855,7 @@ export function ListPage({
     }
 
     onFilterChange({ ...filter, page: totalPages });
-  }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalPages]);
+  }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalCountPending, totalPages]);
 
   return (
     <div className="list-page space-y-0">

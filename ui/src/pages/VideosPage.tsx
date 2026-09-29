@@ -533,8 +533,16 @@ export function VideosPage({ onNavigate }: Props) {
     !hasCompilationBlockingObjectFilter &&
     (displayMode === "grid" || displayMode === "list");
 
+  // The aggregate request counts the matches once per filter. The page and infinite-scroll lists then
+  // skip their own count, which on a broad search reads every match again for each page. If the
+  // aggregate fails, the lists count again so paging still works without it.
+  const aggregateEnabled = !visualSearchActive && !canShowCompilationGroups;
   const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
-  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+  const {
+    data: filteredAggregate,
+    isLoading: filteredAggregateLoading,
+    isError: filteredAggregateFailed,
+  } = useQuery({
     queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter, filterExpression],
     queryFn: () =>
       videos.aggregate({
@@ -542,8 +550,11 @@ export function VideosPage({ onNavigate }: Props) {
         objectFilter: hasObjectFilter ? (backendObjectFilter as VideoFilterCriteria) : undefined,
         filterExpression,
       }),
-    enabled: !visualSearchActive && !canShowCompilationGroups,
+    enabled: aggregateEnabled,
   });
+  // A total the aggregate already delivered stays in use if a later refetch of it fails, so an error
+  // after an edit does not switch the page query and drop the loaded page and its selection.
+  const countFromAggregate = aggregateEnabled && (filteredAggregate !== undefined || !filteredAggregateFailed);
 
   useEffect(() => {
     if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
@@ -593,7 +604,7 @@ export function VideosPage({ onNavigate }: Props) {
     refetch: refetchPage,
     isPlaceholderData: pageIsPlaceholder,
   } = useQuery({
-    queryKey: ["videos", filter, backendObjectFilter, filterExpression, searchMode],
+    queryKey: ["videos", filter, backendObjectFilter, filterExpression, searchMode, countFromAggregate],
     queryFn: () => {
       if (visualSearchActive) {
         return visualSimilarity.searchVideos({
@@ -603,13 +614,14 @@ export function VideosPage({ onNavigate }: Props) {
         });
       }
 
+      const pageFilter = countFromAggregate ? { ...filter, skipCount: true } : filter;
       return hasObjectFilter
         ? videos.findFiltered({
-            findFilter: filter,
+            findFilter: pageFilter,
             objectFilter: backendObjectFilter as VideoFilterCriteria,
             filterExpression,
           })
-        : videos.find(filter);
+        : videos.find(pageFilter);
     },
     enabled: !infinitePageSize && !canShowCompilationGroups,
   });
@@ -631,9 +643,18 @@ export function VideosPage({ onNavigate }: Props) {
   });
 
   const infiniteVideosQuery = usePaginatedInfiniteQuery<Video>({
-    queryKey: ["videos", "infinite", infiniteFilterKey, backendObjectFilter, filterExpression, searchMode],
+    queryKey: [
+      "videos",
+      "infinite",
+      infiniteFilterKey,
+      backendObjectFilter,
+      filterExpression,
+      searchMode,
+      countFromAggregate,
+    ],
     enabled: infinitePageSize,
     chunkSize: infiniteChunkSize,
+    knownTotalCount: countFromAggregate ? filteredAggregate?.count : undefined,
     queryFn: (page, perPage) => {
       const nextFilter = { ...filter, page, perPage };
       if (visualSearchActive) {
@@ -644,13 +665,14 @@ export function VideosPage({ onNavigate }: Props) {
         });
       }
 
+      const pageFilter = countFromAggregate ? { ...nextFilter, skipCount: true } : nextFilter;
       return hasObjectFilter
         ? videos.findFiltered({
-            findFilter: nextFilter,
+            findFilter: pageFilter,
             objectFilter: backendObjectFilter as VideoFilterCriteria,
             filterExpression,
           })
-        : videos.find(nextFilter);
+        : videos.find(pageFilter);
     },
   });
 
@@ -668,7 +690,9 @@ export function VideosPage({ onNavigate }: Props) {
     ? infiniteVideosQuery.totalCount
     : canShowCompilationGroups
       ? unifiedData?.totalCount
-      : data?.totalCount;
+      : countFromAggregate
+        ? filteredAggregate?.count
+        : data?.totalCount;
   const loading = infinitePageSize
     ? infiniteVideosQuery.isPending
     : canShowCompilationGroups
@@ -924,6 +948,7 @@ export function VideosPage({ onNavigate }: Props) {
           ) : undefined
         }
         summaryLoading={!visualSearchActive && !canShowCompilationGroups && filteredAggregateLoading}
+        totalCountPending={countFromAggregate && !infinitePageSize && filteredAggregateLoading}
         pageKey="videos"
         filterMode="videos"
         filter={filter}
@@ -986,7 +1011,7 @@ export function VideosPage({ onNavigate }: Props) {
             <button
               type="button"
               onClick={() => playRandomMutation.mutate()}
-              disabled={playRandomMutation.isPending || loading || (totalCount ?? 0) === 0}
+              disabled={playRandomMutation.isPending || loading || (totalCount ?? items.length) === 0}
               className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-border bg-card/70 px-2.5 py-2 text-sm text-secondary transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-1 sm:text-xs"
               title="Play random"
               aria-label="Play random"

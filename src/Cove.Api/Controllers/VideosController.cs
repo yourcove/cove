@@ -49,6 +49,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         [FromQuery] int? groupId = null, [FromQuery] int? galleryId = null, [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
         [FromQuery] string? ids = null,
         [FromQuery] string? sorts = null,
+        [FromQuery] bool skipCount = false,
         CancellationToken ct = default)
     {
         var sortClauses = SortClause.Parse(sorts);
@@ -65,6 +66,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             Direction = primarySort?.Direction ?? (direction == "desc" ? Core.Enums.SortDirection.Desc : Core.Enums.SortDirection.Asc),
             Sorts = sortClauses.Count > 0 ? sortClauses : null,
             Seed = seed,
+            SkipCount = skipCount,
         };
 
         var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct);

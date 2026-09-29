@@ -296,6 +296,45 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByText("12h · 3 GB")).toBeInTheDocument();
   });
 
+  // The Videos list takes its total from the aggregate request, which can settle after the page. A total
+  // that has not arrived yet must not clamp a deep page back to the first one.
+  it("keeps the requested page while a separately loaded total is pending", () => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderListPage = (totalCount: number, totalCountPending: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 5, perPage: 40 }}
+            onFilterChange={onFilterChange}
+            totalCount={totalCount}
+            summaryLoading={totalCountPending}
+            totalCountPending={totalCountPending}
+            loadState={{ status: "success", data: {} }}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderListPage(0, true));
+    expect(onFilterChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onFilterChange).not.toHaveBeenCalled();
+
+    rerender(renderListPage(400, false));
+    expect(onFilterChange).not.toHaveBeenCalled();
+    expect(screen.getByText("161-200 of 400")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 6, perPage: 40 });
+    onFilterChange.mockClear();
+
+    rerender(renderListPage(80, false));
+    expect(onFilterChange).toHaveBeenCalledWith({ page: 2, perPage: 40 });
+  });
+
   it("keeps the focused search control mounted while collection results become pending", () => {
     const queryClient = new QueryClient();
     const renderListPage = (loadState: { status: "success"; data: unknown } | { status: "pending" }) => (

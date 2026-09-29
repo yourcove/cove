@@ -1,12 +1,21 @@
 import { useCallback } from "react";
 import { keepPreviousData, useInfiniteQuery, type QueryKey } from "@tanstack/react-query";
-import type { PaginatedResponse } from "../api/types";
+import { UNCOUNTED_TOTAL, type PaginatedResponse } from "../api/types";
 
 interface UsePaginatedInfiniteQueryOptions<TItem extends { id: string | number }> {
   queryKey: QueryKey;
   queryFn: (page: number, perPage: number) => Promise<PaginatedResponse<TItem>>;
   enabled?: boolean;
   chunkSize?: number;
+  /**
+   * The total when pages are fetched with `skipCount` and report `UNCOUNTED_TOTAL`. Until it is known,
+   * another page is loaded whenever the last one came back full.
+   */
+  knownTotalCount?: number;
+}
+
+function resolveTotalCount(pageTotal: number, knownTotalCount: number | undefined) {
+  return pageTotal === UNCOUNTED_TOTAL ? knownTotalCount : pageTotal;
 }
 
 function uniqueItemsById<TItem extends { id: string | number }>(items: TItem[]) {
@@ -27,6 +36,7 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
   queryFn,
   enabled = true,
   chunkSize = 24,
+  knownTotalCount,
 }: UsePaginatedInfiniteQueryOptions<TItem>) {
   const query = useInfiniteQuery({
     queryKey,
@@ -36,7 +46,9 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
     placeholderData: keepPreviousData,
     getNextPageParam: (lastPage) => {
       const loadedThrough = lastPage.page * lastPage.perPage;
-      if (loadedThrough >= lastPage.totalCount || lastPage.items.length === 0) {
+      const total = resolveTotalCount(lastPage.totalCount, knownTotalCount);
+      const exhausted = total === undefined ? lastPage.items.length < lastPage.perPage : loadedThrough >= total;
+      if (exhausted || lastPage.items.length === 0) {
         return undefined;
       }
 
@@ -60,11 +72,11 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
   }, [fetchNextPage, isPlaceholderData]);
 
   const pages = query.data?.pages ?? [];
-  const totalCount = pages[0]?.totalCount ?? 0;
   const lastPage = pages[pages.length - 1];
-  const loadedThroughCount = lastPage
-    ? Math.min(totalCount, (lastPage.page - 1) * lastPage.perPage + lastPage.items.length)
-    : 0;
+  const loadedThrough = lastPage ? (lastPage.page - 1) * lastPage.perPage + lastPage.items.length : 0;
+  // An uncounted list whose total is not known yet reports what it has loaded so far.
+  const totalCount = pages[0] ? (resolveTotalCount(pages[0].totalCount, knownTotalCount) ?? loadedThrough) : 0;
+  const loadedThroughCount = Math.min(totalCount, loadedThrough);
 
   return {
     ...query,

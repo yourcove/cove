@@ -212,8 +212,11 @@ public class VideoRepository : IVideoRepository
             return (Array.Empty<Video>(), count);
         }
 
-        // Run COUNT first on the lightweight query (no Includes = faster)
-        var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
+        // Run COUNT first on the lightweight query (no Includes = faster). Counting reads every match,
+        // which on a broad search costs as much as the page itself, so callers holding the total skip it.
+        var totalCount = findFilter?.SkipCount == true
+            ? FindFilter.UncountedTotal
+            : await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
         var multiSortRegistry = CreateMultiSortRegistry();

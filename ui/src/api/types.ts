@@ -2493,7 +2493,12 @@ export interface FindFilter {
   direction?: "asc" | "desc";
   sorts?: SortClause[];
   seed?: number;
+  /** Return the page without counting every match; the list then reports `UNCOUNTED_TOTAL`. */
+  skipCount?: boolean;
 }
+
+/** The `totalCount` a list reports when `skipCount` left it uncounted. */
+export const UNCOUNTED_TOTAL = -1;
 
 export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
   findFilter?: Pick<FindFilter, "q">;
