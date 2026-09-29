@@ -10,6 +10,7 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- File size totals of a petabyte or more show their unit instead of "undefined".
 - VR videos can be watched in a headset. A VR video's page has an **Enter VR** button wherever the browser supports WebXR: the Quest Browser, or Chrome and Edge on a PC running SteamVR or the Oculus runtime. Pull the trigger to play or pause, flick the thumbstick to seek, and press B or Y to go back to the page.
 - VR videos now record their layout: projection (equirectangular, fisheye or MKX200), field of view, and stereo packing (side by side, top/bottom or mono). The layout is read from studio file-name conventions such as `_180_LR`, `_360_TB`, `_3dh`, `_MKX200` and `_FISHEYE190`, falling back to the frame's proportions. New files with such names are marked as VR when they are scanned. The API returns the layout as `vr` on videos and accepts an explicit one on update. Clear it with `"vr"` in `clearFields` to go back to detection.
 - Covers, preview clips, scrub-bar sprite sheets and segment previews of VR videos now show a flat view of the scene's centre from one eye, instead of both eyes' warped frames side by side. Regenerate them to update existing VR videos.
