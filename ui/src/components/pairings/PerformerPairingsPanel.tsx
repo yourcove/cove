@@ -8,6 +8,7 @@ import {
   useDetailStringUrlState,
   useRememberDetailTabUrlParams,
 } from "../../hooks/useDetailListUrlState";
+import { useRegisterKeyboardActions, type KeyboardActionRegistration } from "../../keyboard/KeyboardShortcutProvider";
 import { buildCurrentUrl, navigateToUrl } from "../../router/location";
 import { videoQueueItem } from "../../hooks/useVideoQueueNavigation";
 import { useOptionalAppConfig } from "../../state/AppConfigContext";
@@ -16,28 +17,27 @@ import {
   buildPairings,
   facetPairings,
   filterPairings,
-  formatShownRows,
   isPairingSort,
   isPairingTier,
   lineupVideos,
-  PAIRING_ROWS_FIRST,
-  PAIRING_ROWS_STEP,
+  PAIRING_PER_PAGE_DEFAULT,
   PAIRING_SORT_OPTIONS,
   PAIRING_TAB_KEY,
   PAIRING_TIERS,
   PAIRING_URL_PARAMS,
   parseIdList,
-  parseShownRows,
+  parsePositiveInt,
   sharedVideosRoute,
   sortPairings,
   summarizePairings,
   UNKNOWN_GENDER,
-  type PairingTier,
 } from "../../utils/performerPairings";
 import { getLoadError } from "../../utils/queryLoadState";
 import { performerGenderLabel } from "../EntityCards";
 import { ListLoadError } from "../ListLoadError";
 import { toolbarSelectClass } from "../listToolbarStyles";
+import { PageSizeSelect } from "../PageSizeSelect";
+import { PaginationControls } from "../PaginationControls";
 import { CoStarPortrait, FilterChip, RouteLink, type PairingNavigate } from "./pairingParts";
 import { RankedPairingsView } from "./RankedPairingsView";
 
@@ -46,13 +46,32 @@ interface PerformerPairingsPanelProps {
   onNavigate: PairingNavigate;
 }
 
+// Sets or removes the given parameters in one URL change and goes back to the first page, since
+// the page the viewer was on means nothing once the list is filtered or ordered differently. Picking
+// a choice that is already made changes nothing, so the page stays.
+function changeListParams(changes: Record<string, string | null>) {
+  const params = new URLSearchParams(window.location.search);
+  let changed = false;
+  for (const [key, value] of Object.entries(changes)) {
+    if ((params.get(key) || null) === (value || null)) continue;
+    changed = true;
+    if (value) params.set(key, value);
+    else params.delete(key);
+  }
+  if (!changed) return;
+  params.delete(PAIRING_URL_PARAMS.page);
+  navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
+}
+
 export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairingsPanelProps) {
-  const [tierParam, setTierParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.tier);
-  const [gender, setGender] = useDetailStringUrlState(PAIRING_URL_PARAMS.gender);
-  const [sortParam, setSortParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.sort);
-  const [duoOnly, setDuoOnly] = useDetailBooleanUrlState(PAIRING_URL_PARAMS.duoOnly);
-  const [favoritesOnly, setFavoritesOnly] = useDetailBooleanUrlState(PAIRING_URL_PARAMS.favoritesOnly);
-  const [queryParam, setQueryParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.query);
+  const [tierParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.tier);
+  const [gender] = useDetailStringUrlState(PAIRING_URL_PARAMS.gender);
+  const [sortParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.sort);
+  const [duoOnly] = useDetailBooleanUrlState(PAIRING_URL_PARAMS.duoOnly);
+  const [favoritesOnly] = useDetailBooleanUrlState(PAIRING_URL_PARAMS.favoritesOnly);
+  const [queryParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.query);
+  const [pageParam, setPageParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.page);
+  const [perPageParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.perPage);
   const query = queryParam ?? "";
   // The box shows what is typed at once; the URL, and so the list, follow when typing pauses. When the
   // URL changes by other means (Back, Clear filters), the box takes the new search.
@@ -64,11 +83,12 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
   }
   useEffect(() => {
     if (draft.trim() === query.trim()) return;
-    const timer = window.setTimeout(() => setQueryParam(draft.trim() ? draft : null), 250);
+    const timer = window.setTimeout(
+      () => changeListParams({ [PAIRING_URL_PARAMS.query]: draft.trim() ? draft : null }),
+      250,
+    );
     return () => window.clearTimeout(timer);
-  }, [draft, query, setQueryParam]);
-  const [shownParam, setShownParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.shownRows);
-  const shownRows = useMemo(() => parseShownRows(shownParam), [shownParam]);
+  }, [draft, query]);
   // The lineup lives in the URL too, so it is still there after going back from its videos.
   const [lineupParam, setLineupParam] = useDetailStringUrlState(PAIRING_URL_PARAMS.lineup);
   const selectedIds = useMemo(() => parseIdList(lineupParam), [lineupParam]);
@@ -92,6 +112,38 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
   );
   const facets = useMemo(() => facetPairings(pairings, { gender, tier }), [pairings, gender, tier]);
   const sorted = useMemo(() => sortPairings(facets.visible, sort), [facets.visible, sort]);
+  const perPage = parsePositiveInt(perPageParam) ?? PAIRING_PER_PAGE_DEFAULT;
+  const totalPages = Math.max(1, Math.ceil(sorted.length / perPage));
+  // A page past the end, left by a refetch that dropped co-stars or by an edited URL, shows the last one.
+  const urlPage = parsePositiveInt(pageParam);
+  const page = Math.min(urlPage ?? 1, totalPages);
+  const pagePairings = useMemo(() => sorted.slice((page - 1) * perPage, page * perPage), [page, perPage, sorted]);
+  const goToPage = (nextPage: number) => {
+    const target = Math.max(1, Math.min(totalPages, nextPage));
+    setPageParam(target > 1 ? String(target) : null);
+  };
+  // Once the co-stars are in, the URL follows the clamped page, so a later refetch that adds co-stars
+  // does not move the list to the page the URL still asked for.
+  useEffect(() => {
+    if (data && urlPage != null && urlPage !== page) setPageParam(page > 1 ? String(page) : null);
+  }, [data, page, setPageParam, urlPage]);
+  // The same paging keys as the other lists; the most recently mounted list handles them.
+  const pagingKeyboardEnabled = Boolean(data) && totalPages > 1;
+  const pagingKeyboardActions = useMemo<KeyboardActionRegistration[]>(() => {
+    const goTo = (nextPage: number) => {
+      const target = Math.max(1, Math.min(totalPages, nextPage));
+      if (target !== page) setPageParam(target > 1 ? String(target) : null);
+    };
+    return [
+      { id: "list.page.previous", action: () => goTo(page - 1) },
+      { id: "list.page.next", action: () => goTo(page + 1) },
+      { id: "list.page.back10", action: () => goTo(page - 10) },
+      { id: "list.page.forward10", action: () => goTo(page + 10) },
+      { id: "list.page.first", action: () => goTo(1) },
+      { id: "list.page.last", action: () => goTo(totalPages) },
+    ].map((registration) => ({ ...registration, surface: "list" as const, enabled: pagingKeyboardEnabled }));
+  }, [page, pagingKeyboardEnabled, setPageParam, totalPages]);
+  useRegisterKeyboardActions(pagingKeyboardActions);
   const tierTotal = facets.tierCounts.frequent + facets.tierCounts.recurring + facets.tierCounts.once;
   const genderTotal = facets.genderCounts.reduce((total, entry) => total + entry.count, 0);
   // The chosen gender keeps its chip at 0, so the filter stays visible and can be switched off.
@@ -147,16 +199,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
     },
     [coStarsById, setSelectedIds],
   );
-  const showMore = useCallback(
-    (moreTier: PairingTier) => {
-      const current = parseShownRows(new URLSearchParams(window.location.search).get(PAIRING_URL_PARAMS.shownRows));
-      setShownParam(
-        formatShownRows({ ...current, [moreTier]: (current[moreTier] ?? PAIRING_ROWS_FIRST) + PAIRING_ROWS_STEP }),
-      );
-    },
-    [setShownParam],
-  );
-  // One URL change for all of them; the lineup and the rows shown stay.
+  // One URL change for all of them; the lineup and the page size stay.
   const clearFilters = () => {
     const params = new URLSearchParams(window.location.search);
     for (const key of [
@@ -165,6 +208,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
       PAIRING_URL_PARAMS.gender,
       PAIRING_URL_PARAMS.duoOnly,
       PAIRING_URL_PARAMS.favoritesOnly,
+      PAIRING_URL_PARAMS.page,
     ]) {
       params.delete(key);
     }
@@ -182,10 +226,13 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
     if (draft.trim()) params.set(PAIRING_URL_PARAMS.query, draft);
     const lineupToKeep = data ? lineupIds : selectedIds;
     if (lineupToKeep.length > 0) params.set(PAIRING_URL_PARAMS.lineup, lineupToKeep.join(","));
-    const shown = formatShownRows(shownRows);
-    if (shown) params.set(PAIRING_URL_PARAMS.shownRows, shown);
+    // Before the co-stars load there is nothing to clamp the page against, so the URL's is kept. A search
+    // still being typed would have gone back to the first page, so it comes back on the first page.
+    const pageToKeep = draft.trim() !== query.trim() ? 1 : data ? page : (urlPage ?? 1);
+    if (pageToKeep > 1) params.set(PAIRING_URL_PARAMS.page, String(pageToKeep));
+    if (perPage !== PAIRING_PER_PAGE_DEFAULT) params.set(PAIRING_URL_PARAMS.perPage, String(perPage));
     return params.toString();
-  }, [data, draft, duoOnly, favoritesOnly, gender, lineupIds, selectedIds, shownRows, sort, tier]);
+  }, [data, draft, duoOnly, favoritesOnly, gender, lineupIds, page, perPage, query, selectedIds, sort, tier, urlPage]);
   useRememberDetailTabUrlParams(PAIRING_TAB_KEY, rememberedParams);
 
   return (
@@ -194,7 +241,7 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
         <div className="flex flex-wrap items-center gap-2">
           <FilterChip
             pressed={tier == null}
-            onClick={() => setTierParam(null)}
+            onClick={() => changeListParams({ [PAIRING_URL_PARAMS.tier]: null })}
             title={
               summary ? `In ${summary.sharedVideoCount} of ${performer.name}’s ${summary.videoCount} videos` : undefined
             }
@@ -205,7 +252,9 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
             <FilterChip
               key={option.value}
               pressed={tier === option.value}
-              onClick={() => setTierParam(tier === option.value ? null : option.value)}
+              onClick={() =>
+                changeListParams({ [PAIRING_URL_PARAMS.tier]: tier === option.value ? null : option.value })
+              }
               title={option.rule}
             >
               {option.label} {data ? <span className="text-muted">{facets.tierCounts[option.value]}</span> : null}
@@ -227,7 +276,11 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
             Sort
             <select
               value={sort}
-              onChange={(event) => setSortParam(event.target.value === "together" ? null : event.target.value)}
+              onChange={(event) =>
+                changeListParams({
+                  [PAIRING_URL_PARAMS.sort]: event.target.value === "together" ? null : event.target.value,
+                })
+              }
               className={toolbarSelectClass}
             >
               {PAIRING_SORT_OPTIONS.map((option) => (
@@ -237,13 +290,27 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
               ))}
             </select>
           </label>
+          <PageSizeSelect
+            perPage={perPage}
+            allowInfinite={false}
+            infinitePageSize={false}
+            onChange={(next) =>
+              changeListParams({
+                [PAIRING_URL_PARAMS.perPage]: next === PAIRING_PER_PAGE_DEFAULT ? null : String(next),
+              })
+            }
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <FilterChip pressed={gender == null} onClick={() => setGender(null)}>
+          <FilterChip pressed={gender == null} onClick={() => changeListParams({ [PAIRING_URL_PARAMS.gender]: null })}>
             Everyone {data ? <span className="text-muted">{genderTotal}</span> : null}
           </FilterChip>
           {genderChips.map(({ gender: key, count }) => (
-            <FilterChip key={key} pressed={gender === key} onClick={() => setGender(gender === key ? null : key)}>
+            <FilterChip
+              key={key}
+              pressed={gender === key}
+              onClick={() => changeListParams({ [PAIRING_URL_PARAMS.gender]: gender === key ? null : key })}
+            >
               {key === UNKNOWN_GENDER ? "No gender set" : (performerGenderLabel(key) ?? key)}{" "}
               <span className="text-muted">{count}</span>
             </FilterChip>
@@ -251,12 +318,15 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
           <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
           <FilterChip
             pressed={duoOnly}
-            onClick={() => setDuoOnly(!duoOnly)}
+            onClick={() => changeListParams({ [PAIRING_URL_PARAMS.duoOnly]: duoOnly ? null : "true" })}
             title="Count only videos with just the two of them"
           >
             Duos only
           </FilterChip>
-          <FilterChip pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}>
+          <FilterChip
+            pressed={favoritesOnly}
+            onClick={() => changeListParams({ [PAIRING_URL_PARAMS.favoritesOnly]: favoritesOnly ? null : "true" })}
+          >
             <Heart aria-hidden="true" className="h-3 w-3" />
             Favorites
           </FilterChip>
@@ -292,19 +362,30 @@ export function PerformerPairingsPanel({ performer, onNavigate }: PerformerPairi
           </button>
         </div>
       ) : (
-        <RankedPairingsView
-          performerId={performer.id}
-          pairings={sorted}
-          duoOnly={duoOnly}
-          careerFirstYear={summary?.firstYear ?? null}
-          careerLastYear={summary?.lastYear ?? null}
-          selectedIds={selectedSet}
-          shownRows={shownRows}
-          onShowMore={showMore}
-          onToggleSelected={toggleSelected}
-          onPlay={playVideos}
-          onNavigate={onNavigate}
-        />
+        <div className="space-y-3">
+          {totalPages > 1 ? (
+            <nav aria-label="Co-star pages" className="flex flex-wrap items-center justify-center gap-1">
+              <PaginationControls page={page} totalPages={totalPages} goTo={goToPage} />
+            </nav>
+          ) : null}
+          <RankedPairingsView
+            performerId={performer.id}
+            pairings={pagePairings}
+            firstRank={(page - 1) * perPage + 1}
+            duoOnly={duoOnly}
+            careerFirstYear={summary?.firstYear ?? null}
+            careerLastYear={summary?.lastYear ?? null}
+            selectedIds={selectedSet}
+            onToggleSelected={toggleSelected}
+            onPlay={playVideos}
+            onNavigate={onNavigate}
+          />
+          {totalPages > 1 ? (
+            <nav aria-label="Co-star pages, bottom" className="flex flex-wrap items-center justify-center gap-1 py-2">
+              <PaginationControls page={page} totalPages={totalPages} goTo={goToPage} />
+            </nav>
+          ) : null}
+        </div>
       )}
 
       {lineupCoStars.length > 0 ? (

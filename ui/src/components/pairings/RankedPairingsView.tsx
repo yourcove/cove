@@ -1,16 +1,7 @@
 import { ArrowRight, Heart, Play } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import type { PerformerPairingVideo } from "../../api/types";
-import {
-  PAIRING_ROWS_FIRST,
-  PAIRING_ROWS_STEP,
-  PAIRING_TIERS,
-  pairingTier,
-  sharedVideosRoute,
-  type Pairing,
-  type PairingTier,
-  type ShownRows,
-} from "../../utils/performerPairings";
+import { sharedVideosRoute, type Pairing } from "../../utils/performerPairings";
 import { PerformerGenderIcon } from "../EntityCards";
 import {
   CareerStrip,
@@ -29,15 +20,14 @@ const ROW_ACTION_CLASS =
 
 interface RankedPairingsViewProps {
   performerId: number;
-  /** Sorted, and already narrowed by every filter. */
+  /** The current page of the sorted list, already narrowed by every filter. */
   pairings: Pairing[];
+  /** The rank of the first co-star on this page, so the list numbers on from the previous page. */
+  firstRank: number;
   duoOnly: boolean;
   careerFirstYear: number | null;
   careerLastYear: number | null;
   selectedIds: ReadonlySet<number>;
-  /** Rows shown per tier beyond the first ones, kept in the URL so Back returns to the same place. */
-  shownRows: ShownRows;
-  onShowMore: (tier: PairingTier) => void;
   onToggleSelected: (coStarId: number) => void;
   onPlay: (videos: PerformerPairingVideo[]) => void;
   onNavigate: PairingNavigate;
@@ -210,71 +200,32 @@ const PairingRow = memo(function PairingRow({
 export function RankedPairingsView({
   performerId,
   pairings,
+  firstRank,
   duoOnly,
   careerFirstYear,
   careerLastYear,
   selectedIds,
-  shownRows,
-  onShowMore,
   onToggleSelected,
   onPlay,
   onNavigate,
 }: RankedPairingsViewProps) {
-  const byTier = useMemo(() => {
-    const groups = new Map<PairingTier, Pairing[]>();
-    for (const pairing of pairings) {
-      const tier = pairingTier(pairing);
-      const group = groups.get(tier);
-      if (group) group.push(pairing);
-      else groups.set(tier, [pairing]);
-    }
-    return groups;
-  }, [pairings]);
-
   return (
-    <div className="space-y-8">
-      {PAIRING_TIERS.map((tier) => {
-        const tierPairings = byTier.get(tier.value) ?? [];
-        if (tierPairings.length === 0) return null;
-        const shown = tierPairings.slice(0, shownRows[tier.value] ?? PAIRING_ROWS_FIRST);
-        const remaining = tierPairings.length - shown.length;
-        const headingId = `appears-with-${tier.value}`;
-        return (
-          <section key={tier.value} aria-labelledby={headingId} className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h3 id={headingId} className="text-lg font-bold text-foreground">
-                {tier.title}
-              </h3>
-              <span className="text-sm text-muted">
-                {tier.rule} · {plural(tierPairings.length, "co-star", "co-stars")}
-              </span>
-            </div>
-            {shown.map((pairing) => (
-              <PairingRow
-                key={pairing.coStar.id}
-                performerId={performerId}
-                pairing={pairing}
-                duoOnly={duoOnly}
-                selected={selectedIds.has(pairing.coStar.id)}
-                onToggleSelected={onToggleSelected}
-                onPlay={onPlay}
-                onNavigate={onNavigate}
-                careerFirstYear={careerFirstYear}
-                careerLastYear={careerLastYear}
-              />
-            ))}
-            {remaining > 0 ? (
-              <button
-                type="button"
-                onClick={() => onShowMore(tier.value)}
-                className="self-start rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:border-accent/60"
-              >
-                Show {Math.min(remaining, PAIRING_ROWS_STEP)} more {tier.noun} ({remaining} left)
-              </button>
-            ) : null}
-          </section>
-        );
-      })}
-    </div>
+    <ol aria-label="Co-stars" start={firstRank} className="flex flex-col gap-3">
+      {pairings.map((pairing) => (
+        <li key={pairing.coStar.id}>
+          <PairingRow
+            performerId={performerId}
+            pairing={pairing}
+            duoOnly={duoOnly}
+            selected={selectedIds.has(pairing.coStar.id)}
+            onToggleSelected={onToggleSelected}
+            onPlay={onPlay}
+            onNavigate={onNavigate}
+            careerFirstYear={careerFirstYear}
+            careerLastYear={careerLastYear}
+          />
+        </li>
+      ))}
+    </ol>
   );
 }

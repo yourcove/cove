@@ -17,8 +17,12 @@ export const PAIRING_URL_PARAMS = {
   favoritesOnly: "awFav",
   query: "awQ",
   lineup: "awLineup",
-  shownRows: "awShow",
+  page: "awPage",
+  perPage: "awPerPage",
 } as const;
+
+/** Co-stars shown per page unless the viewer picks another page size. */
+export const PAIRING_PER_PAGE_DEFAULT = 20;
 
 /** The performer page's key for the Appears With tab. */
 export const PAIRING_TAB_KEY = "appearsWith";
@@ -45,25 +49,19 @@ export type PairingTier = "frequent" | "recurring" | "once";
 export const PAIRING_TIERS: ReadonlyArray<{
   value: PairingTier;
   label: string;
-  title: string;
   rule: string;
-  noun: string;
 }> = [
   {
     value: "frequent",
     label: "Frequent",
-    title: "Frequent partners",
     rule: `${FREQUENT_PAIRING_MIN} or more videos together`,
-    noun: "frequent partners",
   },
   {
     value: "recurring",
     label: "Recurring",
-    title: "Recurring",
     rule: `2 to ${FREQUENT_PAIRING_MIN - 1} videos together`,
-    noun: "recurring co-stars",
   },
-  { value: "once", label: "One-time", title: "One-time", rule: "1 video together", noun: "one-time co-stars" },
+  { value: "once", label: "One-time", rule: "1 video together" },
 ];
 
 export function isPairingTier(value: string | null | undefined): value is PairingTier {
@@ -237,29 +235,10 @@ export function filterPairings(pairings: readonly Pairing[], filters: PairingFil
   );
 }
 
-/** Rows each tier shows at first, and how many more each "Show more" adds. */
-export const PAIRING_ROWS_FIRST = 10;
-export const PAIRING_ROWS_STEP = 40;
-
-export type ShownRows = Partial<Record<PairingTier, number>>;
-
-/** Rows shown per tier, as the URL keeps them ("once:50,recurring:90"); tiers left out show the first rows. */
-export function parseShownRows(value: string | null | undefined): ShownRows {
-  const shown: ShownRows = {};
-  for (const part of (value ?? "").split(",")) {
-    const [tier, count] = part.split(":");
-    const rows = Number(count);
-    if (isPairingTier(tier) && Number.isInteger(rows) && rows > PAIRING_ROWS_FIRST) shown[tier] = rows;
-  }
-  return shown;
-}
-
-export function formatShownRows(shown: ShownRows): string | null {
-  const parts = PAIRING_TIERS.flatMap(({ value }) => {
-    const rows = shown[value];
-    return rows != null && rows > PAIRING_ROWS_FIRST ? [`${value}:${rows}`] : [];
-  });
-  return parts.length > 0 ? parts.join(",") : null;
+/** A page number or page size from the URL; anything but a positive whole number reads as null. */
+export function parsePositiveInt(value: string | null | undefined): number | null {
+  const parsed = Number(value);
+  return value && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /** A comma-separated list of performer ids from the URL, in order and without repeats. */

@@ -4,11 +4,10 @@ import {
   buildPairings,
   facetPairings,
   filterPairings,
-  formatShownRows,
   lineupVideos,
   pairingTier,
   parseIdList,
-  parseShownRows,
+  parsePositiveInt,
   sharedVideosRoute,
   sortPairings,
   summarizePairings,
@@ -203,11 +202,10 @@ describe("parseIdList", () => {
   });
 });
 
-describe("shown rows", () => {
-  it("reads and writes the rows shown per tier, leaving out tiers at their first rows", () => {
-    expect(parseShownRows("once:50,frequent:10,bogus:90,recurring:x")).toEqual({ once: 50 });
-    expect(formatShownRows({ once: 50, recurring: 90, frequent: 10 })).toBe("recurring:90,once:50");
-    expect(formatShownRows({})).toBeNull();
+describe("paging", () => {
+  it("reads a page or page size only when it is a positive whole number", () => {
+    expect(parsePositiveInt("3")).toBe(3);
+    for (const value of [null, undefined, "", "0", "-2", "1.5", "x"]) expect(parsePositiveInt(value)).toBeNull();
   });
 });
 
