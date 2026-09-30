@@ -11,7 +11,8 @@ public sealed class VideoSearchQueryShapeTests
     public void ResolvedTagSearch_UsesIndexedArraysWithoutRepeatedRelationshipSubqueries()
     {
         using var db = CreatePostgresContext();
-        var search = new VideoTextSearch(db, "needle", [new("needle", [11], [11], [22], [22], [], [], [], [], [], [])]);
+        var search = new VideoTextSearch(db, "needle", [new("needle", [11], [11], [22], [22], [], [], [], [], [], [])],
+            pathVideos: [33]);
         var sql = search.Order(search.Apply(db.Videos))
             .Select(video => video.Id)
             .ToQueryString();
@@ -20,9 +21,59 @@ public sealed class VideoSearchQueryShapeTests
         Assert.DoesNotContain("FROM video_tags AS", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("FROM video_performers AS", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("ts_rank", sql, StringComparison.Ordinal);
-        Assert.Contains("FROM files AS", sql, StringComparison.Ordinal);
+        Assert.Contains("v.\"Id\" = ANY (", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM files AS", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("SELECT DISTINCT", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"Captions\",", sql, StringComparison.Ordinal);
+    }
+
+    // Past the candidate cap the search checks each video's files with a correlated EXISTS. An
+    // uncorrelated `Id IN (files subquery)` beside the OR was planned as a per-row scan of every
+    // matching file and did not finish on a two-million-video library.
+    [Fact]
+    public void PathFallback_WithoutResolvedCandidates_ChecksEachVideosFiles()
+    {
+        using var db = CreatePostgresContext();
+        var search = new VideoTextSearch(db, "red blue", [
+            new("red", [], [], [], [], [], [], [], [], [], []),
+            new("blue", [], [], [], [], [], [], [], [], [], []),
+        ]);
+        var sql = search.Apply(db.Videos).Select(video => video.Id).ToQueryString();
+
+        Assert.Contains("FROM files AS", sql, StringComparison.Ordinal);
+        Assert.Contains("EXISTS (", sql, StringComparison.Ordinal);
+        Assert.Contains("f.\"VideoId\" = v.\"Id\"", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("v.\"Id\" IN (", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GalleryAndGroupMatches_TestResolvedVideoIdsWithoutLinkTableSubqueries()
+    {
+        using var db = CreatePostgresContext();
+        var galleryMembers = new[] { (Owner: 31, Video: 101), (Owner: 32, Video: 102) }.ToLookup(row => row.Owner, row => row.Video);
+        var groupMembers = new[] { (Owner: 41, Video: 201), (Owner: 42, Video: 202) }.ToLookup(row => row.Owner, row => row.Video);
+        var search = new VideoTextSearch(db, "needle", [new("needle", [], [], [], [], [], [], [31], [31, 32], [41], [41, 42])],
+            galleryMembers, groupMembers);
+        var sql = search.Order(search.Apply(db.Videos))
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains("v.\"Id\" = ANY (", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM video_galleries AS", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM group_items AS", sql, StringComparison.Ordinal);
+    }
+
+    // Above VideoTextSearch.MemberSubqueryThreshold the member ids are not loaded; the search then tests
+    // the link tables as it did before, which is slower but bounded in parameter size.
+    [Fact]
+    public void GalleryAndGroupMatches_WithoutResolvedMembers_TestTheLinkTables()
+    {
+        using var db = CreatePostgresContext();
+        var search = new VideoTextSearch(db, "needle", [new("needle", [], [], [], [], [], [], [31], [31, 32], [41], [41, 42])]);
+        var sql = search.Apply(db.Videos).Select(video => video.Id).ToQueryString();
+
+        Assert.Contains("FROM video_galleries AS", sql, StringComparison.Ordinal);
+        Assert.Contains("FROM group_items AS", sql, StringComparison.Ordinal);
     }
 
     [Fact]
