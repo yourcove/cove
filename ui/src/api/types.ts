@@ -2305,6 +2305,8 @@ export interface UiConfig {
   playerVideoStartMinDuration: number;
   continuePlaylistDefault: boolean;
   showAbLoopControls: boolean;
+  /** Typing a search switches a list to relevance order. */
+  sortSearchesByRelevance: boolean;
   soundOnPreview: boolean;
   previewSegmentDuration: number;
   previewSegments: number;

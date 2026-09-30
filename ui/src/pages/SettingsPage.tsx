@@ -508,6 +508,9 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
 const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "my-appearance-theme": [
     "appearance",
+    "search",
+    "relevance",
+    "sort",
     "language",
     "title",
     "favicon",
@@ -3088,6 +3091,19 @@ export function SettingsPage() {
                       }
                     />
                   </div>
+                </SectionCard>
+              )}
+
+              {resolvedActiveTab === "my-appearance-theme" && (
+                <SectionCard title="Search" description="How lists behave when you type a search.">
+                  <CheckboxLabel
+                    label="Sort searches by relevance"
+                    description="Changes the sorting to Relevance when you start a text search, so the best-matching results come first no matter which sort the list used before. The downside is that this requires additional computing, which can be slow for broad searches on a very large library. When this is off, Relevance stays available in the sort menu."
+                    checked={draft.ui.sortSearchesByRelevance ?? true}
+                    onChange={(checked) =>
+                      updateDraft((d) => ({ ...d, ui: { ...d.ui, sortSearchesByRelevance: checked } }))
+                    }
+                  />
                 </SectionCard>
               )}
 

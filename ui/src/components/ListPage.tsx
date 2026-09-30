@@ -80,6 +80,7 @@ import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchCont
 import { PaginationControls } from "./PaginationControls";
 import { MultiSortControl } from "./MultiSortControl";
 import { getWallColumnCountFromSizeLevel, getWallSizeLevelFromColumnCount, WallSizeControl } from "./WallSizeControl";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -419,6 +420,7 @@ export function ListPage({
 
   const perPage = filter.perPage ?? 25;
   const previousSearchSortRef = useRef<PreviousSearchSort | null>(null);
+  const switchToRelevance = useOptionalAppConfig()?.config?.ui.sortSearchesByRelevance ?? true;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const page = filter.page ?? 1;
   const resolvedLoadState =
@@ -646,11 +648,12 @@ export function ListPage({
         listEntityType,
         sortOptions,
         previousSearchSort: previousSearchSortRef.current,
+        switchToRelevance,
       });
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions],
+    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions, switchToRelevance],
   );
 
   const goTo = useCallback(

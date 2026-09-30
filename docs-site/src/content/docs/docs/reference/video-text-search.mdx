@@ -12,7 +12,7 @@ Video text search is the built-in **Text** mode on the **Videos** page. Permissi
   alt="Videos page with the video text-search field beside the Date sort control"
   width={1700}
   height={1300}
-  caption="This page describes the Videos-page search field. Entering its first query makes Relevance available and selects it in the adjacent sort control."
+  caption="This page describes the Videos-page search field. Entering its first query makes Relevance available and, by default, selects it in the adjacent sort control."
 />
 
 The tables below describe this built-in **Text** query. [Other video search paths](#other-video-search-paths) compares global, visual, compilation-inclusive, and metadata-provider searches.
@@ -75,7 +75,9 @@ If the input contains no letters or digits, text search does not narrow the cand
 
 ## Relevance order
 
-**Relevance is available only while the search field contains a query.** Starting a query automatically adds and selects **Relevance**. Clearing the query removes it from the sort options.
+**Relevance is available only while the search field contains a query.** Starting a query adds **Relevance** and, by default, selects it. Clearing the query removes it from the sort options.
+
+**Settings → Interface → Sort searches by relevance** controls that selection for the whole library. Turn it off to keep the list's current sort when a query starts; **Relevance** can still be chosen from the sort control. Relevance scores every matching video before it can show the first page, so on a very large library a broad search is much faster in another order, such as **Title** or **Updated At**; see [Sort order and search speed](#sort-order-and-search-speed). The setting reaches users who can read system settings; other users keep the default.
 
 **Use Relevance for broad searches.** Matching and ordering are separate. With any other sort, match quality has no effect on position, so exact or otherwise strong matches can appear anywhere in the result set, including on a later page.
 
@@ -104,11 +106,27 @@ Equal scores are ordered by newest update, then lowest video ID. Search does not
 | Videos-page action | Sort result |
 | --- | --- |
 | Search field is empty | Do not offer **Relevance** as a sort option. |
-| Start a query while the search field is empty | Add and select **Relevance**, then remember the previous sort. |
+| Start a query while the search field is empty | Add **Relevance**. With **Sort searches by relevance** on (the default), select it and remember the previous sort; with it off, keep the current sort. |
 | Edit an existing query | Keep the current sort. |
 | Choose another primary sort | Keep the matching set and order it by the selected sort. |
 | Clear a query while **Relevance** is active | Remove **Relevance** and restore the remembered pre-query sort. If the current page did not start the query, such as for a direct link, use **Updated At** descending. |
 | Open a saved or linked query with another explicit sort | Use that explicit sort. |
+
+## Sort order and search speed
+
+On small and medium libraries every sort returns search results quickly. On a very large library, the sort decides how much work the first page takes, and the best choice depends on how many videos the query matches:
+
+- **Broad queries**, which match a large share of the library, are fastest in **Updated At**, **Title**, or **Created At** order. Cove reads videos in that order and stops once it has a page of matches. **Date** and **Relevance** must collect and order every match before showing the first page.
+- **Narrow queries**, which match a few hundred videos, are fastest in **Relevance** or **Date** order, because there are few matches to order. In **Title**, **Created At**, or **Updated At** order, Cove can read through a large part of the library before it finds a page of matches.
+
+The following times were measured for the first page of 40 videos on a library of about two million videos. Times depend on the server and the library, so treat them as a comparison between sorts rather than as expected values.
+
+| Query | Updated At | Title | Created At | Date | Relevance |
+| --- | --- | --- | --- | --- | --- |
+| Broad, matching a large share of the library | 0.6 s | 2 s | 2 s | 7 s | 17 s |
+| Narrow, matching a few hundred videos | 6 s | 3 s | 6 s | 0.5 s | 0.5 s |
+
+The Videos page counts matches separately from loading the page, so the total and the duration and size summary can appear a few seconds after the results. Other sorts were not measured.
 
 ## Other video search paths
 

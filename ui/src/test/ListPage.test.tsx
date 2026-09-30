@@ -2134,6 +2134,37 @@ describe("ListPage active filter chips", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the list's sort for a new search when the library turns relevance sorting off", async () => {
+    vi.useFakeTimers();
+    appConfigMock.optional = { config: { ui: { sortSearchesByRelevance: false } } };
+    const onFilterChange = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filter={{ page: 3, perPage: 40, sort: "date", direction: "desc" }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[{ value: "date", label: "Date" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search list" }), { target: { value: "needle" } });
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(onFilterChange.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ q: "needle", page: 1, sort: "date", direction: "desc" }),
+    );
+    vi.useRealTimers();
+  });
+
   it("restores a valid fallback when clearing a deep-linked relevance search", () => {
     const queryClient = new QueryClient();
     const onFilterChange = vi.fn();
