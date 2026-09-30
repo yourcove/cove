@@ -195,6 +195,58 @@ public class ScanServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("ftyp mdat moov", 1)]
+    [InlineData("ftyp mdat moov", 7)]
+    [InlineData("ftyp moov mdat", 4)]
+    [InlineData("ftyp moov mdat64", 4)]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsShortNonzeroTailAfterCompleteMovieAndMediaData(string layout, int tailLength)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, Enumerable.Repeat((byte)0xab, tailLength).ToArray());
+
+        Assert.Null(failure);
+    }
+
+    [Theory]
+    // A copy of a file whose moov follows mdat, cut inside the moov header.
+    [InlineData("ftyp mdat")]
+    [InlineData("ftyp moov")]
+    // A fragmented copy cut inside the header of a later fragment.
+    [InlineData("ftyp moov moof mdat")]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsNonzeroTailWithoutCompleteUnfragmentedMovie(string layout)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, [0, 0, 1, 0, (byte)'m', (byte)'o', (byte)'o']);
+
+        Assert.Contains("partial box header", failure);
+    }
+
+    private static async Task<string?> ValidateIsoBoxesWithTailAsync(string layout, byte[] tail)
+    {
+        var bytes = new List<byte>();
+        foreach (var type in layout.Split(' '))
+        {
+            if (type == "mdat64")
+            {
+                // Extended-size box: size32 == 1 followed by the 64-bit size after the type.
+                bytes.AddRange([0, 0, 0, 1, .. "mdat"u8, 0, 0, 0, 0, 0, 0, 0, 16]);
+                continue;
+            }
+            bytes.AddRange([0, 0, 0, 8, .. System.Text.Encoding.ASCII.GetBytes(type)]);
+        }
+        bytes.AddRange(tail);
+
+        var path = Path.Combine(Path.GetTempPath(), $"cove-iso-tail-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes.ToArray(), TestContext.Current.CancellationToken);
+            return await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task ValidateDeclaredContainerLengthAsync_RejectsPathologicalIsoBoxCounts()
     {

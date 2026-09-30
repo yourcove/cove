@@ -535,6 +535,9 @@ public sealed class ScanFileValidator(
         var header = new byte[16];
         long offset = 0;
         var boxes = 0;
+        var hasMovie = false;
+        var hasMediaData = false;
+        var isFragmented = false;
 
         while (offset < length)
         {
@@ -549,6 +552,11 @@ public sealed class ScanFileValidator(
                 // Some otherwise valid writers align the completed container with a few zero bytes.
                 // FFprobe still validates the streams after this structural preflight.
                 if (boxes > 0 && header.AsSpan(0, tailLength).IndexOfAnyExcept((byte)0) < 0)
+                    return null;
+                // Some exports end in a few non-zero bytes instead. After complete movie metadata and media data,
+                // a cut there could only drop trailing ancillary boxes. Fragmented files keep the strict check
+                // because a tail there may be the start of a missing fragment.
+                if (hasMovie && hasMediaData && !isFragmented)
                     return null;
                 return "the ISO media container ends in a partial box header";
             }
@@ -583,6 +591,10 @@ public sealed class ScanFileValidator(
             if (boxSize > length - offset)
                 return "the ISO media container is shorter than a declared box";
 
+            var boxType = header.AsSpan(4, 4);
+            hasMovie |= boxType.SequenceEqual("moov"u8);
+            hasMediaData |= boxType.SequenceEqual("mdat"u8);
+            isFragmented |= boxType.SequenceEqual("moof"u8);
             offset += boxSize;
             boxes++;
         }
