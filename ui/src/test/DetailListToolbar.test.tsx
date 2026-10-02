@@ -8,6 +8,13 @@ import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 
+const appConfigMock = vi.hoisted(() => ({ optional: null as unknown }));
+
+vi.mock("../state/AppConfigContext", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../state/AppConfigContext")>()),
+  useOptionalAppConfig: () => appConfigMock.optional,
+}));
+
 vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
   useRegisterKeyboardActionHandler: vi.fn(),
 }));
@@ -850,6 +857,36 @@ describe("DetailListToolbar", () => {
       expect(
         within(screen.getByRole("combobox", { name: "Primary sort" })).queryByRole("option", { name: "Relevance" }),
       ).not.toBeInTheDocument();
+    });
+
+    it("keeps the subview's sort for a new search when the library turns relevance sorting off", () => {
+      appConfigMock.optional = { config: { ui: { sortSearchesByRelevance: false } } };
+      const onFilterChange = vi.fn();
+      try {
+        renderWithQueryClient(
+          <DetailListToolbar
+            filter={{ page: 3, perPage: 24, sort: "name", direction: "asc" }}
+            onFilterChange={onFilterChange}
+            totalCount={10}
+            sortOptions={[{ value: "name", label: "Name" }]}
+            filterMode="performers"
+            showSearch
+          />,
+        );
+
+        fireEvent.change(screen.getByRole("textbox", { name: "Search list" }), { target: { value: "needle" } });
+        fireEvent.submit(screen.getByRole("textbox", { name: "Search list" }).closest("form")!);
+
+        expect(onFilterChange.mock.lastCall?.[0]).toEqual({
+          page: 1,
+          perPage: 24,
+          q: "needle",
+          sort: "name",
+          direction: "asc",
+        });
+      } finally {
+        appConfigMock.optional = null;
+      }
     });
 
     it("pins descending and keeps the option listed when relevance is chosen from the dropdown", () => {

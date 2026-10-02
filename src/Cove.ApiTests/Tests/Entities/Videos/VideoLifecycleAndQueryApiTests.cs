@@ -143,6 +143,34 @@ public sealed class VideoLifecycleAndQueryApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("GET", "/api/videos")]
+    [CoversEndpoint("POST", "/api/videos/find")]
+    public async Task GivenMatchingVideos_WhenListedWithSkipCount_ThenThePageIsReturnedUncounted()
+    {
+        // Arrange
+        var token = $"skipcount{Guid.NewGuid():N}";
+        var first = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"A {token}").Build(), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"B {token}").Build(), TestContext.Current.CancellationToken);
+        var request = new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [first.Id, second.Id] },
+            FindFilter = new FindFilter { Sort = "title", SkipCount = true },
+        };
+
+        // Act
+        var counted = await AsUser().ListVideosAsync($"q={token}&sort=title", TestContext.Current.CancellationToken);
+        var uncounted = await AsUser().ListVideosAsync($"q={token}&sort=title&skipCount=true", TestContext.Current.CancellationToken);
+        var uncountedPost = await AsUser().FindVideosAsync(request, TestContext.Current.CancellationToken);
+
+        // Assert
+        counted.TotalCount.Should().Be(2);
+        uncounted.TotalCount.Should().Be(FindFilter.UncountedTotal);
+        uncounted.Items.Select(video => video.Id).Should().Equal(first.Id, second.Id);
+        uncountedPost.TotalCount.Should().Be(FindFilter.UncountedTotal);
+        uncountedPost.Items.Select(video => video.Id).Should().Equal(first.Id, second.Id);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/aggregate")]
     public async Task GivenSelectedVideos_WhenAggregated_ThenCountDurationAndFileSizeAreScopedToSelection()
     {

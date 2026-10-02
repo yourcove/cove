@@ -45,6 +45,17 @@ describe("formatFileSize", () => {
     expect(formatFileSize(500)).toBe("500 B");
   });
 
+  // Library totals on the Videos page reach petabytes; a larger size must still carry a unit.
+  it("formats petabytes and keeps the largest unit beyond it", () => {
+    expect(formatFileSize(2 * 1024 ** 5)).toBe("2 PB");
+    expect(formatFileSize(3 * 1024 ** 6)).toBe("3 EB");
+    expect(formatFileSize(2048 * 1024 ** 6)).toBe("2048 EB");
+  });
+
+  it("formats fractional byte counts as bytes", () => {
+    expect(formatFileSize(0.5)).toBe("0.5 B");
+  });
+
   it("formats kilobytes", () => {
     expect(formatFileSize(1024)).toBe("1 KB");
   });

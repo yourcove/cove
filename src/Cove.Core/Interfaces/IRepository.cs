@@ -188,6 +188,20 @@ public class FindFilter
     public Cove.Core.Enums.SortDirection Direction { get; set; } = Cove.Core.Enums.SortDirection.Asc;
     public List<SortClause>? Sorts { get; set; }
     public int? Seed { get; set; }
+
+    /// <summary>
+    /// Returns a page without counting every match. Counting reads all matching rows, so a caller that
+    /// already has the total (the video list takes it from the aggregate request) can skip it. Only the
+    /// video list honors this, and it may still count (count-only requests, extension criteria), so the
+    /// total is either <see cref="UncountedTotal"/> or a real count. Other lists ignore it.
+    /// </summary>
+    public bool SkipCount { get; set; }
+
+    /// <summary>
+    /// The total a list reports when <see cref="SkipCount"/> left it uncounted. Compiled into callers, so
+    /// the value never changes.
+    /// </summary>
+    public const int UncountedTotal = -1;
 }
 
 // Criterion modifier for advanced filters

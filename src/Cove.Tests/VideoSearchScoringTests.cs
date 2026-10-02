@@ -23,7 +23,12 @@ public sealed class VideoSearchScoringTests
         var tagged = new Video { Title = "Same title", Details = "Private cue", VideoTags = [new() { Tag = hiddenTag }] };
         var recent = new Video { Title = "Same title", Details = "Private cue", UpdatedAt = DateTime.UtcNow.AddDays(1) };
         var tagOnly = new Video { Title = "Unrelated", VideoTags = [new() { Tag = hiddenTag }] };
-        db.Videos.AddRange(tagged, recent, tagOnly);
+        var galleryOnly = new Video { Title = "Unrelated", VideoGalleries = [new() { Gallery = new Gallery { Title = "Private cue" } }] };
+        var groupOnly = new Video { Title = "Unrelated" };
+        var hiddenGroup = new Group { Name = "Private cue" };
+        db.AddRange(tagged, recent, tagOnly, galleryOnly, groupOnly, hiddenGroup);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.Add(new GroupItem { GroupId = hiddenGroup.Id, Kind = GroupItemKind.Video, HostType = "video", HostId = groupOnly.Id, VideoId = groupOnly.Id });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var principal = new CurrentPrincipalAccessor();
         principal.Set(new CovePrincipal { UserId = 1, Username = "search-reader", Kind = PrincipalKind.User,
@@ -116,6 +121,163 @@ public sealed class VideoSearchScoringTests
         var filtered = await repository.FindAsync(new VideoFilter { Ids = [excluded.Id] }, new FindFilter { Q = "1f" }, TestContext.Current.CancellationToken);
         Assert.Empty(filtered.Items);
         Assert.Equal(0, filtered.TotalCount);
+    }
+
+    // Past the member cap the search stops resolving gallery and group members and tests the link
+    // tables instead, which must still find every member.
+    [Fact]
+    public async Task GalleryAndGroupNames_PastTheResolveCap_StillMatchEveryMember()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var gallery = new Gallery { Title = "Orchard" };
+        var group = new Group { Name = "Orchard Season" };
+        var inGallery = Enumerable.Range(0, 3).Select(index => new Video { Title = $"Gallery member {index}", VideoGalleries = [new() { Gallery = gallery }] }).ToArray();
+        var inGroup = Enumerable.Range(0, 3).Select(index => new Video { Title = $"Group member {index}" }).ToArray();
+        db.AddRange([group, .. inGallery, .. inGroup, new Video { Title = "Unrelated" }]);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.AddRange(inGroup.Select((video, index) => new GroupItem { GroupId = group.Id, OrderIndex = index, Kind = GroupItemKind.Video, HostType = "video", HostId = video.Id, VideoId = video.Id }));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var search = await VideoTextSearch.CreateAsync(db, "orchard", TestContext.Current.CancellationToken, memberSubqueryThreshold: 2);
+        var query = search.Apply(db.Videos.AsNoTracking());
+        var ids = await query.Select(video => video.Id).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains("video_galleries", query.ToQueryString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(inGallery.Concat(inGroup).Select(video => video.Id).Order(), ids.Order());
+    }
+
+    [Fact]
+    public async Task GalleryAndGroupNames_MatchMemberVideos_AndRankExactNamesFirst()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var exactGallery = new Gallery { Title = "Orchard" };
+        var partialGroup = new Group { Name = "Orchard Season" };
+        var inGallery = new Video { Title = "First", VideoGalleries = [new() { Gallery = exactGallery }] };
+        var inGroup = new Video { Title = "Second", UpdatedAt = DateTime.UtcNow.AddDays(1) };
+        var unrelated = new Video { Title = "Unrelated" };
+        db.AddRange(partialGroup, inGallery, inGroup, unrelated);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.Add(new GroupItem { GroupId = partialGroup.Id, Kind = GroupItemKind.Video, HostType = "video", HostId = inGroup.Id, VideoId = inGroup.Id });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new VideoRepository(db).FindAsync(null, new FindFilter { Q = "orchard", Sort = "relevance" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal(new[] { inGallery.Id, inGroup.Id }, result.Items.Select(video => video.Id));
+    }
+
+    // Past the path candidate cap the search tests the files table directly, which must still find
+    // every video with a matching file.
+    [Fact]
+    public async Task PathFallback_PastTheCandidateCap_StillMatchesEveryVideo()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var folder = new Folder { Path = "/library" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var matching = Enumerable.Range(0, 3).Select(index => new Video
+        {
+            Title = $"Match {index}",
+            Files = { new VideoFile { Basename = $"abcNeedle{index}.mp4", Path = $"/library/abcNeedle{index}.mp4", ParentFolderId = folder.Id, Format = "mp4" } },
+        }).ToArray();
+        db.Videos.AddRange([.. matching, new Video { Title = "Unrelated" }]);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var search = await VideoTextSearch.CreateAsync(db, "needle", TestContext.Current.CancellationToken, pathSubqueryThreshold: 2);
+        var query = search.Apply(db.Videos.AsNoTracking());
+        var ids = await query.Select(video => video.Id).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Matches("FROM \"?files\"?", query.ToQueryString());
+        Assert.Equal(matching.Select(video => video.Id).Order(), ids.Order());
+    }
+
+    [Fact]
+    public async Task PathFallback_MatchesInsidePathSegments()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var folder = new Folder { Path = "/library" };
+        var source = new Video
+        {
+            Title = "Source",
+            Files = { new VideoFile { Basename = "abcNeedle123.mp4", Path = "/library/abcNeedle123.mp4", ParentFolder = folder, Format = "mp4" } },
+        };
+        var other = new Video
+        {
+            Title = "Other",
+            Files = { new VideoFile { Basename = "haystack.mp4", Path = "/library/haystack.mp4", ParentFolder = folder, Format = "mp4" } },
+        };
+        db.Videos.AddRange(source, other);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new VideoRepository(db).FindAsync(null, new FindFilter { Q = "needle" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(source.Id, Assert.Single(result.Items).Id);
+        Assert.Equal(1, result.TotalCount);
+    }
+
+    // Sub-videos inherit their parent's FileSearchText, which SQLite's substring text match
+    // already searches; only PostgreSQL shows that the path fallback itself excludes them.
+    [Fact(SkipUnless = nameof(UsesPostgres), Skip = "Lexeme-based text matching requires PostgreSQL.")]
+    public async Task PathFallback_ExcludesSubVideosOfTheMatchingFile()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var folder = new Folder { Path = "/library" };
+        var source = new Video
+        {
+            Title = "Source",
+            Files = { new VideoFile { Basename = "abcNeedle123.mp4", Path = "/library/abcNeedle123.mp4", ParentFolder = folder, Format = "mp4" } },
+        };
+        db.Videos.Add(source);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        // Sub-video creation copies the source file summary, as VideosController does.
+        db.Videos.Add(new Video { Title = "Clip", ParentVideoId = source.Id, ClipStartSec = 1, ClipEndSec = 2, FileSearchText = source.FileSearchText });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new VideoRepository(db).FindAsync(null, new FindFilter { Q = "needle" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(source.Id, Assert.Single(result.Items).Id);
+        Assert.Equal(1, result.TotalCount);
+    }
+
+    // SQLite's text match is itself a substring test over all paths, so only PostgreSQL shows
+    // the path fallback's same-file rule.
+    [Fact(SkipUnless = nameof(UsesPostgres), Skip = "Lexeme-based text matching requires PostgreSQL.")]
+    public async Task PathFallback_RequiresEveryTermInOneFile()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var folder = new Folder { Path = "/library" };
+        var together = new Video
+        {
+            Title = "Together",
+            Files = { new VideoFile { Basename = "xxredxx_yybluey.mp4", Path = "/library/xxredxx_yybluey.mp4", ParentFolder = folder, Format = "mp4" } },
+        };
+        var split = new Video
+        {
+            Title = "Split",
+            Files =
+            {
+                new VideoFile { Basename = "xxredxx.mp4", Path = "/library/xxredxx.mp4", ParentFolder = folder, Format = "mp4" },
+                new VideoFile { Basename = "yybluey.mp4", Path = "/library/yybluey.mp4", ParentFolder = folder, Format = "mp4" },
+            },
+        };
+        db.Videos.AddRange(together, split);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new VideoRepository(db).FindAsync(null, new FindFilter { Q = "red blue" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(together.Id, Assert.Single(result.Items).Id);
+        Assert.Equal(1, result.TotalCount);
+
+        // The fallback past the candidate cap keeps the same-file rule.
+        var unresolved = await VideoTextSearch.CreateAsync(db, "red blue", TestContext.Current.CancellationToken, pathSubqueryThreshold: 0);
+        var fallbackIds = await unresolved.Apply(db.Videos.AsNoTracking()).Select(video => video.Id).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(together.Id, Assert.Single(fallbackIds));
     }
 
     private sealed class SearchFixture(System.Data.Common.DbConnection connection, CoveContext db) : IAsyncDisposable
