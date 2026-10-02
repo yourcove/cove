@@ -67,8 +67,6 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
 
   const enabledMenuItems = config?.interface.menuItems.length ? config.interface.menuItems : null;
 
-  const enabledSet = enabledMenuItems ? new Set(enabledMenuItems) : null;
-
   const extensionNavItems = routes
     .filter((r) => r.navItem)
     .map((r) => ({
@@ -106,7 +104,8 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
 
   const allNavItems = enabledMenuItems
     ? (enabledMenuItems.map((page) => allItemsMap.get(page)).filter(Boolean) as (
-        (typeof BUILT_IN_NAVIGATION_ITEMS)[number] | (typeof extensionNavItems)[number]
+        | (typeof BUILT_IN_NAVIGATION_ITEMS)[number]
+        | (typeof extensionNavItems)[number]
       )[])
     : Array.from(allItemsMap.values());
 

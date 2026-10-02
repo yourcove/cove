@@ -1,29 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, entityImages } from "../api/client";
-import type { EntityEngagement, FindFilter, Gallery, GalleryCreate, GalleryFilterCriteria } from "../api/types";
+import type { EntityEngagement, Gallery, GalleryCreate, GalleryFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { RatingBanner } from "../components/Rating";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
-import {
-  toggleOptionsFromEvent,
-  useMultiSelect,
-  type BoundMultiSelectToggleHandler,
-  type MultiSelectToggleHandler,
-} from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import {
-  FolderOpen,
-  Images as ImagesIcon,
-  Trash2,
-  Loader2,
-  Edit,
-  Box,
-  Film,
-  Check,
-  Search,
-  Download,
-} from "lucide-react";
+import { FolderOpen, Images as ImagesIcon, Box, Film } from "lucide-react";
 import {
   GalleryTile,
   PopoverButton,
@@ -48,7 +32,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
+import { canWriteEntity } from "../auth/visibility";
 import { CustomFieldsEditor } from "../components/shared";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
@@ -96,8 +80,6 @@ export function GalleriesPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canWriteGallery = canWriteEntity("gallery", hasPermission);
-  const canDeleteGallery = canDeleteEntity("gallery", hasPermission);
-  const canDownloadGallery = hasPermission("jobs.run") && canWriteGallery;
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const listData = useInfiniteListData<Gallery>({
@@ -142,12 +124,10 @@ export function GalleriesPage({ onNavigate }: Props) {
     queryFn: () => galleries.aggregate({ ids: selectedIdList }),
     enabled: selectedIdList.length > 0,
   });
-  const selectedGallery = selectedIds.size === 1 ? items.find((gallery) => selectedIds.has(gallery.id)) : undefined;
   const selectedDownloadTargets = useMemo(
     () => getUndownloadedSelectionItems(items, selectedIds),
     [items, selectedIds],
   );
-  const canDownloadSelectedGallery = canDownloadGallery && selectedDownloadTargets.length > 0;
   const batchDownloadStorageKey = getBatchDownloadOptionsStorageKey("page-galleries");
   const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() =>
     loadStoredBatchDownloadOptions(batchDownloadStorageKey),
@@ -176,7 +156,6 @@ export function GalleriesPage({ onNavigate }: Props) {
       queueBatchDownloads("Gallery", selectedDownloadTargets, options),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
       queryClient.invalidateQueries({ queryKey: ["galleries"] });
       window.alert(formatBatchDownloadSummary("gallery", result));
@@ -470,68 +449,6 @@ function GalleryWallCard({
   );
 }
 
-function GalleryListTable({
-  galleries: items,
-  engagementById,
-  onNavigate,
-  selectedIds,
-  onToggle,
-  selecting,
-}: {
-  galleries: Gallery[];
-  engagementById: ReadonlyMap<number, EntityEngagement>;
-  onNavigate: (r: any) => void;
-  selectedIds?: Set<number>;
-  onToggle?: MultiSelectToggleHandler;
-  selecting?: boolean;
-}) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted text-xs">
-          {selectedIds && <th className="w-8 py-2 px-3"></th>}
-          <th className="py-2 px-3">Title</th>
-          <th className="py-2 px-3">Studio</th>
-          <th className="py-2 px-3">Date</th>
-          <th className="py-2 px-3 text-right">Images</th>
-          <th className="py-2 px-3 text-right">Rating</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((g) => (
-          <tr
-            key={g.id}
-            onClick={(event) =>
-              selecting ? onToggle?.(g.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "gallery", id: g.id })
-            }
-            className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(g.id) ? "bg-accent/10" : ""}`}
-          >
-            {selectedIds && (
-              <td className="py-2 px-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(g.id)}
-                  onChange={() => {}}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle?.(g.id, toggleOptionsFromEvent(event));
-                  }}
-                  className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
-                />
-              </td>
-            )}
-            <td className="py-2 px-3 text-foreground">{getGalleryDisplayTitle(g)}</td>
-            <td className="py-2 px-3 text-secondary">{g.studioName ?? ""}</td>
-            <td className="py-2 px-3 text-secondary">{g.date ?? ""}</td>
-            <td className="py-2 px-3 text-secondary text-right">{g.imageCount}</td>
-            <td className="py-2 px-3 text-secondary text-right">{engagementById.get(g.id)?.rating ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 /* ── Gallery Create Modal ── */
 function GalleryCreateModal({
   open,
@@ -546,7 +463,7 @@ function GalleryCreateModal({
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    title: "",
+    title: open ? initialTitle.trim() : "",
     code: "",
     date: "",
     details: "",
@@ -556,9 +473,13 @@ function GalleryCreateModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialTitle, setPrevInitialTitle] = useState(initialTitle);
+  if (open !== prevOpen || initialTitle !== prevInitialTitle) {
+    setPrevOpen(open);
+    setPrevInitialTitle(initialTitle);
     if (open) setForm((current) => ({ ...current, title: initialTitle.trim() }));
-  }, [initialTitle, open]);
+  }
 
   const resetForm = () => {
     setForm({ title: "", code: "", date: "", details: "", photographer: "" });

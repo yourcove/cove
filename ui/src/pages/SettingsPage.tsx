@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as signalR from "@microsoft/signalr";
 import { formatDate } from "../components/shared";
 import {
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   BookOpen,
   Check,
@@ -38,7 +37,6 @@ import {
   FileText,
   Layers,
   UserCog,
-  AlertTriangle,
   X,
 } from "lucide-react";
 import {
@@ -49,7 +47,6 @@ import {
   database,
   plugins as pluginsApi,
   logs as logsApi,
-  tagGroups,
   auth as authApi,
   usersApi,
   entityEngagement,
@@ -66,7 +63,6 @@ import type {
 } from "../api/client";
 import type {
   JobInfo,
-  Plugin,
   RatingSystemOptions,
   RatingStarPrecision,
   RatingSystemType,
@@ -81,7 +77,6 @@ import type {
   CustomFieldJsonPathDefinition,
   CustomFieldJsonPathType,
   CustomFieldType,
-  DownloaderDescriptor,
   DownloaderPathOverrideConfig,
   DownloaderSiteCredentialConfig,
   DependencyInfo,
@@ -89,12 +84,11 @@ import type {
   ExtensionTutorialTopic,
   IdentifyDefaultsConfig,
   MetadataServerValidationResult,
-  TagGroup,
   UserTrackingPreferences,
 } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ExtensionLoadFailureDetails } from "../extensions/ExtensionLoadStatus";
-import { getScraperSiteKey } from "../components/videoScrapeUtils";
+import { DOWNLOADER_METADATA_PREFERENCE_ID, getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 import { DisplayProfilesSettingsPanel } from "./settings/DisplayProfilesSettingsPanel";
@@ -514,6 +508,9 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
 const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "my-appearance-theme": [
     "appearance",
+    "search",
+    "relevance",
+    "sort",
     "language",
     "title",
     "favicon",
@@ -618,6 +615,7 @@ const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   scanGenerateCovers: true,
   scanGeneratePreviews: false,
   scanGenerateSprites: false,
+  scanGenerateVrStereo: false,
   scanGeneratePhashes: false,
   scanGenerateMd5: false,
   scanGenerateThumbnails: false,
@@ -631,6 +629,7 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   thumbnails: true,
   previews: false,
   sprites: false,
+  vrStereo: false,
   segments: false,
   segmentThumbnails: false,
   segmentPreviews: false,
@@ -1408,7 +1407,7 @@ export function SettingsPage() {
   });
 
   const { data: availableScrapers = [] } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: canWriteSystemSettings && activeTab === "data-sources-scrapers",
   });
@@ -1416,7 +1415,9 @@ export function SettingsPage() {
   const { data: availableDownloaders = [] } = useQuery({
     queryKey: ["system-downloaders"],
     queryFn: system.listDownloaders,
-    enabled: canWriteSystemSettings && activeTab === "data-sources-downloader-paths",
+    enabled:
+      canWriteSystemSettings &&
+      (activeTab === "data-sources-downloader-paths" || activeTab === "data-sources-scrapers"),
   });
 
   const { data: availablePluginTasks = [] } = useQuery({
@@ -1488,6 +1489,17 @@ export function SettingsPage() {
       .filter((group) => group.scrapers.length > 1)
       .sort((left, right) => left.entityType.localeCompare(right.entityType) || left.site.localeCompare(right.site));
   }, [availableScrapers]);
+
+  // Entity types some downloader returns its own metadata for, so "use the downloader's metadata" is a real choice.
+  const inlineMetadataEntityTypes = useMemo(
+    () =>
+      new Set(
+        availableDownloaders
+          .filter((downloader) => downloader.capabilities.includes("InlineMetadata"))
+          .map((downloader) => downloader.supportedEntity.toLowerCase()),
+      ),
+    [availableDownloaders],
+  );
 
   const updateScraperPreference = (entityType: string, site: string, scraperId: string) => {
     updateDraft((current) => ({
@@ -1591,6 +1603,7 @@ export function SettingsPage() {
       return;
     }
 
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads the tab from window.location once extension settings paths are known; the URL cannot be read during render
     setActiveTab((current) => {
       const nextTab = readSettingsTabFromUrl(extensionSettingsPathAliases);
       return current === nextTab ? current : nextTab;
@@ -1616,7 +1629,7 @@ export function SettingsPage() {
       savingRef.current = true;
       queryClient.setQueriesData({ queryKey: ["system-config"] }, savedConfig);
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
-      queryClient.invalidateQueries({ queryKey: ["system-scrapers"] });
+      queryClient.invalidateQueries({ queryKey: ["scrapers"] });
       setError(null);
     },
     onError: (err: Error) => setError(err.message),
@@ -1677,7 +1690,7 @@ export function SettingsPage() {
     isLoading: scrapersLoading,
     error: scrapersError,
   } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: canWriteSystemSettings && activeTab === "data-sources-scrapers",
   });
@@ -1685,13 +1698,13 @@ export function SettingsPage() {
   const reloadScrapersMutation = useMutation({
     mutationFn: system.reloadScrapers,
     onSuccess: (nextScrapers) => {
-      queryClient.setQueryData(["system-scrapers"], nextScrapers);
+      queryClient.setQueryData(["scrapers"], nextScrapers);
     },
   });
 
   const validateMetadataServerMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: ({ index, metadataServer }: { index: number; metadataServer: MetadataServer }) =>
+    mutationFn: ({ metadataServer }: { index: number; metadataServer: MetadataServer }) =>
       system.validateMetadataServer(metadataServer),
     onSuccess: (result, variables) => {
       setMetadataServerValidation((current) => ({ ...current, [String(variables.index)]: result }));
@@ -1821,12 +1834,22 @@ export function SettingsPage() {
       .slice(0, 8);
   }, [resolvedSettingsGroupKeyByTab, settingsSearch, visibleTabs]);
 
-  useEffect(() => {
+  // Open the active tab's nav group whenever the tab or the grouping changes; null until the first render.
+  const [prevGroupInputs, setPrevGroupInputs] = useState<{
+    activeTab: SettingsTab;
+    groupKeyByTab: typeof resolvedSettingsGroupKeyByTab;
+  } | null>(null);
+  if (
+    prevGroupInputs === null ||
+    prevGroupInputs.activeTab !== activeTab ||
+    prevGroupInputs.groupKeyByTab !== resolvedSettingsGroupKeyByTab
+  ) {
+    setPrevGroupInputs({ activeTab, groupKeyByTab: resolvedSettingsGroupKeyByTab });
     const activeGroup = resolvedSettingsGroupKeyByTab.get(activeTab);
     if (activeGroup) {
       setOpenSettingsGroups((current) => ({ ...current, [activeGroup]: true }));
     }
-  }, [activeTab, resolvedSettingsGroupKeyByTab]);
+  }
 
   // Remember the user's last open/closed state for the settings nav groups.
   useEffect(() => {
@@ -1837,11 +1860,8 @@ export function SettingsPage() {
     }
   }, [openSettingsGroups]);
 
-  useEffect(() => {
-    if (!extensionsLoaded && !tabByKey.has(activeTab as BuiltInSettingsTab)) {
-      return;
-    }
-
+  // Fall back to a visible tab when the active one is hidden (an extension tab waits for extensions to load).
+  if (extensionsLoaded || tabByKey.has(activeTab as BuiltInSettingsTab)) {
     const nextTab = resolveVisibleSettingsTab(
       activeTab,
       visibleTabs,
@@ -1850,9 +1870,10 @@ export function SettingsPage() {
     if (nextTab !== activeTab) {
       setActiveTab(nextTab);
     }
-  }, [activeTab, canWriteSystemSettings, extensionsLoaded, visibleTabs]);
+  }
 
-  // Debounced auto-save: triggers 800ms after draft changes
+  // Debounced auto-save: triggers 800ms after draft changes. TanStack Query keeps `mutate` stable.
+  const { mutate: saveConfig } = saveMutation;
   useEffect(() => {
     if (!draftState || !canWriteSystemSettings) return;
     // Skip the first render when draft is initialized from config
@@ -1862,12 +1883,12 @@ export function SettingsPage() {
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      saveMutation.mutate(normalizeConfig(draftState));
+      saveConfig(normalizeConfig(draftState));
     }, 800);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [draftState, canWriteSystemSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draftState, canWriteSystemSettings, saveConfig]);
 
   if (configLoading || (canWriteSystemSettings && !draftState)) {
     return (
@@ -3087,6 +3108,19 @@ export function SettingsPage() {
               )}
 
               {resolvedActiveTab === "my-appearance-theme" && (
+                <SectionCard title="Search" description="How lists behave when you type a search.">
+                  <CheckboxLabel
+                    label="Sort searches by relevance"
+                    description="Changes the sorting to Relevance when you start a text search, so the best-matching results come first no matter which sort the list used before. The downside is that this requires additional computing, which can be slow for broad searches on a very large library. When this is off, Relevance stays available in the sort menu."
+                    checked={draft.ui.sortSearchesByRelevance ?? true}
+                    onChange={(checked) =>
+                      updateDraft((d) => ({ ...d, ui: { ...d.ui, sortSearchesByRelevance: checked } }))
+                    }
+                  />
+                </SectionCard>
+              )}
+
+              {resolvedActiveTab === "my-appearance-theme" && (
                 <SectionCard
                   title="Navigation"
                   description="Drag to reorder, toggle to show/hide. Changes apply immediately after save."
@@ -3957,7 +3991,7 @@ export function SettingsPage() {
 
                 <SectionCard
                   title="Preferred Scrapers"
-                  description="Pick the default scraper Cove should surface first for each entity type and site."
+                  description="Pick the scraper Cove tries first for each entity type and site, when scraping by URL and after downloads. Without a preference, a scraper built for the site is used ahead of catch-all ones such as yt-dlp, including the metadata a catch-all downloader returns with its file."
                 >
                   {scraperPreferenceGroups.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
@@ -3993,6 +4027,11 @@ export function SettingsPage() {
                                 className="mt-2 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                               >
                                 <option value="">No preference</option>
+                                {inlineMetadataEntityTypes.has(group.entityType) && (
+                                  <option value={DOWNLOADER_METADATA_PREFERENCE_ID}>
+                                    Downloader's own metadata (downloads only)
+                                  </option>
+                                )}
                                 {group.scrapers.map((scraper) => (
                                   <option key={scraper.id} value={scraper.id}>
                                     {scraper.name}
@@ -4648,17 +4687,11 @@ function LocalInterfacePanel({ serverRatingOptions }: { serverRatingOptions?: Pa
   const [localRatingOverride, setLocalRatingOverride] = useState<RatingSystemOptions | null>(() =>
     readStoredRatingOptionsOverride(),
   );
-  const [trackingPreferences, setTrackingPreferences] = useState<ResolvedTrackingPreferences>(() =>
-    resolveTrackingPreferences(user?.uiPreferences?.tracking),
-  );
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads the override from localStorage, which has no same-tab change event, when the server options or signed-in user change
     setLocalRatingOverride(readStoredRatingOptionsOverride());
   }, [serverRatingOptions, user]);
-
-  useEffect(() => {
-    setTrackingPreferences(resolveTrackingPreferences(user?.uiPreferences?.tracking));
-  }, [user]);
 
   const effectiveRatingOptions =
     localRatingOverride ?? normalizeRatingOptions(serverRatingOptions ?? defaultRatingSystemOptions);
@@ -4666,19 +4699,6 @@ function LocalInterfacePanel({ serverRatingOptions }: { serverRatingOptions?: Pa
   const updateRatingOptions = (nextOptions: RatingSystemOptions | null) => {
     writeStoredRatingOptionsOverride(nextOptions);
     setLocalRatingOverride(nextOptions);
-  };
-
-  const updateTrackingPreferences = (patch: Partial<ResolvedTrackingPreferences>) => {
-    const nextTracking = {
-      ...defaultTrackingPreferences,
-      ...trackingPreferences,
-      ...patch,
-    };
-    setTrackingPreferences(nextTracking);
-    updateAuthenticatedUserUiPreferences((current) => ({
-      ...(current ?? {}),
-      tracking: nextTracking,
-    }));
   };
 
   return (
@@ -4776,7 +4796,7 @@ function MarkdownRenderingPreferencePanel() {
         disabled={!accountBackedPreferences}
         onChange={(checked) =>
           updateAuthenticatedUserUiPreferences((current) => ({
-            ...(current ?? {}),
+            ...current,
             renderMarkdown: checked,
           }))
         }
@@ -4785,36 +4805,49 @@ function MarkdownRenderingPreferencePanel() {
   );
 }
 
+function readExternalLinkResult(): { code: string | null; status: string; present: boolean } {
+  const fragment = new URLSearchParams(
+    window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash,
+  );
+  const codes = fragment.getAll("external_link_code");
+  const failed = fragment.has("external_link_error");
+  if (codes.length === 1 && codes[0] && !failed) {
+    return { code: codes[0], status: "", present: true };
+  }
+  if (codes.length > 0 || failed) {
+    return {
+      code: null,
+      status:
+        codes.length > 1 || (codes.length > 0 && failed)
+          ? "This external identity link is invalid or expired."
+          : "The external provider could not prepare that identity link.",
+      present: true,
+    };
+  }
+  return { code: null, status: "", present: false };
+}
+
 export function ExternalIdentityAccountControls() {
   const { authEnabled, user, logout } = useAuth();
   const queryClient = useQueryClient();
-  const [pendingCode, setPendingCode] = useState<string | null>(null);
-  const [status, setStatus] = useState("");
+  // The provider hands its result back once in the URL fragment; read it when the panel mounts.
+  const [externalLinkResult] = useState(readExternalLinkResult);
+  const [pendingCode, setPendingCode] = useState<string | null>(externalLinkResult.code);
+  const [status, setStatus] = useState(externalLinkResult.status);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Strip the consumed link result from the URL so a reload does not replay it.
   useEffect(() => {
+    if (!externalLinkResult.present) return;
     const url = new URL(window.location.href);
     const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-    const codes = fragment.getAll("external_link_code");
-    const failed = fragment.has("external_link_error");
     fragment.delete("external_link_code");
     fragment.delete("external_link_error");
     url.hash = fragment.toString() ? `#${fragment.toString()}` : "";
-    if (codes.length === 1 && codes[0] && !failed) {
-      setPendingCode(codes[0]);
-    } else if (codes.length > 0 || failed) {
-      setStatus(
-        codes.length > 1 || (codes.length > 0 && failed)
-          ? "This external identity link is invalid or expired."
-          : "The external provider could not prepare that identity link.",
-      );
-    }
-    if (codes.length > 0 || failed) {
-      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-    }
-  }, []);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [externalLinkResult]);
 
   const providersQuery = useQuery({
     queryKey: ["auth", "external-providers"],
@@ -5073,9 +5106,11 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
     }
   };
 
-  useEffect(() => {
+  const [prevUser, setPrevUser] = useState(user);
+  if (user !== prevUser) {
+    setPrevUser(user);
     setTrackingPreferences(resolveTrackingPreferences(user?.uiPreferences?.tracking));
-  }, [user]);
+  }
 
   const updateTrackingPreferences = (patch: Partial<ResolvedTrackingPreferences>) => {
     const nextTracking = {
@@ -5085,7 +5120,7 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
     };
     setTrackingPreferences(nextTracking);
     updateAuthenticatedUserUiPreferences((current) => ({
-      ...(current ?? {}),
+      ...current,
       tracking: nextTracking,
     }));
   };
@@ -5265,19 +5300,24 @@ function LogsPanel() {
     onError: (error: Error) => setStreamError(error.message),
   });
 
-  useEffect(() => {
+  // Both start undefined so query data already cached at mount is still applied.
+  const [prevLogLevelStatus, setPrevLogLevelStatus] = useState<typeof logLevelStatus>(undefined);
+  if (logLevelStatus !== prevLogLevelStatus) {
+    setPrevLogLevelStatus(logLevelStatus);
     if (logLevelStatus) {
       setServerLogLevel(logLevelStatus.level);
       setConfiguredLogLevel(logLevelStatus.configuredLevel);
       setTraceExpiresAt(logLevelStatus.traceExpiresAt ?? null);
     }
-  }, [logLevelStatus]);
+  }
 
-  useEffect(() => {
+  const [prevInitialLogEntries, setPrevInitialLogEntries] = useState<typeof initialLogEntries>(undefined);
+  if (initialLogEntries !== prevInitialLogEntries) {
+    setPrevInitialLogEntries(initialLogEntries);
     if (initialLogEntries) {
       setTailEntries(initialLogEntries.slice(-200));
     }
-  }, [initialLogEntries]);
+  }
 
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder().withUrl("/hubs/logs").withAutomaticReconnect().build();
@@ -5435,7 +5475,6 @@ function normalizeLogLevel(level: string) {
 }
 
 function TasksPanel({ activeTab, midSlot }: { activeTab: SettingsTab; midSlot?: React.ReactNode }) {
-  const queryClient = useQueryClient();
   const { data: activeJobs, refetch: refetchJobs } = useQuery({
     queryKey: ["jobs"],
     queryFn: () => jobs.list(),
@@ -5557,7 +5596,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
     const stored = loadStoredTaskOptions(TASK_DOWNLOAD_IMPORT_OPTIONS_KEY, {
       generate: DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS,
     });
-    return { ...DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS, ...(stored.generate ?? {}) };
+    return { ...DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS, ...stored.generate };
   });
   const [downloadImportCachedUrls, setDownloadImportCachedUrls] = useState<string[]>(() => {
     const stored = loadStoredTaskOptions(TASK_DOWNLOAD_IMPORT_CACHE_KEY, { urls: [] as string[] });
@@ -5732,6 +5771,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateSprites: c })}
                     />
                     <CheckboxLabel
+                      label="VR 3D covers and previews"
+                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
+                      checked={!!scanOpts.scanGenerateVrStereo}
+                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateVrStereo: c })}
+                    />
+                    <CheckboxLabel
                       label="Perceptual hashes (phash)"
                       checked={!!scanOpts.scanGeneratePhashes}
                       onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePhashes: c })}
@@ -5836,6 +5881,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       label="Sprite sheets"
                       checked={!!genOpts.sprites}
                       onChange={(c) => setGenOpts({ ...genOpts, sprites: c })}
+                    />
+                    <CheckboxLabel
+                      label="VR 3D covers and previews"
+                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
+                      checked={!!genOpts.vrStereo}
+                      onChange={(c) => setGenOpts({ ...genOpts, vrStereo: c })}
                     />
                     <CheckboxLabel
                       label="Segment thumbnails"
@@ -6931,6 +6982,209 @@ export function describeActivePalette(
   return theme ? theme.name : `${activeThemeId} — unavailable`;
 }
 
+// Style-specific configuration definitions
+// "range" type: continuous slider with CSS custom property. "select" (no type): dropdown.
+type RangeConfig = {
+  key: string;
+  label: string;
+  type: "range";
+  cssVar: string;
+  min: number;
+  max: number;
+  defaultValue: number;
+};
+type SelectConfig = { key: string; label: string; options: { value: string; label: string }[] };
+type StyleConfig = RangeConfig | SelectConfig;
+const styleConfigs: Record<string, StyleConfig[]> = {
+  gradient: [
+    {
+      key: "animated",
+      label: "Animation Speed",
+      type: "range",
+      cssVar: "--sv-anim-speed",
+      min: 0,
+      max: 100,
+      defaultValue: 55,
+    },
+    {
+      key: "background",
+      label: "Background Intensity",
+      type: "range",
+      cssVar: "--sv-bg-intensity",
+      min: 0,
+      max: 100,
+      defaultValue: 45,
+    },
+    {
+      key: "cards",
+      label: "Card Gradient",
+      type: "range",
+      cssVar: "--sv-card-gradient",
+      min: 0,
+      max: 100,
+      defaultValue: 50,
+    },
+    {
+      key: "carddir",
+      label: "Card Direction",
+      options: [
+        { value: "diagonal", label: "Diagonal" },
+        { value: "vertical", label: "Vertical" },
+        { value: "horizontal", label: "Horizontal" },
+      ],
+    },
+    {
+      key: "bgdir",
+      label: "Background Direction",
+      options: [
+        { value: "diagonal", label: "Diagonal" },
+        { value: "vertical", label: "Vertical" },
+        { value: "horizontal", label: "Horizontal" },
+      ],
+    },
+    {
+      key: "surfacedir",
+      label: "Surface Direction",
+      options: [
+        { value: "diagonal", label: "Diagonal" },
+        { value: "vertical", label: "Vertical" },
+        { value: "horizontal", label: "Horizontal" },
+      ],
+    },
+    {
+      key: "videopause",
+      label: "Pause on Video Player",
+      options: [
+        { value: "on", label: "On (recommended)" },
+        { value: "off", label: "Off" },
+      ],
+    },
+  ],
+  glass: [
+    {
+      key: "cardblur",
+      label: "Card Blur",
+      type: "range",
+      cssVar: "--sv-card-blur",
+      min: 0,
+      max: 100,
+      defaultValue: 27,
+    },
+    {
+      key: "surfaceblur",
+      label: "Surface Blur",
+      type: "range",
+      cssVar: "--sv-surface-blur",
+      min: 0,
+      max: 100,
+      defaultValue: 50,
+    },
+    {
+      key: "opacity",
+      label: "Surface Opacity",
+      type: "range",
+      cssVar: "--sv-surface-opacity",
+      min: 0,
+      max: 100,
+      defaultValue: 40,
+    },
+    {
+      key: "cardopacity",
+      label: "Card Opacity",
+      type: "range",
+      cssVar: "--sv-card-opacity",
+      min: 0,
+      max: 100,
+      defaultValue: 40,
+    },
+    {
+      key: "buttonopacity",
+      label: "Button Opacity",
+      type: "range",
+      cssVar: "--sv-button-opacity",
+      min: 0,
+      max: 100,
+      defaultValue: 55,
+    },
+  ],
+  animated: [
+    {
+      key: "hover",
+      label: "Card Hover Glow",
+      type: "range",
+      cssVar: "--sv-hover-glow",
+      min: 0,
+      max: 100,
+      defaultValue: 67,
+    },
+    {
+      key: "shimmer",
+      label: "Navbar Shimmer",
+      options: [
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ],
+    },
+    {
+      key: "entrance",
+      label: "Card Entrance",
+      options: [
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ],
+    },
+    {
+      key: "surfaceshimmer",
+      label: "Surface Shimmer",
+      options: [
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ],
+    },
+    {
+      key: "buttonglow",
+      label: "Button Glow",
+      options: [
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ],
+    },
+  ],
+  theme: [
+    {
+      key: "bgspeed",
+      label: "Background Animation Speed",
+      type: "range",
+      cssVar: "--sv-bg-anim-speed",
+      min: 0,
+      max: 100,
+      defaultValue: 55,
+    },
+  ],
+};
+
+// Attribute names used before style options were migrated to the current naming.
+const MIGRATED_STYLE_DATASET_KEYS = ["styleGradientSpeed", "styleGradientCardstrength", "styleGradientBgstrength"];
+
+// Apply a style option to the document as a data attribute for CSS targeting, plus its CSS custom
+// property for range-type configs.
+function applyStyleOptionToDocument(styleId: string, optionKey: string, value: string) {
+  document.documentElement.dataset[
+    `style${styleId.charAt(0).toUpperCase()}${styleId.slice(1)}${optionKey.charAt(0).toUpperCase()}${optionKey.slice(1)}`
+  ] = value;
+  const cfg = styleConfigs[styleId]?.find((c) => c.key === optionKey);
+  if (cfg && "cssVar" in cfg) {
+    document.documentElement.style.setProperty(cfg.cssVar, value);
+  }
+}
+
+function applyStyleOptionsToDocument(styleOptions: Record<string, Record<string, string>>) {
+  for (const key of MIGRATED_STYLE_DATASET_KEYS) delete document.documentElement.dataset[key];
+  for (const [styleId, opts] of Object.entries(styleOptions)) {
+    for (const [key, val] of Object.entries(opts)) applyStyleOptionToDocument(styleId, key, val);
+  }
+}
+
 function ThemeSelector() {
   const { user } = useAuth();
   const {
@@ -6967,7 +7221,7 @@ function ThemeSelector() {
     });
   };
 
-  const readPersistedStyleOptions = () => {
+  const readPersistedStyleOptions = useCallback(() => {
     try {
       const source = supportsServerBackedUiPreferences(user)
         ? (readAuthenticatedUserThemePreferences()?.styleOptions ?? {})
@@ -7035,7 +7289,7 @@ function ThemeSelector() {
     } catch {
       return {};
     }
-  };
+  }, [user]);
 
   // Style option configs stored in localStorage
   const [styleOptions, setStyleOptionsState] = useState<Record<string, Record<string, string>>>(() => {
@@ -7046,227 +7300,24 @@ function ThemeSelector() {
     setStyleOptionsState(updated);
     localStorage.setItem("cove-style-options", JSON.stringify(updated));
     updateAuthenticatedUserUiPreferences((current) => ({
-      ...(current ?? {}),
+      ...current,
       theme: {
-        ...(current?.theme ?? {}),
+        ...current?.theme,
         styleOptions: updated,
       },
     }));
-    // Apply to document as data attribute for CSS targeting
-    document.documentElement.dataset[
-      `style${styleId.charAt(0).toUpperCase()}${styleId.slice(1)}${optionKey.charAt(0).toUpperCase()}${optionKey.slice(1)}`
-    ] = value;
-    // Set CSS custom property for range-type configs
-    const cfg = styleConfigs[styleId]?.find((c) => c.key === optionKey);
-    if (cfg && "cssVar" in cfg) {
-      document.documentElement.style.setProperty(cfg.cssVar, value);
-    }
+    applyStyleOptionToDocument(styleId, optionKey, value);
   };
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads (and migrates, writing back to localStorage) the stored style options when the signed-in user changes
     setStyleOptionsState(readPersistedStyleOptions());
-  }, [user]);
+  }, [readPersistedStyleOptions]);
 
   // Apply style options on mount (and clean up old migrated attributes)
   useEffect(() => {
-    // Remove old attribute names from pre-migration settings
-    delete document.documentElement.dataset.styleGradientSpeed;
-    delete document.documentElement.dataset.styleGradientCardstrength;
-    delete document.documentElement.dataset.styleGradientBgstrength;
-    for (const [styleId, opts] of Object.entries(styleOptions)) {
-      for (const [key, val] of Object.entries(opts)) {
-        document.documentElement.dataset[
-          `style${styleId.charAt(0).toUpperCase()}${styleId.slice(1)}${key.charAt(0).toUpperCase()}${key.slice(1)}`
-        ] = val;
-        // Set CSS custom property for range-type configs
-        const cfg = styleConfigs[styleId]?.find((c) => c.key === key);
-        if (cfg && "cssVar" in cfg) {
-          document.documentElement.style.setProperty(cfg.cssVar, val);
-        }
-      }
-    }
+    applyStyleOptionsToDocument(styleOptions);
   }, [styleOptions]);
-
-  // Style-specific configuration definitions
-  // "range" type: continuous slider with CSS custom property. "select" (no type): dropdown.
-  type RangeConfig = {
-    key: string;
-    label: string;
-    type: "range";
-    cssVar: string;
-    min: number;
-    max: number;
-    defaultValue: number;
-  };
-  type SelectConfig = { key: string; label: string; options: { value: string; label: string }[] };
-  type StyleConfig = RangeConfig | SelectConfig;
-  const styleConfigs: Record<string, StyleConfig[]> = {
-    gradient: [
-      {
-        key: "animated",
-        label: "Animation Speed",
-        type: "range",
-        cssVar: "--sv-anim-speed",
-        min: 0,
-        max: 100,
-        defaultValue: 55,
-      },
-      {
-        key: "background",
-        label: "Background Intensity",
-        type: "range",
-        cssVar: "--sv-bg-intensity",
-        min: 0,
-        max: 100,
-        defaultValue: 45,
-      },
-      {
-        key: "cards",
-        label: "Card Gradient",
-        type: "range",
-        cssVar: "--sv-card-gradient",
-        min: 0,
-        max: 100,
-        defaultValue: 50,
-      },
-      {
-        key: "carddir",
-        label: "Card Direction",
-        options: [
-          { value: "diagonal", label: "Diagonal" },
-          { value: "vertical", label: "Vertical" },
-          { value: "horizontal", label: "Horizontal" },
-        ],
-      },
-      {
-        key: "bgdir",
-        label: "Background Direction",
-        options: [
-          { value: "diagonal", label: "Diagonal" },
-          { value: "vertical", label: "Vertical" },
-          { value: "horizontal", label: "Horizontal" },
-        ],
-      },
-      {
-        key: "surfacedir",
-        label: "Surface Direction",
-        options: [
-          { value: "diagonal", label: "Diagonal" },
-          { value: "vertical", label: "Vertical" },
-          { value: "horizontal", label: "Horizontal" },
-        ],
-      },
-      {
-        key: "videopause",
-        label: "Pause on Video Player",
-        options: [
-          { value: "on", label: "On (recommended)" },
-          { value: "off", label: "Off" },
-        ],
-      },
-    ],
-    glass: [
-      {
-        key: "cardblur",
-        label: "Card Blur",
-        type: "range",
-        cssVar: "--sv-card-blur",
-        min: 0,
-        max: 100,
-        defaultValue: 27,
-      },
-      {
-        key: "surfaceblur",
-        label: "Surface Blur",
-        type: "range",
-        cssVar: "--sv-surface-blur",
-        min: 0,
-        max: 100,
-        defaultValue: 50,
-      },
-      {
-        key: "opacity",
-        label: "Surface Opacity",
-        type: "range",
-        cssVar: "--sv-surface-opacity",
-        min: 0,
-        max: 100,
-        defaultValue: 40,
-      },
-      {
-        key: "cardopacity",
-        label: "Card Opacity",
-        type: "range",
-        cssVar: "--sv-card-opacity",
-        min: 0,
-        max: 100,
-        defaultValue: 40,
-      },
-      {
-        key: "buttonopacity",
-        label: "Button Opacity",
-        type: "range",
-        cssVar: "--sv-button-opacity",
-        min: 0,
-        max: 100,
-        defaultValue: 55,
-      },
-    ],
-    animated: [
-      {
-        key: "hover",
-        label: "Card Hover Glow",
-        type: "range",
-        cssVar: "--sv-hover-glow",
-        min: 0,
-        max: 100,
-        defaultValue: 67,
-      },
-      {
-        key: "shimmer",
-        label: "Navbar Shimmer",
-        options: [
-          { value: "on", label: "On" },
-          { value: "off", label: "Off" },
-        ],
-      },
-      {
-        key: "entrance",
-        label: "Card Entrance",
-        options: [
-          { value: "on", label: "On" },
-          { value: "off", label: "Off" },
-        ],
-      },
-      {
-        key: "surfaceshimmer",
-        label: "Surface Shimmer",
-        options: [
-          { value: "on", label: "On" },
-          { value: "off", label: "Off" },
-        ],
-      },
-      {
-        key: "buttonglow",
-        label: "Button Glow",
-        options: [
-          { value: "on", label: "On" },
-          { value: "off", label: "Off" },
-        ],
-      },
-    ],
-    theme: [
-      {
-        key: "bgspeed",
-        label: "Background Animation Speed",
-        type: "range",
-        cssVar: "--sv-bg-anim-speed",
-        min: 0,
-        max: 100,
-        defaultValue: 55,
-      },
-    ],
-  };
 
   // Track which cards have their config expanded
   const CONFIGS_STORAGE_KEY = "cove-theme-configs";
@@ -7281,7 +7332,8 @@ function ThemeSelector() {
   const toggleConfig = (key: string) => {
     setExpandedConfigs((prev) => {
       const n = new Set(prev);
-      n.has(key) ? n.delete(key) : n.add(key);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
       localStorage.setItem(CONFIGS_STORAGE_KEY, JSON.stringify([...n]));
       return n;
     });
@@ -7793,9 +7845,6 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   const {
     loadFailures = [],
     retryFailedExtensions,
-    availableThemes,
-    activeThemeId,
-    setActiveTheme,
     getSettingsPanelsForTab,
     resolveComponent,
     manifest,
@@ -7853,7 +7902,11 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(["plugins"], ctx.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["plugins"] }),
+    onSettled: () => {
+      // Plugin settings enable and disable extensions, which the extension list also shows.
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+    },
   });
 
   const enableMut = useMutation({
@@ -7861,6 +7914,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       import("../api/client").then((m) => (args.enable ? m.extensions.enable(args.id) : m.extensions.disable(args.id))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       void refreshManifest();
     },
   });
@@ -7889,6 +7943,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 
       setPendingDependencyInstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8518,7 +8573,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 // ===== Find and Install Extensions =====
 export function FindAndInstallExtensions() {
   const queryClient = useQueryClient();
-  const { manifest, refreshManifest } = useExtensions();
+  const { refreshManifest } = useExtensions();
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState<string>("");
   const [registryType, setRegistryType] = useState<string>("");
@@ -8560,15 +8615,17 @@ export function FindAndInstallExtensions() {
   };
 
   // Reset to the first page whenever the search/filters change.
-  useEffect(() => {
+  const [prevRegistryFilters, setPrevRegistryFilters] = useState({ searchQuery, category, registryType });
+  if (
+    prevRegistryFilters.searchQuery !== searchQuery ||
+    prevRegistryFilters.category !== category ||
+    prevRegistryFilters.registryType !== registryType
+  ) {
+    setPrevRegistryFilters({ searchQuery, category, registryType });
     setPage(1);
-  }, [searchQuery, category, registryType]);
+  }
 
-  const {
-    data: searchResults,
-    isLoading: searching,
-    refetch: doSearch,
-  } = useQuery({
+  const { data: searchResults, isLoading: searching } = useQuery({
     queryKey: ["registry-search", searchQuery, category, registryType, page],
     queryFn: () =>
       import("../api/client").then((m) =>
@@ -8619,6 +8676,7 @@ export function FindAndInstallExtensions() {
       setPendingDeps(null);
       setPendingDependencyInstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8652,6 +8710,7 @@ export function FindAndInstallExtensions() {
       setShowUrlInstallForm(false);
       setUrlInstallUrl("");
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8682,6 +8741,7 @@ export function FindAndInstallExtensions() {
       setShowZipInstallForm(false);
       setZipInstallFile(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
 
@@ -8714,6 +8774,7 @@ export function FindAndInstallExtensions() {
 
       setExtensionToUninstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       void refreshManifest();
     },

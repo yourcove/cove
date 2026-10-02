@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { CriterionModifier } from "../api/types";
 import { formatHumanDuration } from "../utils/durationFormat";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
@@ -122,9 +122,11 @@ export function DurationInput({
   const [inputText, setInputText] = useState(() => formatDurationInputValue(value));
   const descriptionId = useId();
 
-  useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
     setInputText(formatDurationInputValue(value));
-  }, [value]);
+  }
 
   const commit = (rawValue: string) => {
     const parsed = parseDurationInputValue(rawValue);

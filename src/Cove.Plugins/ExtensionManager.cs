@@ -746,12 +746,18 @@ public class ExtensionManager : IExtensionContributionRuntime
         StopBackgroundWorker(ext.Id);
         WithdrawFromExchange(ext.Id);
 
-        _overlay ??= new ExtensionServiceOverlay(_rootServices, _hostDescriptors, _logger);
-        return _overlay.TryBuildProvider(
-            ext.Id,
+        return TryBuildOverlayProvider(
             ext,
-            _context,
             (failedId, e) => DisableExtensionForStartupFailure(failedId, e, "provider build"));
+    }
+
+    private bool TryBuildOverlayProvider(IExtension ext, Action<string, Exception> onBuildFailure)
+    {
+        if (_rootServices == null || _hostDescriptors == null)
+            return false;
+
+        _overlay ??= new ExtensionServiceOverlay(_rootServices, _hostDescriptors, _logger);
+        return _overlay.TryBuildProvider(ext.Id, ext, _context, onBuildFailure);
     }
 
     /// <summary>
@@ -1704,17 +1710,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         }
 
         var wasDataExtension = ext is IDataExtension;
-        using (var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext)))
-        {
-            try
-            {
-                await ext.OnUninstallAsync(extensionLease.Services, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "OnUninstall failed for extension {Id}", id);
-            }
-        }
+        await RunUninstallHookAsync(ext, ct);
 
         await ShutdownExtensionCoreAsync(id, ct, retireOverlay: true);
 
@@ -1736,6 +1732,44 @@ public class ExtensionManager : IExtensionContributionRuntime
         GC.WaitForPendingFinalizers();
         GC.Collect();
         return true;
+    }
+
+    /// <summary>
+    /// Run OnUninstall without letting it block the unload. A disabled runtime extension has no
+    /// current container, so one is built only for the hook; the unload's shutdown retires it.
+    /// </summary>
+    private async Task RunUninstallHookAsync(IExtension ext, CancellationToken ct)
+    {
+        try
+        {
+            if (IsOverlayExtension(ext.Id) && _overlay?.TryGetGeneration(ext.Id, ext, out _) != true)
+            {
+                Exception? buildFailure = null;
+                bool built;
+                try
+                {
+                    built = TryBuildOverlayProvider(ext, (_, ex) => buildFailure = ex);
+                }
+                catch (Exception ex)
+                {
+                    buildFailure = ex;
+                    built = false;
+                }
+
+                if (!built)
+                {
+                    _logger?.LogWarning(buildFailure, "Skipping OnUninstall for extension {Id}: no service container could be built", ext.Id);
+                    return;
+                }
+            }
+
+            using var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext));
+            await ext.OnUninstallAsync(extensionLease.Services, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "OnUninstall failed for extension {Id}", ext.Id);
+        }
     }
 
     // ========================================================================

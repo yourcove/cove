@@ -1199,6 +1199,120 @@ public class VideoFilterBehaviorTests
         Assert.Equal(["tagged-performer-video"], items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.IsNull, "untagged-performer-video")]
+    [InlineData(CriterionModifier.NotNull, "tagged-performer-video")]
+    public async Task PerformerTagsCriterion_PresenceModifiers_MatchVideosByAnyPerformerOccurrenceTag(CriterionModifier modifier, string expectedTitle)
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Featured" };
+        var taggedVideo = CreateVideoWithFile("tagged-performer-video", performer: CreatePerformer("Tagged", new DateOnly(2000, 1, 1)));
+        var untaggedVideo = CreateVideoWithFile("untagged-performer-video", performer: CreatePerformer("Untagged", new DateOnly(2000, 1, 1)));
+
+        context.Tags.Add(tag);
+        context.Videos.AddRange(taggedVideo, untaggedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            new TagApplication
+            {
+                HostType = AffinityHostType.Video,
+                HostId = taggedVideo.Id,
+                ContextType = "performer",
+                ContextId = taggedVideo.VideoPerformers.Single().Performer!.Id,
+                TagId = tag.Id,
+                SourceKey = "test",
+            },
+            new TagApplication
+            {
+                HostType = AffinityHostType.Video,
+                HostId = untaggedVideo.Id,
+                TagId = tag.Id,
+                SourceKey = "test",
+            },
+            new TagApplication
+            {
+                HostType = AffinityHostType.Image,
+                HostId = untaggedVideo.Id,
+                ContextType = "performer",
+                ContextId = untaggedVideo.VideoPerformers.Single().Performer!.Id,
+                TagId = tag.Id,
+                SourceKey = "test",
+            });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new VideoRepository(context);
+
+        // Depth -1 with no values is what the editor sends after "Include sub-tags" was toggled before choosing None/Any.
+        foreach (var depth in new int?[] { null, -1 })
+        {
+            var filter = new VideoFilter
+            {
+                PerformerTagsCriterion = new MultiIdCriterion { Modifier = modifier, Depth = depth },
+            };
+
+            var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(1, totalCount);
+            Assert.Equal([expectedTitle], items.Select(video => video.Title ?? string.Empty).ToArray());
+        }
+    }
+
+    [Theory]
+    [InlineData(CriterionModifier.IsNull, "other-performer-tagged")]
+    [InlineData(CriterionModifier.NotNull, "target-tagged")]
+    public async Task PerformerTagsCriterion_PresenceModifiers_WithRequiredPerformerCriterion_ScopeToThatPerformer(CriterionModifier modifier, string expectedTitle)
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Occurrence Tag" };
+        var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
+        var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
+        var targetTaggedVideo = CreateVideoWithFile("target-tagged", performer: targetPerformer);
+        var otherPerformerTaggedVideo = CreateVideoWithFile("other-performer-tagged", performer: targetPerformer);
+        otherPerformerTaggedVideo.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+
+        context.Tags.Add(tag);
+        context.Videos.AddRange(targetTaggedVideo, otherPerformerTaggedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            new TagApplication
+            {
+                HostType = AffinityHostType.Video,
+                HostId = targetTaggedVideo.Id,
+                ContextType = "performer",
+                ContextId = targetPerformer.Id,
+                TagId = tag.Id,
+                SourceKey = "test",
+            },
+            new TagApplication
+            {
+                HostType = AffinityHostType.Video,
+                HostId = otherPerformerTaggedVideo.Id,
+                ContextType = "performer",
+                ContextId = otherPerformer.Id,
+                TagId = tag.Id,
+                SourceKey = "test",
+            });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            PerformersCriterion = new MultiIdCriterion
+            {
+                RequiredIds = [targetPerformer.Id],
+                Modifier = CriterionModifier.Includes,
+            },
+            PerformerTagsCriterion = new MultiIdCriterion { Modifier = modifier },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal([expectedTitle], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
     [Fact]
     public async Task PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
@@ -1563,6 +1677,53 @@ public class VideoFilterBehaviorTests
         }, CancellationToken.None);
         var texts = Assert.IsType<PaginatedResponse<TextDocumentDto>>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
         Assert.Equal("child-tagged-text", Assert.Single(texts.Items).Title);
+    }
+
+    [Theory]
+    [InlineData(CriterionModifier.IsNull, "untagged")]
+    [InlineData(CriterionModifier.NotNull, "tagged")]
+    public async Task PerformerTagsCriterion_PresenceModifiers_MatchImagesAudiosAndTexts(CriterionModifier modifier, string expectedPrefix)
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "media-presence" };
+        var performer = CreatePerformer("Media Presence", new DateOnly(2000, 1, 1));
+        var image = CreateImage("tagged-image", performer);
+        var audio = CreateAudio("tagged-audio", performer);
+        var text = CreateTextDocument("tagged-text", performer);
+        context.Tags.Add(tag);
+        context.Images.AddRange(image, CreateImage("untagged-image", performer));
+        context.Audios.AddRange(audio, CreateAudio("untagged-audio", performer));
+        context.TextDocuments.AddRange(text, CreateTextDocument("untagged-text", performer));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Image, image.Id, performer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Audio, audio.Id, performer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Text, text.Id, performer.Id, tag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        MultiIdCriterion Criterion() => new() { Modifier = modifier };
+
+        var (images, _) = await new ImageRepository(context).FindAsync(
+            new ImageFilter { PerformerTagsCriterion = Criterion() },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal($"{expectedPrefix}-image", Assert.Single(images).Title);
+
+        var audioResponse = await new AudiosController(context, new CustomFieldService(context), null!, null!, null!, null).FindPost(new FilteredQueryRequest<AudioFilter>
+        {
+            FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            ObjectFilter = new AudioFilter { PerformerTagsCriterion = Criterion() },
+        }, CancellationToken.None);
+        var audios = Assert.IsType<PaginatedResponse<AudioDto>>(Assert.IsType<OkObjectResult>(audioResponse.Result).Value);
+        Assert.Equal($"{expectedPrefix}-audio", Assert.Single(audios.Items).Title);
+
+        var textResponse = await new TextsController(context, new CustomFieldService(context), null!, null!, null!, null!, null).FindPost(new FilteredQueryRequest<TextDocumentFilter>
+        {
+            FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            ObjectFilter = new TextDocumentFilter { PerformerTagsCriterion = Criterion() },
+        }, CancellationToken.None);
+        var texts = Assert.IsType<PaginatedResponse<TextDocumentDto>>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
+        Assert.Equal($"{expectedPrefix}-text", Assert.Single(texts.Items).Title);
     }
 
     [Fact]

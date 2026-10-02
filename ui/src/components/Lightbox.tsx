@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useEffectEvent, useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { usePublishActiveMedia } from "./ActiveMedia";
 import {
@@ -74,7 +74,7 @@ export function Lightbox({
   const [index, setIndex] = useState(initialIndex);
   const [displayed, setDisplayed] = useState<LightboxImage | null>(null);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(open && autoPlay);
   const [currentSlideshowDelay, setCurrentSlideshowDelay] = useState(slideshowDelay);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -99,7 +99,11 @@ export function Lightbox({
   const displayPosition = positionOffset + index + 1;
   const current = queuedImages[index];
   const currentSrc = useRef<string | undefined>(current?.src);
-  currentSrc.current = open ? current?.src : undefined;
+  const openSrc = open ? current?.src : undefined;
+  // Image loads resolve asynchronously, so they compare against the source shown after the latest commit.
+  useLayoutEffect(() => {
+    currentSrc.current = openSrc;
+  }, [openSrc]);
   const loading = Boolean(current && displayed?.src !== current.src);
   usePublishActiveMedia(
     open && !loading && current ? { kind: "image", id: current.id, surface: "lightbox" } : null,
@@ -128,8 +132,10 @@ export function Lightbox({
   });
   const likeCount = likeMutation.data ?? engagement?.likeCount ?? 0;
 
+  const resetLikeMutation = useEffectEvent(() => likeMutation.reset());
+  // A like result belongs to the image it was recorded for; clear it when the viewer moves on.
   useEffect(() => {
-    likeMutation.reset();
+    resetLikeMutation();
   }, [current?.id]);
 
   const trackCurrentImageInteraction = useCallback(
@@ -144,42 +150,55 @@ export function Lightbox({
         kind,
         meta: {
           source: current.interactionSource ?? "lightbox",
-          ...(current.interactionMeta ?? {}),
-          ...(extraMeta ?? {}),
+          ...current.interactionMeta,
+          ...extraMeta,
         },
       });
     },
     [current],
   );
 
-  useEffect(() => {
-    if (!open) {
-      setDisplayed(null);
-      setFailedSrc(null);
-    }
-  }, [open]);
-
-  useEffect(() => setFailedSrc(null), [current?.src]);
-
-  // Read through refs below so that a late-resolving config does not re-run the reset and discard
-  // pages the viewer loaded by navigating past the end of the queue. The delay is applied by its own
-  // effect instead, so a config that lands mid-session still takes effect.
-  const autoPlayRef = useRef(autoPlay);
-  autoPlayRef.current = autoPlay;
-  const slideshowDelayRef = useRef(slideshowDelay);
-  slideshowDelayRef.current = slideshowDelay;
-
-  useEffect(() => setCurrentSlideshowDelay(slideshowDelay), [slideshowDelay]);
-
-  // Sync index when initialIndex or open changes
-  useEffect(() => {
+  // Sync the queue and index when initialIndex or open changes, and clear the shown image on close.
+  // Only these two props trigger the reset, so a late-resolving images/autoPlay/slideshowDelay config
+  // does not discard pages the viewer loaded by navigating past the end of the queue. The delay is
+  // applied separately below, so a config that lands mid-session still takes effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialIndex, setPrevInitialIndex] = useState(initialIndex);
+  if (open !== prevOpen || initialIndex !== prevInitialIndex) {
+    setPrevOpen(open);
+    setPrevInitialIndex(initialIndex);
     if (open) {
       setQueuedImages(images);
       setIndex(initialIndex);
       setZoom(1);
       setPan({ x: 0, y: 0 });
-      setPlaying(autoPlayRef.current);
-      setCurrentSlideshowDelay(slideshowDelayRef.current);
+      setPlaying(autoPlay);
+      setCurrentSlideshowDelay(slideshowDelay);
+    } else if (open !== prevOpen) {
+      setDisplayed(null);
+      setFailedSrc(null);
+    }
+  }
+
+  const [prevSlideshowDelay, setPrevSlideshowDelay] = useState(slideshowDelay);
+  if (slideshowDelay !== prevSlideshowDelay) {
+    setPrevSlideshowDelay(slideshowDelay);
+    setCurrentSlideshowDelay(slideshowDelay);
+  }
+
+  const [prevCurrentSrc, setPrevCurrentSrc] = useState(current?.src);
+  if (current?.src !== prevCurrentSrc) {
+    setPrevCurrentSrc(current?.src);
+    setFailedSrc(null);
+  }
+
+  // Fullscreen is only tracked while open; the listener below re-reads it on the next open.
+  if (!open && fullscreen) {
+    setFullscreen(false);
+  }
+
+  useEffect(() => {
+    if (open) {
       trackedOpen.current = false;
       lastTrackedIndex.current = null;
     }
@@ -205,14 +224,23 @@ export function Lightbox({
       });
       lastTrackedIndex.current = index;
     }
-  }, [count, current, index, open, trackCurrentImageInteraction]);
+  }, [current, displayCount, displayPosition, index, open, positionOffset, trackCurrentImageInteraction]);
 
+  const currentId = current?.id;
+  // Read when a dwell session starts, so its report describes the image and position it began on.
+  const getDwellContext = useEffectEvent(() => ({
+    index: positionOffset + index + 1,
+    count: displayCount,
+    source: current?.interactionSource ?? "lightbox",
+    ...current?.interactionMeta,
+  }));
   useEffect(() => {
-    if (!open || !current) {
+    if (!open || currentId === undefined) {
       return;
     }
 
-    const imageId = current.id;
+    const imageId = currentId;
+    const context = getDwellContext();
     const startedAt = typeof performance === "undefined" ? Date.now() : performance.now();
     const sessionId = createPlaybackSessionId();
     const elapsedSeconds = () => {
@@ -234,12 +262,7 @@ export function Lightbox({
           state,
           surface: "lightbox",
           scopeKey: `image:${imageId}:lightbox`,
-          context: {
-            index: positionOffset + index + 1,
-            count: displayCount,
-            source: current.interactionSource ?? "lightbox",
-            ...(current.interactionMeta ?? {}),
-          },
+          context,
           intervals: [{ startSec: 0, endSec: durationSec }],
         })
         .catch(() => {});
@@ -251,7 +274,7 @@ export function Lightbox({
       window.removeEventListener("pagehide", handlePageHide);
       flushDwell("ended");
     };
-  }, [count, current?.id, index, open]);
+  }, [count, currentId, index, open]);
 
   // Lock body scroll + claim keyboard ownership so background list/app shortcuts pause while open.
   useEffect(() => {
@@ -266,10 +289,7 @@ export function Lightbox({
   }, [open]);
 
   useEffect(() => {
-    if (!open) {
-      setFullscreen(false);
-      return;
-    }
+    if (!open) return;
 
     const handleFullscreenChange = () => {
       setFullscreen(document.fullscreenElement === containerRef.current);
@@ -313,7 +333,7 @@ export function Lightbox({
     } finally {
       setBoundaryLoading(false);
     }
-  }, [boundaryLoading, goTo, hasPrevious, index, loadPrevious, resetView, wrap]);
+  }, [goTo, hasPrevious, index, loadPrevious, resetView, wrap]);
   const goNext = useCallback(async () => {
     if (index < count - 1 || !hasNext || !loadNext) {
       if (index === count - 1 && !wrap) return;
@@ -332,7 +352,7 @@ export function Lightbox({
     } finally {
       setBoundaryLoading(false);
     }
-  }, [boundaryLoading, count, goTo, hasNext, index, loadNext, resetView, wrap]);
+  }, [count, goTo, hasNext, index, loadNext, resetView, wrap]);
 
   const toggleSlideshow = useCallback(() => setPlaying((p) => !p), []);
 
@@ -402,7 +422,7 @@ export function Lightbox({
     }
 
     onClose();
-  }, [count, index, onClose, open, trackCurrentImageInteraction]);
+  }, [displayCount, displayPosition, onClose, open, trackCurrentImageInteraction]);
 
   // Slideshow
   useEffect(() => {

@@ -37,7 +37,7 @@ export function jobStatusIcon(status: JobInfo["status"]) {
  * only for servers that don't send one.
  */
 export function useJobTiming(job: JobInfo) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (job.status !== "running") return;

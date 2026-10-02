@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, ExternalLink, Info, ListVideo, MoreVertical, Network, Sparkles } from "lucide-react";
 import { faces, performers, videos, segmentDisplayProfiles, segmentLibrary, tags } from "../api/client";
@@ -114,8 +114,8 @@ function ResolvedSpanPlayerCard({
   const { config } = useAppConfig();
   const [activeIntervalIndex, setActiveIntervalIndex] = useState(0);
   const [resumeTime, setResumeTime] = useState(detail.span.startSec);
-  const [autostart, setAutostart] = useState(config?.ui.autostartVideo ?? false);
-  const autoplayOnOpenRef = useRef(config?.ui.autostartVideo ?? false);
+  const autoplayOnOpen = config?.ui.autostartVideo ?? false;
+  const [autostart, setAutostart] = useState(autoplayOnOpen);
   const playerSeekRef = useRef<VideoPlayerSeek | null>(null);
   const [activeTab, setActiveTab] = useState<ResolvedSpanTab>("overview");
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -249,17 +249,28 @@ function ResolvedSpanPlayerCard({
     [contextFollowTagId, contextFollowTagName, detail.span, videoSpansQuery.data?.spans],
   );
 
-  useEffect(() => {
-    autoplayOnOpenRef.current = config?.ui.autostartVideo ?? false;
-    setAutostart(autoplayOnOpenRef.current);
-  }, [config?.ui.autostartVideo]);
+  const [prevAutoplayOnOpen, setPrevAutoplayOnOpen] = useState(autoplayOnOpen);
+  if (autoplayOnOpen !== prevAutoplayOnOpen) {
+    setPrevAutoplayOnOpen(autoplayOnOpen);
+    setAutostart(autoplayOnOpen);
+  }
 
-  useEffect(() => {
-    const initialStart = detail.span.startSec;
-    setResumeTime(initialStart);
-    setAutostart(autoplayOnOpenRef.current);
+  // Opening another span (or its intervals changing) restarts playback from the span start.
+  const [prevSpan, setPrevSpan] = useState({
+    spanKey: detail.span.spanKey,
+    startSec: detail.span.startSec,
+    intervals,
+  });
+  if (
+    detail.span.spanKey !== prevSpan.spanKey ||
+    detail.span.startSec !== prevSpan.startSec ||
+    intervals !== prevSpan.intervals
+  ) {
+    setPrevSpan({ spanKey: detail.span.spanKey, startSec: detail.span.startSec, intervals });
+    setResumeTime(detail.span.startSec);
+    setAutostart(autoplayOnOpen);
     setActiveIntervalIndex(0);
-  }, [detail.span.spanKey, detail.span.startSec, intervals]);
+  }
 
   const seekAbsolute = useCallback(
     (nextTime: number) => {

@@ -168,13 +168,16 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
   }, [notice]);
 
   // Local decisions, pinned cards and focus belong to one view of one search.
-  useEffect(() => {
+  const view = [searchId, url.status, url.sort, url.page, url.q, preferences.pageSize] as const;
+  const [previousView, setPreviousView] = useState(view);
+  if (view.some((value, index) => value !== previousView[index])) {
+    setPreviousView(view);
     setKeeperOverrides(new Map());
     setStatusOverrides(new Map());
     setPinned(new Map());
     setFocusedIndex(0);
     setReviewGroupId(null);
-  }, [searchId, url.status, url.sort, url.page, url.q, preferences.pageSize]);
+  }
 
   const searchQuery = useQuery({
     queryKey: ["duplicate-search", searchId],
@@ -306,7 +309,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
       }),
     onSuccess: (result) => {
       openSearch(result.searchId);
-      void queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       void queryClient.invalidateQueries({ queryKey: ["duplicate-searches"] });
     },
   });
@@ -413,7 +416,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
           message: `Queued ${result.queuedGroupCount.toLocaleString()} groups. They resolve in the background — keep working.`,
         });
       }
-      void queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["duplicate-search", searchId] }),
         queryClient.invalidateQueries({ queryKey: ["duplicate-search-groups", searchId] }),
@@ -599,25 +602,29 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     setFocusedIndex(next);
     scrollToGroup(displayedGroups[next].id);
   };
-  const keyboardActions = useMemo<KeyboardActionRegistration[]>(() => {
-    const reviewable = focusedGroup && (focusedGroup.status === "unresolved" || focusedGroup.status === "failed");
-    const keepNumber = (position: number) => () => {
-      const video = focusedGroup?.videos[position];
-      if (video && reviewable) setKeepers(focusedGroup, [copyKey(video)]);
-    };
-    return [
-      { id: "duplicates.group.next", action: () => moveFocus(1) },
-      { id: "duplicates.group.previous", action: () => moveFocus(-1) },
-      { id: "duplicates.keep.1", action: keepNumber(0) },
-      { id: "duplicates.keep.2", action: keepNumber(1) },
-      { id: "duplicates.keep.3", action: keepNumber(2) },
-      { id: "duplicates.keep.4", action: keepNumber(3) },
-      { id: "duplicates.group.resolve", action: () => reviewable && resolveGroup(focusedGroup) },
-      { id: "duplicates.group.ignore", action: () => reviewable && ignoreGroup(focusedGroup) },
-      { id: "duplicates.group.compare", action: () => focusedGroup && setCompare({ groupId: focusedGroup.id }) },
-    ].map((registration) => ({ ...registration, surface: "page" as const, enabled: reviewing }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedGroup, focusedIndex, reviewing, displayedGroups, resolution, keeperOverrides]);
+  // Rebuilt every render: useRegisterKeyboardActions forwards each key press to the latest actions and only
+  // re-registers when the ids or enabled states change.
+  const reviewable = focusedGroup && (focusedGroup.status === "unresolved" || focusedGroup.status === "failed");
+  const keepNumber = (position: number) => () => {
+    const video = focusedGroup?.videos[position];
+    if (video && reviewable) setKeepers(focusedGroup, [copyKey(video)]);
+  };
+  const onPage = { surface: "page" as const, enabled: reviewing };
+  const keyboardActions: KeyboardActionRegistration[] = [
+    { id: "duplicates.group.next", action: () => moveFocus(1), ...onPage },
+    { id: "duplicates.group.previous", action: () => moveFocus(-1), ...onPage },
+    { id: "duplicates.keep.1", action: keepNumber(0), ...onPage },
+    { id: "duplicates.keep.2", action: keepNumber(1), ...onPage },
+    { id: "duplicates.keep.3", action: keepNumber(2), ...onPage },
+    { id: "duplicates.keep.4", action: keepNumber(3), ...onPage },
+    { id: "duplicates.group.resolve", action: () => reviewable && resolveGroup(focusedGroup), ...onPage },
+    { id: "duplicates.group.ignore", action: () => reviewable && ignoreGroup(focusedGroup), ...onPage },
+    {
+      id: "duplicates.group.compare",
+      action: () => focusedGroup && setCompare({ groupId: focusedGroup.id }),
+      ...onPage,
+    },
+  ];
   useRegisterKeyboardActions(keyboardActions);
 
   const totalCount = groupsQuery.data?.totalCount ?? 0;
@@ -1607,13 +1614,15 @@ function AutoSelectDialog({
 }) {
   const [rules, setRules] = useState(initialRules);
   const [overwriteManual, setOverwriteManual] = useState(false);
-  useEffect(() => {
+  // Each opening starts from the current rules; while open, later rule changes do not reset the draft.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setRules(initialRules);
       setOverwriteManual(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }
   return (
     <DuplicateDialog
       open={open}

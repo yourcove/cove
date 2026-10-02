@@ -155,10 +155,10 @@ describe("extension API runtime", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const request = extensionFetch("/api/plugins/example/status", { timeoutMs: 100 });
-    const rejection = expect(request).rejects.toMatchObject({ name: "TimeoutError" });
-
-    await vi.advanceTimersByTimeAsync(100);
-    await rejection;
+    await Promise.all([
+      expect(request).rejects.toMatchObject({ name: "TimeoutError" }),
+      vi.advanceTimersByTimeAsync(100),
+    ]);
   });
 
   it("preserves caller cancellation without a default timeout", async () => {

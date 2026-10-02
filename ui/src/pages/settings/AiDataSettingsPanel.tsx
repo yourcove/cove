@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, RefreshCw, Search, Trash2 } from "lucide-react";
 
@@ -429,11 +429,9 @@ function PurgeConfirmDialog({
 }) {
   const [value, setValue] = useState("");
 
-  useEffect(() => {
-    if (!open) {
-      setValue("");
-    }
-  }, [open]);
+  if (!open && value !== "") {
+    setValue("");
+  }
 
   if (!open) {
     return null;

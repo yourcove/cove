@@ -72,16 +72,19 @@ export function resolveSearchQueryFilter({
   listEntityType,
   sortOptions,
   previousSearchSort,
+  switchToRelevance = true,
 }: {
   filter: FindFilter;
   query: string | undefined;
   listEntityType: string;
   sortOptions: { value: string; label: string }[] | undefined;
   previousSearchSort: PreviousSearchSort | null;
+  /** The library setting "Sort searches by relevance"; off keeps the list's sort when a query starts. */
+  switchToRelevance?: boolean;
 }): SearchQueryFilterResult {
   const currentQuery = filter.q?.trim();
 
-  if (query && !currentQuery && supportsRelevanceSort(listEntityType)) {
+  if (query && !currentQuery && switchToRelevance && supportsRelevanceSort(listEntityType)) {
     return {
       filter: {
         ...filter,

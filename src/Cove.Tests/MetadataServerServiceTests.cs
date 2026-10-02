@@ -887,6 +887,77 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    public async Task SearchStudiosAsync_UsesFindStudioByNameForThePornDbEndpoint()
+    {
+        await using var context = CreateContext();
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("findStudio(id:", request.Query, StringComparison.Ordinal);
+            Assert.DoesNotContain("searchStudio(term:", request.Query, StringComparison.Ordinal);
+            return GraphQlData($$"""
+                "findStudio": {
+                  "id": "remote-studio-1",
+                  "name": "Vixen",
+                  "aliases": ["VXN"],
+                  "urls": [{ "url": "https://theporndb.net/sites/vixen" }],
+                  "images": [],
+                  "parent": { "id": "remote-studio-parent-1", "name": "Vixen Media Group" }
+                }
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient, configuration: ThePornDbConfiguration());
+
+        var matches = await service.SearchStudiosAsync("Vixen", "https://theporndb.net/graphql", CancellationToken.None);
+
+        var match = Assert.Single(matches);
+        Assert.Equal("remote-studio-1", match.Id);
+        Assert.Equal("Vixen", match.Name);
+        Assert.Equal("Vixen Media Group", match.ParentName);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchStudiosAsync_ReturnsEmptyWhenThePornDbHasNoExactStudioMatch()
+    {
+        await using var context = CreateContext();
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("findStudio(id:", request.Query, StringComparison.Ordinal);
+            return GraphQlData("\"findStudio\": null");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient, configuration: ThePornDbConfiguration());
+
+        Assert.Empty(await service.SearchStudiosAsync("Vix", "https://theporndb.net/graphql", CancellationToken.None));
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchStudiosAsync_UsesSearchStudioQueryForStandardEndpoints()
+    {
+        await using var context = CreateContext();
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("searchStudio(term:", request.Query, StringComparison.Ordinal);
+            return GraphQlData($$"""
+                "searchStudio": [
+                  { "id": "remote-studio-2", "name": "Fixture Studio", "aliases": [], "urls": [], "images": [], "parent": null }
+                ]
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchStudiosAsync("Fixture", Endpoint, CancellationToken.None);
+
+        var match = Assert.Single(matches);
+        Assert.Equal("remote-studio-2", match.Id);
+        Assert.Equal("Fixture Studio", match.Name);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task MergeTagAsync_KeepsLocalNameAndSkipsRemoteAliasesClaimedByOtherTags()
     {
         await using var context = CreateContext();
@@ -2123,6 +2194,23 @@ public sealed class MetadataServerServiceTests
             fieldProvenance,
             eventBus,
             streamService);
+
+    private static CoveConfiguration ThePornDbConfiguration()
+        => new()
+        {
+            Scraping = new ScrapingConfig
+            {
+                MetadataServers =
+                [
+                    new MetadataServerInstance
+                    {
+                        Endpoint = "https://theporndb.net/graphql",
+                        ApiKey = ApiKey,
+                        Name = "ThePornDB",
+                    },
+                ],
+            },
+        };
 
     private static CoveContext CreateContext()
     {

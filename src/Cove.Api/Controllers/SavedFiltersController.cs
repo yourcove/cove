@@ -65,7 +65,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         var filter = new SavedFilter
         {
             Name = name, Mode = filterMode, UserId = CurrentUserId,
-            FindFilter = StripRandomSeed(dto.FindFilter), ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
+            FindFilter = StripRequestOnlyOptions(StripRandomSeed(dto.FindFilter)), ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
         };
 
         filter = await filterRepo.AddAsync(filter, ct);
@@ -93,7 +93,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
 
         filter.Name = name;
         filter.Mode = mode;
-        if (dto.FindFilter != null) filter.FindFilter = StripRandomSeed(dto.FindFilter);
+        if (dto.FindFilter != null) filter.FindFilter = StripRequestOnlyOptions(StripRandomSeed(dto.FindFilter));
         if (dto.ObjectFilter != null) filter.ObjectFilter = dto.ObjectFilter;
         if (dto.UIOptions != null) filter.UIOptions = dto.UIOptions;
 
@@ -179,6 +179,34 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         if (!obj.ContainsKey("seed")) return findFilterJson;
 
         obj.Remove("seed");
+        return obj.ToJsonString();
+    }
+
+    // skipCount asks one request to return its page uncounted; a list opened from a saved filter must
+    // still count unless the page itself asks otherwise, so the option is never stored.
+    internal static string? StripRequestOnlyOptions(string? findFilterJson)
+    {
+        if (string.IsNullOrWhiteSpace(findFilterJson)) return findFilterJson;
+
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(findFilterJson);
+        }
+        catch (JsonException)
+        {
+            return findFilterJson;
+        }
+
+        if (node is not JsonObject obj) return findFilterJson;
+
+        var keys = obj.Select(property => property.Key)
+            .Where(key => string.Equals(key, "skipCount", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (keys.Count == 0) return findFilterJson;
+
+        foreach (var key in keys)
+            obj.Remove(key);
         return obj.ToJsonString();
     }
 

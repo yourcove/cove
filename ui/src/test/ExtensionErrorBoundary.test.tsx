@@ -39,4 +39,42 @@ describe("ExtensionErrorBoundary", () => {
     expect(container).toBeEmptyDOMElement();
     spy.mockRestore();
   });
+
+  it("keeps showing the fallback while the resetKey is unchanged", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rerender } = render(
+      <ExtensionErrorBoundary fallback={<div>failed</div>} resetKey={1}>
+        <Boom throwNow={true} />
+      </ExtensionErrorBoundary>,
+    );
+    rerender(
+      <ExtensionErrorBoundary fallback={<div>failed</div>} resetKey={1}>
+        <Boom throwNow={false} />
+      </ExtensionErrorBoundary>,
+    );
+    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.queryByText("ok")).not.toBeInTheDocument();
+    spy.mockRestore();
+  });
+
+  it("retries the children without rendering the fallback again when the resetKey changes", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fallbackRender = vi.fn(() => <div>failed</div>);
+    const { rerender } = render(
+      <ExtensionErrorBoundary fallbackRender={fallbackRender} resetKey={1}>
+        <Boom throwNow={true} />
+      </ExtensionErrorBoundary>,
+    );
+    expect(screen.getByText("failed")).toBeInTheDocument();
+    fallbackRender.mockClear();
+
+    rerender(
+      <ExtensionErrorBoundary fallbackRender={fallbackRender} resetKey={2}>
+        <Boom throwNow={false} />
+      </ExtensionErrorBoundary>,
+    );
+    expect(screen.getByText("ok")).toBeInTheDocument();
+    expect(fallbackRender).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

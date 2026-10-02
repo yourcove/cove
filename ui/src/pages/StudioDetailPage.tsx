@@ -24,8 +24,6 @@ import type {
 } from "../api/types";
 import {
   formatDate,
-  formatDuration,
-  getResolutionLabel,
   TagBadge,
   CustomFieldsDisplay,
   FieldProvenanceHover,
@@ -104,6 +102,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import {
   useDetailBooleanUrlState,
@@ -112,6 +111,7 @@ import {
 } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -135,7 +135,15 @@ interface Props {
 }
 
 type TabKey =
-  "videos" | "performers" | "galleries" | "images" | "audios" | "texts" | "studios" | "groups" | (string & {});
+  | "videos"
+  | "performers"
+  | "galleries"
+  | "images"
+  | "audios"
+  | "texts"
+  | "studios"
+  | "groups"
+  | (string & {});
 
 export function StudioDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
@@ -272,7 +280,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     if (visibleStudioTabs.length > 0 && !visibleStudioTabs.some((tab) => tab.key === activeTab)) {
       setActiveTab(visibleStudioTabs[0].key as TabKey);
     }
-  }, [activeTab, visibleStudioTabs]);
+  }, [activeTab, setActiveTab, visibleStudioTabs]);
 
   const deleteMut = useMutation({
     mutationFn: () => studios.delete(id),
@@ -664,15 +672,15 @@ function StudioMetadataServerPanel({
   const [selectedEndpoint, setSelectedEndpoint] = useState("");
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
+  const [termSource, setTermSource] = useState({ id: studio.id, name: studio.name });
+  if (termSource.id !== studio.id || termSource.name !== studio.name) {
+    setTermSource({ id: studio.id, name: studio.name });
     setTerm(studio.name);
-  }, [studio.id, studio.name]);
+  }
 
-  useEffect(() => {
-    if (selectedEndpoint && !metadataServers.some((box) => box.endpoint === selectedEndpoint)) {
-      setSelectedEndpoint("");
-    }
-  }, [selectedEndpoint, metadataServers]);
+  if (selectedEndpoint && !metadataServers.some((box) => box.endpoint === selectedEndpoint)) {
+    setSelectedEndpoint("");
+  }
 
   const searchMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -879,11 +887,13 @@ function StudioVideosPanel({
       hasObjectFilter || includeSubStudios
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredSingleId(
-              objectFilter as VideoFilterCriteria,
-              "studiosCriterion",
-              studioId,
-              includeSubStudios ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredSingleId(
+                objectFilter as VideoFilterCriteria,
+                "studiosCriterion",
+                studioId,
+                includeSubStudios ? -1 : undefined,
+              ),
             ),
           })
         : videos.find(nextFilter, { studioId: String(studioId) }),
@@ -917,6 +927,28 @@ function StudioVideosPanel({
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, studioId, includeSubStudios),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                ...splitFilterExpression(
+                  withRequiredSingleId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "studiosCriterion",
+                    studioId,
+                    includeSubStudios ? -1 : undefined,
+                  ),
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(
         objectFilter,
         "studiosCriterion",
@@ -951,6 +983,7 @@ function StudioVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1348,11 +1381,13 @@ function StudioAudiosPanel({
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(
-          objectFilter as AudioFilterCriteria,
-          "studiosCriterion",
-          studioId,
-          includeSubStudios ? -1 : undefined,
+        ...splitFilterExpression(
+          withRequiredMultiId(
+            objectFilter as AudioFilterCriteria,
+            "studiosCriterion",
+            studioId,
+            includeSubStudios ? -1 : undefined,
+          ),
         ),
       }),
   });
@@ -1403,6 +1438,7 @@ function StudioAudiosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1659,6 +1695,7 @@ function ChildStudiosPanel({ studioId, onNavigate }: { studioId: number; onNavig
         <BulkSelectionActions
           entityType="studios"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "studio", id: studioId }}
         />
@@ -1757,11 +1794,13 @@ function StudioPerformersPanel({
       hasObjectFilter || includeSubStudios
         ? performers.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as PerformerFilterCriteria,
-              "studiosCriterion",
-              studioId,
-              includeSubStudios ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as PerformerFilterCriteria,
+                "studiosCriterion",
+                studioId,
+                includeSubStudios ? -1 : undefined,
+              ),
             ),
           })
         : performers.find(nextFilter, { studioId: String(studioId) }),
@@ -1790,11 +1829,19 @@ function StudioPerformersPanel({
       onSelectAllMatching={selectShown}
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="performers"
+          selectedIds={selectedIds}
+          mergeItems={items}
+          onDone={selectNone}
+        />
+      }
       criteriaDefinitions={PERFORMER_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="performers"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}

@@ -1,3 +1,7 @@
+import type { VrDescriptor } from "../vr/immersiveVideo";
+
+export type { VrDescriptor };
+
 // ===== Entity Types =====
 
 export interface Video {
@@ -10,6 +14,8 @@ export interface Video {
   date?: string;
   organized: boolean;
   isVr?: boolean;
+  /** VR layout for immersive playback; null when the video is not VR. */
+  vr?: VrDescriptor | null;
   studioId?: number;
   studioName?: string;
   urls: string[];
@@ -34,7 +40,15 @@ export interface Video {
 }
 
 export type GlobalSearchEntityType =
-  "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
+  | "video"
+  | "performer"
+  | "studio"
+  | "tag"
+  | "gallery"
+  | "image"
+  | "group"
+  | "audio"
+  | "text";
 
 export interface GlobalSearchItem {
   id: number;
@@ -92,6 +106,8 @@ export interface FileBackedCreate {
 }
 
 export interface VideoUpdate extends Partial<VideoCreate> {
+  /** Explicit VR layout. Omit to leave it alone; list "vr" in clearFields to go back to detection. */
+  vr?: VrDescriptor | null;
   clearFields?: string[];
 }
 
@@ -165,6 +181,48 @@ export interface PerformerSummary {
   galleryCount?: number;
   audioCount?: number;
   textCount?: number;
+}
+
+/** One of a performer's videos with at least one other visible performer, with its whole visible cast. */
+export interface PerformerPairingVideo {
+  id: number;
+  title?: string | null;
+  /** A partial date: "yyyy", "yyyy-MM" or "yyyy-MM-dd". */
+  date?: string | null;
+  studioId?: number | null;
+  studioName?: string | null;
+  /** Seconds; 0 when the video has no files. */
+  duration: number;
+  /** The primary file's frame; 0 when the video has no files. */
+  width: number;
+  height: number;
+  updatedAt: string;
+  /** The visible cast, the performer included, in ascending id order. */
+  performerIds: number[];
+}
+
+/** GET /performers/{id}/pairings: the rows the Appears With tab derives its counts from. */
+export interface PerformerPairings {
+  performerId: number;
+  /** Every video the performer is in, with or without co-stars. */
+  videoCount: number;
+  /** Dated videos without a co-star, per year. */
+  soloVideoYears: Record<string, number>;
+  /** Newest first, undated last. */
+  videos: PerformerPairingVideo[];
+  coStars: PerformerPairingCoStar[];
+}
+
+/** A co-star as the Appears With tab needs it. */
+export interface PerformerPairingCoStar {
+  id: number;
+  name: string;
+  disambiguation?: string | null;
+  gender?: string | null;
+  favorite: boolean;
+  imagePath?: string | null;
+  /** Every video they are in; only given for co-stars with two or more videos together. */
+  videoCount?: number | null;
 }
 
 export interface PerformerCreate {
@@ -1228,7 +1286,17 @@ export interface TagSegmentWall {
 export type SegmentHostType = "video" | "image" | "audio";
 export type DetectionHostType = "video" | "image";
 export type AffinityHostType =
-  "video" | "audio" | "text" | "image" | "performer" | "face" | "tag" | "studio" | "gallery" | "group" | "segment";
+  | "video"
+  | "audio"
+  | "text"
+  | "image"
+  | "performer"
+  | "face"
+  | "tag"
+  | "studio"
+  | "gallery"
+  | "group"
+  | "segment";
 export type InteractionHostType = AffinityHostType | "segment" | "search" | "collection";
 
 export interface Segment {
@@ -2134,7 +2202,16 @@ export interface InterfaceConfig {
 }
 
 export type CustomFieldEntityType =
-  "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
+  | "video"
+  | "audio"
+  | "text"
+  | "performer"
+  | "tag"
+  | "studio"
+  | "gallery"
+  | "image"
+  | "group"
+  | "face";
 export type CustomFieldType =
   | "text"
   | "longText"
@@ -2228,6 +2305,8 @@ export interface UiConfig {
   playerVideoStartMinDuration: number;
   continuePlaylistDefault: boolean;
   showAbLoopControls: boolean;
+  /** Typing a search switches a list to relevance order. */
+  sortSearchesByRelevance: boolean;
   soundOnPreview: boolean;
   previewSegmentDuration: number;
   previewSegments: number;
@@ -2416,7 +2495,12 @@ export interface FindFilter {
   direction?: "asc" | "desc";
   sorts?: SortClause[];
   seed?: number;
+  /** Return the page without counting every match; the list then reports `UNCOUNTED_TOTAL`. */
+  skipCount?: boolean;
 }
+
+/** The `totalCount` a list reports when `skipCount` left it uncounted. */
+export const UNCOUNTED_TOTAL = -1;
 
 export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
   findFilter?: Pick<FindFilter, "q">;
@@ -2435,7 +2519,8 @@ export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>>
 }
 
 export type FilterExpressionNode<TFilter = Record<string, unknown>> =
-  { filter: TFilter; group?: never } | { group: FilterExpression<TFilter>; filter?: never };
+  | { filter: TFilter; group?: never }
+  | { group: FilterExpression<TFilter>; filter?: never };
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
   operator: "AND" | "OR" | "JUST_ONE" | "NOT";
@@ -4048,4 +4133,12 @@ export interface VideoMergeAssessment {
   videoId: number;
   filesEquivalent: boolean;
   timelineItemCount: number;
+}
+
+/** The optional HTTPS listener. WebXR needs a secure context, which plain HTTP on a LAN address is not. */
+export interface HttpsStatus {
+  enabled: boolean;
+  port?: number | null;
+  hostNames: string[];
+  certificateAuthorityUrl?: string | null;
 }

@@ -63,12 +63,10 @@ export function useManualContext(contexts: ManualContextValue | ManualContextVal
     ? uniqueManualContexts(contexts).join("\u001f")
     : (normalizeManualContext(contexts) ?? "");
 
+  // Register from the normalized key rather than `contexts`, which may be a new inline array every render.
   useEffect(() => {
     if (!enabled) return;
-    const values = Array.isArray(contexts) ? contexts : [contexts];
-    return registerManualContext(...values);
-    // contextKey is the normalized dependency; contexts may be an inline array.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return registerManualContext(...contextKey.split("\u001f"));
   }, [enabled, contextKey]);
 }
 

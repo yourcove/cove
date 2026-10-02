@@ -1221,6 +1221,118 @@ test("entity-scoped saved-filter management infers and enforces the parent mode"
   expect(requests.some(request => request.path === "/api/savedfilters/99" && (request.method === "PUT" || request.method === "DELETE"))).toBe(false);
 });
 
+test("add-ids creates a worklist, extends it without duplicates, and rejects invalid IDs", async () => {
+  let filter: { id: number; mode: string; name: string; objectFilter: string; findFilter?: string } | undefined;
+  const writes: Array<{ method: string; body: unknown }> = [];
+  const running = startServer(async request => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/api/savedfilters") return json(filter ? [filter] : []);
+    if (request.method === "POST" && path === "/api/savedfilters") {
+      const body = await request.json();
+      writes.push({ method: "POST", body });
+      filter = { id: 42, ...body };
+      return json(filter, 201);
+    }
+    if (request.method === "PUT" && path === "/api/savedfilters/42") {
+      const body = await request.json();
+      writes.push({ method: "PUT", body });
+      filter = { ...filter!, ...body };
+      return json(filter);
+    }
+    return json({}, 404);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const environment = { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory };
+  const run = async (name: string, ids: string[]) => {
+    const child = Bun.spawn([process.execPath, "src/index.ts", "videos", "filters", "add-ids", name, ...ids, "--json"], {
+      cwd: join(import.meta.dir, ".."), env: environment, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exitCode };
+  };
+
+  const created = await run("Selected videos", ["12", "34", "12"]);
+  expect(created.exitCode).toBe(0);
+  expect(created.stderr).toBe("");
+  expect(JSON.parse(created.stdout)).toMatchObject({ id: 42, mode: "videos", name: "Selected videos", objectFilter: '{"ids":[12,34]}' });
+  expect(writes).toEqual([{ method: "POST", body: {
+    mode: "videos", name: "Selected videos", findFilter: '{"sort":"date","direction":"desc"}', objectFilter: '{"ids":[12,34]}',
+  } }]);
+
+  filter!.findFilter = '{"sort":"date"}';
+  const updated = await run("selected VIDEOS", ["34", "56"]);
+  expect(updated.exitCode).toBe(0);
+  expect(JSON.parse(updated.stdout)).toMatchObject({ id: 42, objectFilter: '{"ids":[12,34,56]}', findFilter: '{"sort":"date"}' });
+  expect(writes.at(-1)).toEqual({ method: "PUT", body: { objectFilter: '{"ids":[12,34,56]}' } });
+
+  const unchanged = await run("Selected videos", ["12", "56"]);
+  expect(unchanged.exitCode).toBe(0);
+  expect(writes).toHaveLength(2);
+
+  for (const ids of [["0"], ["oops"], ["1.5"], ["9007199254740992"]]) {
+    const result = await run("Selected videos", ids);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT" } });
+  }
+  expect(writes).toHaveLength(2);
+});
+
+test("removes video IDs from a saved worklist and deletes it when the last ID is removed", async () => {
+  const initialFilter = {
+    id: 42, mode: "videos", name: "To review", findFilter: '{"sort":"date"}',
+    objectFilter: '{"ids":[12,34,56],"organizedCriterion":{"value":false}}', uiOptions: '{"displayMode":"grid"}',
+  };
+  let filter = { ...initialFilter };
+  const writes: Array<{ method: string; body?: unknown }> = [];
+  const running = startServer(async request => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/api/savedfilters") return json([filter]);
+    if (request.method === "GET" && path === "/api/savedfilters/42") return json(filter);
+    if (request.method === "PUT" && path === "/api/savedfilters/42") {
+      const body = await request.json();
+      writes.push({ method: "PUT", body });
+      filter = { ...filter, ...body };
+      return json(filter);
+    }
+    if (request.method === "DELETE" && path === "/api/savedfilters/42") {
+      writes.push({ method: "DELETE" });
+      return new Response(null, { status: 204 });
+    }
+    return json({}, 404);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const environment = { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory };
+  const run = async (...args: string[]) => {
+    const child = Bun.spawn([process.execPath, "src/index.ts", "videos", "filters", "remove-ids", ...args, "--json"], {
+      cwd: join(import.meta.dir, ".."), env: environment, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exitCode };
+  };
+
+  const updated = await run("To review", "12", "34");
+  expect(updated.exitCode).toBe(0);
+  expect(JSON.parse(updated.stdout)).toMatchObject({ id: 42, objectFilter: '{"ids":[56],"organizedCriterion":{"value":false}}' });
+  expect(writes).toEqual([{ method: "PUT", body: { objectFilter: '{"ids":[56],"organizedCriterion":{"value":false}}' } }]);
+  expect(filter.findFilter).toBe(initialFilter.findFilter);
+  expect(filter.uiOptions).toBe(initialFilter.uiOptions);
+
+  const absent = await run("42", "99");
+  expect(absent.exitCode).toBe(2);
+  expect(JSON.parse(absent.stderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT" } });
+  expect(writes).toHaveLength(1);
+
+  const finished = await run("42", "56");
+  expect(finished.exitCode).toBe(0);
+  expect(JSON.parse(finished.stdout)).toEqual({ id: 42, deleted: true });
+  expect(writes.at(-1)).toEqual({ method: "DELETE" });
+});
+
 test("every standard entity list exposes saved-filter composition", async () => {
   for (const resource of ["videos", "audios", "images", "galleries", "tags", "performers", "studios", "groups", "texts"]) {
     const processResult = Bun.spawn([process.execPath, "src/index.ts", resource, "list", "--help"], { cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });

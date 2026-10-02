@@ -6,7 +6,6 @@ import type {
   CriterionModifier,
   CustomFieldCriterion,
   FindFilter,
-  FaceSuggestion,
   FaceTopSuggestion,
   IntCriterion,
   MultiIdCriterion,
@@ -213,28 +212,6 @@ function readCustomFieldCriteria(value: unknown): CustomFieldCriterion[] {
   return Array.isArray(value)
     ? value.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object"))
     : [];
-}
-
-function readSuggestionConfidenceLowerBound(value: unknown) {
-  const legacy = readMinSuggestionConfidence(value);
-  if (legacy != null) {
-    return legacy;
-  }
-
-  const criterion = readNumberCriterion(value);
-  if (!criterion) {
-    return undefined;
-  }
-
-  if (criterion.modifier === "GREATER_THAN" || criterion.modifier === "EQUALS") {
-    return criterion.value;
-  }
-
-  if (criterion.modifier === "BETWEEN" || criterion.modifier === "NOT_BETWEEN") {
-    return Math.min(criterion.value, criterion.value2 ?? criterion.value);
-  }
-
-  return undefined;
 }
 
 function sanitizeFaceFilters(filter: Record<string, unknown>) {
@@ -523,9 +500,13 @@ export function FacesPage({ onNavigate }: Props) {
     batchCompareFaceIds.length > 0
       ? items.find((face) => face.id === batchCompareFaceIds[batchCompareIndex])
       : undefined;
-  const activeComparison = batchComparisonFace?.topSuggestion
-    ? { face: batchComparisonFace, suggestion: batchComparisonFace.topSuggestion }
-    : comparison;
+  const activeComparison = useMemo(
+    () =>
+      batchComparisonFace?.topSuggestion
+        ? { face: batchComparisonFace, suggestion: batchComparisonFace.topSuggestion }
+        : comparison,
+    [batchComparisonFace, comparison],
+  );
   const comparisonFaceId = activeComparison?.face.id ?? null;
   const { data: comparisonFaceDetections = [] } = useQuery({
     queryKey: ["face", comparisonFaceId, "detections"],
@@ -1181,7 +1162,6 @@ function FaceListRow({
 }
 
 function TopSuggestionFooter({
-  face,
   suggestion,
   onNavigate,
   canReadPerformers,
@@ -1334,15 +1314,6 @@ function Badge({ icon, label }: { icon: React.ReactNode; label: string }) {
       {icon}
       {label}
     </span>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface/50 px-2 py-2">
-      <div className="text-sm font-semibold text-foreground">{value}</div>
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-muted">{label}</div>
-    </div>
   );
 }
 

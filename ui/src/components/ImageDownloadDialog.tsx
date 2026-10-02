@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Link2, Loader2, Search, X } from "lucide-react";
 import { system } from "../api/client";
@@ -20,34 +20,29 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
   const [allowDuplicateDownload, setAllowDuplicateDownload] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reset the form whenever the dialog opens or its target changes while open.
+  const [resetKey, setResetKey] = useState({ open: false, id: image?.id, urls: image?.urls });
+  if (resetKey.open !== open || resetKey.id !== image?.id || resetKey.urls !== image?.urls) {
+    setResetKey({ open, id: image?.id, urls: image?.urls });
+    if (open) {
+      setUrl(image?.urls[0] ?? "");
+      setMatches([]);
+      setSelectedDownloaderId("");
+      setQualityId("");
+      setAllowDuplicateDownload(false);
+      setError(null);
     }
-
-    setUrl(image?.urls[0] ?? "");
-    setMatches([]);
-    setSelectedDownloaderId("");
-    setQualityId("");
-    setAllowDuplicateDownload(false);
-    setError(null);
-  }, [open, image?.id, image?.urls]);
+  }
 
   const selectedMatch = useMemo(
     () => matches.find((match) => match.downloaderId === selectedDownloaderId) ?? null,
     [matches, selectedDownloaderId],
   );
 
-  useEffect(() => {
-    if (!selectedMatch || selectedMatch.qualityOptions.length === 0) {
-      setQualityId("");
-      return;
-    }
-
-    if (!selectedMatch.qualityOptions.some((option) => option.id === qualityId)) {
-      setQualityId(selectedMatch.qualityOptions[0]?.id ?? "");
-    }
-  }, [qualityId, selectedMatch]);
+  // The chosen quality must be one of the selected match's options; fall back to its first option.
+  const effectiveQualityId = selectedMatch?.qualityOptions.some((option) => option.id === qualityId)
+    ? qualityId
+    : (selectedMatch?.qualityOptions[0]?.id ?? "");
 
   const matchMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -102,7 +97,7 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
           url: normalizedUrl,
           entity: "Image",
           entityId: imageId,
-          qualityId: qualityId || undefined,
+          qualityId: effectiveQualityId || undefined,
           allowDuplicateDownload,
         });
       }
@@ -198,7 +193,11 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
                       type="radio"
                       name="image-downloader-match"
                       checked={selectedDownloaderId === match.downloaderId}
-                      onChange={() => setSelectedDownloaderId(match.downloaderId)}
+                      onChange={() => {
+                        setSelectedDownloaderId(match.downloaderId);
+                        // Carry the current quality over; it falls back to the new match's first option if unsupported.
+                        setQualityId(effectiveQualityId);
+                      }}
                       className="mt-0.5 h-4 w-4 border-border bg-card text-accent focus:ring-0"
                     />
                     <div className="min-w-0 flex-1">
@@ -216,7 +215,7 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
             <div className="space-y-2">
               <label className="block text-sm font-medium text-foreground">Quality</label>
               <select
-                value={qualityId}
+                value={effectiveQualityId}
                 onChange={(event) => setQualityId(event.target.value)}
                 className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
               >

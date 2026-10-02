@@ -103,6 +103,7 @@ export function SortableList<T>({
 
   return (
     <div ref={listRef} className={className} style={style} role="list">
+      {/* oxlint-disable-next-line react/refs -- the drag handle handlers read the pointer ref only on pointer events */}
       {items.map((item, index) => {
         const itemKey = getKey(item);
         const isDragging = dragKey === itemKey;

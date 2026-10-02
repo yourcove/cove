@@ -13,7 +13,6 @@ import {
   formatDate,
   formatSegmentCardEyebrow,
   formatSourceLabel,
-  formatSegmentDuration,
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,

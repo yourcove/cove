@@ -1,4 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
@@ -163,7 +173,8 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [pendingSequence, setPendingSequence] = useState<{ sequence: string; continuations: string[] } | null>(null);
   const registrationsRef = useRef<ActiveRegistration[]>([]);
-  const [registrationRevision, setRegistrationRevision] = useState(0);
+  // Render-time mirror of registrationsRef, which the key handler reads synchronously between renders.
+  const [registrationSnapshot, setRegistrationSnapshot] = useState<ActiveRegistration[]>([]);
   const sequenceBufferRef = useRef<string[]>([]);
   const sequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -227,7 +238,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
         // Server-backed preferences remain authoritative when browser storage is unavailable or full.
       }
       updateAuthenticatedUserUiPreferences((current) => ({
-        ...(current ?? {}),
+        ...current,
         keyboardShortcuts: value,
       }));
     },
@@ -336,20 +347,18 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
       order: ++registrationOrder,
     }));
     registrationsRef.current = [...registrationsRef.current, ...entries];
-    setRegistrationRevision((revision) => revision + 1);
+    setRegistrationSnapshot(registrationsRef.current);
     return () => {
       const tokens = new Set(entries.map((entry) => entry.token));
       registrationsRef.current = registrationsRef.current.filter((entry) => !tokens.has(entry.token));
-      setRegistrationRevision((revision) => revision + 1);
+      setRegistrationSnapshot(registrationsRef.current);
     };
   }, []);
 
   const actionById = useMemo(() => new Map(actions.map((action) => [action.id, action])), [actions]);
   const activeActionIds = useMemo(
-    () => new Set(registrationsRef.current.filter((entry) => entry.enabled !== false).map((entry) => entry.id)),
-    // registrationRevision intentionally turns the ref into reactive state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [registrationRevision],
+    () => new Set(registrationSnapshot.filter((entry) => entry.enabled !== false).map((entry) => entry.id)),
+    [registrationSnapshot],
   );
 
   useEffect(() => {
@@ -547,7 +556,10 @@ export function useRegisterKeyboardActions(registrations: KeyboardActionRegistra
     )
     .join("\u001d");
   const registrationsRef = useRef(registrations);
-  registrationsRef.current = registrations;
+  // Registered actions forward to the latest callbacks, so re-rendering does not re-register them.
+  useLayoutEffect(() => {
+    registrationsRef.current = registrations;
+  });
 
   useEffect(() => {
     if (!register) return;

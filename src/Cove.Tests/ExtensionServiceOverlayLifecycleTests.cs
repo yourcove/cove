@@ -483,6 +483,106 @@ public sealed class ExtensionServiceOverlayLifecycleTests
         Assert.Equal(1, first.DisposeCount);
     }
 
+    [Fact]
+    public async Task Unload_of_disabled_runtime_extension_runs_uninstall_hook_in_temporary_provider()
+    {
+        var manager = new ExtensionManager(CreateContext());
+        var extension = new UninstallTrackingExtension("com.example.uninstall-tracking");
+        using var root = await InitializeRuntimeExtensionsAsync(manager, extension);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+
+        Assert.True(await manager.UnloadExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
+
+        Assert.Null(manager.GetExtension(extension.Id));
+        Assert.Equal(1, extension.UninstallCount);
+        Assert.Same(extension.Service, extension.UninstallService);
+        // Only the uninstall hook resolves the probe, so this disposal is the temporary container's.
+        Assert.Equal(1, extension.Service.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Unload_of_dependent_completes_after_dependency_unload_retired_its_provider()
+    {
+        var manager = new ExtensionManager(CreateContext());
+        var dependency = new UninstallTrackingExtension("com.example.uninstall-dependency");
+        var dependent = new UninstallTrackingExtension("com.example.uninstall-dependent", dependency.Id);
+        using var root = await InitializeRuntimeExtensionsAsync(manager, dependency, dependent);
+
+        Assert.True(await manager.UnloadExtensionAsync(dependency.Id, root, TestContext.Current.CancellationToken));
+        Assert.NotNull(manager.GetExtension(dependent.Id));
+        Assert.False(manager.IsEnabled(dependent.Id));
+
+        Assert.True(await manager.UnloadExtensionAsync(dependent.Id, root, TestContext.Current.CancellationToken));
+
+        Assert.Null(manager.GetExtension(dependent.Id));
+        Assert.Equal(1, dependent.UninstallCount);
+        Assert.Same(dependent.Service, dependent.UninstallService);
+        // Only the uninstall hook resolves the probe, so this disposal is the temporary container's.
+        Assert.Equal(1, dependent.Service.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Unload_of_disabled_runtime_extension_completes_when_uninstall_provider_cannot_be_built()
+    {
+        var manager = new ExtensionManager(CreateContext());
+        var extension = new UninstallTrackingExtension("com.example.uninstall-configure-failure");
+        using var root = await InitializeRuntimeExtensionsAsync(manager, extension);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        extension.ThrowOnConfigure = true;
+
+        Assert.True(await manager.UnloadExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
+
+        Assert.Null(manager.GetExtension(extension.Id));
+        Assert.Equal(0, extension.UninstallCount);
+        Assert.Null(manager.GetLastFailureReason(extension.Id));
+    }
+
+    [Fact]
+    public async Task Unload_of_disabled_runtime_extension_completes_when_uninstall_provider_build_throws()
+    {
+        var manager = new ExtensionManager(CreateContext());
+        var extension = new UninstallTrackingExtension("com.example.uninstall-build-throws");
+        manager.Register(extension, "local");
+        MarkAsRuntimeExtension(manager, extension.Id);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+
+        // Disabled before startup, so the uninstall build is the first to forward (and resolve) this
+        // host singleton, outside the overlay's ConfigureServices/BuildServiceProvider failure handling.
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        hostServices.AddSingleton<DisposalProbe>(_ => throw new InvalidOperationException("Expected host singleton failure."));
+        manager.CaptureHostServices(hostServices);
+        using var root = hostServices.BuildServiceProvider();
+        manager.PrepareRuntimeServices(root);
+
+        Assert.True(await manager.UnloadExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
+
+        Assert.Null(manager.GetExtension(extension.Id));
+        Assert.Equal(0, extension.UninstallCount);
+        Assert.Null(manager.GetLastFailureReason(extension.Id));
+    }
+
+    private static async Task<ServiceProvider> InitializeRuntimeExtensionsAsync(
+        ExtensionManager manager,
+        params IExtension[] extensions)
+    {
+        foreach (var extension in extensions)
+        {
+            manager.Register(extension, "local");
+            MarkAsRuntimeExtension(manager, extension.Id);
+        }
+
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        manager.CaptureHostServices(hostServices);
+        var root = hostServices.BuildServiceProvider();
+        manager.PrepareRuntimeServices(root);
+        foreach (var extension in extensions)
+            Assert.True(await manager.InitializeExtensionAsync(extension.Id, root, TestContext.Current.CancellationToken));
+
+        return root;
+    }
+
     private static void MarkAsRuntimeExtension(ExtensionManager manager, string extensionId)
     {
         var field = typeof(ExtensionManager).GetField(
@@ -617,6 +717,38 @@ public sealed class ExtensionServiceOverlayLifecycleTests
             Assert.Same(Service, CapturedServices!.GetRequiredService<DisposalProbe>());
             Entered.TrySetResult();
             await Release.Task.WaitAsync(ct);
+        }
+    }
+
+    private sealed class UninstallTrackingExtension(string id, params string[] dependencies) : IExtension
+    {
+        public string Id => id;
+        public string Name => id;
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+        public IReadOnlyDictionary<string, string> Dependencies { get; } =
+            dependencies.ToDictionary(dependency => dependency, _ => ">=1.0.0");
+        public DisposalProbe Service { get; } = new();
+        public bool ThrowOnConfigure { get; set; }
+        public int UninstallCount { get; private set; }
+        public DisposalProbe? UninstallService { get; private set; }
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+            if (ThrowOnConfigure)
+                throw new InvalidOperationException("Expected ConfigureServices failure.");
+
+            services.AddSingleton(_ => Service);
+        }
+
+        public Task OnUninstallAsync(IServiceProvider services, CancellationToken ct = default)
+        {
+            UninstallCount++;
+            UninstallService = services.GetRequiredService<DisposalProbe>();
+            return Task.CompletedTask;
         }
     }
 

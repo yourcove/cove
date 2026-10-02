@@ -14,7 +14,7 @@ namespace Cove.Api.Controllers;
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StreamRead)]
 [AllowShareLinkAccess]
-public class StreamController(IStreamService streamService, IThumbnailService thumbnailService, ITranscodeService transcodeService, CoveContext db) : ControllerBase
+public class StreamController(IStreamService streamService, IThumbnailService thumbnailService, ITranscodeService transcodeService, CoveContext db, ThumbnailService? generatedAssets = null) : ControllerBase
 {
     // Portrait-style headroom around a detection box. Long-standing default for face covers; callers
     // that must distinguish neighbouring detections pass a smaller context (see GetDetectionCrop).
@@ -49,6 +49,37 @@ public class StreamController(IStreamService streamService, IThumbnailService th
             ? "public, max-age=86400"
             : "no-store, no-cache, max-age=0, must-revalidate";
         return File(stream, contentType);
+    }
+
+    /// <summary>
+    /// A stereoscopic card for a VR video: the scene's centre as each eye sees it, side by side (each
+    /// half 16:9), from the cover's moment. Made by the generate job with covers; 404 until then and
+    /// for non-VR videos. Nothing is generated on request.
+    /// </summary>
+    [HttpGet("video/{videoId:int}/vr-card")]
+    public IActionResult GetVrCard(int videoId)
+    {
+        var assets = generatedAssets ?? HttpContext.RequestServices.GetRequiredService<ThumbnailService>();
+        if (!assets.HasVrCard(videoId)) return NotFound();
+        var stream = FileReadRace.TryOpenRead(assets.GetVrCardPath(videoId), bufferSize: 8192, pathWasObserved: true);
+        if (stream == null) return NotFound();
+        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        return File(stream, "image/jpeg");
+    }
+
+    /// <summary>
+    /// A VR video's stereoscopic preview clip (both eyes' flat views side by side). Made by the
+    /// generate job with previews; 404 until then and for non-VR videos. Nothing is generated on request.
+    /// </summary>
+    [HttpGet("video/{videoId:int}/vr-preview")]
+    public IActionResult GetVrPreview(int videoId)
+    {
+        var assets = generatedAssets ?? HttpContext.RequestServices.GetRequiredService<ThumbnailService>();
+        if (!assets.HasVrPreview(videoId)) return NotFound();
+        var stream = FileReadRace.TryOpenRead(assets.GetVrPreviewPath(videoId), bufferSize: 8192, pathWasObserved: true);
+        if (stream == null) return NotFound();
+        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        return File(stream, "video/mp4", enableRangeProcessing: true);
     }
 
     [HttpGet("video/{videoId:int}/segment-preview")]

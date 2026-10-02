@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Heart, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { EntityMedia, type EntityMediaRenderProps } from "./EntityMedia";
 
 // Cove standard EntityHero action button styles. Use these for favorite/organized/edit/overflow
@@ -139,11 +139,9 @@ export function EntityHeroLayout({
   const displayedImageAlt = displayedImageSlot === "alternate" ? (alternateImageAlt ?? imageAlt) : imageAlt;
   const displayedOrganized = organized;
 
-  useEffect(() => {
-    if (!hasAlternateImage && showAlternateImage) {
-      setShowAlternateImage(false);
-    }
-  }, [hasAlternateImage, showAlternateImage]);
+  if (!hasAlternateImage && showAlternateImage) {
+    setShowAlternateImage(false);
+  }
 
   const favoriteTitle = favorite ? "Remove favorite" : "Favorite";
   const heroActionClassName = HERO_ACTION_BUTTON_CLASS;

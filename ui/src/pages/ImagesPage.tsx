@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, images } from "../api/client";
-import type { DeleteEntityOptions, EntityEngagement, FindFilter, Image, ImageFilterCriteria } from "../api/types";
+import type { EntityEngagement, FindFilter, Image, ImageFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import {
   toggleOptionsFromEvent,
@@ -13,7 +13,7 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { ImageIcon, Trash2, Loader2, Edit, FolderOpen, Play, Search, ThumbsUp, Eye, Heart } from "lucide-react";
+import { ImageIcon, FolderOpen, ThumbsUp, Eye, Heart } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ImageTile } from "../components/EntityCards";
 import { ImageSelectionActions } from "../components/ImageSelectionActions";
@@ -101,7 +101,6 @@ export function ImagesPage({ onNavigate }: Props) {
     perPage: defaultState.filter.perPage,
   });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const canWriteImage = canWriteEntity("image", hasPermission);

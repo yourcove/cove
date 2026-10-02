@@ -25,10 +25,11 @@ vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ refreshMe: mocks.refreshMe }),
 }));
 
-function renderPage() {
+function renderPage(cachedBootstrapStatus?: unknown) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  if (cachedBootstrapStatus) queryClient.setQueryData(["auth", "bootstrap-status"], cachedBootstrapStatus);
   return render(
     <QueryClientProvider client={queryClient}>
       <RedeemInvitePage />
@@ -79,5 +80,23 @@ describe("RedeemInvitePage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("The server returned an error. Please try again.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("InvalidOperationException");
     expect(screen.getByRole("alert")).not.toHaveTextContent("stack trace");
+  });
+
+  it("redeems a setup token when bootstrap status is already cached and no token is in the URL", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/auth/redeem-invite");
+    mocks.redeemSetupToken.mockRejectedValue(new Error("API Error 500: failed"));
+    renderPage({ ownerExists: false, authEnabled: true, hasSetupToken: true });
+
+    await user.type(screen.getByLabelText("Token"), "setup-token");
+    await user.type(screen.getByLabelText("Username"), "owner-name");
+    await user.type(screen.getByLabelText("New password"), "long-enough-password");
+    await user.type(screen.getByLabelText("Confirm password"), "long-enough-password");
+    await user.click(screen.getByRole("button", { name: "Redeem" }));
+
+    await screen.findByRole("alert");
+    expect(mocks.redeemSetupToken).toHaveBeenCalledWith("setup-token", "long-enough-password", "owner-name");
+    expect(mocks.redeemInvite).not.toHaveBeenCalled();
+    expect(mocks.inviteInfo).not.toHaveBeenCalled();
   });
 });

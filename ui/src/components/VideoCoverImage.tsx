@@ -1,4 +1,4 @@
-import { useEffect, useState, type ImgHTMLAttributes } from "react";
+import { useState, type ImgHTMLAttributes } from "react";
 import { Film } from "lucide-react";
 
 interface VideoCoverImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "alt" | "onError" | "src"> {
@@ -9,10 +9,11 @@ interface VideoCoverImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>,
 
 export function VideoCoverImage({ src, alt, className, fallbackClassName = "", ...imageProps }: VideoCoverImageProps) {
   const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
+  const [prevSrc, setPrevSrc] = useState(src);
+  if (src !== prevSrc) {
+    setPrevSrc(src);
     setFailed(false);
-  }, [src]);
+  }
 
   if (failed) {
     return (

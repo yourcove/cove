@@ -21,8 +21,9 @@ export function normalizeRemoteIds(value: RemoteIdValue[]) {
 
 export function RemoteIdsEditor({ value, onChange, metadataServers }: RemoteIdsEditorProps) {
   const { config } = useAppConfig();
-  const serverOptions = metadataServers ?? config?.scraping?.metadataServers ?? [];
-  const rows = value.length > 0 ? value : [{ endpoint: "", remoteId: "" }];
+  const configuredServers = config?.scraping?.metadataServers;
+  const serverOptions = useMemo(() => metadataServers ?? configuredServers ?? [], [metadataServers, configuredServers]);
+  const rows = useMemo(() => (value.length > 0 ? value : [{ endpoint: "", remoteId: "" }]), [value]);
   const endpointOptions = useMemo(() => {
     const byEndpoint = new Map<string, { endpoint: string; label: string }>();
     for (const server of serverOptions) {

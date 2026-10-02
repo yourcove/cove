@@ -186,6 +186,23 @@ const CLUSTER_CHIP_LIMIT = 8;
 const DRAG_THRESHOLD = 4;
 const NODE_LABEL_GAP = 8;
 const TAG_GRAPH_PREFS_KEY = "cove-tag-graph-prefs";
+
+function readTagGraphPrefs(): { layoutSettings?: Partial<LayoutSettings>; showLayoutTuning?: boolean } {
+  try {
+    const raw = localStorage.getItem(TAG_GRAPH_PREFS_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    return JSON.parse(raw) as {
+      layoutSettings?: Partial<LayoutSettings>;
+      showLayoutTuning?: boolean;
+    };
+  } catch {
+    // Ignore invalid persisted graph preferences.
+    return {};
+  }
+}
 const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
   nodeScale: 1,
   labelDensity: 0.55,
@@ -674,7 +691,6 @@ export function TagGraphView({
   const touchGestureRef = useRef<TouchGestureState | null>(null);
   const initializedViewKeyRef = useRef<string | null>(null);
   const viewModeRef = useRef<"default" | "full" | "manual">("default");
-  const restoredPrefsRef = useRef(false);
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 720 });
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
   const viewRef = useRef<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -685,48 +701,20 @@ export function TagGraphView({
   const [focusedClusterId, setFocusedClusterId] = useState<number | null>(null);
   const [isolateFocusedCluster, setIsolateFocusedCluster] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [showLayoutTuning, setShowLayoutTuning] = useState(false);
-  const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(DEFAULT_LAYOUT_SETTINGS);
+  const [showLayoutTuning, setShowLayoutTuning] = useState(() => {
+    const { showLayoutTuning: persisted } = readTagGraphPrefs();
+    return typeof persisted === "boolean" ? persisted : false;
+  });
+  const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(() => {
+    const { layoutSettings: persisted } = readTagGraphPrefs();
+    return persisted ? normalizeLayoutSettings(persisted) : DEFAULT_LAYOUT_SETTINGS;
+  });
 
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
 
   useEffect(() => {
-    if (restoredPrefsRef.current) {
-      return;
-    }
-
-    restoredPrefsRef.current = true;
-
-    try {
-      const raw = localStorage.getItem(TAG_GRAPH_PREFS_KEY);
-      if (!raw) {
-        return;
-      }
-
-      const parsed = JSON.parse(raw) as {
-        layoutSettings?: Partial<LayoutSettings>;
-        showLayoutTuning?: boolean;
-      };
-
-      if (parsed.layoutSettings) {
-        setLayoutSettings(normalizeLayoutSettings(parsed.layoutSettings));
-      }
-
-      if (typeof parsed.showLayoutTuning === "boolean") {
-        setShowLayoutTuning(parsed.showLayoutTuning);
-      }
-    } catch {
-      // Ignore invalid persisted graph preferences.
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!restoredPrefsRef.current) {
-      return;
-    }
-
     localStorage.setItem(
       TAG_GRAPH_PREFS_KEY,
       JSON.stringify({
@@ -1180,26 +1168,38 @@ export function TagGraphView({
     }
   }, [defaultView, fullGraphView, graph.layoutNodes.length, links.length, nodes]);
 
-  useEffect(() => {
+  // When the graph changes, keep the selection if it is still present, otherwise select the first
+  // cluster anchor (or node).
+  const [prevSelectionGraph, setPrevSelectionGraph] = useState<{
+    clusters: typeof graph.clusters;
+    layoutNodeMap: typeof graph.layoutNodeMap;
+    layoutNodes: typeof graph.layoutNodes;
+  } | null>(null);
+  if (
+    prevSelectionGraph === null ||
+    graph.clusters !== prevSelectionGraph.clusters ||
+    graph.layoutNodeMap !== prevSelectionGraph.layoutNodeMap ||
+    graph.layoutNodes !== prevSelectionGraph.layoutNodes
+  ) {
+    setPrevSelectionGraph({
+      clusters: graph.clusters,
+      layoutNodeMap: graph.layoutNodeMap,
+      layoutNodes: graph.layoutNodes,
+    });
     if (graph.layoutNodes.length === 0) {
       setSelectedId(null);
-      return;
+    } else if (selectedId == null || !graph.layoutNodeMap.has(selectedId)) {
+      setSelectedId(graph.clusters[0]?.anchorId ?? graph.layoutNodes[0]?.id ?? null);
     }
+  }
 
-    setSelectedId((currentSelectedId) => {
-      if (currentSelectedId != null && graph.layoutNodeMap.has(currentSelectedId)) {
-        return currentSelectedId;
-      }
-
-      return graph.clusters[0]?.anchorId ?? graph.layoutNodes[0]?.id ?? null;
-    });
-  }, [graph.clusters, graph.layoutNodeMap, graph.layoutNodes]);
-
-  useEffect(() => {
+  const [prevFocusedClusterId, setPrevFocusedClusterId] = useState(focusedClusterId);
+  if (focusedClusterId !== prevFocusedClusterId) {
+    setPrevFocusedClusterId(focusedClusterId);
     if (focusedClusterId == null) {
       setIsolateFocusedCluster(false);
     }
-  }, [focusedClusterId]);
+  }
 
   const searchQuery = searchText.trim().toLowerCase();
   const searchMatches = useMemo(() => {
@@ -1394,9 +1394,11 @@ export function TagGraphView({
     hoveredId,
     isolateFocusedCluster,
     layoutSettings.labelDensity,
+    layoutSettings.labelSize,
     searchQuery,
     selectedId,
     selectedIds,
+    selectedNode,
     view.scale,
     view.x,
     view.y,
@@ -2026,10 +2028,6 @@ export function TagGraphView({
               const queued = selectedIds?.has(node.id) ?? false;
               const hovered = hoveredId === node.id;
               const connected = connectedIds.has(node.id);
-              const searchMatched =
-                searchQuery.length > 0 &&
-                (node.name.toLowerCase().includes(searchQuery) ||
-                  (node.description ?? "").toLowerCase().includes(searchQuery));
               const dimmedBySelection = selectedNode != null && !connected && selectedNode.anchorId !== node.anchorId;
               const dimmedByCluster = focusedClusterId != null && node.anchorId !== focusedClusterId;
               const opacity = dimmedByCluster ? 0.18 : dimmedBySelection ? 0.28 : 1;

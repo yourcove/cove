@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { galleries } from "../api/client";
 import type { Gallery, GalleryUpdate } from "../api/types";
@@ -31,7 +31,7 @@ function buildFormState(gallery: Gallery) {
     tagIds: gallery.tags.map((t) => t.id),
     performerIds: gallery.performers.map((p) => p.id),
     videoIds: gallery.videoIds,
-    customFields: { ...(gallery.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...gallery.customFields } as Record<string, unknown>,
   };
 }
 
@@ -65,21 +65,26 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   // The detail page keeps this modal mounted while the gallery refetches, so start every edit from the
   // latest gallery rather than the one first loaded.
-  useEffect(() => {
-    if (!open) return;
-    setBaseline(gallery);
-    setForm(buildFormState(gallery));
-    setCustomFieldsValid(true);
-  }, [gallery.id, open]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevGalleryId, setPrevGalleryId] = useState(gallery.id);
+  const openOrGalleryChanged = open !== prevOpen || gallery.id !== prevGalleryId;
+  if (openOrGalleryChanged) {
+    setPrevOpen(open);
+    setPrevGalleryId(gallery.id);
+    if (open) {
+      setBaseline(gallery);
+      setForm(buildFormState(gallery));
+      setCustomFieldsValid(true);
+    }
+  }
   // When the gallery refetches while the dialog is open, untouched fields follow it and the user's edits stay.
-  useEffect(() => {
-    if (!open || gallery === baseline) return;
+  if (open && !openOrGalleryChanged && gallery !== baseline) {
     setForm((current) => ({
       ...current,
       ...untouchedFieldUpdates(current, buildFormState(baseline), buildFormState(gallery)),
     }));
     setBaseline(gallery);
-  }, [gallery]);
+  }
   const tagProvenanceById = buildTagProvenanceById(gallery.tags, gallery.fieldProvenance);
   // Seed chip labels from the loaded gallery so selected chips don't each re-fetch their name by id.
   const tagSeedOptions = gallery.tags.map((tag) => ({ id: tag.id, label: tag.name }));

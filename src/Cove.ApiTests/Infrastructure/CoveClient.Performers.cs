@@ -167,6 +167,15 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<Cove.Api.Controllers.PerformerPairingsDto> GetPerformerPairingsAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<Cove.Api.Controllers.PerformerPairingsDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/performers/{performerId}/pairings"),
+            payload: null,
+            cancellationToken);
+
     public async Task<PerformerDto> LinkTagToPerformerAsync(
         TagDetailDto tag,
         PerformerDto performer,

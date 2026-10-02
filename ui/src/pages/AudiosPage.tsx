@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Headphones, Mic2, MonitorPlay, PlayCircle } from "lucide-react";
 import { audios, system } from "../api/client";
 import {
   createFromUrlWithOptionalDownload,
@@ -8,27 +7,18 @@ import {
   NoDownloaderFoundError,
   type UrlDownloadMode,
 } from "../utils/createFromUrlDownload";
-import type {
-  Audio,
-  AudioCreate,
-  AudioFilterCriteria,
-  DownloaderMatch,
-  EntityEngagement,
-  FilterExpression,
-} from "../api/types";
-import { BookmarkButton } from "../components/BookmarkButton";
+import type { Audio, AudioCreate, AudioFilterCriteria, DownloaderMatch, FilterExpression } from "../api/types";
 import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
-import { CustomFieldsEditor, formatDuration } from "../components/shared";
+import { CustomFieldsEditor } from "../components/shared";
 import { IsoDateInput } from "../components/IsoDateInput";
-import { AudioTile, EntityReferencePopovers } from "../components/EntityCards";
+import { AudioTile } from "../components/EntityCards";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { getAudioDisplayTitle } from "../utils/audioTextDisplay";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
@@ -77,7 +67,8 @@ export function AudiosPage({ onNavigate }: Props) {
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
 
   const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as
-    FilterExpression<AudioFilterCriteria> | undefined;
+    | FilterExpression<AudioFilterCriteria>
+    | undefined;
   const backendObjectFilter = useMemo(
     () => Object.fromEntries(Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY)),
     [objectFilter],
@@ -526,99 +517,5 @@ export function AudioCreateModal({
         />
       ) : null}
     </>
-  );
-}
-
-function AudioListTable({
-  audios: items,
-  engagementById,
-  selectedIds,
-  selecting,
-  onToggle,
-  onNavigate,
-}: {
-  audios: Audio[];
-  engagementById: ReadonlyMap<number, EntityEngagement>;
-  selectedIds: Set<number>;
-  selecting: boolean;
-  onToggle: MultiSelectToggleHandler;
-  onNavigate: (route: any) => void;
-}) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
-      <table className="min-w-full divide-y divide-border text-sm">
-        <thead className="bg-surface text-left text-xs uppercase text-muted">
-          <tr>
-            <th className="w-10 px-3 py-2" />
-            <th className="px-3 py-2">Title</th>
-            <th className="px-3 py-2">Studio</th>
-            <th className="px-3 py-2">Duration</th>
-            <th className="px-3 py-2">Files</th>
-            <th className="px-3 py-2">Entities</th>
-            <th className="px-3 py-2">Listened</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map((audio) => {
-            const title = getAudioDisplayTitle(audio);
-            const duration = audio.maxDuration > 0 ? formatDuration(audio.maxDuration) : "";
-            const engagement = engagementById.get(audio.id);
-            return (
-              <tr
-                key={audio.id}
-                onClick={(event) =>
-                  selecting
-                    ? onToggle(audio.id, toggleOptionsFromEvent(event))
-                    : onNavigate({ page: "audio", id: audio.id })
-                }
-                className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(audio.id) ? "bg-accent/10" : ""}`}
-              >
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(audio.id)}
-                    onChange={() => {}}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggle(audio.id, toggleOptionsFromEvent(event));
-                    }}
-                    className="rounded border-border bg-card"
-                    aria-label={`Select ${title}`}
-                  />
-                </td>
-                <td className="min-w-[18rem] px-3 py-2">
-                  <div className="font-medium text-foreground">{title}</div>
-                  {audio.details ? (
-                    <div className="mt-0.5 line-clamp-1 max-w-xl text-xs text-secondary">{audio.details}</div>
-                  ) : null}
-                  {audio.files.length === 0 && audio.urls.length > 0 ? (
-                    <div className="mt-1 text-xs text-cyan-300">Download available</div>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers
-                    studio={{ id: audio.studioId, name: audio.studioName }}
-                    onNavigate={onNavigate}
-                  />
-                </td>
-                <td className="px-3 py-2 text-secondary">{duration}</td>
-                <td className="px-3 py-2 text-secondary">{audio.fileCount}</td>
-                <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers
-                    performers={audio.performers}
-                    tags={audio.tags}
-                    groups={audio.groups}
-                    onNavigate={onNavigate}
-                  />
-                </td>
-                <td className="px-3 py-2 text-secondary">
-                  {engagement?.playDuration ? formatDuration(engagement.playDuration) : ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
   );
 }

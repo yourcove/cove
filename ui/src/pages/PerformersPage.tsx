@@ -1,30 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { performers } from "../api/client";
-import type {
-  EntityEngagement,
-  FilterExpression,
-  FindFilter,
-  Performer,
-  PerformerCreate,
-  PerformerFilterCriteria,
-} from "../api/types";
+import type { FilterExpression, Performer, PerformerCreate, PerformerFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
-import {
-  toggleOptionsFromEvent,
-  useMultiSelect,
-  type BoundMultiSelectToggleHandler,
-  type MultiSelectToggleHandler,
-} from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 import { IsoDateInput } from "../components/IsoDateInput";
-import { Users, Heart, Merge, User } from "lucide-react";
-import { MergeDialog } from "../components/MergeDialog";
+import { Users, User } from "lucide-react";
 import { PerformerTagger } from "../components/PerformerTagger";
 import { PerformerTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
@@ -32,7 +19,6 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
-import { createNestedRouteLinkProps } from "../components/cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { PERFORMER_MULTI_SORT_KEYS, PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 import { CustomFieldsEditor } from "../components/shared";
@@ -42,8 +28,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
-import { getPerformerAge } from "../utils/performerAge";
-import { CountryLabel, CountrySelect } from "../components/Country";
+import { CountrySelect } from "../components/Country";
 
 const SORT_OPTIONS = PERFORMER_SORT_OPTIONS;
 
@@ -74,13 +59,13 @@ export function PerformersPage({ onNavigate }: Props) {
   });
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const [showCreate, setShowCreate] = useState(false);
-  const [showMerge, setShowMerge] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { hasPermission } = useAuth();
   const canWritePerformer = canWriteEntity("performer", hasPermission);
 
   const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as
-    FilterExpression<PerformerFilterCriteria> | undefined;
+    | FilterExpression<PerformerFilterCriteria>
+    | undefined;
   const backendObjectFilter = useMemo(
     () => Object.fromEntries(Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY)),
     [objectFilter],
@@ -169,18 +154,12 @@ export function PerformersPage({ onNavigate }: Props) {
         onSelectNone={selectNone}
         onInvertSelection={invertSelection}
         selectionActions={
-          <>
-            {canWritePerformer && selectedIds.size >= 2 && (
-              <button
-                onClick={() => setShowMerge(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-              >
-                <Merge className="w-3 h-3" />
-                Merge
-              </button>
-            )}
-            <BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />
-          </>
+          <BulkSelectionActions
+            entityType="performers"
+            selectedIds={selectedIds}
+            mergeItems={items}
+            onDone={selectNone}
+          />
         }
       >
         {displayMode === "tagger" ? (
@@ -265,20 +244,6 @@ export function PerformersPage({ onNavigate }: Props) {
           </div>
         )}
       </ListPage>
-
-      <MergeDialog
-        open={showMerge}
-        onClose={() => {
-          setShowMerge(false);
-          selectNone();
-        }}
-        entityType="performer"
-        items={items
-          .filter((p) => selectedIds.has(p.id))
-          .map((p) => ({ id: p.id, name: p.name, imagePath: p.imagePath }))}
-        onMerge={performers.merge}
-        queryKey="performers"
-      />
     </>
   );
 }
@@ -324,85 +289,6 @@ function EntityWallCard({
   );
 }
 
-function PerformerListTable({
-  performers: items,
-  engagementById,
-  onNavigate,
-  selectedIds,
-  onToggle,
-  selecting,
-}: {
-  performers: Performer[];
-  engagementById: ReadonlyMap<number, EntityEngagement>;
-  onNavigate: (r: any) => void;
-  selectedIds?: Set<number>;
-  onToggle?: MultiSelectToggleHandler;
-  selecting?: boolean;
-}) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted text-xs">
-          {selectedIds && <th className="w-8 py-2 px-3"></th>}
-          <th className="py-2 px-3">Name</th>
-          <th className="py-2 px-3">Gender</th>
-          <th className="py-2 px-3">Age</th>
-          <th className="py-2 px-3">Country</th>
-          <th className="py-2 px-3 text-right">Videos</th>
-          <th className="py-2 px-3 text-right">Rating</th>
-          <th className="py-2 px-3">Favorite</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((p) => {
-          const age = getPerformerAge(p.birthdate, p.deathDate);
-          const engagement = engagementById.get(p.id);
-          const favorite = engagement?.isFavorite ?? p.favorite;
-          const rating = engagement?.rating;
-          return (
-            <tr
-              key={p.id}
-              onClick={(event) =>
-                selecting
-                  ? onToggle?.(p.id, toggleOptionsFromEvent(event))
-                  : onNavigate({ page: "performer", id: p.id })
-              }
-              className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(p.id) ? "bg-accent/10" : ""}`}
-            >
-              {selectedIds && (
-                <td className="py-2 px-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(p.id)}
-                    onChange={() => {}}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggle?.(p.id, toggleOptionsFromEvent(event));
-                    }}
-                    className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
-                  />
-                </td>
-              )}
-              <td className="py-2 px-3 text-foreground">
-                {p.name}
-                {p.disambiguation && <span className="text-muted ml-1">({p.disambiguation})</span>}
-              </td>
-              <td className="py-2 px-3 text-secondary capitalize">{p.gender?.toLowerCase()}</td>
-              <td className="py-2 px-3 text-secondary">{age ?? ""}</td>
-              <td className="py-2 px-3 text-secondary">
-                <CountryLabel value={p.country} />
-              </td>
-              <td className="py-2 px-3 text-secondary text-right">{p.videoCount}</td>
-              <td className="py-2 px-3 text-secondary text-right">{rating ?? ""}</td>
-              <td className="py-2 px-3">{favorite && <Heart className="w-4 h-4 fill-red-500 text-red-500" />}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
 /* ── Performer Create Modal ── */
 const SELECT_CLASS =
   "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
@@ -419,7 +305,7 @@ export function PerformerCreateModal({
   onCreated: (id: number) => void;
 }) {
   const qc = useQueryClient();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(open ? initialName.trim() : "");
   const [disambiguation, setDisambiguation] = useState("");
   const [gender, setGender] = useState("");
   const [birthdate, setBirthdate] = useState("");
@@ -436,9 +322,13 @@ export function PerformerCreateModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialName, setPrevInitialName] = useState(initialName);
+  if (open !== prevOpen || initialName !== prevInitialName) {
+    setPrevOpen(open);
+    setPrevInitialName(initialName);
     if (open) setName(initialName.trim());
-  }, [initialName, open]);
+  }
 
   const resetForm = () => {
     setName("");

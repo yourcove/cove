@@ -189,7 +189,7 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm(`Delete profile \"${selectedProfile.name}\"?`)) {
+                          if (window.confirm(`Delete profile "${selectedProfile.name}"?`)) {
                             state.deleteProfile(selectedProfile.id);
                           }
                         }}

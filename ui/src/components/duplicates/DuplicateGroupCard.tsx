@@ -12,7 +12,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import type { DuplicateSearchGroup, EntityEngagement, Video } from "../../api/types";
+import type { DuplicateSearchGroup, EntityEngagement } from "../../api/types";
 import { createRouteLinkProps } from "../cardNavigation";
 import { formatFileSize } from "../shared";
 import { VideoPreviewThumbnail } from "../VideoPreviewThumbnail";

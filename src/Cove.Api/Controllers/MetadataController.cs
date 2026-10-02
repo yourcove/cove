@@ -47,6 +47,7 @@ public class MetadataController(
             GenerateCovers = enableAllGenerators || opts?.ScanGenerateCovers == true,
             GeneratePreviews = enableAllGenerators || opts?.ScanGeneratePreviews == true,
             GenerateSprites = enableAllGenerators || opts?.ScanGenerateSprites == true,
+            GenerateVrStereo = enableAllGenerators || opts?.ScanGenerateVrStereo == true,
             GeneratePhashes = enableAllGenerators || opts?.ScanGeneratePhashes == true,
             GenerateMd5 = enableAllGenerators || opts?.ScanGenerateMd5 == true,
             GenerateImageThumbnails = enableAllGenerators || opts?.ScanGenerateThumbnails == true,

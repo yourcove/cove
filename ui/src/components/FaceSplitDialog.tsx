@@ -41,8 +41,8 @@ export function FaceSplitDialog({
   onMarkNotPresent,
 }: Props) {
   const queryClient = useQueryClient();
-  const [selectedGroupKeys, setSelectedGroupKeys] = useState<string[]>([]);
-  const [touched, setTouched] = useState(false);
+  // The user's own selection, or null until they change it, while the provider's proposal applies.
+  const [manualGroupKeys, setManualGroupKeys] = useState<string[] | null>(null);
 
   const {
     data: tracks,
@@ -82,41 +82,44 @@ export function FaceSplitDialog({
 
   // Reopening on another face must not carry the previous selection over. When the provider found more
   // than one person, start with its answer already filled in: everything outside the dominant group.
-  useEffect(() => {
-    setTouched(false);
-    setSelectedGroupKeys([]);
-    splitMut.reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [faceId, open]);
+  const [selectionOwner, setSelectionOwner] = useState({ faceId, open });
+  if (selectionOwner.faceId !== faceId || selectionOwner.open !== open) {
+    setSelectionOwner({ faceId, open });
+    setManualGroupKeys(null);
+  }
 
+  const { reset: resetSplit } = splitMut;
   useEffect(() => {
-    if (touched || available.length === 0) return;
-    setSelectedGroupKeys(
+    resetSplit();
+  }, [faceId, open, resetSplit]);
+
+  const proposedGroupKeys = useMemo(
+    () =>
       groups.length > 1
         ? groups.filter((group) => group.index !== 0).flatMap((group) => group.items.map((item) => item.groupKey))
         : [],
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, available.length, touched]);
+    [groups],
+  );
+  const selectedGroupKeys = manualGroupKeys ?? proposedGroupKeys;
 
   const selectedCount = selectedGroupKeys.length;
   const allSelected = available.length > 0 && selectedCount === available.length;
   const canSplit = selectedCount > 0 && !allSelected && !splitMut.isPending;
 
   const toggle = (groupKey: string) => {
-    setTouched(true);
-    setSelectedGroupKeys((current) =>
-      current.includes(groupKey) ? current.filter((key) => key !== groupKey) : [...current, groupKey],
-    );
+    setManualGroupKeys((manual) => {
+      const current = manual ?? proposedGroupKeys;
+      return current.includes(groupKey) ? current.filter((key) => key !== groupKey) : [...current, groupKey];
+    });
   };
 
   const toggleGroup = (items: FaceHostTrack[]) => {
-    setTouched(true);
     const keys = items.map((item) => item.groupKey);
     const allOn = keys.every((key) => selectedGroupKeys.includes(key));
-    setSelectedGroupKeys((current) =>
-      allOn ? current.filter((key) => !keys.includes(key)) : [...new Set([...current, ...keys])],
-    );
+    setManualGroupKeys((manual) => {
+      const current = manual ?? proposedGroupKeys;
+      return allOn ? current.filter((key) => !keys.includes(key)) : [...new Set([...current, ...keys])];
+    });
   };
 
   const hostNoun = hostType === "video" ? "video" : "image";

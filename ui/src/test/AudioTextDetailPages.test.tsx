@@ -271,17 +271,14 @@ describe("Audio and text detail pages", () => {
     const details = await screen.findByText("Cruising soundtrack.");
     const tagsHeading = screen.getByRole("heading", { name: "Tags" });
     const urlsHeading = screen.getByRole("heading", { name: "URLs" });
-    const performer = performerHeading ? screen.getByRole("heading", { name: performerHeading }) : undefined;
+    const performerHeadings = screen.queryAllByRole("heading", { name: /Performers?/ });
 
     expect(screen.queryByRole("heading", { name: "Notes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Source URLs" })).not.toBeInTheDocument();
-    expect(details.compareDocumentPosition(tagsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    if (performer) {
-      expect(tagsHeading.compareDocumentPosition(performer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(performer.compareDocumentPosition(urlsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    } else {
-      expect(screen.queryByRole("heading", { name: /Performers?/ })).not.toBeInTheDocument();
-      expect(tagsHeading.compareDocumentPosition(urlsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(performerHeadings.map((heading) => heading.textContent)).toEqual(performerHeading ? [performerHeading] : []);
+    const orderedSections = [details, tagsHeading, ...performerHeadings, urlsHeading];
+    for (const [index, section] of orderedSections.slice(1).entries()) {
+      expect(orderedSections[index].compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
   });
 

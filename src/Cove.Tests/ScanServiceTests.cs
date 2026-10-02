@@ -149,6 +149,42 @@ public class ScanServiceTests
     }
 
     [Theory]
+    [InlineData(".mp4")]
+    [InlineData(".avi")]
+    public async Task ValidateDeclaredContainerLengthAsync_LeavesMislabeledMpegTransportStreamToFfprobe(string extension)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-mislabeled-ts-{Guid.NewGuid():N}{extension}");
+        try
+        {
+            // Three 188-byte TS packets. Read as ISO boxes, the first packet's bytes declare a box far
+            // larger than the file (the same shape as real HLS rips saved as .mp4).
+            var bytes = new byte[188 * 3];
+            for (var packet = 0; packet < 3; packet++)
+            {
+                var offset = packet * 188;
+                bytes.AsSpan(offset, 188).Fill(0xff);
+                bytes[offset] = 0x47;
+                bytes[offset + 1] = 0x40;
+                bytes[offset + 2] = 0x00;
+                bytes[offset + 3] = 0x10;
+            }
+            bytes[4] = 0x00;
+            bytes[5] = 0x00;
+            bytes[6] = 0xb0;
+            bytes[7] = 0x0d;
+            await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Null(failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
     [InlineData(1)]
     [InlineData(7)]
     public async Task ValidateDeclaredContainerLengthAsync_AcceptsShortZeroPaddingAfterCompleteMp4Box(int paddingLength)
@@ -188,6 +224,58 @@ public class ScanServiceTests
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
             Assert.Contains("partial box header", failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("ftyp mdat moov", 1)]
+    [InlineData("ftyp mdat moov", 7)]
+    [InlineData("ftyp moov mdat", 4)]
+    [InlineData("ftyp moov mdat64", 4)]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsShortNonzeroTailAfterCompleteMovieAndMediaData(string layout, int tailLength)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, Enumerable.Repeat((byte)0xab, tailLength).ToArray());
+
+        Assert.Null(failure);
+    }
+
+    [Theory]
+    // A copy of a file whose moov follows mdat, cut inside the moov header.
+    [InlineData("ftyp mdat")]
+    [InlineData("ftyp moov")]
+    // A fragmented copy cut inside the header of a later fragment.
+    [InlineData("ftyp moov moof mdat")]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsNonzeroTailWithoutCompleteUnfragmentedMovie(string layout)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, [0, 0, 1, 0, (byte)'m', (byte)'o', (byte)'o']);
+
+        Assert.Contains("partial box header", failure);
+    }
+
+    private static async Task<string?> ValidateIsoBoxesWithTailAsync(string layout, byte[] tail)
+    {
+        var bytes = new List<byte>();
+        foreach (var type in layout.Split(' '))
+        {
+            if (type == "mdat64")
+            {
+                // Extended-size box: size32 == 1 followed by the 64-bit size after the type.
+                bytes.AddRange([0, 0, 0, 1, .. "mdat"u8, 0, 0, 0, 0, 0, 0, 0, 16]);
+                continue;
+            }
+            bytes.AddRange([0, 0, 0, 8, .. System.Text.Encoding.ASCII.GetBytes(type)]);
+        }
+        bytes.AddRange(tail);
+
+        var path = Path.Combine(Path.GetTempPath(), $"cove-iso-tail-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes.ToArray(), TestContext.Current.CancellationToken);
+            return await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
         }
         finally
         {
@@ -1055,6 +1143,44 @@ public class ScanServiceTests
             Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
             Assert.Equal(1, environment.ThumbnailService.VideoPreviewCallCount);
             Assert.Equal(1, environment.ThumbnailService.VideoSpriteCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StartScan_MakesStereoscopicVrAssetsOnlyWhenAskedAndOnlyForVrVideos(bool vrStereo)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "headset_180_sbs.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "flat.mp4"), minimumLength: 5000);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+
+            // The 2D cover and preview are asked for either way; they must not bring the 3D ones along.
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateVrStereo = vrStereo,
+            });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var vrVideoId = (await verificationDb.Videos.SingleAsync(video => video.IsVr, TestContext.Current.CancellationToken)).Id;
+            int[] expected = vrStereo ? [vrVideoId] : [];
+
+            Assert.Equal(2, environment.ThumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(2, environment.ThumbnailService.VideoPreviewCallCount);
+            Assert.Equal(expected, environment.ThumbnailService.VrCardVideoIds);
+            Assert.Equal(expected, environment.ThumbnailService.VrPreviewVideoIds);
         }
         finally
         {
@@ -2883,6 +3009,20 @@ public class ScanServiceTests
         public int VideoThumbnailCallCount => Volatile.Read(ref _videoThumbnailCallCount);
         public int VideoPreviewCallCount => Volatile.Read(ref _videoPreviewCallCount);
         public int VideoSpriteCallCount => Volatile.Read(ref _videoSpriteCallCount);
+        public List<int> VrCardVideoIds { get; } = [];
+        public List<int> VrPreviewVideoIds { get; } = [];
+
+        public Task<bool> GenerateVrCardAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        {
+            lock (VrCardVideoIds) VrCardVideoIds.Add(videoId);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> GenerateVrPreviewAsync(int videoId, bool overwrite, CancellationToken ct = default)
+        {
+            lock (VrPreviewVideoIds) VrPreviewVideoIds.Add(videoId);
+            return Task.FromResult(true);
+        }
         public int ImageThumbnailCallCount => Volatile.Read(ref _imageThumbnailCallCount);
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);

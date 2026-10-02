@@ -8,6 +8,7 @@ const { mockGroups } = vi.hoisted(() => ({
   mockGroups: {
     dynamicSources: vi.fn(),
     containingGroups: vi.fn(),
+    get: vi.fn(),
     update: vi.fn(),
     addSubGroup: vi.fn(),
     removeSubGroup: vi.fn(),
@@ -108,5 +109,53 @@ describe("GroupEditModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(mockGroups.update).toHaveBeenCalledWith(12, { name: "Renamed group" }));
+  });
+
+  it("starts a dynamic group without a source on the first offered source when the filter source is not offered", async () => {
+    mockGroups.dynamicSources.mockResolvedValue([{ key: "extension-source", displayName: "Extension source" }]);
+    mockGroups.update.mockResolvedValue(buildGroup());
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const group = { ...buildGroup(), kind: "dynamic" } as Group;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GroupEditModal group={group} open onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("option", { name: "Extension source" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockGroups.update).toHaveBeenCalledOnce());
+    expect(mockGroups.update.mock.calls[0][1]).toMatchObject({ querySourceKey: "extension-source" });
+  });
+
+  it("fills parent groups each time the dialog opens", async () => {
+    const parent = { ...buildGroup(), id: 30, name: "Parent group" } as Group;
+    mockGroups.dynamicSources.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([parent]);
+    mockGroups.get.mockResolvedValue(parent);
+    mockGroups.update.mockResolvedValue(buildGroup());
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const group = buildGroup();
+    const renderModal = (open: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <GroupEditModal group={group} open={open} onClose={vi.fn()} />
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderModal(true));
+    await waitFor(() => expect(mockGroups.containingGroups).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText("Parent group")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Remove Parent group/i }));
+    await waitFor(() => expect(screen.queryByText("Parent group")).not.toBeInTheDocument());
+
+    rerender(renderModal(false));
+    rerender(renderModal(true));
+
+    await waitFor(() => expect(screen.getByText("Parent group")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mockGroups.update).toHaveBeenCalledOnce());
+    expect(mockGroups.removeSubGroup).not.toHaveBeenCalled();
   });
 });

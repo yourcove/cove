@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { studios } from "../api/client";
-import type { EntityEngagement, Studio, StudioCreate, StudioFilterCriteria } from "../api/types";
+import type { Studio, StudioCreate, StudioFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
-import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { Building2, Merge } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/filterCriteriaCatalogs";
-import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
 import { StudioTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
@@ -52,7 +51,6 @@ export function StudiosPage({ onNavigate }: Props) {
     allowInfinitePageSize: true,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [showMerge, setShowMerge] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { hasPermission } = useAuth();
   const canWriteStudio = canWriteEntity("studio", hasPermission);
@@ -133,18 +131,7 @@ export function StudiosPage({ onNavigate }: Props) {
         onSelectNone={selectNone}
         onInvertSelection={invertSelection}
         selectionActions={
-          <>
-            {canWriteStudio && selectedIds.size >= 2 && (
-              <button
-                onClick={() => setShowMerge(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-              >
-                <Merge className="w-3 h-3" />
-                Merge
-              </button>
-            )}
-            <BulkSelectionActions entityType="studios" selectedIds={selectedIds} onDone={selectNone} />
-          </>
+          <BulkSelectionActions entityType="studios" selectedIds={selectedIds} mergeItems={items} onDone={selectNone} />
         }
       >
         {displayMode === "tagger" ? (
@@ -197,78 +184,7 @@ export function StudiosPage({ onNavigate }: Props) {
           </div>
         )}
       </ListPage>
-      <MergeDialog
-        open={showMerge}
-        onClose={() => {
-          setShowMerge(false);
-          selectNone();
-        }}
-        entityType="studio"
-        items={items.filter((s) => selectedIds.has(s.id)).map((s) => ({ id: s.id, name: s.name }))}
-        onMerge={studios.merge}
-        queryKey="studios"
-      />
     </>
-  );
-}
-
-function StudioListTable({
-  studios: items,
-  engagementById,
-  onNavigate,
-  selectedIds,
-  onToggle,
-  selecting,
-}: {
-  studios: Studio[];
-  engagementById: ReadonlyMap<number, EntityEngagement>;
-  onNavigate: (r: any) => void;
-  selectedIds?: Set<number>;
-  onToggle?: MultiSelectToggleHandler;
-  selecting?: boolean;
-}) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted text-xs">
-          {selectedIds && <th className="w-8 py-2 px-3"></th>}
-          <th className="py-2 px-3">Name</th>
-          <th className="py-2 px-3">Parent</th>
-          <th className="py-2 px-3 text-right">Videos</th>
-          <th className="py-2 px-3 text-right">Rating</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((s) => (
-          <tr
-            key={s.id}
-            onClick={(event) =>
-              selecting ? onToggle?.(s.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "studio", id: s.id })
-            }
-            className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(s.id) ? "bg-accent/10" : ""}`}
-          >
-            {selectedIds && (
-              <td className="py-2 px-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(s.id)}
-                  onChange={() => {}}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle?.(s.id, toggleOptionsFromEvent(event));
-                  }}
-                  className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
-                />
-              </td>
-            )}
-            <td className="py-2 px-3 text-foreground">{s.name}</td>
-            <td className="py-2 px-3 text-secondary">{s.parentName ?? ""}</td>
-            <td className="py-2 px-3 text-secondary text-right">{s.videoCount}</td>
-            <td className="py-2 px-3 text-secondary text-right">{engagementById.get(s.id)?.rating ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -286,7 +202,7 @@ export function StudioCreateModal({
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    name: "",
+    name: open ? initialName.trim() : "",
     details: "",
   });
   const [parentId, setParentId] = useState<number | undefined>(undefined);
@@ -294,9 +210,13 @@ export function StudioCreateModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialName, setPrevInitialName] = useState(initialName);
+  if (open !== prevOpen || initialName !== prevInitialName) {
+    setPrevOpen(open);
+    setPrevInitialName(initialName);
     if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
-  }, [initialName, open]);
+  }
 
   const resetForm = () => {
     setForm({ name: "", details: "" });

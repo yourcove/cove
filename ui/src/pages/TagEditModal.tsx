@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { tags, tagGroups } from "../api/client";
-import type { TagDetail, TagUpdate, Tag } from "../api/types";
+import type { TagDetail, TagUpdate } from "../api/types";
 import { EditModal, Field, NumberInput, SaveButton, SelectInput, TextArea, TextInput } from "../components/EditModal";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
@@ -41,7 +41,7 @@ function tagFormValues(tag: TagDetail) {
     selectedParentIds: tag.parents.map((t) => t.id),
     selectedChildIds: tag.children.map((t) => t.id),
     remoteIds: (tag.remoteIds?.length ? tag.remoteIds : []) as RemoteIdValue[],
-    customFields: { ...(tag.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...tag.customFields } as Record<string, unknown>,
   };
 }
 
@@ -120,7 +120,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const [selectedChildIds, setSelectedChildIds] = useState<number[]>(tag.children.map((t) => t.id));
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(tag.remoteIds?.length ? tag.remoteIds : []);
 
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(tag.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...tag.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
 
   const { data: groups = [] } = useQuery({
@@ -164,12 +164,43 @@ export function TagEditModal({ tag, open, onClose }: Props) {
     remoteIds: setRemoteIds,
     customFields: setCustomFields,
   };
+
+  // The tag the form was last filled from; saving sends only the fields changed since.
+  const [baseline, setBaseline] = useState(tag);
+
+  // Fill the form each time the dialog opens. A refetch while it is open keeps the user's edits, and
+  // reopening after Cancel discards them.
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevTagId, setPrevTagId] = useState(tag.id);
+  const openOrTagChanged = open !== prevOpen || tag.id !== prevTagId;
+  if (openOrTagChanged) {
+    setPrevOpen(open);
+    setPrevTagId(tag.id);
+    if (open) {
+      setBaseline(tag);
+      setName(tag.name);
+      setSortName(tag.sortName ?? "");
+      setDescription(tag.description ?? "");
+      setColor(tag.color ?? "");
+      setTagGroupId(tag.tagGroupId ?? undefined);
+      setMinOccurrenceSec(tag.minOccurrenceSec ?? undefined);
+      setMinOccurrencePercent(tag.minOccurrencePercent ?? undefined);
+      setPlayerBarMode(readPlayerBarMode(tag.showAsSegment));
+      setSegmentColorOverride(tag.segmentColorOverride ?? "");
+      setSegmentLaneOverride(tag.segmentLaneOverride ?? undefined);
+      setAliases(tag.aliases);
+      setSelectedParentIds(tag.parents.map((t) => t.id));
+      setSelectedChildIds(tag.children.map((t) => t.id));
+      setRemoteIds(tag.remoteIds?.length ? tag.remoteIds : []);
+      setCustomFields({ ...tag.customFields });
+    }
+  }
+
   // When the tag refetches while the dialog is open, untouched fields follow it and the user's edits stay.
-  useEffect(() => {
-    if (!open || tag === baseline) return;
+  if (open && !openOrTagChanged && tag !== baseline) {
     applyFormFields(untouchedFieldUpdates(currentValues, tagFormValues(baseline), tagFormValues(tag)), formSetters);
     setBaseline(tag);
-  }, [tag]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -182,30 +213,11 @@ export function TagEditModal({ tag, open, onClose }: Props) {
     },
   });
 
-  // The tag the form was last filled from; saving sends only the fields changed since.
-  const [baseline, setBaseline] = useState(tag);
-
-  // Fill the form each time the dialog opens. A refetch while it is open keeps the user's edits, and
-  // reopening after Cancel discards them.
+  // Each opening also clears the result of the previous save attempt, alongside the form refill above.
+  const resetSaveAttempt = useEffectEvent(() => mutation.reset());
   useEffect(() => {
     if (!open) return;
-    mutation.reset();
-    setBaseline(tag);
-    setName(tag.name);
-    setSortName(tag.sortName ?? "");
-    setDescription(tag.description ?? "");
-    setColor(tag.color ?? "");
-    setTagGroupId(tag.tagGroupId ?? undefined);
-    setMinOccurrenceSec(tag.minOccurrenceSec ?? undefined);
-    setMinOccurrencePercent(tag.minOccurrencePercent ?? undefined);
-    setPlayerBarMode(readPlayerBarMode(tag.showAsSegment));
-    setSegmentColorOverride(tag.segmentColorOverride ?? "");
-    setSegmentLaneOverride(tag.segmentLaneOverride ?? undefined);
-    setAliases(tag.aliases);
-    setSelectedParentIds(tag.parents.map((t) => t.id));
-    setSelectedChildIds(tag.children.map((t) => t.id));
-    setRemoteIds(tag.remoteIds?.length ? tag.remoteIds : []);
-    setCustomFields({ ...(tag.customFields ?? {}) });
+    resetSaveAttempt();
   }, [tag.id, open]);
 
   const handleClose = () => {

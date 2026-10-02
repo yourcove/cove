@@ -274,7 +274,7 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
       window.removeEventListener("popstate", applyUrlState);
       window.removeEventListener(LOCATION_CHANGE_EVENT, applyUrlState);
     };
-  }, [readState]);
+  }, [options.enabled, readState]);
 
   useEffect(() => {
     const handleReset = (event: Event) => {

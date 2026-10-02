@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload, Loader2, RefreshCw, X } from "lucide-react";
 import { performers, studios, tags } from "../api/client";
+import type { MetadataServer } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 
 type MetadataBatchEntity = "performer" | "studio" | "tag";
@@ -55,10 +56,13 @@ const EXCLUDE_FIELD_OPTIONS: Record<MetadataBatchEntity, Array<{ id: string; lab
   ],
 };
 
+// Stable fallback, so the reset below only sees a new list when the configured servers change.
+const NO_METADATA_SERVERS: MetadataServer[] = [];
+
 export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClose, onQueued }: Props) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
-  const metadataServers = config?.scraping.metadataServers ?? [];
+  const metadataServers = config?.scraping.metadataServers ?? NO_METADATA_SERVERS;
   const batchDefaults = config?.scraping.metadataBatchDefaults;
 
   const [endpoint, setEndpoint] = useState("");
@@ -73,19 +77,25 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
     ? Math.max(1, Math.ceil(estimatedRequests / Math.max(selectedServer.maxRequestsPerMinute, 1)))
     : null;
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reset the form whenever the dialog opens or its inputs change while open.
+  const [resetKey, setResetKey] = useState({ open: false, metadataServers, entityType, batchDefaults });
+  if (
+    resetKey.open !== open ||
+    resetKey.metadataServers !== metadataServers ||
+    resetKey.entityType !== entityType ||
+    resetKey.batchDefaults !== batchDefaults
+  ) {
+    setResetKey({ open, metadataServers, entityType, batchDefaults });
+    if (open) {
+      const firstEndpoint = metadataServers[0]?.endpoint ?? "";
+      const allowedFieldIds = new Set(EXCLUDE_FIELD_OPTIONS[entityType].map((option) => option.id));
+      setEndpoint((current) => (metadataServers.some((item) => item.endpoint === current) ? current : firstEndpoint));
+      setRefreshAlreadyTagged(batchDefaults?.refreshAlreadyTagged ?? false);
+      setCreateParentStudios(batchDefaults?.createParentStudios ?? true);
+      setExcludeFields((batchDefaults?.excludeFields ?? []).filter((field) => allowedFieldIds.has(field)));
+      setError(null);
     }
-
-    const firstEndpoint = metadataServers[0]?.endpoint ?? "";
-    const allowedFieldIds = new Set(EXCLUDE_FIELD_OPTIONS[entityType].map((option) => option.id));
-    setEndpoint((current) => (metadataServers.some((item) => item.endpoint === current) ? current : firstEndpoint));
-    setRefreshAlreadyTagged(batchDefaults?.refreshAlreadyTagged ?? false);
-    setCreateParentStudios(batchDefaults?.createParentStudios ?? true);
-    setExcludeFields((batchDefaults?.excludeFields ?? []).filter((field) => allowedFieldIds.has(field)));
-    setError(null);
-  }, [open, metadataServers, entityType, batchDefaults]);
+  }
 
   const entityCopy = ENTITY_COPY[entityType];
   const fieldOptions = useMemo(() => EXCLUDE_FIELD_OPTIONS[entityType], [entityType]);

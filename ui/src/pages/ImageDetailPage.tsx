@@ -54,7 +54,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import type { FaceHostFace, TagApplication } from "../api/types";
+import type { FaceHostFace } from "../api/types";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
 import { ImageVisualSimilarityPanel, useImageVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
@@ -235,18 +235,16 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     return nextTabs;
   }, [canReadFiles, canWriteImage, hasVisualSimilarity, image?.files.length, imageFaces.length]);
 
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.key === activeTab)) {
-      setActiveTab("details");
-    }
-  }, [activeTab, tabs]);
+  if (!tabs.some((tab) => tab.key === activeTab)) {
+    setActiveTab("details");
+  }
 
   useDocumentTitle(image ? displayTitle : null);
 
+  const imageId = image?.id;
   useEffect(() => {
-    if (!image || !trackImageActivity) return;
+    if (imageId == null || !trackImageActivity) return;
 
-    const imageId = image.id;
     const startedAt = performance.now();
     const sessionId = createPlaybackSessionId();
     trackInteraction({
@@ -281,7 +279,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       window.removeEventListener("pagehide", handlePageHide);
       flushDwell("ended");
     };
-  }, [image?.id, queryClient, trackImageActivity]);
+  }, [imageId, queryClient, trackImageActivity]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -297,9 +295,11 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showOpsMenu]);
 
-  useEffect(() => {
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setImageLoadFailed(false);
-  }, [id]);
+  }
 
   const openLightbox = useCallback(() => {
     if (imageLoadFailed) {

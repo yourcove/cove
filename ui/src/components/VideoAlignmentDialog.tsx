@@ -92,10 +92,12 @@ export function VideoAlignmentDialog({
         ...(preview.comparisons ?? []).filter((item) => item.kind === "clip").slice(0, 5),
       ]
     : [];
-  useEffect(() => {
-    const firstKey = comparisons[0] ? `${comparisons[0].kind}:${comparisons[0].id}` : "";
-    if (!comparisons.some((item) => `${item.kind}:${item.id}` === activeComparison)) setActiveComparison(firstKey);
-  }, [activeComparison, comparisons]);
+  // Fall back to the first comparison whenever the chosen one is not in the current list.
+  const shownComparison = comparisons.some((item) => `${item.kind}:${item.id}` === activeComparison)
+    ? activeComparison
+    : comparisons[0]
+      ? `${comparisons[0].kind}:${comparisons[0].id}`
+      : "";
   const comparisonCounts = preview?.comparisonCounts ?? {
     segment: preview?.dependencies.filter((item) => item.kind === "segment").length ?? 0,
     clip: preview?.dependencies.filter((item) => item.kind === "clip").length ?? 0,
@@ -304,7 +306,7 @@ export function VideoAlignmentDialog({
                       <ComparisonRow
                         key={comparisonKey}
                         label={`Play ${item.kind} ${item.title || "Untitled"} comparison`}
-                        active={activeComparison === comparisonKey}
+                        active={shownComparison === comparisonKey}
                         onActivate={() => setActiveComparison(comparisonKey)}
                       >
                         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
@@ -320,7 +322,7 @@ export function VideoAlignmentDialog({
                           </span>
                         </div>
                         <SynchronizedReviewPair
-                          active={activeComparison === comparisonKey}
+                          active={shownComparison === comparisonKey}
                           source={{
                             label: "Current primary",
                             thumbnail: item.sourceThumbnail,
@@ -368,7 +370,8 @@ export function VideoAlignmentDialog({
                             onChange={(event) =>
                               setDeletions((current) => {
                                 const next = new Set(current);
-                                event.target.checked ? next.add(key) : next.delete(key);
+                                if (event.target.checked) next.add(key);
+                                else next.delete(key);
                                 return next;
                               })
                             }

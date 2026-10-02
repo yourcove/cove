@@ -108,6 +108,7 @@ function RegisteredPlayer({
 }) {
   const { registerSlot } = useRouteRegistry();
   const crashActionRef = useRef(crashAction);
+  // oxlint-disable-next-line react/refs -- the registered slot renders in the same pass, so it must see this render's value
   crashActionRef.current = crashAction;
 
   useLayoutEffect(() => {

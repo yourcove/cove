@@ -20,19 +20,7 @@ import {
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
-import {
-  Search,
-  Loader2,
-  Check,
-  X,
-  AlertCircle,
-  CloudDownload,
-  CloudUpload,
-  Fingerprint,
-  Settings2,
-  EyeOff,
-  Eye,
-} from "lucide-react";
+import { Search, Loader2, Check, AlertCircle, CloudUpload, Fingerprint } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { MetadataDiff, scalarStatus, summarizeDiff, type DiffSelection } from "./MetadataDiff";
 import { MetadataDiffSummary } from "./MetadataDiffSummary";
@@ -296,7 +284,7 @@ function getPerformerFieldStrategies(
   result: UnifiedPerformerMatch,
   state?: PerformerSearchState,
 ) {
-  return { ...buildDefaultPerformerFieldStrategies(performer, result), ...(state?.fieldStrategies ?? {}) };
+  return { ...buildDefaultPerformerFieldStrategies(performer, result), ...state?.fieldStrategies };
 }
 
 function buildDefaultPerformerCollectionModes(result: UnifiedPerformerMatch): Record<string, CollectionMode> {
@@ -309,7 +297,7 @@ function buildDefaultPerformerCollectionModes(result: UnifiedPerformerMatch): Re
 }
 
 function getPerformerCollectionModes(result: UnifiedPerformerMatch, state?: PerformerSearchState) {
-  return { ...buildDefaultPerformerCollectionModes(result), ...(state?.collectionModes ?? {}) };
+  return { ...buildDefaultPerformerCollectionModes(result), ...state?.collectionModes };
 }
 
 function collectionModeToFieldStrategy(mode: CollectionMode): PerformerFieldStrategy {
@@ -1033,7 +1021,6 @@ function PerformerResultRow({
   collectionModes,
   tagActions,
   existingTagNames,
-  createMissingTags,
   imageIndex,
   onImageIndexChange,
   onFieldStrategyChange,

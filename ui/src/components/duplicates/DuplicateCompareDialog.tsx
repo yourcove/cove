@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -79,13 +80,13 @@ export function DuplicateCompareDialog({
   const fileCopies = videos.some(isFileCopy);
   const [mode, setMode] = useState<CompareMode>("slider");
   const [pair, setPair] = useState<[number, number]>(() => initialPair ?? defaultPair(videos));
-  useEffect(() => {
+  const [pairResetKey, setPairResetKey] = useState({ open: false, initialPair, videos });
+  if (pairResetKey.open !== open || pairResetKey.initialPair !== initialPair || pairResetKey.videos !== videos) {
+    setPairResetKey({ open, initialPair, videos });
     if (open) setPair(initialPair ?? defaultPair(videos));
-  }, [open, initialPair, videos]);
+  }
   // Frame strips come from the video's generated thumbnails, which only ever show its primary file.
-  useEffect(() => {
-    if (fileCopies && mode === "frames") setMode("slider");
-  }, [fileCopies, mode]);
+  if (fileCopies && mode === "frames") setMode("slider");
   const left = videos.find((video) => copyKey(video) === pair[0]) ?? videos[0];
   const right = videos.find((video) => copyKey(video) === pair[1]) ?? videos[1] ?? videos[0];
 
@@ -260,9 +261,11 @@ function SyncedComparison({
   const rightDuration = primaryFile(right)?.duration ?? 0;
   const duration = Math.max(leftDuration, 0.1);
   const offsetRef = useRef(offset);
-  offsetRef.current = offset;
+  useLayoutEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+  // measureStage keeps this in step with stageSize, which it is the only writer of.
   const stageSizeRef = useRef(stageSize);
-  stageSizeRef.current = stageSize;
   const dragRef = useRef<{ kind: DragKind; pointerX: number; pointerY: number; view: View } | null>(null);
   const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
 
@@ -355,9 +358,11 @@ function SyncedComparison({
     };
   }, [fullscreen, measureStage]);
 
-  useEffect(() => {
+  const [prevStageSize, setPrevStageSize] = useState(stageSize);
+  if (stageSize !== prevStageSize) {
+    setPrevStageSize(stageSize);
     setView((current) => clampView(current, stageSize));
-  }, [stageSize]);
+  }
 
   // React attaches wheel listeners as passive, so preventing the dialog from scrolling needs a native listener.
   useEffect(() => {

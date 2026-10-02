@@ -21,7 +21,8 @@ import { AutocompleteDropdown } from "./AutocompleteDropdown";
 import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 
 export type EntityReferenceType =
-  Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
+  | Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group">
+  | "face";
 
 export interface EntityReferenceOption {
   id: number;
@@ -242,7 +243,7 @@ export function EntityReferenceSelector({
       ),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
   );
-  const autocomplete = useAutocomplete({
+  const { activeKey, getOptionProps, inputProps, inputRef, isOpen, listboxProps, listboxRef } = useAutocomplete({
     items: autocompleteItems,
     inputValue: searchText,
     onInputValueChange: setSearchText,
@@ -284,13 +285,13 @@ export function EntityReferenceSelector({
 
       <div className="relative">
         <input
-          ref={autocomplete.inputRef}
-          {...autocomplete.inputProps}
+          ref={inputRef}
+          {...inputProps}
           id={inputId}
           type="text"
           value={showSelectedInInput ? selectedInputLabel : searchText}
           onFocus={(event) => {
-            autocomplete.inputProps.onFocus(event);
+            inputProps.onFocus(event);
             if (showSelectedInInput) {
               event.currentTarget.select();
             }
@@ -309,7 +310,7 @@ export function EntityReferenceSelector({
             onClick={() => {
               setSearchText("");
               onChange(undefined);
-              autocomplete.inputRef.current?.focus();
+              inputRef.current?.focus();
             }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted hover:text-foreground disabled:opacity-50"
             aria-label={`Clear selected ${labels.singular}`}
@@ -320,14 +321,14 @@ export function EntityReferenceSelector({
         ) : null}
       </div>
 
-      {trimmedSearch && autocomplete.isOpen ? (
+      {trimmedSearch && isOpen ? (
         <AutocompleteDropdown
-          anchorRef={autocomplete.inputRef}
-          containerRef={autocomplete.listboxRef}
+          anchorRef={inputRef}
+          containerRef={listboxRef}
           portalContainer={dropdownPortalContainer}
           maxHeight={resultsMaxHeight}
           className="rounded border border-border bg-surface"
-          {...autocomplete.listboxProps}
+          {...listboxProps}
         >
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
@@ -336,9 +337,9 @@ export function EntityReferenceSelector({
           {visibleResults.map((option, index) => (
             <button
               key={option.id}
-              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
+              {...getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
+              className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm ${activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <span className="truncate">{option.label}</span>
@@ -350,10 +351,10 @@ export function EntityReferenceSelector({
           ))}
           {showCreateOption ? (
             <button
-              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
+              {...getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
               disabled={createMutation.isPending}
-              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>
@@ -512,7 +513,7 @@ export function EntityReferenceMultiSelector({
       ),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
   );
-  const autocomplete = useAutocomplete({
+  const { activeKey, getOptionProps, inputProps, inputRef, isOpen, listboxProps, listboxRef } = useAutocomplete({
     items: autocompleteItems,
     inputValue: searchText,
     onInputValueChange: setSearchText,
@@ -578,8 +579,8 @@ export function EntityReferenceMultiSelector({
       ) : null}
 
       <input
-        ref={autocomplete.inputRef}
-        {...autocomplete.inputProps}
+        ref={inputRef}
+        {...inputProps}
         type="text"
         value={searchText}
         placeholder={placeholder ?? `Search ${labels.plural}...`}
@@ -591,13 +592,13 @@ export function EntityReferenceMultiSelector({
         }
       />
 
-      {trimmedSearch && autocomplete.isOpen ? (
+      {trimmedSearch && isOpen ? (
         <AutocompleteDropdown
-          anchorRef={autocomplete.inputRef}
-          containerRef={autocomplete.listboxRef}
+          anchorRef={inputRef}
+          containerRef={listboxRef}
           maxHeight={resultsMaxHeight}
           className={resultsClassName ?? "rounded border border-border bg-surface"}
-          {...autocomplete.listboxProps}
+          {...listboxProps}
         >
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
@@ -606,9 +607,9 @@ export function EntityReferenceMultiSelector({
           {visibleResults.map((option, index) => (
             <button
               key={option.id}
-              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
+              {...getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
+              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
             >
               <span className="inline-flex items-center gap-2">
                 <Plus className="h-3 w-3" />
@@ -619,10 +620,10 @@ export function EntityReferenceMultiSelector({
           ))}
           {showCreateOption ? (
             <button
-              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
+              {...getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
               disabled={createMutation.isPending}
-              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>

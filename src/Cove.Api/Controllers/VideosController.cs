@@ -36,7 +36,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
-    private static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
+    internal static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
@@ -49,6 +49,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         [FromQuery] int? groupId = null, [FromQuery] int? galleryId = null, [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
         [FromQuery] string? ids = null,
         [FromQuery] string? sorts = null,
+        [FromQuery] bool skipCount = false,
         CancellationToken ct = default)
     {
         var sortClauses = SortClause.Parse(sorts);
@@ -65,6 +66,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             Direction = primarySort?.Direction ?? (direction == "desc" ? Core.Enums.SortDirection.Desc : Core.Enums.SortDirection.Asc),
             Sorts = sortClauses.Count > 0 ? sortClauses : null,
             Seed = seed,
+            SkipCount = skipCount,
         };
 
         var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct);
@@ -296,21 +298,9 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
                     items = [.. pageItems.OrderBy(video => order.GetValueOrDefault(video.Id, int.MaxValue))];
                 }
             }
-            catch (ExtensionEntityFilterValidationException ex)
+            catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
             {
-                return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
-            }
-            catch (ExtensionEntityFilterLimitException ex)
-            {
-                return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
-            }
-            catch (ExtensionEntityFilterProviderException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message });
+                return problem;
             }
         }
 
@@ -348,23 +338,60 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             var matchingIds = await ApplyExtensionCriteriaAsync(filter!, req.FindFilter ?? new FindFilter(), req.FilterExpression, ct);
             return Ok(await videoRepo.AggregateAsync(new VideoFilter { Ids = [.. matchingIds] }, req.FindFilter, ct));
         }
-        catch (ExtensionEntityFilterValidationException ex)
+        catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
         {
-            return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
-        }
-        catch (ExtensionEntityFilterLimitException ex)
-        {
-            return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
-        }
-        catch (ExtensionEntityFilterProviderException ex)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message });
+            return problem;
         }
     }
+
+    /// <summary>
+    /// The ids of the videos a /find request matches, in its order, without loading them: the same object
+    /// filter, expression, search and extension criteria as the list, for a client that derives its own view
+    /// from the matching set. A request matching more than the candidate limit is refused.
+    /// </summary>
+    [HttpPost("find-ids")]
+    public async Task<ActionResult<VideoIdsDto>> FindIds([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
+    {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
+
+        var filter = req.ObjectFilter ?? new VideoFilter();
+        var findFilter = req.FindFilter ?? new FindFilter();
+        IReadOnlyList<int> ids;
+        if ((filter.ExtensionCriteria ?? []).Count == 0)
+        {
+            ids = await videoRepo.FindIdsAsync(filter, findFilter, ExtensionFilterCandidateLimit + 1, ct, req.FilterExpression);
+        }
+        else
+        {
+            try
+            {
+                ids = await ApplyExtensionCriteriaAsync(filter, findFilter, req.FilterExpression, ct);
+            }
+            catch (Exception ex) when (ExtensionFilterProblem(ex) is { } problem)
+            {
+                return problem;
+            }
+        }
+        if (ids.Count > ExtensionFilterCandidateLimit)
+        {
+            return UnprocessableEntity(new ProblemDetails
+            {
+                Title = "Too many matching videos.",
+                Detail = $"At most {ExtensionFilterCandidateLimit:N0} video ids are returned per query. Narrow the filters first.",
+            });
+        }
+        return Ok(new VideoIdsDto(ids));
+    }
+
+    private ObjectResult? ExtensionFilterProblem(Exception ex) => ex switch
+    {
+        ExtensionEntityFilterValidationException => UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message }),
+        ExtensionEntityFilterLimitException => UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message }),
+        ExtensionEntityFilterProviderException => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message }),
+        InvalidOperationException => StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable.", Detail = ex.Message }),
+        _ => null,
+    };
 
     /// <summary>
     /// Runs the core query first, then hands the authorized candidate ids to the owning extensions. The
@@ -521,6 +548,18 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
         if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
+        if (dto.Vr != null)
+        {
+            video.VrProjection = dto.Vr.Projection;
+            video.VrFieldOfView = dto.Vr.FieldOfView;
+            video.VrStereoMode = dto.Vr.StereoMode;
+        }
+        if (clearFields.Contains("vr"))
+        {
+            video.VrProjection = null;
+            video.VrFieldOfView = null;
+            video.VrStereoMode = null;
+        }
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
         if (dto.Captions != null) video.Captions = string.IsNullOrWhiteSpace(dto.Captions) ? null : dto.Captions;
         if (clearFields.Contains("date")) video.Date = null;
@@ -907,7 +946,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         return MapToDto(video, customFieldValues, engagement, preferUserSnapshot, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private sealed class VideoListEntryKey : CustomFieldSortProjection
+    internal sealed class VideoListEntryKey : CustomFieldSortProjection
     {
         public string Kind { get; set; } = string.Empty;
         public int Id { get; set; }
@@ -920,7 +959,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         public int Rating { get; set; }
     }
 
-    private static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
+    internal static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
     {
         var randomSeed = seed ?? 0;
         var ordered = sort switch
@@ -928,9 +967,10 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             "title" or "name" => desc
                 ? query.OrderByDescending(item => NaturalSort.Key(item.Title))
                 : query.OrderBy(item => NaturalSort.Key(item.Title)),
+            // Missing dates sort last in either direction, as in the video repository.
             "date" => desc
-                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue)
-                : query.OrderBy(item => item.Date ?? DateOnly.MinValue),
+                ? query.OrderBy(item => item.Date == null ? 1 : 0).ThenByDescending(item => item.Date)
+                : query.OrderBy(item => item.Date == null ? 1 : 0).ThenBy(item => item.Date),
             "rating" => desc
                 ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
                 : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),
@@ -1035,6 +1075,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     )
     {
         PrimaryFileId = s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId,
+        Vr = ResolveVr(s),
     };
 
     private VideoDto MapListToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null) => new(
@@ -1077,6 +1118,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     )
     {
         PrimaryFileId = s.ParentVideo?.PrimaryFileId ?? s.PrimaryFileId,
+        Vr = ResolveVr(s),
     };
 
     private static List<TagDto> GetEffectiveTags(Video video, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId)
@@ -1104,6 +1146,14 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             counts?.TextCount ?? 0,
             performer.Country,
             PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision));
+    }
+
+    private static VrDescriptorDto? ResolveVr(Video video)
+    {
+        if (!video.IsVr)
+            return null;
+        var file = EffectiveFiles(video).FirstOrDefault();
+        return VrDescriptorDetector.Resolve(true, video.VrProjection, video.VrFieldOfView, video.VrStereoMode, file?.Path, file?.Width ?? 0, file?.Height ?? 0);
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)
@@ -1866,3 +1916,5 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);
+
+public sealed record VideoIdsDto(IReadOnlyList<int> Ids);

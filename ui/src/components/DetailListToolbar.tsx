@@ -14,7 +14,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { CustomFieldEntityType, FindFilter } from "../api/types";
-import { isValidElement, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { isValidElement, useCallback, useEffect, useEffectEvent, useMemo, useRef, type CSSProperties } from "react";
 import {
   clampEntityCardSizeLevel,
   getEntityCardMaxLevel,
@@ -22,23 +22,15 @@ import {
   parseEntityCardSizeLevel,
   useEntityCardSize,
 } from "../hooks/useEntityCardSize";
-import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { useRegisterKeyboardActions, type KeyboardActionRegistration } from "../keyboard/KeyboardShortcutProvider";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
-import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
-import { customFieldEntityTypeForFilterMode, useCustomFieldFilterSection } from "./CustomFieldFilterSection";
-import { FilterButton } from "./FilterButton";
+import { ViewInVrButton } from "./ViewInVrButton";
+import type { VrListSource } from "../vr/vrListRegistry";
 import type { CriterionDefinition } from "./filterCriteriaTypes";
-import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
-import {
-  ActiveObjectFilterChips,
-  countActiveObjectFilters,
-  getFilterChipTargetKey,
-  removeObjectFilterChipTarget,
-} from "./ActiveObjectFilterChips";
+import { useObjectFilterControls } from "./useObjectFilterControls";
 import { ListSearchControl } from "./ListSearchControl";
 import {
   filterPatchForSelectedSort,
@@ -50,6 +42,7 @@ import {
 } from "../utils/relevanceSort";
 import { PaginationControls } from "./PaginationControls";
 import { WallSizeControl } from "./WallSizeControl";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -65,6 +58,9 @@ const DISPLAY_MODE_BUTTONS: Array<{ mode: DetailListDisplayMode; title: string; 
 ];
 
 export interface DetailListToolbarProps {
+  /** When set, a "View in VR" button shows this list in a headset. */
+  vrListSource?: VrListSource;
+  onNavigate?: (route: any) => void;
   metadataByline?: React.ReactNode;
   selectionMetadata?: React.ReactNode;
   filter: FindFilter;
@@ -91,6 +87,8 @@ export interface DetailListToolbarProps {
   criteriaDefinitions?: CriterionDefinition[];
   objectFilter?: Record<string, unknown>;
   onObjectFilterChange?: (filter: Record<string, unknown>) => void;
+  /** Set when this list's query sends the filter expression to the API, so the dialog can repeat and combine conditions. */
+  supportsFilterExpressions?: boolean;
   /**
    * Entity whose filterable custom fields become a "Custom Fields" section in the filter dialog and chips, the same
    * one the top-level list pages generate. Defaults to the entity behind `filterMode`; without either, custom field
@@ -150,12 +148,12 @@ export function DetailListPagination({
   const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
   const clampedPage = Math.min(Math.max(1, page), totalPages);
 
+  // Correct standalone pagination as well as the copy rendered by the toolbar.
+  const repairPage = useEffectEvent((nextPage: number) => onFilterChange({ ...filter, page: nextPage }));
   useEffect(() => {
     if (totalCount > 0 && clampedPage !== page) {
-      onFilterChange({ ...filter, page: clampedPage });
+      repairPage(clampedPage);
     }
-    // Correct standalone pagination as well as the copy rendered by the toolbar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clampedPage, page, totalCount]);
 
   if (!showPagingControls || infinitePageSize || totalPages <= 1) return null;
@@ -170,6 +168,8 @@ export function DetailListPagination({
 }
 
 export function DetailListToolbar({
+  vrListSource,
+  onNavigate,
   metadataByline,
   selectionMetadata,
   filter,
@@ -196,6 +196,7 @@ export function DetailListToolbar({
   criteriaDefinitions,
   objectFilter,
   onObjectFilterChange,
+  supportsFilterExpressions = false,
   customFieldEntityType,
   allowInfinitePageSize = false,
   infinitePageSizeOnly = false,
@@ -211,12 +212,12 @@ export function DetailListToolbar({
   // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
   // otherwise hit the backend's fixed fallback seed and return the *same* "random" order every time.
   // Mint a seed once so embedded lists re-shuffle on mount, matching the top-level list pages.
+  // Only react to the sort/seed pair; reshuffle sets a seed which clears this condition.
+  const mintRandomSeed = useEffectEvent(() => onFilterChange(reshuffleRandomSort(filter)));
   useEffect(() => {
     if (filter.sort === "random" && filter.seed == null) {
-      onFilterChange(reshuffleRandomSort(filter));
+      mintRandomSeed();
     }
-    // Only react to the sort/seed pair; reshuffle sets a seed which clears this condition.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter.sort, filter.seed]);
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
@@ -229,25 +230,21 @@ export function DetailListToolbar({
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   // Sort displaced by a relevance search, restored when the query is cleared.
   const previousSearchSortRef = useRef<PreviousSearchSort | null>(null);
-  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
-  const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
-  const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
-  const [filterDialogOpenAtRoot, setFilterDialogOpenAtRoot] = useState(false);
-  useRegisterKeyboardActionHandler(
-    "list.filters",
-    () => {
-      setFilterDialogPreselect(undefined);
-      setFilterDialogExpressionPath(undefined);
-      setFilterDialogInitialView("simple");
-      setFilterDialogOpenAtRoot(true);
-      setFilterDialogOpen(true);
-    },
-    {
-      enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
-      surface: "list",
-    },
-  );
+  const switchToRelevance = useOptionalAppConfig()?.config?.ui.sortSearchesByRelevance ?? true;
+  const { activeObjectFilter, filterButton, filterChips, filterDialog } = useObjectFilterControls({
+    criteriaDefinitions,
+    objectFilter,
+    onObjectFilterChange: onObjectFilterChange
+      ? (nextObjectFilter) => {
+          onObjectFilterChange(nextObjectFilter);
+          onFilterChange({ ...filter, page: 1 });
+        }
+      : undefined,
+    filterMode,
+    customFieldEntityType,
+    supportsFilterExpressions,
+    chipsClassName: "mb-2",
+  });
   // Embedded lists page with the same keys as the top-level list pages. Registrations sharing an action id
   // never conflict: if two lists are ever mounted together, the most recently mounted one handles the key.
   const pagingKeyboardEnabled = showPagingControls && !infinitePageSize && totalPages > 1;
@@ -308,11 +305,12 @@ export function DetailListToolbar({
         listEntityType: resolvedListEntityType,
         sortOptions,
         previousSearchSort: previousSearchSortRef.current,
+        switchToRelevance,
       });
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [filter, onFilterChange, resolvedListEntityType, sortOptions],
+    [filter, onFilterChange, resolvedListEntityType, sortOptions, switchToRelevance],
   );
 
   const handleZoomChange = (level: number) => {
@@ -327,19 +325,6 @@ export function DetailListToolbar({
       onFilterChange({ ...filter, perPage: 0, page: 1 });
     }
   };
-
-  const activeObjectFilter = useMemo(
-    () => migrateLegacyPerformerFavoriteCriterion(objectFilter ?? {}, criteriaDefinitions ?? []),
-    [criteriaDefinitions, objectFilter],
-  );
-  const customFieldSection = useCustomFieldFilterSection(
-    customFieldEntityType ?? customFieldEntityTypeForFilterMode(filterMode),
-    activeObjectFilter,
-  );
-  const customFilterSections = useMemo(
-    () => (customFieldSection ? [customFieldSection] : undefined),
-    [customFieldSection],
-  );
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
@@ -370,12 +355,15 @@ export function DetailListToolbar({
       <div className="mx-auto mb-2 flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 text-sm shadow-sm shadow-black/20 sm:px-2.5 sm:py-2 lg:flex-nowrap">
         <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2 pr-2 lg:mr-0 lg:min-w-[10rem] lg:flex-1 lg:basis-0">
           <span className="text-xs text-muted">
-            {totalCount > 0 ? `${start}–${end} of ${totalCount.toLocaleString()}` : "0 items"}
+            {totalCount > 0
+              ? `${start.toLocaleString()}–${end.toLocaleString()} of ${totalCount.toLocaleString()}`
+              : "0 items"}
           </span>
           {metadataByline}
         </div>
 
         <div className="contents lg:flex lg:min-w-0 lg:flex-initial lg:flex-wrap lg:items-center lg:justify-center lg:gap-2">
+          {vrListSource && onNavigate ? <ViewInVrButton source={vrListSource} onNavigate={onNavigate} /> : null}
           {showSearch && (
             <ListSearchControl
               query={filter.q}
@@ -443,18 +431,7 @@ export function DetailListToolbar({
             </div>
           )}
 
-          {criteriaDefinitions && onObjectFilterChange ? (
-            <FilterButton
-              activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)}
-              onClick={() => {
-                setFilterDialogPreselect(undefined);
-                setFilterDialogExpressionPath(undefined);
-                setFilterDialogInitialView("simple");
-                setFilterDialogOpenAtRoot(true);
-                setFilterDialogOpen(true);
-              }}
-            />
-          ) : null}
+          {filterButton}
 
           {filterMode ? (
             <SavedFilterMenu
@@ -535,52 +512,7 @@ export function DetailListToolbar({
         <div aria-hidden="true" className="hidden lg:block lg:flex-1 lg:basis-0" />
       </div>
 
-      {criteriaDefinitions && onObjectFilterChange && Object.keys(activeObjectFilter).length > 0 ? (
-        <ActiveObjectFilterChips
-          criteriaDefinitions={criteriaDefinitions}
-          objectFilter={activeObjectFilter}
-          customFilterSections={customFilterSections}
-          className="mb-2"
-          onEdit={(target) => {
-            const key = getFilterChipTargetKey(target);
-            setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
-            const criterion = criteriaDefinitions.find(
-              (item) =>
-                item.id === key ||
-                item.filterKey === key ||
-                item.secondaryFilterKey === key ||
-                item.auxiliaryToggleKey === key,
-            );
-            const customSection =
-              target.kind === "root" ? customFilterSections?.find((section) => section.filterKey === key) : undefined;
-            setFilterDialogPreselect(
-              target.kind === "expression"
-                ? undefined
-                : target.kind === "related"
-                  ? {
-                      criterionId: criterion?.id ?? key,
-                      relatedFacet: target.facet,
-                      nestedCriterionId: target.nestedCriterionId,
-                    }
-                  : (customSection?.id ?? criterion?.id ?? key),
-            );
-            setFilterDialogInitialView(
-              key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple",
-            );
-            setFilterDialogOpenAtRoot(false);
-            setFilterDialogOpen(true);
-          }}
-          onRemove={(target) => {
-            const next = removeObjectFilterChipTarget(activeObjectFilter, criteriaDefinitions, target);
-            onObjectFilterChange(next);
-            onFilterChange({ ...filter, page: 1 });
-          }}
-          onClearAll={() => {
-            onObjectFilterChange({});
-            onFilterChange({ ...filter, page: 1 });
-          }}
-        />
-      ) : null}
+      {filterChips}
 
       {selectedCount !== undefined && selectedCount > 0 && (
         <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-1.5">
@@ -623,30 +555,7 @@ export function DetailListToolbar({
         className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-center gap-1 py-1"
         ariaLabel={paginationAriaLabel}
       />
-      {criteriaDefinitions && onObjectFilterChange ? (
-        <FilterDialog
-          open={filterDialogOpen}
-          onClose={() => {
-            setFilterDialogOpen(false);
-            setFilterDialogPreselect(undefined);
-            setFilterDialogInitialView("simple");
-            setFilterDialogExpressionPath(undefined);
-            setFilterDialogOpenAtRoot(false);
-          }}
-          criteria={criteriaDefinitions}
-          customSections={customFilterSections}
-          activeFilter={activeObjectFilter}
-          onApply={(nextFilter) => {
-            onObjectFilterChange(nextFilter);
-            onFilterChange({ ...filter, page: 1 });
-          }}
-          preselectCriterion={filterDialogPreselect}
-          initialView={filterDialogInitialView}
-          initialExpressionPath={filterDialogExpressionPath}
-          openAtRoot={filterDialogOpenAtRoot}
-          supportsFilterExpressions={Boolean(activeObjectFilter._filterExpression)}
-        />
-      ) : null}
+      {filterDialog}
     </>
   );
 }

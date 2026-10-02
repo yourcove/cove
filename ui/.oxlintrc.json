@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react", "vitest"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    // Not in the correctness category, so it must be enabled explicitly.
+    "react/rules-of-hooks": "error",
+    "vitest/require-mock-type-parameters": "off",
+    // These rules only report where React Compiler could not optimize a component. The build does not
+    // run React Compiler, so they describe nothing about runtime behavior; re-enable them if it is adopted.
+    "react/incompatible-library": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/use-memo": "off",
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expectUnique"] }]
+  },
+  "ignorePatterns": ["coverage/", "src/generated/"]
+}

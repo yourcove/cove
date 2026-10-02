@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, GitMerge, Loader2, Trash2 } from "lucide-react";
 import { formatFileSize } from "../shared";
 import { MERGE_POLICY_SUMMARY } from "../VideoMergeReview";
@@ -44,9 +44,11 @@ export function DuplicateResolveDialog({
   onClose: () => void;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) setAcknowledged(false);
-  }, [open]);
+  }
   const update = (patch: Partial<ResolutionPreferences>) => onChange({ ...preferences, ...patch });
   const deleteFiles = preferences.deleteFiles && canDeleteFiles;
   const needsAcknowledgement = deleteFiles && scope === "all";

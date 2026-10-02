@@ -732,9 +732,14 @@ public sealed class TagMergeService(
 
     private async Task RewriteStoredJsonReferencesAsync(IReadOnlyDictionary<int, int> tagIdMap, CancellationToken ct)
     {
-        var fieldProvenance = await db.FieldProvenance
-            .Where(row => row.ValueJson != null)
-            .ToListAsync(ct);
+        var sourceIds = tagIdMap.Where(pair => pair.Key != pair.Value).Select(pair => pair.Key).ToArray();
+        if (sourceIds.Length == 0)
+            return;
+
+        // The rewriters below are no-ops for rows whose JSON never mentions a merged source id,
+        // so each load is prefiltered to a superset of affected rows instead of the whole table.
+        var fieldProvenance = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.FieldProvenance, "field_provenance", "ValueJson", sourceIds).ToListAsync(ct);
         foreach (var row in fieldProvenance)
             row.ValueJson = TagReferenceJsonRewriter.RewriteFieldProvenanceValue(
                 row.HostType,
@@ -742,29 +747,28 @@ public sealed class TagMergeService(
                 row.ValueJson,
                 tagIdMap);
 
-        var interactions = await db.Interactions
-            .Where(interaction => interaction.Meta != null)
-            .ToListAsync(ct);
+        var interactions = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Interactions, "interactions", "Meta", sourceIds).ToListAsync(ct);
         foreach (var interaction in interactions)
             interaction.Meta = TagReferenceJsonRewriter.Rewrite(interaction.Meta, tagIdMap);
 
-        var playbackSessions = await db.PlaybackSessions
-            .Where(session => session.Context != null)
-            .ToListAsync(ct);
+        var playbackSessions = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.PlaybackSessions, "playback_sessions", "Context", sourceIds).ToListAsync(ct);
         foreach (var session in playbackSessions)
             session.Context = TagReferenceJsonRewriter.Rewrite(session.Context, tagIdMap);
 
-        var playbackIntervals = await db.PlaybackIntervals
-            .Where(interval => interval.Context != null)
-            .ToListAsync(ct);
+        var playbackIntervals = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.PlaybackIntervals, "playback_intervals", "Context", sourceIds).ToListAsync(ct);
         foreach (var interval in playbackIntervals)
             interval.Context = TagReferenceJsonRewriter.Rewrite(interval.Context, tagIdMap);
 
-        var payloadSegments = await db.Segments.Where(segment => segment.Payload != null).ToListAsync(ct);
+        var payloadSegments = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Segments, "segments", "Payload", sourceIds).ToListAsync(ct);
         foreach (var segment in payloadSegments)
             segment.Payload = TagReferenceJsonRewriter.Rewrite(segment.Payload, tagIdMap);
 
-        var savedFilters = await db.SavedFilters.Where(filter => filter.ObjectFilter != null).ToListAsync(ct);
+        var savedFilters = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.SavedFilters, "saved_filters", "ObjectFilter", sourceIds).ToListAsync(ct);
         foreach (var filter in savedFilters)
             filter.ObjectFilter = TagReferenceJsonRewriter.Rewrite(
                 filter.ObjectFilter,
@@ -772,21 +776,25 @@ public sealed class TagMergeService(
                 filter.Mode.Equals(EntityKinds.Tag, StringComparison.OrdinalIgnoreCase)
                     || filter.Mode.Equals("tags", StringComparison.OrdinalIgnoreCase));
 
-        var users = await db.Users.Where(user => user.UiPreferencesJson != null).ToListAsync(ct);
+        var users = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Users, "users", "UiPreferencesJson", sourceIds).ToListAsync(ct);
         foreach (var user in users)
             user.UiPreferencesJson = TagReferenceJsonRewriter.RewriteUserUiPreferences(
                 user.UiPreferencesJson,
                 tagIdMap);
 
-        var groups = await db.Groups.Where(group => group.QueryJson != null).ToListAsync(ct);
+        var groups = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Groups, "groups", "QueryJson", sourceIds).ToListAsync(ct);
         foreach (var group in groups)
             group.QueryJson = TagReferenceJsonRewriter.Rewrite(group.QueryJson, tagIdMap);
 
-        var groupItems = await db.GroupItems.Where(item => item.SourceQueryJson != null).ToListAsync(ct);
+        var groupItems = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.GroupItems, "group_items", "SourceQueryJson", sourceIds).ToListAsync(ct);
         foreach (var item in groupItems)
             item.SourceQueryJson = TagReferenceJsonRewriter.Rewrite(item.SourceQueryJson, tagIdMap);
 
-        var contentRules = await db.RoleContentRules.Where(rule => rule.ScopeValue != null).ToListAsync(ct);
+        var contentRules = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.RoleContentRules, "role_content_rules", "ScopeValue", sourceIds).ToListAsync(ct);
         foreach (var rule in contentRules)
             rule.ScopeValue = TagReferenceJsonRewriter.RewriteRoleContentScope(
                 rule.EntityKind,
@@ -794,7 +802,10 @@ public sealed class TagMergeService(
                 rule.ScopeValue,
                 tagIdMap) ?? rule.ScopeValue;
 
-        var shareLinks = await db.ShareLinks.Where(link => link.EntityKind.ToLower() == EntityKinds.Tag).ToListAsync(ct);
+        var shareLinks = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.ShareLinks, "share_links", "EntityIds", sourceIds)
+            .Where(link => link.EntityKind.ToLower() == EntityKinds.Tag)
+            .ToListAsync(ct);
         foreach (var link in shareLinks)
             link.EntityIds = RewriteShareLinkIds(link.EntityIds, tagIdMap);
     }

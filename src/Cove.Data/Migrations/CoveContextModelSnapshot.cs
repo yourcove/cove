@@ -4679,6 +4679,15 @@ namespace Cove.Data.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("VrFieldOfView")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("VrProjection")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("VrStereoMode")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");

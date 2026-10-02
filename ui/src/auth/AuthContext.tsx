@@ -74,8 +74,16 @@ function captureShareCredentialsFromUrl(): boolean {
 export function AuthProvider({ children, authEnabled }: { children: ReactNode; authEnabled: boolean }) {
   const [user, setUser] = useState<AuthUser | null>(() => authStore.getUser());
   const [loading, setLoading] = useState(true);
-  const effectivePermissions = authEnabled ? (user?.permissions ?? []) : ["*"];
-  const effectiveReadGrantedKinds = authEnabled ? (user?.readGrantedEntityKinds ?? []) : [];
+  const userPermissions = user?.permissions;
+  const userReadGrantedKinds = user?.readGrantedEntityKinds;
+  const effectivePermissions = useMemo(
+    () => (authEnabled ? (userPermissions ?? []) : ["*"]),
+    [authEnabled, userPermissions],
+  );
+  const effectiveReadGrantedKinds = useMemo(
+    () => (authEnabled ? (userReadGrantedKinds ?? []) : []),
+    [authEnabled, userReadGrantedKinds],
+  );
 
   const refreshMe = useCallback(async () => {
     let me = await fetchMe();

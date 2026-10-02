@@ -21,16 +21,17 @@ export function useDetailListSelection<TItem extends { id: string | number }>({
     [infiniteFilterKey, resetKeyParts],
   );
   const selection = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const { selectIds } = selection;
   const [selectAllPending, setSelectAllPending] = useState(false);
 
   const selectAllMatching = useCallback(async () => {
     setSelectAllPending(true);
     try {
-      selection.selectIds(await fetchAllIds());
+      selectIds(await fetchAllIds());
     } finally {
       setSelectAllPending(false);
     }
-  }, [fetchAllIds, selection.selectIds]);
+  }, [fetchAllIds, selectIds]);
 
   return {
     ...selection,

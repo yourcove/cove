@@ -44,9 +44,11 @@ export function ImageInput({
     [preview],
   );
 
-  useEffect(() => {
+  const [prevCurrentImageUrl, setPrevCurrentImageUrl] = useState(currentImageUrl);
+  if (prevCurrentImageUrl !== currentImageUrl) {
+    setPrevCurrentImageUrl(currentImageUrl);
     setImgError(false);
-  }, [currentImageUrl]);
+  }
 
   const uploadMut = useMutation({
     meta: { suppressGlobalError: true },

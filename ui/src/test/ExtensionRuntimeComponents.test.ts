@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DetailListPagination,
+  EntityMedia,
   MediaDetailLayout,
   PERFORMER_CRITERIA,
   useExtensionKeyboardBindings,
@@ -14,5 +15,9 @@ describe("extension component runtime", () => {
     expect(PERFORMER_CRITERIA.some((criterion) => criterion.filterKey === "nameCriterion")).toBe(true);
     expect(useRegisterExtensionKeyboardActions).toBeTypeOf("function");
     expect(useExtensionKeyboardBindings).toBeTypeOf("function");
+  });
+
+  it("publishes the entity media boundary that native cards render through", () => {
+    expect(EntityMedia).toBeTypeOf("function");
   });
 });

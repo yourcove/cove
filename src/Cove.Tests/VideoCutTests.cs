@@ -200,7 +200,7 @@ public class VideoCutTests
             var output = Path.Combine(root.FullName, "cut.mp4");
             var settings = CopyMp4 with { Codec = VideoConversionCodec.H264, Effort = VideoConversionEffort.BalancedSoftware };
             var plan = VideoConversionPlanner.Build(probed, source, output, settings, "libx264", null, qualityLevel: 12, cut: new VideoCutPlan(kept!));
-            Assert.Contains("concat=n=3:v=1:a=1", plan.Arguments);
+            Assert.Contains("concat=n=3:v=1:a=1", string.Join(" ", plan.Arguments));
             var run = await FfmpegProcessRunner.RunAsync(ffmpeg, plan.Arguments, TimeSpan.FromMinutes(2), ct);
             Assert.True(run.ExitCode == 0, run.StandardError);
 
@@ -273,8 +273,8 @@ public class VideoCutTests
             var settings = CopyMp4 with { Codec = VideoConversionCodec.H264, Effort = VideoConversionEffort.BalancedSoftware };
             var plan = VideoConversionPlanner.Build(probed, source, output, settings, "libx264", null, qualityLevel: 20, cut: new VideoCutPlan(kept!));
 
-            Assert.Contains("-c:a:0 copy", plan.Arguments);
-            Assert.DoesNotContain("concat", plan.Arguments);
+            Assert.Contains("-c:a:0 copy", string.Join(" ", plan.Arguments));
+            Assert.DoesNotContain("concat", string.Join(" ", plan.Arguments));
             var run = await FfmpegProcessRunner.RunAsync(ffmpeg, plan.Arguments, TimeSpan.FromMinutes(2), ct);
             Assert.True(run.ExitCode == 0, run.StandardError);
             Assert.Null(VideoConversionPlanner.VerifyOutput(probed, await ProbeAsync(ffprobe, output, ct), plan));
@@ -300,7 +300,7 @@ public class VideoCutTests
             var plain = await MakeSourceAsync(ffmpeg, root.FullName, "plain.mp4", ct);
             var source = Path.Combine(root.FullName, "offset.mp4");
             var shift = await FfmpegProcessRunner.RunAsync(ffmpeg,
-                $"-hide_banner -v error -y -i \"{plain}\" -c copy -output_ts_offset 5 \"{source}\"", TimeSpan.FromMinutes(1), ct);
+                ["-hide_banner", "-v", "error", "-y", "-i", plain, "-c", "copy", "-output_ts_offset", "5", source], TimeSpan.FromMinutes(1), ct);
             Assert.Equal(0, shift.ExitCode);
             var probed = await ProbeAsync(ffprobe, source, ct);
             Assert.InRange(probed.StartTime, 4.9, 5.1);
@@ -329,7 +329,7 @@ public class VideoCutTests
 
     private static (string Ffmpeg, string Ffprobe) Tools()
     {
-        var ffmpeg = FfmpegHwAccel.FindFfmpeg(null);
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
         Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
         var ffprobe = Path.Combine(Path.GetDirectoryName(ffmpeg!)!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
         Assert.SkipWhen(!File.Exists(ffprobe), "Requires ffprobe next to ffmpeg.");
@@ -341,8 +341,13 @@ public class VideoCutTests
     {
         var path = Path.Combine(directory, name);
         var make = await FfmpegProcessRunner.RunAsync(ffmpeg,
-            "-hide_banner -v error -y -f lavfi -i testsrc2=size=320x180:rate=10:duration=12 -f lavfi -i sine=frequency=440:duration=12 "
-            + $"-c:v libx264 -preset ultrafast -crf 16 -g 10 -keyint_min 10 -sc_threshold 0 -c:a aac -shortest \"{path}\"",
+            [
+                "-hide_banner", "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=12",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=12",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-g", "10", "-keyint_min", "10", "-sc_threshold", "0",
+                "-c:a", "aac", "-shortest", path,
+            ],
             TimeSpan.FromMinutes(1), ct);
         Assert.True(make.ExitCode == 0, make.StandardError);
         return path;

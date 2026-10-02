@@ -133,14 +133,14 @@ export function getRatingInputLabel(options?: RatingSystemOptions) {
 
 export function useRatingOptions() {
   const config = useOptionalAppConfig()?.config;
-  const [overrideVersion, setOverrideVersion] = useState(0);
+  const [override, setOverride] = useState(readStoredRatingOptionsOverride);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return undefined;
     }
 
-    const handleOverrideChange = () => setOverrideVersion((current) => current + 1);
+    const handleOverrideChange = () => setOverride(readStoredRatingOptionsOverride());
 
     window.addEventListener(RATING_OPTIONS_CHANGE_EVENT, handleOverrideChange);
     window.addEventListener("storage", handleOverrideChange);
@@ -153,10 +153,10 @@ export function useRatingOptions() {
     };
   }, []);
 
-  return useMemo(() => {
-    const override = readStoredRatingOptionsOverride();
-    return normalizeRatingOptions(override ?? config?.ui.ratingSystemOptions ?? defaultRatingSystemOptions);
-  }, [config?.ui.ratingSystemOptions, overrideVersion]);
+  return useMemo(
+    () => normalizeRatingOptions(override ?? config?.ui.ratingSystemOptions ?? defaultRatingSystemOptions),
+    [config?.ui.ratingSystemOptions, override],
+  );
 }
 
 export function RatingStars({ value, sizeClass }: { value: number; sizeClass: string }) {

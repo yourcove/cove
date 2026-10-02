@@ -56,7 +56,10 @@ export function TagProvenanceHover({
     setShowProvenance(false);
     if (activePopupHide === hideRef) activePopupHide = null;
   };
-  hideRef.current = hidePopup;
+  // Other instances and this component's timers hide the popup through the ref, never during render.
+  useLayoutEffect(() => {
+    hideRef.current = hidePopup;
+  });
 
   const showPopup = () => {
     cancelOpenTimer();
@@ -107,7 +110,6 @@ export function TagProvenanceHover({
 
     window.addEventListener("mousemove", onMove, true);
     return () => window.removeEventListener("mousemove", onMove, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showProvenance]);
 
   useEffect(

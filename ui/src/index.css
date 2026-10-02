@@ -162,6 +162,39 @@ button {
   scrollbar-width: none;
 }
 
+/* Fade the dashboard switcher's edges while more names are scrolled out of view that way. Only
+   narrow screens scroll the switcher; wider ones wrap it, so they never fade. */
+@media (width < 40rem) {
+  .dashboard-tabs-fade {
+    --fade-start: 0px;
+    --fade-end: 0px;
+    /* Keeps focused and current names scrolled clear of the fade. */
+    scroll-padding-inline: 2rem;
+  }
+  .dashboard-tabs-fade[data-fade-start] {
+    --fade-start: 2rem;
+  }
+  .dashboard-tabs-fade[data-fade-end] {
+    --fade-end: 2rem;
+  }
+  .dashboard-tabs-fade:is([data-fade-start], [data-fade-end]) {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
+      transparent
+    );
+  }
+}
+
 /* Video card preview video */
 .video-card-preview-video {
   position: absolute;

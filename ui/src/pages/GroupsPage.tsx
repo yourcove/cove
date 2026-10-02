@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
 import type { FindFilter, Group, GroupCreate, GroupFilterCriteria, PaginatedResponse } from "../api/types";
@@ -7,7 +7,7 @@ import { SortableList } from "../components/SortableList";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { Layers, Trash2, Loader2, Edit } from "lucide-react";
+import { Layers } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
 import { GROUP_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { IsoDateInput } from "../components/IsoDateInput";
@@ -16,7 +16,7 @@ import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFi
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
+import { canWriteEntity } from "../auth/visibility";
 import { CustomFieldsEditor } from "../components/shared";
 import {
   DynamicGroupFilterEditor,
@@ -64,7 +64,6 @@ export function GroupsPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canWriteGroup = canWriteEntity("group", hasPermission);
-  const canDeleteGroup = canDeleteEntity("group", hasPermission);
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const queryGroupsPage = useCallback(
@@ -349,7 +348,7 @@ function GroupCreateModal({
   }, [dynamicSources]);
   const defaultDynamicSourceKey = dynamicSourceOptions[0]?.key ?? FILTER_DYNAMIC_SOURCE_KEY;
   const [form, setForm] = useState({
-    name: "",
+    name: open ? initialName.trim() : "",
     date: "",
     director: "",
     description: "",
@@ -362,9 +361,13 @@ function GroupCreateModal({
   const [parentGroupIds, setParentGroupIds] = useState<number[]>([]);
   const [createAnother, setCreateAnother] = useState(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialName, setPrevInitialName] = useState(initialName);
+  if (open !== prevOpen || initialName !== prevInitialName) {
+    setPrevOpen(open);
+    setPrevInitialName(initialName);
     if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
-  }, [initialName, open]);
+  }
 
   const resetForm = () => {
     setForm({

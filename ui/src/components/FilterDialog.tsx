@@ -1,12 +1,4 @@
-import {
-  useState,
-  useMemo,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useState, useMemo, useCallback, useEffect, useEffectEvent, useId, useRef } from "react";
 import {
   X,
   Search,
@@ -103,7 +95,6 @@ interface FilterDialogProps {
   onApply: (filter: Record<string, unknown>) => void;
   preselectCriterion?: FilterDialogPreselection;
   customSections?: FilterDialogCustomSection[];
-  showCustomSectionDivider?: boolean;
   supportsFilterExpressions?: boolean;
   initialView?: "simple" | "advanced";
   initialExpressionPath?: number[];
@@ -134,7 +125,6 @@ export function FilterDialog({
   onApply,
   preselectCriterion,
   customSections,
-  showCustomSectionDivider = true,
   supportsFilterExpressions = false,
   initialView = "simple",
   initialExpressionPath,
@@ -194,7 +184,7 @@ export function FilterDialog({
     () => normalizeFilterExpressionForEditing(sourceActiveFilter, criteria),
     [sourceActiveFilter, criteria],
   );
-  const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
+  const [lastActiveFilterSignature, setLastActiveFilterSignature] = useState(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem("filter-pinned");
@@ -326,7 +316,7 @@ export function FilterDialog({
       { label: "All filters", items: remaining },
       { label: "Related items", items: related },
     ].filter((group) => group.items.length > 0);
-  }, [criteria, customSections, editFilter, expression, filteredCriteria, pinnedIds, search]);
+  }, [conditionDraft, customSections, editFilter, expression, filteredCriteria, pinnedIds, search]);
 
   const visibleNavigatorItems = useMemo(() => navigatorGroups.flatMap((group) => group.items), [navigatorGroups]);
   const rovingNavigatorId =
@@ -366,13 +356,17 @@ export function FilterDialog({
     selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
       ? selectedItem.criterion
       : undefined;
-  const relatedExpressionInstances = relatedWorkspaceCriterion
-    ? directlyEditableExpressionChildren.flatMap((child, index) =>
-        child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === relatedWorkspaceCriterion.id
-          ? [{ index, path: [...simpleExpressionGroupPath, index], filter: child.filter }]
-          : [],
-      )
-    : [];
+  const relatedExpressionInstances = useMemo(
+    () =>
+      relatedWorkspaceCriterion
+        ? (directlyEditableExpressionGroup?.children ?? []).flatMap((child, index) =>
+            child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === relatedWorkspaceCriterion.id
+              ? [{ index, path: [...simpleExpressionGroupPath, index], filter: child.filter }]
+              : [],
+          )
+        : [],
+    [criteria, directlyEditableExpressionGroup, relatedWorkspaceCriterion, simpleExpressionGroupPath],
+  );
   const relatedWorkspaceObjectFilter =
     conditionDraft && relatedWorkspaceCriterion
       ? conditionDraft.filter
@@ -486,7 +480,8 @@ export function FilterDialog({
         };
         setEditFilter((current) => {
           const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as
-            FilterExpression<Record<string, unknown>> | undefined;
+            | FilterExpression<Record<string, unknown>>
+            | undefined;
           if (!currentExpression) return current;
           return {
             ...current,
@@ -527,12 +522,10 @@ export function FilterDialog({
     ],
   );
 
-  useEffect(() => {
-    if (lastActiveFilterSignatureRef.current !== activeFilterSignature) {
-      lastActiveFilterSignatureRef.current = activeFilterSignature;
-      setEditFilter(cloneActiveFilter());
-    }
-  }, [activeFilterSignature, cloneActiveFilter]);
+  if (lastActiveFilterSignature !== activeFilterSignature) {
+    setLastActiveFilterSignature(activeFilterSignature);
+    setEditFilter(cloneActiveFilter());
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -548,34 +541,36 @@ export function FilterDialog({
     };
   }, [open]);
 
-  useEffect(() => {
+  // Opening seeds the editor state from the active filter; closing discards unapplied edits.
+  // `openingFocusPlan` carries what the open effect below needs to move focus into the dialog.
+  const [editorStateOpen, setEditorStateOpen] = useState(false);
+  const [openingFocusPlan, setOpeningFocusPlan] = useState<{
+    view: FilterDialogView;
+    inlineLeafPath: number[] | undefined;
+    leafIsRelated: boolean;
+    selectedCriterionId: string | null;
+  } | null>(null);
+  if (editorStateOpen !== open) {
+    setEditorStateOpen(open);
     if (!open) {
-      inlineAddedConditionRef.current = null;
-      if (wasOpenRef.current) {
-        setEditFilter(cloneActiveFilter());
-        setSearch("");
-        setExpandedCriterion(null);
-        setRelatedWorkspaceSelection(null);
-        setDialogView("simple");
-        setSelectedFiltersCollapsed(false);
-        setConditionDraft(null);
-        setSimpleExpressionGroupPath([]);
-        setInlineStackReturnsToExpression(false);
-        setNavigatorFocusId(null);
-        previousFocusRef.current?.focus();
-      }
-      wasOpenRef.current = false;
-      return;
-    }
-
-    if (!wasOpenRef.current) {
-      inlineAddedConditionRef.current = null;
-      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setEditFilter(cloneActiveFilter());
+      setSearch("");
+      setExpandedCriterion(null);
+      setRelatedWorkspaceSelection(null);
+      setDialogView("simple");
+      setSelectedFiltersCollapsed(false);
+      setConditionDraft(null);
+      setSimpleExpressionGroupPath([]);
+      setInlineStackReturnsToExpression(false);
+      setNavigatorFocusId(null);
+    } else {
       const openingFilter = cloneActiveFilter();
       const sourceExpression = sourceActiveFilter[FILTER_EXPRESSION_STATE_KEY] as
-        FilterExpression<Record<string, unknown>> | undefined;
+        | FilterExpression<Record<string, unknown>>
+        | undefined;
       const openingExpression = normalizedActiveFilter[FILTER_EXPRESSION_STATE_KEY] as
-        FilterExpression<Record<string, unknown>> | undefined;
+        | FilterExpression<Record<string, unknown>>
+        | undefined;
       const openingExpressionPath =
         initialExpressionPath && sourceExpression && openingExpression
           ? (remapExpressionLeafPath(sourceExpression, openingExpression, initialExpressionPath) ??
@@ -638,15 +633,37 @@ export function FilterDialog({
           : null,
       );
       setExpandedCriterion(nextSelected);
+      setOpeningFocusPlan({
+        view: openingView,
+        inlineLeafPath: openLeafInline ? openingExpressionPath : undefined,
+        leafIsRelated: openingLeafCriterion?.type === "related",
+        selectedCriterionId: nextSelected,
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (!open) {
+      inlineAddedConditionRef.current = null;
+      if (wasOpenRef.current) {
+        previousFocusRef.current?.focus();
+      }
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      inlineAddedConditionRef.current = null;
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       window.setTimeout(() => {
-        if (openingView === "expression") backButtonRef.current?.focus();
-        else if (openLeafInline && openingExpressionPath) {
+        if (openingFocusPlan?.view === "expression") backButtonRef.current?.focus();
+        else if (openingFocusPlan?.inlineLeafPath) {
           const condition = dialogRef.current?.querySelector<HTMLElement>(
-            `[data-inline-condition-path="${openingExpressionPath.join(".")}"]`,
+            `[data-inline-condition-path="${openingFocusPlan.inlineLeafPath.join(".")}"]`,
           );
           getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
         } else if (
-          openingLeafCriterion?.type === "related" &&
+          openingFocusPlan?.leafIsRelated &&
           typeof preselectCriterion === "object" &&
           preselectCriterion.nestedCriterionId
         ) {
@@ -656,26 +673,16 @@ export function FilterDialog({
               "input:not([type='hidden']), select, textarea, button[aria-pressed='true']",
             ) ?? getFirstEditorControl(panel)
           )?.focus();
-        } else if (nextSelected && preselectCriterion) focusFirstEditorControl();
+        } else if (openingFocusPlan?.selectedCriterionId && preselectCriterion) focusFirstEditorControl();
         else searchRef.current?.focus();
-        if (nextSelected)
-          criterionButtonRefs.current.get(nextSelected)?.scrollIntoView?.({ block: "center", inline: "nearest" });
+        if (openingFocusPlan?.selectedCriterionId)
+          criterionButtonRefs.current
+            .get(openingFocusPlan.selectedCriterionId)
+            ?.scrollIntoView?.({ block: "center", inline: "nearest" });
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [
-    cloneActiveFilter,
-    criteria,
-    customSections,
-    focusFirstEditorControl,
-    initialExpressionPath,
-    initialView,
-    normalizedActiveFilter,
-    open,
-    openAtRoot,
-    preselectCriterion,
-    sourceActiveFilter,
-  ]);
+  }, [focusFirstEditorControl, open, openingFocusPlan, preselectCriterion]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
@@ -810,6 +817,10 @@ export function FilterDialog({
     discardExpressionCondition();
   };
 
+  // Lets the Escape listener below reach the latest save/discard logic, which also reads criteria,
+  // without adding those inputs to its subscription.
+  const exitExpressionConditionFromEscape = useEffectEvent(() => exitExpressionCondition());
+
   const canAutoCommitNewRelatedCondition = (() => {
     const criterion = conditionDraft ? getExpressionConditionCriterion(conditionDraft.filter, criteria) : undefined;
     return Boolean(
@@ -843,9 +854,9 @@ export function FilterDialog({
       if (event.key === "Escape") {
         event.preventDefault();
         if (canAutoCommitNewRelatedCondition) {
-          exitExpressionCondition();
+          exitExpressionConditionFromEscape();
         } else if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
-          exitExpressionCondition();
+          exitExpressionConditionFromEscape();
         } else if (relatedWorkspaceSelection) {
           setRelatedWorkspaceSelection(null);
           window.setTimeout(
@@ -855,7 +866,7 @@ export function FilterDialog({
                 ?.focus(),
             0,
           );
-        } else if (conditionDraft) exitExpressionCondition();
+        } else if (conditionDraft) exitExpressionConditionFromEscape();
         else if (inlineStackReturnsToExpression) returnToExpression();
         else if (dialogView === "expression") returnToSimpleFilters();
         else if (relatedWorkspaceCriterion) {
@@ -909,17 +920,6 @@ export function FilterDialog({
     returnToExpression,
     returnToSimpleFilters,
   ]);
-
-  const handleRemoveCriterion = useCallback(
-    (criterion: CriterionDefinition, criterionId?: string) => {
-      setEditFilter((prev) => removeCriterionFilterValue(prev, criterion));
-
-      if (criterionId && expandedCriterion === criterionId) {
-        setExpandedCriterion(null);
-      }
-    },
-    [expandedCriterion],
-  );
 
   const handleSetCriterion = useCallback((criterion: CriterionDefinition, value: unknown) => {
     setEditFilter((prev) => setCriterionFilterValue(prev, criterion, value));
@@ -1005,7 +1005,8 @@ export function FilterDialog({
         const [{ path }] = relatedExpressionInstances;
         setEditFilter((current) => {
           const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as
-            FilterExpression<Record<string, unknown>> | undefined;
+            | FilterExpression<Record<string, unknown>>
+            | undefined;
           const filter = currentExpression ? getExpressionLeaf(currentExpression, path) : undefined;
           if (!currentExpression || !filter) return current;
           return {
@@ -1061,7 +1062,8 @@ export function FilterDialog({
   const updateInlineCondition = (path: number[], criterion: CriterionDefinition, value: unknown) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as
-        FilterExpression<Record<string, unknown>> | undefined;
+        | FilterExpression<Record<string, unknown>>
+        | undefined;
       const existingFilter = currentExpression ? getExpressionLeaf(currentExpression, path) : undefined;
       if (!currentExpression || !existingFilter) return current;
       const nextFilter = { ...existingFilter };
@@ -1085,7 +1087,8 @@ export function FilterDialog({
     if (!auxiliaryToggleKey) return;
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as
-        FilterExpression<Record<string, unknown>> | undefined;
+        | FilterExpression<Record<string, unknown>>
+        | undefined;
       const filter = currentExpression ? getExpressionLeaf(currentExpression, path) : undefined;
       if (!currentExpression || !filter) return current;
       const nextFilter = { ...filter };
@@ -1319,7 +1322,8 @@ export function FilterDialog({
     );
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as
-        FilterExpression<Record<string, unknown>> | undefined;
+        | FilterExpression<Record<string, unknown>>
+        | undefined;
       if (!currentExpression) return current;
       const group = getExpressionGroup(currentExpression, parentPath);
       if (!group) return current;
@@ -1945,7 +1949,8 @@ export function FilterDialog({
                 criterion={relatedWorkspaceCriterion}
                 value={
                   getCriterionFilterValue(relatedWorkspaceObjectFilter, relatedWorkspaceCriterion) as
-                    RelatedFilterCriterion | undefined
+                    | RelatedFilterCriterion
+                    | undefined
                 }
                 onChange={(value) =>
                   conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
@@ -332,6 +333,15 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
+    public Task<VideoIdsDto> FindVideoIdsAsync(
+        FilteredQueryRequest<VideoFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoIdsDto>(
+            HttpMethod.Post,
+            "/api/videos/find-ids",
+            request,
+            cancellationToken);
+
     public Task<VideoAggregate> AggregateVideosAsync(
         FilteredQueryRequest<VideoFilter> request,
         CancellationToken cancellationToken = default)
@@ -416,6 +426,15 @@ public sealed partial class CoveClient
         throw new InvalidOperationException(
             $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
     }
+
+    public Task<PaginatedResponse<VideoDto>> ListVideosAsync(
+        string query,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Get,
+            $"/api/videos?{query}",
+            payload: null,
+            cancellationToken);
 
     public async Task<IReadOnlyList<VideoDto>> GetVideosAsync(
         CancellationToken cancellationToken = default)

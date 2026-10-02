@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Layers,
@@ -129,11 +129,13 @@ export function VideoSegmentsPanel({
 
   // All tag groups are offered as filter chips; the parent expands a selected group to its
   // member tags so segments tagged within that group match.
-  const { data: allTagGroups = [] } = useQuery({ queryKey: ["taggroups"], queryFn: () => tagGroupsApi.list() });
+  const { data: allTagGroups = [] } = useQuery({ queryKey: ["tag-groups"], queryFn: () => tagGroupsApi.list() });
 
-  useEffect(() => {
+  const [prevSelectionScope, setPrevSelectionScope] = useState({ currentProfileId, videoId });
+  if (currentProfileId !== prevSelectionScope.currentProfileId || videoId !== prevSelectionScope.videoId) {
+    setPrevSelectionScope({ currentProfileId, videoId });
     setSelectedSpanKeys(new Set());
-  }, [currentProfileId, videoId]);
+  }
 
   const selectedEntries = useMemo<AddToGroupEntry[]>(() => {
     return filteredSpans
@@ -828,7 +830,6 @@ function SegmentRow({
 
 // ===== Raw segment chooser modal =====
 function RawSegmentChooser({
-  span,
   segments,
   onPick,
   onClose,

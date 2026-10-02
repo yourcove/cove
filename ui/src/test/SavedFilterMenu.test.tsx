@@ -243,6 +243,37 @@ describe("SavedFilterMenu", () => {
     expect(onApplyUIOptions).toHaveBeenCalledWith({});
   });
 
+  it("applies filters saved without find options using the mode's default sort", async () => {
+    vi.mocked(savedFilters.list).mockResolvedValue([
+      { id: 4, mode: "videos", name: "Worklist", findFilter: null, objectFilter: JSON.stringify({ ids: [7, 3] }) },
+    ] as unknown as Awaited<ReturnType<typeof savedFilters.list>>);
+    const onApplyFilter = vi.fn();
+    const onApplyObjectFilter = vi.fn();
+    const onApplyUIOptions = vi.fn();
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SavedFilterMenu
+          mode="videos"
+          currentFilter={{ page: 3, sort: "title", direction: "asc" }}
+          onApplyFilter={onApplyFilter}
+          onApplyObjectFilter={onApplyObjectFilter}
+          onApplyUIOptions={onApplyUIOptions}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByTitle("Saved filters"));
+    await user.click(await screen.findByRole("button", { name: "Worklist" }));
+
+    expect(onApplyFilter).toHaveBeenCalledWith({ sort: "date", direction: "desc" });
+    expect(onApplyObjectFilter).toHaveBeenCalledWith({ ids: [7, 3] });
+    expect(onApplyUIOptions).toHaveBeenCalledWith({});
+    expect(screen.queryByRole("dialog", { name: "Saved filters" })).not.toBeInTheDocument();
+  });
+
   it("keeps the menu open and reports an update failure", async () => {
     vi.mocked(savedFilters.list).mockResolvedValue([{ id: 2, mode: "videos", name: "Favorites", findFilter: "{}" }]);
     vi.mocked(savedFilters.update).mockRejectedValue(new Error("Conflict"));

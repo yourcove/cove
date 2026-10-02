@@ -861,12 +861,8 @@ public partial class DownloaderService(
         {
             case DownloaderEntity.Video:
             {
-                var metadata = result.InlineVideoMetadata;
-                if (metadata == null)
-                {
-                    progress?.Report(0.97d, "Looking up downloaded video metadata...");
-                    metadata = await BuildMergedVideoMetadataAsync(services, request, ct);
-                }
+                progress?.Report(0.97d, "Looking up downloaded video metadata...");
+                var metadata = await BuildMergedVideoMetadataAsync(services, request, result.InlineVideoMetadata, ct);
 
                 if (metadata != null)
                 {
@@ -880,12 +876,8 @@ public partial class DownloaderService(
             }
             case DownloaderEntity.Image:
             {
-                ScrapedImageDto? metadata = result.InlineImageMetadata;
-                if (metadata == null)
-                {
-                    progress?.Report(0.97d, "Looking up downloaded image metadata...");
-                    metadata = await BuildMergedImageMetadataAsync(services, request, ct);
-                }
+                progress?.Report(0.97d, "Looking up downloaded image metadata...");
+                var metadata = await BuildMergedImageMetadataAsync(services, request, result.InlineImageMetadata, ct);
 
                 if (metadata != null)
                 {
@@ -925,26 +917,42 @@ public partial class DownloaderService(
         }
     }
 
-    private async Task<ScrapedImageDto?> BuildMergedImageMetadataAsync(IServiceProvider services, DownloaderRequest request, CancellationToken ct)
+    /// <summary>
+    /// Metadata for a downloaded image: the downloader's own metadata when it outranks the scrapers for the
+    /// URL (see <see cref="ScraperService.ScrapeUrlAutoDetailedAsync(string, string, InlineMetadataOffer?, CancellationToken)"/>),
+    /// otherwise the best scrape of the URL merged with a scrape of the source URL.
+    /// </summary>
+    private async Task<ScrapedImageDto?> BuildMergedImageMetadataAsync(IServiceProvider services, DownloaderRequest request, ScrapedImageDto? inlineMetadata, CancellationToken ct)
     {
         var scraperService = services.GetRequiredService<ScraperService>();
         var primaryUrl = request.Url;
+        var primaryScrape = await ScrapeDownloadMetadataAsync(scraperService, request, "image", inlineMetadata != null, ct);
+        if (primaryScrape.UseInlineMetadata)
+            return inlineMetadata;
+
         var secondaryUrl = ResolveSourceMetadataUrl(request, primaryUrl);
-        var primaryScrape = await ScrapeMetadataAsync(scraperService, primaryUrl, "image", ct);
-        var primary = ConvertScrapeResultToImageMetadata(primaryScrape?.Result ?? [], primaryUrl, primaryScrape?.ScraperId);
+        var primary = ConvertScrapeResultToImageMetadata(primaryScrape.Result ?? [], primaryUrl, primaryScrape.ScraperId);
         var secondary = secondaryUrl == null
             ? null
             : await ConvertScrapedImageMetadataAsync(scraperService, secondaryUrl, ct);
         return MergeImageMetadata(primary, secondary);
     }
 
-    private async Task<ScrapedVideoDto?> BuildMergedVideoMetadataAsync(IServiceProvider services, DownloaderRequest request, CancellationToken ct)
+    /// <summary>
+    /// Metadata for a downloaded video: the downloader's own metadata when it outranks the scrapers for the
+    /// URL (see <see cref="ScraperService.ScrapeUrlAutoDetailedAsync(string, string, InlineMetadataOffer?, CancellationToken)"/>),
+    /// otherwise the best scrape of the URL merged with a scrape of the source URL.
+    /// </summary>
+    private async Task<ScrapedVideoDto?> BuildMergedVideoMetadataAsync(IServiceProvider services, DownloaderRequest request, ScrapedVideoDto? inlineMetadata, CancellationToken ct)
     {
         var scraperService = services.GetRequiredService<ScraperService>();
         var primaryUrl = request.Url;
+        var primaryScrape = await ScrapeDownloadMetadataAsync(scraperService, request, "video", inlineMetadata != null, ct);
+        if (primaryScrape.UseInlineMetadata)
+            return inlineMetadata;
+
         var secondaryUrl = ResolveSourceMetadataUrl(request, primaryUrl);
-        var primaryScrape = await ScrapeMetadataAsync(scraperService, primaryUrl, "video", ct);
-        var primary = ConvertScrapeResultToVideoMetadata(primaryScrape?.Result ?? [], primaryUrl, primaryScrape?.ScraperId);
+        var primary = ConvertScrapeResultToVideoMetadata(primaryScrape.Result ?? [], primaryUrl, primaryScrape.ScraperId);
         var secondary = secondaryUrl == null
             ? null
             : await ConvertScrapedVideoMetadataAsync(scraperService, secondaryUrl, ct);
@@ -1365,6 +1373,36 @@ public partial class DownloaderService(
             return null;
 
         return await scraperService.ScrapeUrlAutoAsync(url, entityType, ct);
+    }
+
+    /// <summary>
+    /// Auto-scrape the downloaded URL, offering the downloader's own metadata as one ranked candidate when it
+    /// returned some, so a scraper built for the site (or the one picked in Scraping preferences) is used
+    /// ahead of a catch-all downloader's metadata.
+    /// </summary>
+    private async Task<AutoScrapeResult> ScrapeDownloadMetadataAsync(ScraperService scraperService, DownloaderRequest request, string entityType, bool hasInlineMetadata, CancellationToken ct)
+    {
+        var inline = hasInlineMetadata
+            ? new InlineMetadataOffer(request.DownloaderId, ScraperService.GetDownloaderMetadataTier(request.Url, FindDownloaderUrlPatterns(request.DownloaderId)))
+            : null;
+        var scrape = await scraperService.ScrapeUrlAutoDetailedAsync(request.Url, entityType, inline, ct);
+        if (inline != null && !scrape.UseInlineMetadata && scrape.ScraperId != null)
+            logger.LogInformation("Using scraper {ScraperId} over metadata from downloader {DownloaderId} for {Url}", scrape.ScraperId, request.DownloaderId, request.Url);
+        return scrape;
+    }
+
+    private IReadOnlyList<string> FindDownloaderUrlPatterns(string downloaderId)
+    {
+        foreach (var provider in extensionManager.GetDownloaderProviders())
+        {
+            var execution = extensionManager.CaptureExtensionExecution(provider);
+            var descriptor = extensionManager.ExecuteExtension(execution, provider.GetDownloaders)
+                .FirstOrDefault(candidate => string.Equals(candidate.Id, downloaderId, StringComparison.OrdinalIgnoreCase));
+            if (descriptor != null)
+                return descriptor.SupportedUrlPatterns;
+        }
+
+        return [];
     }
 
     private static string BuildScraperSourceKey(string? scraperId)
@@ -2317,6 +2355,7 @@ public partial class DownloaderService(
             GenerateCovers = generate.Thumbnails,
             GeneratePreviews = generate.Previews,
             GenerateSprites = generate.Sprites,
+            GenerateVrStereo = generate.VrStereo,
             GeneratePhashes = generate.Phashes,
             GenerateMd5 = generate.Md5,
             GenerateImageThumbnails = generate.ImageThumbnails,
@@ -2332,6 +2371,7 @@ public partial class DownloaderService(
         return generate.Thumbnails
             || generate.Previews
             || generate.Sprites
+            || generate.VrStereo
             || generate.Phashes
             || generate.Md5
             || generate.ImageThumbnails

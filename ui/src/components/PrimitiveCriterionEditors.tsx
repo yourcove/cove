@@ -521,7 +521,11 @@ export function RemoteIdFilterEditor({
   const modifier = value?.modifier ?? "EQUALS";
   const selectedEndpoint = value?.endpoint?.trim() ?? "";
   const isNull = NULL_VALUE_MODIFIERS.has(modifier);
-  const configuredServers = metadataServers ?? appConfig?.config?.scraping?.metadataServers ?? [];
+  const appMetadataServers = appConfig?.config?.scraping?.metadataServers;
+  const configuredServers = useMemo(
+    () => metadataServers ?? appMetadataServers ?? [],
+    [metadataServers, appMetadataServers],
+  );
   const options = useMemo(() => {
     const endpoints = new Set<string>();
     const configured = configuredServers.flatMap((server) => {

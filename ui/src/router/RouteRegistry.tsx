@@ -166,7 +166,7 @@ function ExtensionSlotContribution<TContext extends object>({
   // identity boundaries such as a new video or compilation item.
   const boundaryResetKey = useMemo(
     () => ({ entry: entry.resetKey ?? entry, context: contextResetKey }),
-    [contextResetKey, entry, entry.resetKey],
+    [contextResetKey, entry],
   );
 
   return (

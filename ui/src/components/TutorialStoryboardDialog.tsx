@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Check,
@@ -37,7 +37,14 @@ export const TUTORIAL_STORYBOARD_STORAGE_KEY = "cove-tutorial-storyboard-complet
 export const TUTORIAL_STORYBOARD_EVENT = "cove:tutorial-storyboard-open";
 
 export type TutorialSlideMockKind =
-  "tasks" | "feed" | "metadata" | "settings" | "videoPlayer" | "tagging" | "images" | "extension";
+  | "tasks"
+  | "feed"
+  | "metadata"
+  | "settings"
+  | "videoPlayer"
+  | "tagging"
+  | "images"
+  | "extension";
 type ManualBoxTone = "green" | "blue" | "purple" | "orange" | "pink" | "teal";
 type ManualBoxPointContent = {
   tone?: ManualBoxTone;
@@ -182,6 +189,9 @@ export function openTutorialStoryboard(request?: TutorialOpenRequest | string) {
   window.dispatchEvent(new CustomEvent<TutorialOpenRequest | undefined>(TUTORIAL_STORYBOARD_EVENT, { detail }));
 }
 
+// Stable default so an omitted prop does not rebuild the topic list on every render.
+const noExtensionTopics: ExtensionTutorialTopic[] = [];
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -197,7 +207,7 @@ export function TutorialStoryboardDialog({
   onClose,
   request,
   currentPage,
-  extensionTopics = [],
+  extensionTopics = noExtensionTopics,
   onTopicChange,
   onAppNavigate,
 }: Props) {
@@ -260,53 +270,85 @@ export function TutorialStoryboardDialog({
     }
   }, [index, open, selectedTopicId]);
 
-  useEffect(() => {
-    if (!open) return;
-    const topicIdsToOpen = ancestorsOf(selectedTopic.id, parentByChild);
-    if (parentIdsWithChildren.has(selectedTopic.id)) topicIdsToOpen.push(selectedTopic.id);
-    if (topicIdsToOpen.length === 0) return;
-    setExpandedTopicIds((current) => {
-      if (topicIdsToOpen.every((topicId) => current.has(topicId))) return current;
-      const next = new Set(current);
-      topicIdsToOpen.forEach((topicId) => next.add(topicId));
-      return next;
-    });
-  }, [open, parentByChild, parentIdsWithChildren, selectedTopic.id]);
-
-  useEffect(() => {
-    if (!open) return;
-    const nextTopicId = pickInitialTopicId(topics, request, currentPage);
-    const nextTopic = topics.find((topic) => topic.id === nextTopicId) ?? topics[0];
-    const nextSlideIndex = request?.slideId
-      ? Math.max(
-          0,
-          nextTopic.slides.findIndex((item) => item.id === request.slideId),
-        )
-      : 0;
-    setSelectedTopicId(nextTopic.id);
-    setIndex(nextSlideIndex);
-    setSearch("");
-    setMobileTopicSearchOpen(false);
-  }, [currentPage, open, request, topics]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT"))
-        return;
-      if (event.key === "Escape") {
-        markCompleteAndClose();
-      } else if (event.key === "ArrowRight") {
-        goToNext();
-      } else if (event.key === "ArrowLeft") {
-        goToPrevious();
+  // Only when opening, the selection or the topic tree changes, so a branch the user collapses stays collapsed.
+  // Null until the first render so a dialog mounted open expands straight away.
+  const [prevExpandInputs, setPrevExpandInputs] = useState<{
+    open: boolean;
+    parentByChild: Map<string, string>;
+    selectedTopicId: string;
+  } | null>(null);
+  if (
+    prevExpandInputs === null ||
+    prevExpandInputs.open !== open ||
+    prevExpandInputs.parentByChild !== parentByChild ||
+    prevExpandInputs.selectedTopicId !== selectedTopic.id
+  ) {
+    setPrevExpandInputs({ open, parentByChild, selectedTopicId: selectedTopic.id });
+    if (open) {
+      const topicIdsToOpen = ancestorsOf(selectedTopic.id, parentByChild);
+      if (parentIdsWithChildren.has(selectedTopic.id)) topicIdsToOpen.push(selectedTopic.id);
+      if (topicIdsToOpen.length > 0) {
+        setExpandedTopicIds((current) => {
+          if (topicIdsToOpen.every((topicId) => current.has(topicId))) return current;
+          const next = new Set(current);
+          topicIdsToOpen.forEach((topicId) => next.add(topicId));
+          return next;
+        });
       }
-    };
+    }
+  }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, selectedTopic.id, index, isLast, currentOrderIndex, orderedTopicIds]);
+  // Start from the requested topic and slide whenever the dialog opens or its request, page or topics change.
+  // Null until the first render so a dialog mounted open honours a requested slide.
+  const [prevOpenInputs, setPrevOpenInputs] = useState<{
+    open: boolean;
+    request: TutorialOpenRequest | undefined;
+    currentPage: string | undefined;
+    topics: TutorialStoryboardTopic[];
+  } | null>(null);
+  if (
+    prevOpenInputs === null ||
+    prevOpenInputs.open !== open ||
+    prevOpenInputs.request !== request ||
+    prevOpenInputs.currentPage !== currentPage ||
+    prevOpenInputs.topics !== topics
+  ) {
+    setPrevOpenInputs({ open, request, currentPage, topics });
+    if (open) {
+      const nextTopicId = pickInitialTopicId(topics, request, currentPage);
+      const nextTopic = topics.find((topic) => topic.id === nextTopicId) ?? topics[0];
+      const nextSlideIndex = request?.slideId
+        ? Math.max(
+            0,
+            nextTopic.slides.findIndex((item) => item.id === request.slideId),
+          )
+        : 0;
+      setSelectedTopicId(nextTopic.id);
+      setIndex(nextSlideIndex);
+      setSearch("");
+      setMobileTopicSearchOpen(false);
+    }
+  }
+
+  // Reads the current slide, topic order and callbacks without re-binding the listener on every navigation.
+  const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+    if (event.key === "Escape") {
+      markCompleteAndClose();
+    } else if (event.key === "ArrowRight") {
+      goToNext();
+    } else if (event.key === "ArrowLeft") {
+      goToPrevious();
+    }
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const listener = (event: KeyboardEvent) => handleKeyDown(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, [open]);
 
   useEffect(() => {
     if (!mobileTopicSearchOpen) return;
@@ -970,7 +1012,11 @@ function scoreTopicContextMatch(
 
 function SlideImage({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
+  const [prevSrc, setPrevSrc] = useState(src);
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setFailed(false);
+  }
   const fileName = src.split("/").pop() ?? src;
 
   if (failed) {

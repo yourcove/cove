@@ -28,6 +28,21 @@ describe("TutorialStoryboardDialog", () => {
     }
   });
 
+  it("closes through the latest onClose when Escape is pressed", () => {
+    const firstOnClose = vi.fn();
+    const latestOnClose = vi.fn();
+    const extensionTopics: ExtensionTutorialTopic[] = [];
+    const { rerender } = render(
+      <TutorialStoryboardDialog open onClose={firstOnClose} extensionTopics={extensionTopics} />,
+    );
+
+    rerender(<TutorialStoryboardDialog open onClose={latestOnClose} extensionTopics={extensionTopics} />);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(firstOnClose).not.toHaveBeenCalled();
+    expect(latestOnClose).toHaveBeenCalledTimes(1);
+  });
+
   it("gives every established storyboard slide a screenshot", () => {
     const missing = builtinTutorialTopics.flatMap((topic) =>
       topic.slides

@@ -123,7 +123,7 @@ function buildDefaultStudioFieldStrategies(
 }
 
 function getStudioFieldStrategies(studio: Studio, result: MetadataServerStudioMatch, state?: StudioSearchState) {
-  return { ...buildDefaultStudioFieldStrategies(studio, result), ...(state?.fieldStrategies ?? {}) };
+  return { ...buildDefaultStudioFieldStrategies(studio, result), ...state?.fieldStrategies };
 }
 
 function buildDefaultStudioCollectionModes(result: MetadataServerStudioMatch): Record<string, CollectionMode> {
@@ -135,7 +135,7 @@ function buildDefaultStudioCollectionModes(result: MetadataServerStudioMatch): R
 }
 
 function getStudioCollectionModes(result: MetadataServerStudioMatch, state?: StudioSearchState) {
-  return { ...buildDefaultStudioCollectionModes(result), ...(state?.collectionModes ?? {}) };
+  return { ...buildDefaultStudioCollectionModes(result), ...state?.collectionModes };
 }
 
 function collectionModeToStudioStrategy(mode: CollectionMode): StudioFieldStrategy {

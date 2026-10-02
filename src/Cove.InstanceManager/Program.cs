@@ -659,12 +659,7 @@ internal sealed class InstanceManagerService
             {
                 try
                 {
-                    using var stop = Process.Start(new ProcessStartInfo(pgCtl, $"stop -D \"{dataDir}\" -m fast -w -t 30")
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        WorkingDirectory = Path.GetDirectoryName(pgCtl)!,
-                    });
+                    using var stop = Process.Start(CreatePgCtlStopStartInfo(pgCtl, dataDir));
                     if (stop != null && stop.WaitForExit(35000) && stop.ExitCode == 0)
                         return;
                 }
@@ -681,6 +676,14 @@ internal sealed class InstanceManagerService
             // Best-effort cleanup; never let a stop fail because of postgres teardown.
         }
     }
+
+    internal static ProcessStartInfo CreatePgCtlStopStartInfo(string pgCtl, string dataDir)
+        => new(pgCtl, ["stop", "-D", dataDir, "-m", "fast", "-w", "-t", "30"])
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(pgCtl)!,
+        };
 
     private static void KillPostmasterByPidFile(string pidFile)
     {
@@ -1087,7 +1090,7 @@ internal sealed class InstanceManagerService
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            Process.Start("open", $"-a Terminal {ShQuote(scriptPath)}");
+            Process.Start(CreateMacTerminalStartInfo(scriptPath));
             return;
         }
 
@@ -1095,7 +1098,7 @@ internal sealed class InstanceManagerService
         {
             try
             {
-                Process.Start(terminal, terminal == "gnome-terminal" ? $"-- {ShQuote(scriptPath)}" : $"-e {ShQuote(scriptPath)}");
+                Process.Start(CreateLinuxTerminalStartInfo(terminal, scriptPath));
                 return;
             }
             catch
@@ -1103,6 +1106,12 @@ internal sealed class InstanceManagerService
             }
         }
     }
+
+    internal static ProcessStartInfo CreateMacTerminalStartInfo(string scriptPath)
+        => new("open", ["-a", "Terminal", scriptPath]);
+
+    internal static ProcessStartInfo CreateLinuxTerminalStartInfo(string terminal, string scriptPath)
+        => new(terminal, [terminal == "gnome-terminal" ? "--" : "-e", scriptPath]);
 
     [UnsupportedOSPlatform("windows")]
     private static void StartDetachedUnix(CoveInstanceRecord instance, LaunchInvocation launch, string logPath, string pidFile)

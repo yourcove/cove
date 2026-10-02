@@ -99,6 +99,7 @@ export function MoveVideoFileDialog({
               sortOptions={VIDEO_SORT_OPTIONS}
               listEntityType="videos"
               showSearch
+              supportsFilterExpressions
               criteriaDefinitions={VIDEO_CRITERIA}
               objectFilter={objectFilter}
               onObjectFilterChange={(value) => {

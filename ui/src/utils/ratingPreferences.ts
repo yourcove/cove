@@ -58,7 +58,7 @@ export function writeStoredRatingOptionsOverride(options: RatingSystemOptions | 
   }
 
   updateAuthenticatedUserUiPreferences((current) => ({
-    ...(current ?? {}),
+    ...current,
     ratingSystemOptions: options,
   }));
 

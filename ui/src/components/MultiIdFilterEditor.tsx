@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Minus, Plus, Search, X } from "lucide-react";
+import { Minus, Plus, X } from "lucide-react";
 import {
   audios as audiosApi,
   faces as facesApi,
@@ -21,6 +21,9 @@ import { MODIFIER_LABELS } from "./filterEditorControls";
 import { NULL_VALUE_MODIFIERS } from "./filterCriterionState";
 import type { EntityType } from "./filterCriteriaTypes";
 
+const NO_IDS: number[] = [];
+const NO_NAMES: Record<string, string> = {};
+
 export function MultiIdEditor({
   value,
   onChange,
@@ -39,10 +42,10 @@ export function MultiIdEditor({
   const modifier = value?.modifier ?? (includeModifiers.includes("INCLUDES_ALL") ? "INCLUDES_ALL" : "INCLUDES");
   const nullModifiers = modifiers.filter((item) => NULL_VALUE_MODIFIERS.has(item));
   const isNullModifier = NULL_VALUE_MODIFIERS.has(modifier);
-  const includedIds = value?.value ?? [];
-  const excludedIds = supportsExclude ? (value?.excludes ?? []) : [];
+  const includedIds = value?.value ?? NO_IDS;
+  const excludedIds = supportsExclude ? (value?.excludes ?? NO_IDS) : NO_IDS;
   const includeHierarchy = (value as any)?.depth === -1;
-  const existingNames: Record<string, string> = (value as any)?._names ?? {};
+  const existingNames: Record<string, string> = (value as any)?._names ?? NO_NAMES;
   const [searchText, setSearchText] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const [pendingNullModifier, setPendingNullModifier] = useState<CriterionModifier | null>(null);
@@ -122,10 +125,15 @@ export function MultiIdEditor({
 
   const selectedIds = useMemo(() => Array.from(new Set([...includedIds, ...excludedIds])), [excludedIds, includedIds]);
   const selectedIdsSignature = selectedIds.join(",");
-  useEffect(() => {
-    if (selectedValueFocusId != null && selectedIds.includes(selectedValueFocusId)) return;
-    setSelectedValueFocusId(selectedIds[0] ?? null);
-  }, [selectedIdsSignature, selectedValueFocusId]);
+  // Keep the roving focus target on a value that is still selected.
+  const validSelectedValueFocusId =
+    selectedValueFocusId != null && selectedIds.includes(selectedValueFocusId)
+      ? selectedValueFocusId
+      : (selectedIds[0] ?? null);
+  if (validSelectedValueFocusId !== selectedValueFocusId) {
+    setSelectedValueFocusId(validSelectedValueFocusId);
+  }
+  // Keyed on the selection's contents rather than array identity; the count only changes with them.
   useEffect(() => {
     const pending = pendingSelectedRemovalRef.current;
     if (!pending) return;
@@ -133,7 +141,7 @@ export function MultiIdEditor({
     setSelectionAnnouncement(`Removed ${pending.label}. ${selectedIds.length} selected.`);
     if (pending.id != null) selectedButtonRefs.current.get(pending.id)?.focus();
     else searchInputRef.current?.focus();
-  }, [selectedIdsSignature]);
+  }, [selectedIdsSignature, selectedIds.length]);
   const missingSelectedIds = useMemo(() => {
     const availableIds = new Set((entities as any[] | undefined)?.map((entity) => entity.id) ?? []);
     return selectedIds.filter((id) => !existingNames[String(id)] && !availableIds.has(id));
@@ -156,7 +164,7 @@ export function MultiIdEditor({
       if (query.data) map[String(query.data.id)] = query.data.label;
     }
     return map;
-  }, [entities, existingNames, selectedEntityQueries]);
+  }, [entities, entityType, existingNames, selectedEntityQueries]);
 
   const buildCriterion = (inc: number[], exc: number[], mod: string, includeChildren: boolean) => {
     // Include _names so filter chips can display entity names without waiting for queries
@@ -198,9 +206,11 @@ export function MultiIdEditor({
     return visible;
   }, [entityType, filteredEntities, trimmedSearchText]);
 
-  useEffect(() => {
-    setActiveResultIndex((current) => (current >= navigableEntities.length ? -1 : current));
-  }, [navigableEntities.length]);
+  const [prevNavigableCount, setPrevNavigableCount] = useState(navigableEntities.length);
+  if (prevNavigableCount !== navigableEntities.length) {
+    setPrevNavigableCount(navigableEntities.length);
+    if (activeResultIndex >= navigableEntities.length) setActiveResultIndex(-1);
+  }
 
   useEffect(() => {
     if (activeResultIndex < 0) return;
@@ -440,7 +450,9 @@ export function MultiIdEditor({
                       aria-selected={isIncluded || isExcluded}
                       aria-disabled={isPlaceholderData || undefined}
                       onClick={() => {
-                        if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id);
+                        if (isPlaceholderData) return;
+                        if (isIncluded) removeId(entity.id);
+                        else addInclude(entity.id);
                       }}
                       className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
                     >
@@ -449,7 +461,8 @@ export function MultiIdEditor({
                         tabIndex={-1}
                         onClick={(event) => {
                           event.stopPropagation();
-                          isIncluded ? removeId(entity.id) : addInclude(entity.id);
+                          if (isIncluded) removeId(entity.id);
+                          else addInclude(entity.id);
                         }}
                         className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait ${isIncluded ? "text-green-400" : "text-muted"}`}
                         title="Include"
@@ -465,7 +478,8 @@ export function MultiIdEditor({
                           tabIndex={-1}
                           onClick={(event) => {
                             event.stopPropagation();
-                            isExcluded ? removeId(entity.id) : addExclude(entity.id);
+                            if (isExcluded) removeId(entity.id);
+                            else addExclude(entity.id);
                           }}
                           className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait ${isExcluded ? "text-red-400" : "text-muted"}`}
                           title="Exclude"
@@ -492,7 +506,9 @@ export function MultiIdEditor({
                     aria-selected={isIncluded || isExcluded}
                     aria-disabled={isPlaceholderData || undefined}
                     onClick={() => {
-                      if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id);
+                      if (isPlaceholderData) return;
+                      if (isIncluded) removeId(entity.id);
+                      else addInclude(entity.id);
                     }}
                     className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
                   >
@@ -501,7 +517,8 @@ export function MultiIdEditor({
                       tabIndex={-1}
                       onClick={(event) => {
                         event.stopPropagation();
-                        isIncluded ? removeId(entity.id) : addInclude(entity.id);
+                        if (isIncluded) removeId(entity.id);
+                        else addInclude(entity.id);
                       }}
                       className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait ${isIncluded ? "text-green-400" : "text-muted"}`}
                       title="Include"
@@ -517,7 +534,8 @@ export function MultiIdEditor({
                         tabIndex={-1}
                         onClick={(event) => {
                           event.stopPropagation();
-                          isExcluded ? removeId(entity.id) : addExclude(entity.id);
+                          if (isExcluded) removeId(entity.id);
+                          else addExclude(entity.id);
                         }}
                         className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait ${isExcluded ? "text-red-400" : "text-muted"}`}
                         title="Exclude"

@@ -432,7 +432,7 @@ function normalizeFindFilter(findFilter: FindFilter | undefined, entityType: Dyn
   const sort = sortOptions.some((option) => option.value === findFilter?.sort)
     ? findFilter?.sort
     : sortOptions[0].value;
-  return { ...DEFAULT_FIND_FILTER, ...(findFilter ?? {}), sort, page: 1 };
+  return { ...DEFAULT_FIND_FILTER, ...findFilter, sort, page: 1 };
 }
 
 function normalizeObjectFilters(parsed: DynamicGroupFilterQuery, entityTypes: DynamicEntityType[]) {

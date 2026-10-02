@@ -26,11 +26,14 @@ vi.mock("../state/AppConfigContext", () => ({
   useAppConfig: () => ({ config: { ui: { troubleshootingModeEnabled: false } } }),
 }));
 
+// Like the real provider, return a stable value so hasPermission keeps its identity across renders.
+const authMock = vi.hoisted(() => ({
+  user: null,
+  hasPermission: () => true,
+}));
+
 vi.mock("../auth/AuthContext", () => ({
-  useAuth: () => ({
-    user: null,
-    hasPermission: () => true,
-  }),
+  useAuth: () => authMock,
 }));
 
 interface ExtensionBundleDescriptor {
@@ -126,7 +129,9 @@ function RuntimeProbe() {
       <button type="button" onClick={() => void runtime.refreshManifest()}>
         Refresh extensions
       </button>
+      {/* oxlint-disable-next-line react/static-components -- resolved from the extension component registry, which returns a stable reference */}
       {AlphaShared ? <AlphaShared /> : null}
+      {/* oxlint-disable-next-line react/static-components -- resolved from the extension component registry, which returns a stable reference */}
       {BetaShared ? <BetaShared /> : null}
       <ExtensionSlot slot="runtime-component-slot" context={{}} />
       <ExtensionSlot slot="runtime-html-slot" context={{}} />
@@ -196,18 +201,38 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     [undefined, ".lucide-puzzle"],
     ["", ".lucide-puzzle"],
   ])("resolves manifest icon %s and preserves its identity on refresh", async (icon, selector) => {
+    const { seenIcons } = renderIconProbe(icon);
+    await waitFor(() => expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull());
+    expect(screen.getByTestId("nav-icon").querySelector("svg")).toHaveClass("navigation-icon");
+    const firstIcon = seenIcons[0];
+    const renderCount = seenIcons.length;
+    fireEvent.click(screen.getByText("Refresh icons"));
+    await waitFor(() => expect(getManifestMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(seenIcons.length).toBeGreaterThan(renderCount));
+    expect(seenIcons.every((component) => component === firstIcon)).toBe(true);
+    expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull();
+  });
+
+  it("renders no nav icon until a lazily imported manifest icon resolves", async () => {
     const originalScissorsImport = dynamicIconImports.scissors;
-    let releaseIcon: (() => void) | undefined;
+    let releaseIcon!: () => void;
     const pendingIcon = new Promise<void>((resolve) => {
       releaseIcon = resolve;
     });
-    const scissorsImport =
-      icon === "scissors"
-        ? vi.spyOn(dynamicIconImports, "scissors").mockImplementationOnce(async () => {
-            await pendingIcon;
-            return originalScissorsImport();
-          })
-        : undefined;
+    const scissorsImport = vi.spyOn(dynamicIconImports, "scissors").mockImplementationOnce(async () => {
+      await pendingIcon;
+      return originalScissorsImport();
+    });
+    renderIconProbe("scissors");
+    await waitFor(() => expect(scissorsImport).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("nav-icon")).toBeEmptyDOMElement();
+    await act(async () => {
+      releaseIcon();
+    });
+    await waitFor(() => expect(screen.getByTestId("nav-icon").querySelector("circle[cx='6'][cy='6']")).not.toBeNull());
+  });
+
+  function renderIconProbe(icon: string | undefined) {
     const manifest = buildManifest(
       { extensionId: "ext.icons", version: "1", jsBundleUrl: "/icons.mjs" },
       { id: "icons-component", componentName: "Unused" },
@@ -237,23 +262,8 @@ describe("ExtensionLoaderProvider reconciliation", () => {
         </ExtensionLoaderProvider>
       </RouteRegistryProvider>,
     );
-    if (scissorsImport) {
-      await waitFor(() => expect(scissorsImport).toHaveBeenCalledOnce());
-      expect(screen.getByTestId("nav-icon")).toBeEmptyDOMElement();
-      await act(async () => {
-        releaseIcon!();
-      });
-    }
-    await waitFor(() => expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull());
-    expect(screen.getByTestId("nav-icon").querySelector("svg")).toHaveClass("navigation-icon");
-    const firstIcon = seenIcons[0];
-    const renderCount = seenIcons.length;
-    fireEvent.click(screen.getByText("Refresh icons"));
-    await waitFor(() => expect(getManifestMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(seenIcons.length).toBeGreaterThan(renderCount));
-    expect(seenIcons.every((component) => component === firstIcon)).toBe(true);
-    expect(screen.getByTestId("nav-icon").querySelector(selector)).not.toBeNull();
-  });
+    return { seenIcons };
+  }
 
   it("keeps healthy contributions visible, reports a failed UI, and retries it with a fresh module URL", async () => {
     const alphaBundle = {

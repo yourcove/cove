@@ -6,7 +6,7 @@ import type { ExtensionAction } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { registerManualContext } from "./ManualContext";
 
-interface Props {
+export interface ExtensionEntityActionsProps {
   entityType: string;
   entityId: number;
   pageType?: string;
@@ -78,7 +78,7 @@ function shouldSuppressResultToast(result: unknown): boolean {
   );
 }
 
-function shouldSuppressQueuedAlert(action: ExtensionAction, result: unknown): boolean {
+function shouldSuppressQueuedAlert(action: ExtensionAction): boolean {
   if (action.suppressSuccessAlert) {
     return true;
   }
@@ -95,7 +95,13 @@ function getActionManualContexts(action: ExtensionAction) {
   ];
 }
 
-export function ExtensionEntityActions({ entityType, entityId, pageType, renderMode = "toolbar", onInvoked }: Props) {
+export function ExtensionEntityActions({
+  entityType,
+  entityId,
+  pageType,
+  renderMode = "toolbar",
+  onInvoked,
+}: ExtensionEntityActionsProps) {
   const normalizedEntityType = normalizeEntityType(entityType);
   const normalizedPageType = normalizeEntityType(pageType ?? entityType);
   const queryClient = useQueryClient();
@@ -143,7 +149,7 @@ export function ExtensionEntityActions({ entityType, entityId, pageType, renderM
       setPendingActionId(action.id);
     },
     onSuccess: (result, action) => {
-      if (shouldSuppressResultToast(result) || shouldSuppressQueuedAlert(action, result)) {
+      if (shouldSuppressResultToast(result) || shouldSuppressQueuedAlert(action)) {
         return;
       }
 

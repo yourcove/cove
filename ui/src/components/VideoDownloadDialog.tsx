@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Link2, Loader2, Search, X } from "lucide-react";
 import { videos, system } from "../api/client";
@@ -44,50 +44,35 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
 
   const orderedMatches = useMemo(() => sortDownloaderMatches(matches), [matches]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reset the form whenever the dialog opens or its target changes while open.
+  const [resetKey, setResetKey] = useState({ open: false, id: video?.id, urls: video?.urls });
+  if (resetKey.open !== open || resetKey.id !== video?.id || resetKey.urls !== video?.urls) {
+    setResetKey({ open, id: video?.id, urls: video?.urls });
+    if (open) {
+      setUrl(video?.urls[0] ?? "");
+      setMatches([]);
+      setSelectedDownloaderId("");
+      setQualityId("");
+      setAutoApplyMetadata(!video);
+      setAllowDuplicateDownload(false);
+      setError(null);
     }
+  }
 
-    setUrl(video?.urls[0] ?? "");
-    setMatches([]);
-    setSelectedDownloaderId("");
-    setQualityId("");
-    setAutoApplyMetadata(!video);
-    setAllowDuplicateDownload(false);
-    setError(null);
-  }, [open, video?.id, video?.urls]);
+  // The chosen downloader must be one of the current matches; fall back to the first match.
+  const effectiveDownloaderId = orderedMatches.some((match) => match.downloaderId === selectedDownloaderId)
+    ? selectedDownloaderId
+    : (orderedMatches[0]?.downloaderId ?? "");
 
   const selectedMatch = useMemo(
-    () => orderedMatches.find((match) => match.downloaderId === selectedDownloaderId) ?? null,
-    [orderedMatches, selectedDownloaderId],
+    () => orderedMatches.find((match) => match.downloaderId === effectiveDownloaderId) ?? null,
+    [orderedMatches, effectiveDownloaderId],
   );
 
-  useEffect(() => {
-    if (orderedMatches.length === 0) {
-      return;
-    }
-
-    if (!selectedDownloaderId || !orderedMatches.some((match) => match.downloaderId === selectedDownloaderId)) {
-      setSelectedDownloaderId(orderedMatches[0]?.downloaderId ?? "");
-    }
-  }, [orderedMatches, selectedDownloaderId]);
-
-  useEffect(() => {
-    if (!selectedMatch) {
-      setQualityId("");
-      return;
-    }
-
-    if (selectedMatch.qualityOptions.length === 0) {
-      setQualityId("");
-      return;
-    }
-
-    if (!selectedMatch.qualityOptions.some((option) => option.id === qualityId)) {
-      setQualityId(selectedMatch.qualityOptions[0]?.id ?? "");
-    }
-  }, [qualityId, selectedMatch]);
+  // The chosen quality must be one of the selected match's options; fall back to its first option.
+  const effectiveQualityId = selectedMatch?.qualityOptions.some((option) => option.id === qualityId)
+    ? qualityId
+    : (selectedMatch?.qualityOptions[0]?.id ?? "");
 
   const matchMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -152,7 +137,7 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
           url: normalizedUrl,
           entity: "Video",
           entityId: videoId,
-          qualityId: qualityId || undefined,
+          qualityId: effectiveQualityId || undefined,
           autoApplyMetadata,
           allowDuplicateDownload,
         });
@@ -242,7 +227,7 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                   <label
                     key={`${match.downloaderId}:${match.normalizedUrl}`}
                     className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-colors ${
-                      selectedDownloaderId === match.downloaderId
+                      effectiveDownloaderId === match.downloaderId
                         ? "border-accent bg-accent/10"
                         : "border-border bg-card hover:border-accent/40"
                     }`}
@@ -250,8 +235,12 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
                     <input
                       type="radio"
                       name="video-downloader-match"
-                      checked={selectedDownloaderId === match.downloaderId}
-                      onChange={() => setSelectedDownloaderId(match.downloaderId)}
+                      checked={effectiveDownloaderId === match.downloaderId}
+                      onChange={() => {
+                        setSelectedDownloaderId(match.downloaderId);
+                        // Carry the current quality over; it falls back to the new match's first option if unsupported.
+                        setQualityId(effectiveQualityId);
+                      }}
                       className="mt-0.5 h-4 w-4 border-border bg-card text-accent focus:ring-0"
                     />
                     <div className="min-w-0 flex-1">
@@ -269,7 +258,7 @@ export function VideoDownloadDialog({ open, onClose, onNavigate, video }: Props)
             <div className="space-y-2">
               <label className="block text-sm font-medium text-foreground">Quality</label>
               <select
-                value={qualityId}
+                value={effectiveQualityId}
                 onChange={(event) => setQualityId(event.target.value)}
                 className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
               >

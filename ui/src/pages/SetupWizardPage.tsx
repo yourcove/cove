@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { auth, database, jobs, metadata, system, stashMigration } from "../api/client";
 import type { StashPreviewResult, StashImportOptions, StashImportResult, StashPathMapping } from "../api/client";
@@ -19,7 +19,6 @@ import {
   Settings,
   Database,
   RefreshCw,
-  BookOpen,
   FolderCheck,
   AlertTriangle,
 } from "lucide-react";
@@ -30,7 +29,15 @@ interface Props {
 }
 
 export type Step =
-  "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
+  | "welcome"
+  | "source"
+  | "paths"
+  | "confirm"
+  | "stash-config"
+  | "backup-restore"
+  | "owner"
+  | "theme"
+  | "done";
 export type SetupMode = "fresh" | "stash" | "backup" | null;
 type ActiveSetupMode = Exclude<SetupMode, null>;
 
@@ -65,71 +72,6 @@ interface BackupRestoreResultSummary {
   preRestoreBackupPath: string | null;
   configBackupPath: string | null;
 }
-
-const TUTORIAL_STEPS = [
-  {
-    eyebrow: "Step 1",
-    title: "Scan and generate your library",
-    description:
-      "After setup, run Scan to index files, then use Scan & Generate when you want previews, thumbnails, hashes, sprites, or segments.",
-    actionLabel: "Open Scan & Generate",
-    highlight: "This is the fastest way to move from an empty library to something you can actually browse.",
-    checklist: [
-      "Scan the folders you just added",
-      "Run Generate for previews and images",
-      "Come back later if you add more media",
-    ],
-    icon: FolderOpen,
-    kind: "tasks",
-  },
-  {
-    eyebrow: "Step 2",
-    title: "Browse with the view that fits the media",
-    description:
-      "Videos and images each have multiple layouts. Start with grid, then try feed, wall, or Infinite page size when you want long browsing sessions.",
-    actionLabel: "Open Videos or Images",
-    highlight:
-      "Feed is better for reading details. Wall is better for visual skimming. Infinite keeps the list moving.",
-    checklist: [
-      "Switch between grid, wall, and feed",
-      "Use page size to turn on Infinite",
-      "Open detail pages when something needs cleanup",
-    ],
-    icon: Play,
-    kind: "browse",
-  },
-  {
-    eyebrow: "Step 3",
-    title: "Scrape and identify when titles are incomplete",
-    description:
-      "If a video or image is missing tags, performers, studios, or dates, use Scrape or Identify from the media pages and then tune providers in Settings.",
-    actionLabel: "Use Scrape or Identify",
-    highlight:
-      "Start from a single item first so you can verify the source and field mappings before doing it in bulk.",
-    checklist: [
-      "Open one item and inspect the current fields",
-      "Run Scrape or Identify",
-      "Adjust scrapers or MetadataServer settings if the match looks wrong",
-    ],
-    icon: Database,
-    kind: "metadata",
-  },
-  {
-    eyebrow: "Step 4",
-    title: "Keep settings and docs within reach",
-    description:
-      "Most setup tasks live in Settings, and the docs site fills in the edge cases: extensions, MetadataServer setup, import workflows, and troubleshooting.",
-    actionLabel: "Use Settings and docs.cove.app",
-    highlight: "If you forget where something from this wizard went, it is almost always in Settings.",
-    checklist: [
-      "Return to Settings for paths, scrapers, and themes",
-      "Use docs.cove.app for deeper walkthroughs",
-      "Treat the wizard as the fast path, not the only path",
-    ],
-    icon: BookOpen,
-    kind: "docs",
-  },
-] as const;
 
 function getThemePreviewColor(cssVariables: Record<string, string> | undefined, key: string, fallback: string) {
   return cssVariables?.[`--${key}`] ?? cssVariables?.[`--color-${key}`] ?? fallback;
@@ -176,132 +118,6 @@ function ThemeMiniPreview({ cssVariables }: { cssVariables?: Record<string, stri
                 style={{ background: color, opacity: index === 2 ? 0.75 : 1 }}
               />
             ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TutorialPreview({ step }: { step: (typeof TUTORIAL_STEPS)[number] }) {
-  if (step.kind === "tasks") {
-    return (
-      <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Settings</div>
-            <div className="text-sm font-semibold text-foreground">Tasks</div>
-          </div>
-          <div className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">First run</div>
-        </div>
-        <div className="mt-4 space-y-3">
-          {["Scan library", "Generate previews"].map((label, index) => (
-            <div key={label} className="rounded-2xl border border-border bg-card p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-foreground">{label}</div>
-                  <div className="text-xs text-muted">
-                    {index === 0 ? "Reads folders and creates items" : "Builds thumbnails, previews, and hashes"}
-                  </div>
-                </div>
-                <div className="rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white">
-                  {index === 0 ? "Run first" : "Run second"}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (step.kind === "browse") {
-    return (
-      <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 pb-3 text-xs text-muted">
-          {[
-            { label: "Grid", active: false },
-            { label: "Feed", active: true },
-            { label: "Wall", active: false },
-            { label: "Infinite", active: true },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className={`rounded-full px-2.5 py-1 font-medium ${item.active ? "bg-accent text-white" : "bg-card text-secondary"}`}
-            >
-              {item.label}
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {[0, 1].map((index) => (
-            <div key={index} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <div className="aspect-[16/10] bg-accent/25" />
-              <div className="space-y-2 p-3">
-                <div className="h-2.5 w-3/4 rounded-full bg-foreground/80" />
-                <div className="flex flex-wrap gap-1.5 text-[11px] text-muted">
-                  <span className="rounded-full border border-border px-2 py-0.5">performer</span>
-                  <span className="rounded-full border border-border px-2 py-0.5">tag</span>
-                  <span className="rounded-full border border-border px-2 py-0.5">rating</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (step.kind === "metadata") {
-    return (
-      <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
-        <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="aspect-[16/10] bg-accent/25" />
-            <div className="space-y-2 p-3">
-              <div className="h-2.5 w-5/6 rounded-full bg-foreground/80" />
-              <div className="h-2.5 w-2/3 rounded-full bg-foreground/40" />
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Actions</div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <div className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white">Scrape</div>
-              <div className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-foreground">
-                Identify
-              </div>
-            </div>
-            <div className="mt-4 space-y-2 text-xs text-muted">
-              <div className="rounded-xl bg-background/70 px-3 py-2">
-                Tags, performers, studios, dates, and urls can all be reviewed before you apply.
-              </div>
-              <div className="rounded-xl bg-background/70 px-3 py-2">
-                Use one item first before running a bulk pass.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Settings</div>
-          <div className="mt-3 space-y-2 text-sm text-secondary">
-            <div className="rounded-xl bg-background/70 px-3 py-2">Paths and scans</div>
-            <div className="rounded-xl bg-background/70 px-3 py-2">Scrapers and MetadataServer</div>
-            <div className="rounded-xl bg-background/70 px-3 py-2">Themes and interface options</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Docs</div>
-          <div className="mt-3 rounded-xl bg-accent/10 px-3 py-2 text-sm font-semibold text-accent">docs.cove.app</div>
-          <div className="mt-2 text-xs text-muted">
-            Use it for extension setup, troubleshooting, deeper metadata workflows, and examples that do not fit in the
-            wizard.
           </div>
         </div>
       </div>
@@ -464,24 +280,37 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     onError: (err: Error) => setError(err.message),
   });
 
-  useEffect(() => {
-    if (!stashImportResultQuery.data) return;
-    setError(null);
-    setStashResult(stashImportResultQuery.data);
-    goToPostContentSetup();
-    queryClient.invalidateQueries();
-  }, [queryClient, stashImportResultQuery.data]);
+  // Both start undefined so results already cached at mount are still applied.
+  const [prevStashImportResult, setPrevStashImportResult] = useState<typeof stashImportResultQuery.data>(undefined);
+  if (stashImportResultQuery.data !== prevStashImportResult) {
+    setPrevStashImportResult(stashImportResultQuery.data);
+    if (stashImportResultQuery.data) {
+      setError(null);
+      setStashResult(stashImportResultQuery.data);
+    }
+  }
 
-  useEffect(() => {
+  const [prevStashImportJob, setPrevStashImportJob] = useState<typeof stashImportJobQuery.data>(undefined);
+  if (stashImportJobQuery.data !== prevStashImportJob) {
     const job = stashImportJobQuery.data;
-    if (!job) return;
-
-    if (job.status === "failed") {
+    setPrevStashImportJob(job);
+    if (job?.status === "failed") {
       setError(job.error ?? "Stash import failed.");
-    } else if (job.status === "cancelled") {
+    } else if (job?.status === "cancelled") {
       setError("Stash import was cancelled.");
     }
-  }, [stashImportJobQuery.data]);
+  }
+
+  const leaveStashImport = useEffectEvent(() => {
+    void goToPostContentSetup();
+  });
+
+  useEffect(() => {
+    if (!stashImportResultQuery.data) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- sets the step only after refetching bootstrap status from the server, not synchronously
+    leaveStashImport();
+    queryClient.invalidateQueries();
+  }, [queryClient, stashImportResultQuery.data]);
 
   const activeStashImportJob = stashImportJobQuery.data;
   const isStashImportActive = activeStashImportJob?.status === "pending" || activeStashImportJob?.status === "running";
@@ -1472,32 +1301,37 @@ function formatJobDuration(ms: number): string {
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
 }
 
-function SetupImportProgressCard({ job }: { job: JobInfo }) {
-  const [now, setNow] = useState(Date.now());
-  const progressHistory = useRef<{ time: number; progress: number }[]>([]);
+type ProgressSample = { time: number; progress: number };
 
+// Records a sample when progress has moved and keeps only the last 30 seconds, the window the ETA
+// rate is measured over.
+export function recordProgressSample(history: ProgressSample[], time: number, progress: number): ProgressSample[] {
+  if (progress <= 0 || history[history.length - 1]?.progress === progress) return history;
+  const cutoff = time - 30000;
+  return [...history.filter((sample) => sample.time >= cutoff), { time, progress }];
+}
+
+function SetupImportProgressCard({ job }: { job: JobInfo }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [progressHistory, setProgressHistory] = useState<ProgressSample[]>([]);
+  const readProgress = useEffectEvent(() => job.progress);
+
+  // Each tick advances the clock and samples progress, so the ETA is measured over the recent rate.
   useEffect(() => {
     if (job.status !== "running") return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      setProgressHistory((history) => recordProgressSample(history, currentTime, readProgress()));
+    }, 1000);
     return () => window.clearInterval(id);
   }, [job.status]);
-
-  useEffect(() => {
-    if (job.status === "running" && job.progress > 0) {
-      const history = progressHistory.current;
-      const currentTime = Date.now();
-      history.push({ time: currentTime, progress: job.progress });
-
-      const cutoff = currentTime - 30000;
-      while (history.length > 0 && history[0].time < cutoff) history.shift();
-    }
-  }, [job.progress, job.status]);
 
   const progressPct = Math.round((job.progress ?? 0) * 100);
   const elapsedMs = now - new Date(job.startedAt).getTime();
 
   let etaMs: number | null = null;
-  const history = progressHistory.current;
+  const history = progressHistory;
   if (history.length >= 2 && job.progress >= 0.01) {
     const first = history[0];
     const last = history[history.length - 1];

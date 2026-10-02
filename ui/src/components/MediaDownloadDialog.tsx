@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Link2, Loader2, Search, X } from "lucide-react";
 import { system } from "../api/client";
@@ -43,35 +43,34 @@ export function MediaDownloadDialog({
   const [markOrganized, setMarkOrganized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setUrl(item.urls[0] ?? "");
-    setMatches([]);
-    setSelectedDownloaderId("");
-    setQualityId("");
-    setAllowDuplicateDownload(false);
-    const preferences = loadScrapeApplyPreferences();
-    setCreateMissingTags(!!preferences.createMissingTags);
-    setCreateMissingPerformers(!!preferences.createMissingPerformers);
-    setCreateMissingStudio(!!preferences.createMissingStudio);
-    setMarkOrganized(!!preferences.markOrganized);
-    setError(null);
-  }, [item.id, item.urls, open]);
+  // Reset the form whenever the dialog opens or its target changes while open.
+  const [resetKey, setResetKey] = useState({ open: false, id: item.id, urls: item.urls });
+  if (resetKey.open !== open || resetKey.id !== item.id || resetKey.urls !== item.urls) {
+    setResetKey({ open, id: item.id, urls: item.urls });
+    if (open) {
+      setUrl(item.urls[0] ?? "");
+      setMatches([]);
+      setSelectedDownloaderId("");
+      setQualityId("");
+      setAllowDuplicateDownload(false);
+      const preferences = loadScrapeApplyPreferences();
+      setCreateMissingTags(!!preferences.createMissingTags);
+      setCreateMissingPerformers(!!preferences.createMissingPerformers);
+      setCreateMissingStudio(!!preferences.createMissingStudio);
+      setMarkOrganized(!!preferences.markOrganized);
+      setError(null);
+    }
+  }
 
   const selectedMatch = useMemo(
     () => matches.find((match) => match.downloaderId === selectedDownloaderId) ?? null,
     [matches, selectedDownloaderId],
   );
 
-  useEffect(() => {
-    if (!selectedMatch || selectedMatch.qualityOptions.length === 0) {
-      setQualityId("");
-      return;
-    }
-    if (!selectedMatch.qualityOptions.some((option) => option.id === qualityId)) {
-      setQualityId(selectedMatch.qualityOptions[0]?.id ?? "");
-    }
-  }, [qualityId, selectedMatch]);
+  // The chosen quality must be one of the selected match's options; fall back to its first option.
+  const effectiveQualityId = selectedMatch?.qualityOptions.some((option) => option.id === qualityId)
+    ? qualityId
+    : (selectedMatch?.qualityOptions[0]?.id ?? "");
 
   const matchMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -127,7 +126,7 @@ export function MediaDownloadDialog({
         url: normalizedUrl,
         entity,
         entityId: item.id,
-        qualityId: qualityId || undefined,
+        qualityId: effectiveQualityId || undefined,
         allowDuplicateDownload,
         autoApplyMetadata: scrapeMetadata,
         createMissingTags: scrapeMetadata ? createMissingTags : false,
@@ -216,7 +215,11 @@ export function MediaDownloadDialog({
                       type="radio"
                       name="media-downloader-match"
                       checked={selectedDownloaderId === match.downloaderId}
-                      onChange={() => setSelectedDownloaderId(match.downloaderId)}
+                      onChange={() => {
+                        setSelectedDownloaderId(match.downloaderId);
+                        // Carry the current quality over; it falls back to the new match's first option if unsupported.
+                        setQualityId(effectiveQualityId);
+                      }}
                       className="mt-0.5 h-4 w-4 border-border bg-card text-accent focus:ring-0"
                     />
                     <div className="min-w-0 flex-1">
@@ -234,7 +237,7 @@ export function MediaDownloadDialog({
             <div className="space-y-2">
               <label className="block text-sm font-medium text-foreground">Quality</label>
               <select
-                value={qualityId}
+                value={effectiveQualityId}
                 onChange={(event) => setQualityId(event.target.value)}
                 className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
               >

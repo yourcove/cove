@@ -83,4 +83,12 @@ export const extensionRuntimeModules = [
     outputFileName: "api.js",
     legacySpecifiers: [],
   },
+  {
+    id: "webxr",
+    source: null, // local immersive-playback helper – not auto-generated
+    specifier: "@cove/runtime/webxr",
+    sourceFileName: "webxr.ts",
+    outputFileName: "webxr.js",
+    legacySpecifiers: [],
+  },
 ] satisfies ExtensionRuntimeModuleDefinition[];

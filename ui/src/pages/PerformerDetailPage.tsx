@@ -4,8 +4,6 @@ import { audios, faces, galleries, groups, images, performers, videos, texts, en
 import type {
   Audio,
   AudioFilterCriteria,
-  Face,
-  FaceSimilar,
   FieldProvenance,
   FindFilter,
   Gallery,
@@ -23,8 +21,6 @@ import type {
 } from "../api/types";
 import {
   formatDate,
-  formatDuration,
-  getResolutionLabel,
   TagBadge,
   CustomFieldsDisplay,
   FieldProvenanceHover,
@@ -37,10 +33,8 @@ import {
   FolderOpen,
   GitMerge,
   Headphones,
-  Heart,
   ImageIcon,
   Layers,
-  Loader2,
   MapPin,
   MoreVertical,
   Music,
@@ -51,7 +45,6 @@ import {
   Sparkles,
   ThumbsUp,
   Trash2,
-  Users,
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -77,6 +70,8 @@ import {
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
+import { PerformerPairingsPanel } from "../components/pairings/PerformerPairingsPanel";
+import { PAIRING_URL_KEYS } from "../utils/performerPairings";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import {
@@ -97,7 +92,6 @@ import { PerformerMetadataTaggerDialog } from "../components/MetadataTaggerDialo
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useKeySequence } from "../hooks/useKeySequence";
-import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -108,6 +102,7 @@ import {
   hasAnyPermission,
 } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
@@ -118,6 +113,7 @@ import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 import { compareNatural } from "../utils/naturalCompare";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -164,6 +160,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       ["videos", "galleries", "images", "audios", "texts", "groups", "faces", "appearsWith", "similar"],
       config?.interface?.menuItems,
     ) ?? "videos",
+    PAIRING_URL_KEYS,
   );
   const {
     allTabs: performerTabs,
@@ -199,10 +196,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const canReadFaces = canReadEntity("face", hasPermission);
   const canReadPerformerVideos = canReadEntity("video", hasPermission);
   const canReadPerformerGalleries = canReadEntity("gallery", hasPermission);
-  const canReadPerformerImages = canReadEntity("image", hasPermission);
-  const canReadPerformerAudios = canReadEntity("audio", hasPermission);
-  const canReadPerformerTexts = canReadEntity("text", hasPermission);
-  const canReadPerformerGroups = canReadEntity("group", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
   const canScrapePerformer = hasAnyPermission(hasPermission, ["performers.scrape", "performers.write"]);
   const showPerformerOpsMenu = canWritePerformer || canScrapePerformer || canDeletePerformer;
@@ -216,7 +209,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       texts: "texts.read",
       groups: "groups.read",
       faces: "faces.read",
-      appearsWith: "performers.read",
+      // Built from the videos the performer shares with others.
+      appearsWith: "videos.read",
       similar: "performers.read",
     },
     hasPermission,
@@ -285,6 +279,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         canWritePerformer,
         performer,
         performerFavorite,
+        setActiveTab,
         setPerformerFavorite,
       ],
     ),
@@ -303,7 +298,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     if (visiblePerformerTabs.length > 0 && !visiblePerformerTabs.some((tab) => tab.key === activeTab)) {
       setActiveTab(visiblePerformerTabs[0].key as TabKey);
     }
-  }, [activeTab, visiblePerformerTabs]);
+  }, [activeTab, setActiveTab, visiblePerformerTabs]);
 
   if (isLoading) {
     return (
@@ -699,7 +694,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
           {activeTab === "faces" && (
             <PerformerFacesPanel performerId={id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
-          {activeTab === "appearsWith" && <PerformerAppearsWithPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "appearsWith" && (
+            <PerformerPairingsPanel performer={{ id: performer.id, name: performer.name }} onNavigate={onNavigate} />
+          )}
           {activeTab === "similar" && (
             <PerformerSimilarPanel performer={performer} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
@@ -1195,7 +1192,7 @@ function PerformerFacesPanel({
     enabled: canReadFaces,
   });
   const loadError = getLoadError(linkedFacesData, error);
-  const linkedFaces = linkedFacesData ?? [];
+  const linkedFaces = useMemo(() => linkedFacesData ?? [], [linkedFacesData]);
 
   const sortedFaces = useMemo(() => {
     const dir = filter.direction === "asc" ? 1 : -1;
@@ -1322,7 +1319,9 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
+            ),
           })
         : videos.find(nextFilter, { performerIds: String(performerId) }),
     [hasObjectFilter, objectFilter, performerId],
@@ -1364,6 +1363,27 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, performerId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "performersCriterion",
+                    performerId,
+                  ),
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "performersCriterion", performerId)}
       selectedIds={selectedIds}
       filter={filter}
@@ -1393,6 +1413,7 @@ function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1771,7 +1792,9 @@ function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
+        ...splitFilterExpression(
+          withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
+        ),
       }),
   });
   const selectionResetKey = useMemo(
@@ -1825,6 +1848,7 @@ function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -2113,112 +2137,6 @@ function PerformerGroupsPanel({ performerId, onNavigate }: { performerId: number
       {toolbar}
       <RelatedEntityListView
         entityType="groups"
-        items={items}
-        displayMode={displayMode}
-        zoomLevel={zoomLevel}
-        selectedIds={selectedIds}
-        selecting={selecting}
-        onToggle={toggle}
-        onNavigate={onNavigate}
-        infinitePageSize={infinitePageSize}
-        hasNextPage={infiniteQuery.hasNextPage}
-        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
-        loadMore={loadMore}
-      />
-      <DetailListPagination
-        filter={filter}
-        onFilterChange={setFilter}
-        totalCount={data.totalCount}
-        allowInfinitePageSize
-      />
-    </>
-  );
-}
-
-function PerformerAppearsWithPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
-  const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({
-    stateKey: "appearsWith",
-    resetKey: "performer-appears-with",
-    entityType: "performers",
-    builtInFilter: { page: 1, perPage: 18, direction: "asc" },
-  });
-  const {
-    data,
-    isLoading,
-    loadError,
-    retry,
-    infinitePageSize,
-    infiniteQuery,
-    infiniteFilterKey,
-    fetchAllIds,
-    loadMore,
-  } = useDetailListQuery<PerformerModel>({
-    queryKey: ["performer-appears-with", performerId, filter],
-    filter,
-    queryFn: (nextFilter) => performers.appearsWith(performerId, nextFilter),
-  });
-  const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
-    items,
-    infinitePageSize,
-    infiniteFilterKey,
-    fetchAllIds,
-  });
-  const selecting = selectedIds.size > 0;
-  const toolbar = (
-    <DetailListToolbar
-      filter={filter}
-      onFilterChange={setFilter}
-      totalCount={data?.totalCount ?? 0}
-      sortOptions={[
-        { value: "co_video_count", label: "Shared Videos" },
-        { value: "name", label: "Name" },
-        { value: "random", label: "Random" },
-      ]}
-      zoomLevel={zoomLevel}
-      onZoomChange={setZoomLevel}
-      showSearch
-      selectedCount={selectedIds.size}
-      onSelectAll={selectAll}
-      selectAllPending={selectAllPending}
-      onSelectAllMatching={selectShown}
-      selectAllMatchingLabel="Select shown"
-      onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
-      // No listEntityType: the appears-with endpoint ranks by shared-video count and ignores
-      // sort=relevance, so offering it here would quietly reorder by something else.
-      allowInfinitePageSize
-      displayMode={displayMode}
-      onDisplayModeChange={setDisplayMode}
-      availableDisplayModes={availableDisplayModes}
-    />
-  );
-
-  if (loadError)
-    return (
-      <ListLoadError
-        error={loadError}
-        onRetry={() => {
-          void retry();
-        }}
-        className="mt-3"
-      />
-    );
-  if (isLoading) return <LoadingPanel icon={<Users className="h-10 w-10" />} message="Loading co-stars..." />;
-  if (!data || items.length === 0)
-    return (
-      <>
-        {toolbar}
-        <EmptyPanel icon={<Users className="h-12 w-12" />} message="No co-stars found" />
-      </>
-    );
-
-  return (
-    <>
-      {toolbar}
-      <RelatedEntityListView
-        entityType="performers"
         items={items}
         displayMode={displayMode}
         zoomLevel={zoomLevel}

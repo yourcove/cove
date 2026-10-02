@@ -1,22 +1,19 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpenText, FileText } from "lucide-react";
 import { system, texts } from "../api/client";
 import type { DownloaderMatch, TextCreate, TextDocument, TextFilterCriteria } from "../api/types";
-import { BookmarkButton } from "../components/BookmarkButton";
 import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { CustomFieldsEditor } from "../components/shared";
 import { IsoDateInput } from "../components/IsoDateInput";
-import { EntityReferencePopovers, TextTile } from "../components/EntityCards";
+import { TextTile } from "../components/EntityCards";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import { useMultiSelect } from "../hooks/useMultiSelect";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
-import { getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
+import { getTextDisplayTitle } from "../utils/audioTextDisplay";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
 import { StudioSelector } from "../components/StudioSelector";
 import { StringListEditor } from "../components/StringListEditor";
@@ -493,100 +490,5 @@ export function TextCreateModal({
         />
       ) : null}
     </>
-  );
-}
-
-function TextListTable({
-  texts: items,
-  selectedIds,
-  selecting,
-  onToggle,
-  onNavigate,
-}: {
-  texts: TextDocument[];
-  selectedIds: Set<number>;
-  selecting: boolean;
-  onToggle: MultiSelectToggleHandler;
-  onNavigate: (route: any) => void;
-}) {
-  const numberFormat = new Intl.NumberFormat();
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
-      <table className="min-w-full divide-y divide-border text-sm">
-        <thead className="bg-surface text-left text-xs uppercase text-muted">
-          <tr>
-            <th className="w-10 px-3 py-2" />
-            <th className="px-3 py-2">Title</th>
-            <th className="px-3 py-2">Studio</th>
-            <th className="px-3 py-2">Words</th>
-            <th className="px-3 py-2">Pages</th>
-            <th className="px-3 py-2">Files</th>
-            <th className="px-3 py-2">Entities</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map((text) => {
-            const title = getTextDisplayTitle(text);
-            const primaryFile = pickPrimaryTextFile(text);
-            const preview = primaryFile?.excerptText?.trim() || text.details?.trim();
-            return (
-              <tr
-                key={text.id}
-                onClick={(event) =>
-                  selecting
-                    ? onToggle(text.id, toggleOptionsFromEvent(event))
-                    : onNavigate({ page: "text", id: text.id })
-                }
-                className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(text.id) ? "bg-accent/10" : ""}`}
-              >
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(text.id)}
-                    onChange={() => {}}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggle(text.id, toggleOptionsFromEvent(event));
-                    }}
-                    className="rounded border-border bg-card"
-                    aria-label={`Select ${title}`}
-                  />
-                </td>
-                <td className="min-w-[18rem] px-3 py-2">
-                  <div className="font-medium text-foreground">{title}</div>
-                  {preview ? (
-                    <div className="mt-0.5 line-clamp-1 max-w-xl text-xs text-secondary">{preview}</div>
-                  ) : null}
-                  {text.files.length === 0 && text.urls.length > 0 ? (
-                    <div className="mt-1 text-xs text-cyan-300">Download available</div>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers
-                    studio={{ id: text.studioId, name: text.studioName }}
-                    onNavigate={onNavigate}
-                  />
-                </td>
-                <td className="px-3 py-2 text-secondary">
-                  {text.maxWordCount ? numberFormat.format(text.maxWordCount) : ""}
-                </td>
-                <td className="px-3 py-2 text-secondary">
-                  {text.maxPageCount ? numberFormat.format(text.maxPageCount) : ""}
-                </td>
-                <td className="px-3 py-2 text-secondary">{text.fileCount}</td>
-                <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers
-                    performers={text.performers}
-                    tags={text.tags}
-                    groups={text.groups}
-                    onNavigate={onNavigate}
-                  />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
   );
 }

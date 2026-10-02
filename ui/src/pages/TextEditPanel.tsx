@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { texts } from "../api/client";
 import type { VideoGroupInput, TextDocument, TextUpdate } from "../api/types";
@@ -30,7 +30,7 @@ function textFormValues(text: TextDocument) {
     date: text.date ?? "",
     studioId: text.studioId ?? undefined,
     urls: text.urls.length > 0 ? text.urls : [""],
-    customFields: { ...(text.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...text.customFields } as Record<string, unknown>,
     selectedTagIds: text.tags.map((tag) => tag.id),
     selectedPerformerIds: text.performers.map((performer) => performer.id),
     selectedGroups: text.groups.map((group) => ({ groupId: group.id, videoIndex: 0 })) as VideoGroupInput[],
@@ -67,7 +67,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
   const [date, setDate] = useState(text.date ?? "");
   const [studioId, setStudioId] = useState<number | undefined>(text.studioId ?? undefined);
   const [urls, setUrls] = useState<string[]>(text.urls.length > 0 ? text.urls : [""]);
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(text.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...text.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(text.tags.map((tag) => tag.id));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(
@@ -109,15 +109,14 @@ export function TextEditPanel({ text, onSaved }: Props) {
   };
   // When the text refetches (after Mark organized, a scrape or a finished job), untouched fields follow it
   // and the user's edits stay.
-  useEffect(() => {
-    if (text === baseline) return;
+  if (text !== baseline) {
     const next = textFormValues(text);
     applyFormFields(
       text.id === baseline.id ? untouchedFieldUpdates(currentValues, textFormValues(baseline), next) : next,
       formSetters,
     );
     setBaseline(text);
-  }, [text]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },

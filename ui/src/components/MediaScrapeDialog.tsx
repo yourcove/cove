@@ -282,10 +282,6 @@ function getNameSearchInput(entity: MediaScrapeEntity) {
   return sanitized || raw;
 }
 
-function buildFragmentDraft(entityType: MediaEntityType, entity: MediaScrapeEntity) {
-  return buildFragmentDraftForUrl(entityType, entity, entity.urls[0] ?? "");
-}
-
 function buildFragmentDraftForUrl(entityType: MediaEntityType, entity: MediaScrapeEntity, sourceUrl: string) {
   return JSON.stringify(
     {
@@ -323,6 +319,8 @@ function getSourceUrlSortScore(scrapers: ScraperSummary[], sourceUrl: string) {
 
   return scrapers.reduce((score, scraper) => score + (matchesUrlPattern(scraper, sourceUrl) ? 1 : 0), 0);
 }
+
+const NO_SCRAPER_PREFERENCES: { site: string; scraperId: string }[] = [];
 
 function chooseInitialSourceUrl(
   sourceUrls: string[],
@@ -367,7 +365,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   const [error, setError] = useState<string | null>(null);
 
   const { data: scrapers = [] } = useQuery({
-    queryKey: ["system-scrapers"],
+    queryKey: ["scrapers"],
     queryFn: system.listScrapers,
     enabled: open,
   });
@@ -378,7 +376,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     enabled: open,
   });
 
-  const scraperPreferences = config?.scraping.scraperPreferences ?? [];
+  const scraperPreferences = config?.scraping.scraperPreferences ?? NO_SCRAPER_PREFERENCES;
   const sourceUrls = useMemo(() => normalizeSourceUrls(entity.urls), [entity.urls]);
   const availableEntityScrapers = useMemo(
     () => scrapers.filter((scraper) => scraper.entityType.toLowerCase() === entityType),
@@ -393,9 +391,13 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     () => sortScrapersForVideo(availableEntityScrapers, activeSourceUrl, scraperPreferences),
     [activeSourceUrl, availableEntityScrapers, scraperPreferences],
   );
+  // The chosen scraper must be one of the scrapers for the active source URL; fall back to the preferred one.
+  const effectiveScraperId = entityScrapers.some((scraper) => scraper.id === selectedScraperId)
+    ? selectedScraperId
+    : findPreferredScraperId(entityScrapers, activeSourceUrl, scraperPreferences);
   const selectedScraper = useMemo(
-    () => entityScrapers.find((scraper) => scraper.id === selectedScraperId),
-    [entityScrapers, selectedScraperId],
+    () => entityScrapers.find((scraper) => scraper.id === effectiveScraperId),
+    [entityScrapers, effectiveScraperId],
   );
   const candidateResults = useMemo(
     () => getAttemptCandidates(entityType, selectedAttempt),
@@ -460,124 +462,142 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     ],
   );
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reload the saved apply preferences each time the dialog opens.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setPreferences(loadScrapeApplyPreferences());
     }
-
-    setPreferences(loadScrapeApplyPreferences());
-  }, [open]);
+  }
 
   useEffect(() => {
     saveScrapeApplyPreferences(preferences);
   }, [preferences]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setSelectedSourceUrl(initialSourceUrl);
-    setUrl(initialSourceUrl);
-    setName(getNameSearchInput(entity));
-    setFragmentJson(buildFragmentDraftForUrl(entityType, entity, initialSourceUrl));
-    setSelectedAttempt(null);
-    setSelectedCandidateIndex(0);
-    setReplaceFields([]);
-    setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
-    setTagActions({});
-    setPerformerActions({});
-    setError(null);
-  }, [entity, entityType, initialSourceUrl, open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    if (!selectedAttempt && recentAttempts.length > 0) {
-      setSelectedAttempt(recentAttempts[0] ?? null);
-    }
-  }, [open, recentAttempts, selectedAttempt]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    if (!selectedScraperId || !entityScrapers.some((scraper) => scraper.id === selectedScraperId)) {
-      setSelectedScraperId(findPreferredScraperId(entityScrapers, activeSourceUrl, scraperPreferences));
-    }
-  }, [activeSourceUrl, entityScrapers, open, scraperPreferences, selectedScraperId]);
-
-  useEffect(() => {
-    if (!selectedAttempt) {
+  // Reset the form whenever the dialog opens or the entity or its initial source URL changes while open.
+  const [resetKey, setResetKey] = useState({ open: false, entity, entityType, initialSourceUrl });
+  if (
+    resetKey.open !== open ||
+    resetKey.entity !== entity ||
+    resetKey.entityType !== entityType ||
+    resetKey.initialSourceUrl !== initialSourceUrl
+  ) {
+    setResetKey({ open, entity, entityType, initialSourceUrl });
+    if (open) {
+      setSelectedSourceUrl(initialSourceUrl);
+      setUrl(initialSourceUrl);
+      setName(getNameSearchInput(entity));
+      setFragmentJson(buildFragmentDraftForUrl(entityType, entity, initialSourceUrl));
+      setSelectedAttempt(null);
       setSelectedCandidateIndex(0);
-      return;
+      setReplaceFields([]);
+      setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
+      setTagActions({});
+      setPerformerActions({});
+      setError(null);
     }
+  }
 
-    const resultPayload = parseJsonObject(selectedAttempt.resultJson);
+  // Default to the most recent attempt whenever none is selected.
+  if (open && !selectedAttempt && recentAttempts.length > 0) {
+    setSelectedAttempt(recentAttempts[0] ?? null);
+  }
+
+  // A newly selected attempt starts on the candidate its stored result came from and shows its failure, if any.
+  const [attemptKey, setAttemptKey] = useState({ selectedAttempt, candidateResults });
+  if (attemptKey.selectedAttempt !== selectedAttempt || attemptKey.candidateResults !== candidateResults) {
+    setAttemptKey({ selectedAttempt, candidateResults });
+    const resultPayload = selectedAttempt ? parseJsonObject(selectedAttempt.resultJson) : null;
     if (!resultPayload || candidateResults.length <= 1) {
       setSelectedCandidateIndex(0);
-      return;
+    } else {
+      const resultSignature = JSON.stringify(resultPayload);
+      const matchingIndex = candidateResults.findIndex(
+        (candidate) => JSON.stringify(candidate.raw) === resultSignature,
+      );
+      setSelectedCandidateIndex(matchingIndex >= 0 ? matchingIndex : 0);
     }
 
-    const resultSignature = JSON.stringify(resultPayload);
-    const matchingIndex = candidateResults.findIndex((candidate) => JSON.stringify(candidate.raw) === resultSignature);
-    setSelectedCandidateIndex(matchingIndex >= 0 ? matchingIndex : 0);
-  }, [candidateResults, selectedAttempt]);
-
-  useEffect(() => {
-    if (!selectedAttempt) {
-      setError(null);
-      return;
+    if (attemptKey.selectedAttempt !== selectedAttempt) {
+      setError(
+        selectedAttempt?.status.toLowerCase() === "failure"
+          ? selectedAttempt.error || "Scrape returned no results."
+          : null,
+      );
     }
+  }
 
-    setError(
-      selectedAttempt.status.toLowerCase() === "failure"
-        ? selectedAttempt.error || "Scrape returned no results."
-        : null,
-    );
-  }, [selectedAttempt]);
-
-  useEffect(() => {
-    if (!selectedScraper) {
-      return;
+  // Keep the input kind one the selected scraper supports. The key starts out undefined so a scraper that is
+  // already selected on the first render is applied too.
+  const [prevSelectedScraper, setPrevSelectedScraper] = useState<ScraperSummary | undefined>(undefined);
+  if (selectedScraper !== prevSelectedScraper) {
+    setPrevSelectedScraper(selectedScraper);
+    if (selectedScraper) {
+      setInputKind((current) => findDefaultKind(selectedScraper, current));
     }
+  }
 
-    setInputKind((current) => findDefaultKind(selectedScraper, current));
-  }, [selectedScraper]);
-
-  useEffect(() => {
+  // Suggest which fields to replace and how to merge collections whenever the scraped data changes.
+  const applyPlanKey = {
+    entityId: entity.id,
+    attemptId: selectedAttempt?.id,
+    scrapedData,
+    suggestedCollectionModesKey,
+    suggestedReplaceKey,
+  };
+  const [prevApplyPlanKey, setPrevApplyPlanKey] = useState<typeof applyPlanKey | null>(null);
+  if (
+    !prevApplyPlanKey ||
+    prevApplyPlanKey.entityId !== applyPlanKey.entityId ||
+    prevApplyPlanKey.attemptId !== applyPlanKey.attemptId ||
+    prevApplyPlanKey.scrapedData !== applyPlanKey.scrapedData ||
+    prevApplyPlanKey.suggestedCollectionModesKey !== applyPlanKey.suggestedCollectionModesKey ||
+    prevApplyPlanKey.suggestedReplaceKey !== applyPlanKey.suggestedReplaceKey
+  ) {
+    setPrevApplyPlanKey(applyPlanKey);
     if (!scrapedData) {
       setReplaceFields([]);
       setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
-      return;
+    } else {
+      setReplaceFields([...applyPlan.replaceFields]);
+      setCollectionModes({ ...applyPlan.collectionModes });
     }
+  }
 
-    setReplaceFields([...applyPlan.replaceFields]);
-    setCollectionModes({ ...applyPlan.collectionModes });
-  }, [entity.id, selectedAttempt?.id, scrapedData, suggestedCollectionModesKey, suggestedReplaceKey]);
-
-  useEffect(() => {
+  // Default each scraped tag and performer to link, create or skip whenever the scraped data or matches change.
+  const relationActionsKey = {
+    entityId: entity.id,
+    attemptId: selectedAttempt?.id,
+    scrapedData,
+    relationDefaultsKey,
+  };
+  const [prevRelationActionsKey, setPrevRelationActionsKey] = useState<typeof relationActionsKey | null>(null);
+  if (
+    !prevRelationActionsKey ||
+    prevRelationActionsKey.entityId !== relationActionsKey.entityId ||
+    prevRelationActionsKey.attemptId !== relationActionsKey.attemptId ||
+    prevRelationActionsKey.scrapedData !== relationActionsKey.scrapedData ||
+    prevRelationActionsKey.relationDefaultsKey !== relationActionsKey.relationDefaultsKey
+  ) {
+    setPrevRelationActionsKey(relationActionsKey);
     if (!scrapedData) {
       setTagActions({});
       setPerformerActions({});
-      return;
+    } else {
+      setTagActions(
+        buildRelationActionMap(scrapedData.tags, currentData.tags, existingTagNames, preferences.createMissingTags),
+      );
+      setPerformerActions(
+        buildRelationActionMap(
+          scrapedData.performers,
+          currentData.performers,
+          existingPerformerNames,
+          preferences.createMissingPerformers,
+        ),
+      );
     }
-
-    setTagActions(
-      buildRelationActionMap(scrapedData.tags, currentData.tags, existingTagNames, preferences.createMissingTags),
-    );
-    setPerformerActions(
-      buildRelationActionMap(
-        scrapedData.performers,
-        currentData.performers,
-        existingPerformerNames,
-        preferences.createMissingPerformers,
-      ),
-    );
-  }, [entity.id, relationDefaultsKey, scrapedData, selectedAttempt?.id]);
+  }
 
   const runMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -756,7 +776,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-foreground">Scraper</label>
                 <select
-                  value={selectedScraperId}
+                  value={effectiveScraperId}
                   onChange={(event) => setSelectedScraperId(event.target.value)}
                   className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
                 >

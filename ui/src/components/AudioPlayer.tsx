@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Gauge,
   Headphones,
@@ -570,10 +570,15 @@ export function AudioPlayer({
     lastTickAt.current = Date.now();
   }, []);
 
+  // Keyed by the serialized target so a structurally identical target does not reset the tracker.
+  const syncTrackingTarget = useEffectEvent((tracker: ReturnType<typeof createPlaybackTracker>) => {
+    void tracker.setTarget(trackingTarget);
+  });
   useEffect(() => {
-    void playbackTracker.current.setTarget(trackingTarget);
+    const tracker = playbackTracker.current;
+    syncTrackingTarget(tracker);
     return () => {
-      void playbackTracker.current.dispose();
+      void tracker.dispose();
     };
   }, [trackingTargetSignature]);
 
@@ -643,6 +648,7 @@ export function AudioPlayer({
     clipEndedHandled.current = false;
   }, [clip?.end, clip?.start, streamUrl]);
 
+  const hasClip = clip != null;
   useEffect(() => {
     const audio = audioRef.current as PitchAwareAudio | null;
     if (!audio) {
@@ -654,7 +660,7 @@ export function AudioPlayer({
       const nextDuration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration;
       const clipStart = clip?.start ?? 0;
       const clipEnd = clip?.end != null ? Math.max(clipStart, clip.end) : nextDuration;
-      const nextTime = clip
+      const nextTime = hasClip
         ? clamp(resumeTime ?? clipStart, clipStart, Math.max(clipEnd - 0.25, clipStart))
         : resumeTime;
       audio.defaultPlaybackRate = rate;
@@ -694,6 +700,7 @@ export function AudioPlayer({
     duration,
     ensurePitchGraph,
     format,
+    hasClip,
     nativeAudioOutput,
     pitchSemitones,
     rate,

@@ -45,6 +45,69 @@ export async function listSavedFilters(client: CoveClient, mode?: string): Promi
   return filters;
 }
 
+function validateVideoIds(ids: number[]): void {
+  if (!ids.length || ids.some(id => !Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647)) {
+    throw new CliError("INVALID_ARGUMENT", "Provide one or more video IDs between 1 and 2147483647.");
+  }
+}
+
+function videoIdFilter(saved: SavedFilter): CoveRecord & { ids: number[] } {
+  let objectFilter: unknown;
+  try {
+    objectFilter = JSON.parse(saved.objectFilter ?? "null");
+  } catch {
+    throw new CliError("INVALID_SAVED_FILTER", "The saved filter contains invalid objectFilter JSON.");
+  }
+  if (!isRecord(objectFilter) || !Array.isArray(objectFilter.ids) || !objectFilter.ids.length
+    || objectFilter.ids.some(id => !Number.isInteger(id) || id <= 0 || id > 2_147_483_647)) {
+    throw new CliError("UNSUPPORTED_SAVED_FILTER", "This saved video filter does not contain a valid video ID list.");
+  }
+  return objectFilter as CoveRecord & { ids: number[] };
+}
+
+export async function addVideoIdsToFilter(client: CoveClient, name: string, ids: number[]): Promise<SavedFilter> {
+  validateVideoIds(ids);
+  const normalizedName = name.trim();
+  if (!normalizedName) throw new CliError("INVALID_ARGUMENT", "Provide a saved-filter name.");
+  const matches = (await listSavedFilters(client, "videos")).filter(filter => filter.name.toLowerCase() === normalizedName.toLowerCase());
+  if (matches.length > 1) throw new CliError("SAVED_FILTER_AMBIGUOUS", `More than one saved video filter matches “${normalizedName}”.`);
+  const saved = matches[0];
+  if (!saved) {
+    return client.post<SavedFilter>("savedfilters", {
+      mode: "videos", name: normalizedName,
+      // Store the default video sort explicitly so the worklist carries find options like UI-saved filters.
+      findFilter: JSON.stringify({ sort: savedFilterDefaultSort("videos"), direction: "desc" }),
+      objectFilter: JSON.stringify({ ids: [...new Set(ids)] }),
+    });
+  }
+  const objectFilter = videoIdFilter(saved);
+  const combinedIds = [...new Set([...objectFilter.ids, ...ids])];
+  if (combinedIds.length === objectFilter.ids.length) return saved;
+  return client.put<SavedFilter>(`savedfilters/${saved.id}`, {
+    objectFilter: JSON.stringify({ ...objectFilter, ids: combinedIds }),
+  });
+}
+
+export async function removeVideoIdsFromFilter(client: CoveClient, reference: string, ids: number[]): Promise<SavedFilter | { id: number; deleted: true }> {
+  validateVideoIds(ids);
+  const saved = await resolveSavedFilter(client, reference, "videos");
+  const objectFilter = videoIdFilter(saved);
+  const existingIds = new Set(objectFilter.ids as number[]);
+  const absentIds = [...new Set(ids)].filter(id => !existingIds.has(id));
+  if (absentIds.length) {
+    throw new CliError("INVALID_ARGUMENT", `Video ID${absentIds.length === 1 ? "" : "s"} ${absentIds.join(", ")} ${absentIds.length === 1 ? "is" : "are"} not in this saved filter.`);
+  }
+  const removedIds = new Set(ids);
+  const remainingIds = (objectFilter.ids as number[]).filter(id => !removedIds.has(id));
+  if (!remainingIds.length) {
+    await client.delete(`savedfilters/${saved.id}`);
+    return { id: saved.id, deleted: true };
+  }
+  return client.put<SavedFilter>(`savedfilters/${saved.id}`, {
+    objectFilter: JSON.stringify({ ...objectFilter, ids: remainingIds }),
+  });
+}
+
 export async function defaultSavedFilters(client: CoveClient): Promise<DefaultSavedFilter[]> {
   const me = await client.get<MeResponse>("auth/me");
   const defaults = me?.user?.uiPreferences?.defaultFilters;

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { savedFilters } from "../api/client";
@@ -34,13 +34,15 @@ export function useDefaultSavedFilterOnMount(
   ) => void,
 ) {
   const appliedRef = useRef(false);
+  const applyDefault = useEffectEvent(() => {
+    const def = getDefaultFilter(mode);
+    if (def) apply(def.findFilter, def.objectFilter, def.uiOptions);
+  });
+  // Intentionally mount-only: the default is a starting point the user can then change.
   useEffect(() => {
     if (appliedRef.current) return;
     appliedRef.current = true;
-    const def = getDefaultFilter(mode);
-    if (def) apply(def.findFilter, def.objectFilter, def.uiOptions);
-    // Intentionally mount-only: the default is a starting point the user can then change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    applyDefault();
   }, []);
 }
 
@@ -55,8 +57,8 @@ function setDefaultFilter(
   const key = mode.trim().toLowerCase();
   localStorage.setItem(`cove-default-filter-${mode}`, json);
   updateAuthenticatedUserUiPreferences((current) => ({
-    ...(current ?? {}),
-    defaultFilters: { ...(current?.defaultFilters ?? {}), [key]: json },
+    ...current,
+    defaultFilters: { ...current?.defaultFilters, [key]: json },
   }));
 }
 
@@ -210,11 +212,14 @@ export function SavedFilterMenu({
     };
   }, [open]);
 
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!open) setPanelPosition(null);
+  }
+
   useLayoutEffect(() => {
-    if (!open) {
-      setPanelPosition(null);
-      return;
-    }
+    if (!open) return;
 
     const positionPanel = () => {
       const trigger = triggerRef.current;
@@ -296,7 +301,7 @@ export function SavedFilterMenu({
           currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
       setSaveName("");
       setShowSave(false);
     },
@@ -311,7 +316,7 @@ export function SavedFilterMenu({
         uiOptions: JSON.stringify(currentUIOptions ?? {}),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
       setOpen(false);
     },
   });
@@ -319,16 +324,16 @@ export function SavedFilterMenu({
   const deleteMut = useMutation({
     mutationFn: (id: number) => savedFilters.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      queryClient.invalidateQueries({ queryKey: ["saved-filters"] });
     },
   });
 
   const applyFilter = (findFilterJson: string | undefined, objectFilterJson?: string, uiOptionsJson?: string) => {
-    if (!findFilterJson) return;
     try {
-      const parsed = normalizeSavedFindFilter(mode, JSON.parse(findFilterJson) as FindFilter);
-      if (!parsed) return;
-      onApplyFilter(parsed);
+      // Filters created through the API (such as CLI video ID worklists) may omit find options entirely; treat
+      // them like an empty find filter so the mode's default sort applies and the object filter still loads.
+      const parsed = normalizeSavedFindFilter(mode, JSON.parse(findFilterJson || "{}") as FindFilter);
+      if (parsed) onApplyFilter(parsed);
     } catch {
       // ignore invalid JSON
     }

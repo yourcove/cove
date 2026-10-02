@@ -214,6 +214,30 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
   });
 
+  it("formats the visible range with the same digit grouping as the total", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1000, perPage: 28 }}
+            onFilterChange={vi.fn()}
+            totalCount={30606}
+            loadState={{ status: "success", data: {} }}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.getByText(`${(27973).toLocaleString()}-${(28000).toLocaleString()} of ${(30606).toLocaleString()}`),
+    ).toBeInTheDocument();
+  });
+
   it("withholds a loaded count while related summary metadata is still loading", () => {
     const queryClient = new QueryClient();
 
@@ -270,6 +294,45 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
     expect(screen.getByText("1-40 of 81")).toBeInTheDocument();
     expect(screen.getByText("12h · 3 GB")).toBeInTheDocument();
+  });
+
+  // The Videos list takes its total from the aggregate request, which can settle after the page. A total
+  // that has not arrived yet must not clamp a deep page back to the first one.
+  it("keeps the requested page while a separately loaded total is pending", () => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderListPage = (totalCount: number, totalCountPending: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 5, perPage: 40 }}
+            onFilterChange={onFilterChange}
+            totalCount={totalCount}
+            summaryLoading={totalCountPending}
+            totalCountPending={totalCountPending}
+            loadState={{ status: "success", data: {} }}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderListPage(0, true));
+    expect(onFilterChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onFilterChange).not.toHaveBeenCalled();
+
+    rerender(renderListPage(400, false));
+    expect(onFilterChange).not.toHaveBeenCalled();
+    expect(screen.getByText("161-200 of 400")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 6, perPage: 40 });
+    onFilterChange.mockClear();
+
+    rerender(renderListPage(80, false));
+    expect(onFilterChange).toHaveBeenCalledWith({ page: 2, perPage: 40 });
   });
 
   it("keeps the focused search control mounted while collection results become pending", () => {
@@ -2067,6 +2130,37 @@ describe("ListPage active filter chips", () => {
 
     expect(onFilterChange.mock.lastCall?.[0]).toEqual(
       expect.objectContaining({ q: undefined, page: 1, sort: "date", direction: "desc" }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("keeps the list's sort for a new search when the library turns relevance sorting off", async () => {
+    vi.useFakeTimers();
+    appConfigMock.optional = { config: { ui: { sortSearchesByRelevance: false } } };
+    const onFilterChange = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filter={{ page: 3, perPage: 40, sort: "date", direction: "desc" }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[{ value: "date", label: "Date" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search list" }), { target: { value: "needle" } });
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(onFilterChange.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ q: "needle", page: 1, sort: "date", direction: "desc" }),
     );
     vi.useRealTimers();
   });

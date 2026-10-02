@@ -54,11 +54,17 @@ describe("media recovery state machine", () => {
 
   it("exposes retry exhaustion and lets an explicit retry start a fresh load", () => {
     let state = createMediaRecoveryState();
+    const commandsPerAttempt = [];
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       const result = apply(state, { type: "network-error", position: 42, playIntent: "play", serverAvailable: true });
       state = result.state;
-      if (attempt <= 3) expect(result.commands).toEqual([{ type: "schedule-retry", delayMs: attempt * 500 }]);
+      commandsPerAttempt.push(result.commands);
     }
+    expect(commandsPerAttempt.slice(0, 3)).toEqual([
+      [{ type: "schedule-retry", delayMs: 500 }],
+      [{ type: "schedule-retry", delayMs: 1000 }],
+      [{ type: "schedule-retry", delayMs: 1500 }],
+    ]);
     expect(state.phase).toBe("exhausted");
 
     const retry = apply(state, { type: "manual-retry" });

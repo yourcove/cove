@@ -10,7 +10,6 @@ import {
   Merge,
   Music,
   Repeat,
-  RotateCcw,
   Settings2,
   SkipBack,
   SkipForward,
@@ -54,10 +53,10 @@ export function CompilationPlayer({
   const automaticPlayback = config?.ui.autostartVideo ?? false;
   const playbackIntentSetRef = useRef(false);
   const playbackActiveRef = useRef(automaticPlayback);
-  const transitionPosterStateRef = useRef({ groupId, suppressed: false });
-  if (transitionPosterStateRef.current.groupId !== groupId) {
-    transitionPosterStateRef.current = { groupId, suppressed: false };
-  }
+  // Moving to the next item with autoplay hides its poster so the transition does not flash it. The
+  // choice belongs to the group it was made in, so opening another group shows posters again.
+  const [transitionPosterState, setTransitionPosterState] = useState({ groupId, suppressed: false });
+  const transitionPosterSuppressed = transitionPosterState.groupId === groupId && transitionPosterState.suppressed;
   const seekRef = useRef<((time: number) => void) | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
@@ -85,14 +84,11 @@ export function CompilationPlayer({
     [enabledTypes, items],
   );
 
-  useEffect(() => {
-    if (visibleItems.length === 0) {
-      setCurrentItemIndex(0);
-      return;
-    }
-
-    setCurrentItemIndex((index) => Math.min(index, visibleItems.length - 1));
-  }, [visibleItems.length]);
+  // Keep the index inside the filtered list when type filters or items shrink it.
+  const clampedItemIndex = visibleItems.length === 0 ? 0 : Math.min(currentItemIndex, visibleItems.length - 1);
+  if (clampedItemIndex !== currentItemIndex) {
+    setCurrentItemIndex(clampedItemIndex);
+  }
 
   const item = visibleItems[currentItemIndex];
   const nextItem = visibleItems[currentItemIndex + 1] ?? (loopCompilation ? visibleItems[0] : undefined);
@@ -120,7 +116,7 @@ export function CompilationPlayer({
     isLoading: currentTextLoading,
     isError: currentTextError,
   } = useQuery({
-    queryKey: ["text-content", currentTextId],
+    queryKey: ["text", currentTextId, "content"],
     queryFn: () => texts.content(currentTextId!),
     enabled: currentTextId != null,
   });
@@ -137,7 +133,7 @@ export function CompilationPlayer({
     staleTime: 60_000,
   });
   useQuery({
-    queryKey: ["text-content", nextTextId],
+    queryKey: ["text", nextTextId, "content"],
     queryFn: () => texts.content(nextTextId!),
     enabled: nextTextId != null,
     staleTime: 60_000,
@@ -210,7 +206,7 @@ export function CompilationPlayer({
 
       const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
       if (boundedIndex === currentItemIndex) return;
-      transitionPosterStateRef.current.suppressed = shouldAutoPlay;
+      setTransitionPosterState({ groupId, suppressed: shouldAutoPlay });
       if (!shouldAutoPlay) playbackIntentSetRef.current = true;
       if (shouldAutoPlay) {
         playbackActiveRef.current = true;
@@ -222,7 +218,7 @@ export function CompilationPlayer({
       }
       setCurrentItemIndex(boundedIndex);
     },
-    [currentItemIndex, visibleItems.length],
+    [currentItemIndex, groupId, visibleItems.length],
   );
 
   const advanceToNextItem = useCallback(() => {
@@ -244,16 +240,6 @@ export function CompilationPlayer({
     const timeoutId = window.setTimeout(() => advanceToNextItem(), displayDurationSec * 1000);
     return () => window.clearTimeout(timeoutId);
   }, [advanceToNextItem, autostart, displayDurationSec, item, itemIsImage, itemIsText, itemLoading]);
-
-  const restartItem = useCallback(() => {
-    if (!item) {
-      return;
-    }
-
-    setAutostart(true);
-    setAutostartToken((value) => value + 1);
-    seekRef.current?.(playbackStart);
-  }, [item, playbackStart]);
 
   const toggleType = useCallback((key: TypeFilterKey) => {
     setEnabledTypes((current) => ({ ...current, [key]: !current[key] }));
@@ -338,9 +324,7 @@ export function CompilationPlayer({
           <VideoPlayer
             streamUrl={videos.streamUrl(currentVideoId)}
             posterUrl={
-              transitionPosterStateRef.current.suppressed
-                ? undefined
-                : (item.posterPath ?? videos.screenshotUrl(currentVideoId))
+              transitionPosterSuppressed ? undefined : (item.posterPath ?? videos.screenshotUrl(currentVideoId))
             }
             format={currentFile.format}
             videoCodec={currentFile.videoCodec}

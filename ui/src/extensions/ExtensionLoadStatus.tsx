@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useExtensions } from "./ExtensionLoader";
 import type { ExtensionRuntimeFailure } from "./ExtensionRuntimeReconciler";
 import { navigateToUrl } from "../router/location";
@@ -6,9 +6,7 @@ import { navigateToUrl } from "../router/location";
 export function ExtensionLoadNotice() {
   const { loadFailures } = useExtensions();
   const [dismissed, setDismissed] = useState<string | null>(null);
-  useEffect(() => {
-    if (loadFailures.length === 0) setDismissed(null);
-  }, [loadFailures.length]);
+  if (loadFailures.length === 0 && dismissed !== null) setDismissed(null);
   const signature = JSON.stringify(loadFailures.map((failure) => [String(failure.extensionId), failure.message]));
   if (loadFailures.length === 0 || dismissed === signature) return null;
 

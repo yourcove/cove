@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { tags, tagGroups } from "../api/client";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import type { Tag, TagCreate, TagFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import { useMultiSelect } from "../hooks/useMultiSelect";
 import {
   CreateModalActions,
   EditModal,
@@ -343,7 +343,7 @@ export function TagCreateModal({
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    name: "",
+    name: open ? initialName.trim() : "",
     description: "",
     aliases: [] as string[],
     color: "",
@@ -357,9 +357,13 @@ export function TagCreateModal({
   const [createAnother, setCreateAnother] = useState(false);
   const { data: groups = [] } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialName, setPrevInitialName] = useState(initialName);
+  if (open !== prevOpen || initialName !== prevInitialName) {
+    setPrevOpen(open);
+    setPrevInitialName(initialName);
     if (open) setForm((current) => ({ ...current, name: initialName.trim() }));
-  }, [initialName, open]);
+  }
 
   const resetForm = () => {
     setForm({
@@ -483,77 +487,5 @@ export function TagCreateModal({
         }
       />
     </EditModal>
-  );
-}
-
-function TagListTable({
-  tags: items,
-  onNavigate,
-  selectedIds,
-  onToggle,
-  selecting,
-}: {
-  tags: Tag[];
-  onNavigate: (r: any) => void;
-  selectedIds?: Set<number>;
-  onToggle?: MultiSelectToggleHandler;
-  selecting?: boolean;
-}) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted text-xs">
-          {selectedIds && <th className="w-8 py-2 px-3"></th>}
-          <th className="py-2 px-3">Name</th>
-          <th className="py-2 px-3">Group</th>
-          <th className="py-2 px-3">Description</th>
-          <th className="py-2 px-3">Aliases</th>
-          <th className="py-2 px-3 text-right">Videos</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((t) => (
-          <tr
-            key={t.id}
-            onClick={(event) =>
-              selecting ? onToggle?.(t.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: t.id })
-            }
-            className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(t.id) ? "bg-accent/10" : ""}`}
-          >
-            {selectedIds && (
-              <td className="py-2 px-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(t.id)}
-                  onChange={() => {}}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle?.(t.id, toggleOptionsFromEvent(event));
-                  }}
-                  className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
-                />
-              </td>
-            )}
-            <td className="py-2 px-3 text-foreground">{t.name}</td>
-            <td className="py-2 px-3 text-secondary">
-              {t.tagGroupName ? (
-                <span className="inline-flex max-w-[12rem] items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-xs">
-                  <span
-                    className="h-2 w-2 rounded-full border border-border"
-                    style={{ backgroundColor: t.tagGroupColor ?? "transparent" }}
-                  />
-                  <span className="truncate">{t.tagGroupName}</span>
-                </span>
-              ) : (
-                <span className="text-muted">Ungrouped</span>
-              )}
-            </td>
-            <td className="py-2 px-3 text-secondary truncate max-w-xs">{t.description ?? ""}</td>
-            <td className="py-2 px-3 text-muted truncate max-w-xs">{t.aliases.join(", ")}</td>
-            <td className="py-2 px-3 text-secondary text-right">{t.videoCount ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

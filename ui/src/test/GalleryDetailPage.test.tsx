@@ -385,6 +385,28 @@ describe("GalleryDetailPage", () => {
     expect(await screen.findByText("Edit Gallery Modal")).toBeInTheDocument();
   });
 
+  it("keeps a tab chosen by keyboard in the URL after the configured default tab changes", async () => {
+    mockGalleries.get.mockResolvedValue(buildGallery({ videoCount: 1 }));
+    mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 1 });
+    mockVideos.find.mockResolvedValue({ items: [{ id: 4, title: "Video One" }], totalCount: 1 });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = () => (
+      <QueryClientProvider client={queryClient}>
+        <GalleryDetailPage id={21} onNavigate={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(page());
+    expect((await screen.findAllByRole("heading", { name: "Summer Set" })).length).toBeGreaterThan(0);
+
+    // The app config arrives after mount and ranks videos first, which moves the default tab.
+    mockConfig.interface = { menuItems: ["videos", "images", "fileinfo"] };
+    rerender(page());
+    fireEvent.keyDown(window, { key: "a" });
+
+    expect(await screen.findByText("Cover Frame")).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("images");
+  });
+
   it("shows a retryable load error when the gallery request fails", async () => {
     mockGalleries.get
       .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))

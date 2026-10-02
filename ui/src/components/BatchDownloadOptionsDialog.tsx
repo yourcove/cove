@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Download, Loader2, X } from "lucide-react";
 import type { DownloadSelectionEntity, BatchDownloadOptions } from "../utils/batchDownloads";
 import { normalizeBatchDownloadOptions } from "../utils/batchDownloads";
@@ -31,13 +31,14 @@ export function BatchDownloadOptionsDialog({
 }: Props) {
   const [options, setOptions] = useState<BatchDownloadOptions>(() => normalizeBatchDownloadOptions(initialOptions));
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reset the options whenever the dialog opens or its initial options change while open.
+  const [resetKey, setResetKey] = useState({ open: false, initialOptions });
+  if (resetKey.open !== open || resetKey.initialOptions !== initialOptions) {
+    setResetKey({ open, initialOptions });
+    if (open) {
+      setOptions(normalizeBatchDownloadOptions(initialOptions));
     }
-
-    setOptions(normalizeBatchDownloadOptions(initialOptions));
-  }, [initialOptions, open]);
+  }
 
   if (!open) {
     return null;

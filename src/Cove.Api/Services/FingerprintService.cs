@@ -667,76 +667,7 @@ public class FingerprintService(
         return File.Exists(path) ? path : null;
     }
 
-    private string? FindFfmpeg()
-    {
-        if (!string.IsNullOrWhiteSpace(config.FfmpegPath) && File.Exists(config.FfmpegPath))
-            return config.FfmpegPath;
-
-        var pathDirectories = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries) ?? [];
-        foreach (var directory in pathDirectories)
-        {
-            var ffmpegPath = Path.Combine(directory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
-            if (File.Exists(ffmpegPath))
-                return ffmpegPath;
-        }
-
-        return null;
-    }
-
-    private string GetFfmpegDecodeArgs()
-    {
-        // These extraction pipelines use software filters (select/scale/tile/image encode),
-        // so implicit hwaccel adds costly hwdownload/format bridging and can be slower than CPU.
-        // Only an explicit power-user override is applied.
-        return !string.IsNullOrWhiteSpace(config.FfmpegInputArgs) ? config.FfmpegInputArgs : string.Empty;
-    }
-
-    private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
-    {
-        // 'using' so the Process handle is always released — the old code never disposed it, leaking a
-        // handle per pHash extraction across a large scan.
-        var startInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = args,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
-        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
-
-        process.Start();
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(timeout);
-        try
-        {
-            await process.WaitForExitAsync(timeoutCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout OR outer cancellation — the ffmpeg process is still running. Dispose alone does not
-            // stop it, so kill the tree here or a cancelled/aborted scan orphans ffmpeg processes that keep
-            // burning CPU. Observe stderr so its reader task isn't left dangling.
-            try { process.Kill(entireProcessTree: true); } catch { }
-            try { await stderrTask; } catch { }
-            if (ct.IsCancellationRequested)
-                throw;
-            if (logger.IsEnabled(LogLevel.Trace))
-                logger.LogTrace("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
-            return false;
-        }
-
-        if (process.ExitCode == 0)
-            return true;
-
-        var stderr = await stderrTask;
-        if (logger.IsEnabled(LogLevel.Trace))
-            logger.LogTrace("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
-        return false;
-    }
+    private string? FindFfmpeg() => FfmpegExecutableLocator.FindFfmpeg(config);
 
     /// <summary>
     /// DCT-II using Lee 1984 recursive algorithm, matching goimagehash's DCT1DFast64.

@@ -42,6 +42,7 @@ export function useFileBackedCreatePreferences(entity: DownloadEntityName) {
   const [preferences, setPreferences] = useState<FileBackedCreatePreferences>(() => readPreferences(storageKey));
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads localStorage when the user or entity key changes; storage reads stay out of render
     setPreferences(readPreferences(storageKey));
   }, [storageKey]);
 

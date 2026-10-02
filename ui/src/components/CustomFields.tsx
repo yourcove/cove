@@ -23,6 +23,8 @@ import { formatDate } from "../utils/dateFormat";
 import { IsoDateInput } from "./IsoDateInput";
 import { compareNatural } from "../utils/naturalCompare";
 
+const NO_DEFINITIONS: CustomFieldDefinition[] = [];
+
 export function CustomFieldsDisplay({
   customFields,
   entityType,
@@ -31,7 +33,7 @@ export function CustomFieldsDisplay({
   entityType?: CustomFieldEntityType;
 }) {
   const definitionsQuery = useCustomFieldDefinitions(entityType, Boolean(entityType));
-  const definitions = definitionsQuery.data ?? [];
+  const definitions = definitionsQuery.data ?? NO_DEFINITIONS;
   const entries = useMemo(() => getDisplayEntries(customFields, definitions), [customFields, definitions]);
 
   if (entries.length === 0) return null;
@@ -83,7 +85,7 @@ export function CustomFieldsEditor({
   entityType?: CustomFieldEntityType;
 }) {
   const definitionsQuery = useCustomFieldDefinitions(entityType, Boolean(entityType));
-  const definitions = definitionsQuery.data ?? [];
+  const definitions = definitionsQuery.data ?? NO_DEFINITIONS;
   const [invalidJsonKeys, setInvalidJsonKeys] = useState<Set<string>>(() => new Set());
   const jsonDefinitionKeys = useMemo(
     () => new Set(definitions.filter((definition) => definition.type === "json").map((definition) => definition.key)),
@@ -102,12 +104,10 @@ export function CustomFieldsEditor({
     });
   }, []);
 
-  useEffect(() => {
-    setInvalidJsonKeys((current) => {
-      const next = new Set([...current].filter((key) => jsonDefinitionKeys.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [jsonDefinitionKeys]);
+  // Forget invalid state for JSON fields that no longer exist.
+  if ([...invalidJsonKeys].some((key) => !jsonDefinitionKeys.has(key))) {
+    setInvalidJsonKeys(new Set([...invalidJsonKeys].filter((key) => jsonDefinitionKeys.has(key))));
+  }
 
   useEffect(() => {
     onValidityChange?.(invalidJsonKeys.size === 0);
@@ -380,10 +380,17 @@ function JsonFieldInput({
   const [error, setError] = useState<string | null>(null);
   const label = definition.label || definition.key;
 
+  const [syncedFrom, setSyncedFrom] = useState({ open, serializedValue, key: definition.key });
+  if (syncedFrom.open !== open || syncedFrom.serializedValue !== serializedValue || syncedFrom.key !== definition.key) {
+    setSyncedFrom({ open, serializedValue, key: definition.key });
+    if (!open) {
+      setDraft(serializedValue);
+      setError(null);
+    }
+  }
+
   useEffect(() => {
     if (open) return;
-    setDraft(serializedValue);
-    setError(null);
     onValidityChange(definition.key, true);
   }, [definition.key, onValidityChange, open, serializedValue]);
 
@@ -841,7 +848,9 @@ function JsonPrimitiveValue({ value }: { value: unknown }) {
   return <span className="text-secondary">{JSON.stringify(value) ?? String(value)}</span>;
 }
 
+// JSON strings cannot contain raw U+0000-U+001F, so the string branch must exclude them.
 const JSON_TOKEN_PATTERN =
+  // oxlint-disable-next-line no-control-regex -- matching control characters is the purpose of this pattern
   /"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\u0000-\u001F])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b/g;
 const MAX_JSON_HIGHLIGHT_CHARACTERS = 100_000;
 const MAX_JSON_HIGHLIGHT_TOKENS = 2_000;

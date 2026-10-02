@@ -23,11 +23,14 @@ export function FloatingActionMenu({
   const [position, setPosition] = useState<CSSProperties | null>(null);
   const backdropPointerDownRef = useRef(false);
 
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!open) setPosition(null);
+  }
+
   useEffect(() => {
-    if (!open) {
-      setPosition(null);
-      return;
-    }
+    if (!open) return;
 
     const updatePosition = () => {
       const anchor = anchorRef.current;

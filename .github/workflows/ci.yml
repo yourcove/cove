@@ -277,6 +277,10 @@ jobs:
         working-directory: ui
         run: npm run format:check
 
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
+
       - name: Type check & build
         working-directory: ui
         run: npm run build

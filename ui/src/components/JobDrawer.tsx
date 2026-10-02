@@ -27,20 +27,67 @@ export function collectUnseenTerminalJobs(jobsToInspect: readonly JobInfo[], see
   return unseen;
 }
 
+// Query roots holding settings, extension state or job state, which jobs do not change. Refetching them
+// could also disturb a settings form mid-edit. Every other root is content a job may have changed.
+const NON_CONTENT_QUERY_ROOTS = new Set([
+  "admin",
+  "auth",
+  "custom-fields",
+  "dashboard-page",
+  "display-profiles",
+  "ext-config",
+  "extensions-list",
+  "ffmpeg-capabilities",
+  "filesystem-policy",
+  "job",
+  "jobs",
+  "jobs-history",
+  "library-folders",
+  "logs",
+  "plugins",
+  "registry-categories",
+  "registry-search",
+  "registry-updates",
+  "saved-filter",
+  "saved-filters",
+  "scrapers",
+  "segment-display-profile",
+  "segment-display-profiles",
+  "settings",
+  "setup",
+  "system-config",
+  "system-downloaders",
+  "system-status",
+  "video-conversion-encoders",
+]);
+
+export function isContentQueryKey(queryKey: readonly unknown[]): boolean {
+  return !NON_CONTENT_QUERY_ROOTS.has(String(queryKey[0]));
+}
+
+// Job types that write files outside the library and change no content.
+const JOB_TYPES_WITHOUT_CONTENT_CHANGES = new Set(["backup", "export"]);
+
+/**
+ * Any job can commit part of its work before it fails or is cancelled, and job types range from scans
+ * and identify to plugin tasks, so every terminal outcome invalidates all content queries. Bulk
+ * deletions also invalidate settings data: deleting a tag, for example, clears it from display rules.
+ */
 export function invalidateContentForTerminalJob(queryClient: QueryClient, job: JobInfo): boolean {
-  if (!isTerminalJob(job)) return false;
+  if (!isTerminalJob(job) || JOB_TYPES_WITHOUT_CONTENT_CHANGES.has(job.type)) return false;
   if (job.type.endsWith("-bulk-delete")) {
     void queryClient.invalidateQueries();
-    return true;
+  } else {
+    void queryClient.invalidateQueries({ predicate: (query) => isContentQueryKey(query.queryKey) });
   }
-  if (job.status !== "completed") return false;
-
-  void queryClient.invalidateQueries({ queryKey: ["videos"] });
-  void queryClient.invalidateQueries({ queryKey: ["images"] });
-  void queryClient.invalidateQueries({ queryKey: ["galleries"] });
-  void queryClient.invalidateQueries({ queryKey: ["performers"] });
-  void queryClient.invalidateQueries({ queryKey: ["stats"] });
   return true;
+}
+
+/** Replaces the job in the cached list, or appends it. Leaves an unloaded list for the first fetch. */
+export function applyJobUpdate(list: JobInfo[] | undefined, job: JobInfo): JobInfo[] | undefined {
+  if (!list) return list;
+  const index = list.findIndex((existing) => existing.id === job.id);
+  return index === -1 ? [...list, job] : list.map((existing, i) => (i === index ? job : existing));
 }
 
 export function jobHistoryPollingInterval(drawerOpen: boolean): number {
@@ -54,7 +101,7 @@ export function JobDrawer({ open, onClose }: Props) {
   const observedTerminalJobsRef = useRef(new Set<string>());
 
   const { data: activeJobs } = useQuery({
-    queryKey: ["jobs-active"],
+    queryKey: ["jobs"],
     queryFn: jobs.list,
     refetchInterval: open ? 3000 : false,
   });
@@ -90,9 +137,12 @@ export function JobDrawer({ open, onClose }: Props) {
         next.set(job.id, job);
         return next;
       });
-      // Invalidate queries to stay in sync
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
+      // Apply the event to the cached job list so the badge and queue update at once. Updates arrive up
+      // to ten times a second per job, so the follow-up refetch must not cancel one already in flight,
+      // or no refetch would ever finish while jobs run.
+      queryClient.setQueryData<JobInfo[]>(["jobs"], (list) => applyJobUpdate(list, job));
+      queryClient.invalidateQueries({ queryKey: ["jobs"] }, { cancelRefetch: false });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] }, { cancelRefetch: false });
       observeTerminalJob(job);
     });
 
@@ -104,22 +154,47 @@ export function JobDrawer({ open, onClose }: Props) {
     };
   }, [observeTerminalJob, queryClient]);
 
-  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. Bulk jobs can
-  // commit some units before failing or being cancelled, so every terminal outcome invalidates content.
+  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. The first
+  // response only records the baseline: those jobs ended before this page loaded its data.
+  const historyBaselineRecordedRef = useRef(false);
   useEffect(() => {
-    for (const job of collectUnseenTerminalJobs(jobHistory ?? [], observedTerminalJobsRef.current)) {
-      invalidateContentForTerminalJob(queryClient, job);
+    if (!jobHistory) return;
+    const unseen = collectUnseenTerminalJobs(jobHistory, observedTerminalJobsRef.current);
+    if (!historyBaselineRecordedRef.current) {
+      historyBaselineRecordedRef.current = true;
+      return;
     }
+    for (const job of unseen) invalidateContentForTerminalJob(queryClient, job);
   }, [jobHistory, queryClient]);
 
   const handleCancel = useCallback(
     async (id: string) => {
       await jobs.cancel(id);
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
     },
     [queryClient],
   );
+
+  // Clean up stale entries from realtimeJobs when the API no longer returns them
+  const [prevActiveJobs, setPrevActiveJobs] = useState(activeJobs);
+  if (activeJobs !== prevActiveJobs) {
+    setPrevActiveJobs(activeJobs);
+    if (activeJobs) {
+      const activeIds = new Set(activeJobs.map((j) => j.id));
+      setRealtimeJobs((prev) => {
+        let changed = false;
+        const next = new Map(prev);
+        for (const [id] of next) {
+          if (!activeIds.has(id)) {
+            next.delete(id);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+  }
 
   // Merge API jobs with real-time updates
   const mergedActive = activeJobs?.map((j) => realtimeJobs.get(j.id) ?? j) ?? [];
@@ -129,23 +204,6 @@ export function JobDrawer({ open, onClose }: Props) {
       mergedActive.push(job);
     }
   }
-
-  // Clean up stale entries from realtimeJobs when the API no longer returns them
-  useEffect(() => {
-    if (!activeJobs) return;
-    const activeIds = new Set(activeJobs.map((j) => j.id));
-    setRealtimeJobs((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const [id] of next) {
-        if (!activeIds.has(id)) {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [activeJobs]);
 
   const runningCount = mergedActive.filter((j) => j.status === "running" || j.status === "pending").length;
 
@@ -208,43 +266,9 @@ export function JobDrawer({ open, onClose }: Props) {
   );
 }
 
-// Export a hook for the navbar badge
+// Export a hook for the navbar badge. It shares the drawer's active-job query; the drawer stays mounted
+// next to the badge and invalidates that query on every SignalR job update.
 export function useJobCount() {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    const connection = new HubConnectionBuilder()
-      .withUrl("/hubs/jobs")
-      .withAutomaticReconnect()
-      .configureLogging(LogLevel.None)
-      .build();
-
-    let activeIds = new Set<string>();
-
-    connection.on("JobUpdated", (job: JobInfo) => {
-      if (job.status === "running" || job.status === "pending") {
-        activeIds.add(job.id);
-      } else {
-        activeIds.delete(job.id);
-      }
-      setCount(activeIds.size);
-    });
-
-    // Also poll once on mount
-    jobs
-      .list()
-      .then((list) => {
-        activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
-        setCount(activeIds.size);
-      })
-      .catch(() => {});
-
-    connection.start().catch(() => {});
-
-    return () => {
-      connection.stop();
-    };
-  }, []);
-
-  return count;
+  const { data } = useQuery({ queryKey: ["jobs"], queryFn: jobs.list });
+  return data?.filter((job) => job.status === "running" || job.status === "pending").length ?? 0;
 }

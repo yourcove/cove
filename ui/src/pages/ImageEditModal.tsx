@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { images, system } from "../api/client";
 import type { DownloaderMatch, Image, ImageCreate, VideoGroupInput } from "../api/types";
@@ -147,7 +147,7 @@ function toFormState(image?: Image): ImageFormState {
     contextTagIdsByPerformer: buildPerformerContextTagIds(image.contextTagApplications),
     selectedGalleryIds: image.galleryIds ?? [],
     selectedGroups: (image.groups ?? []).map((group) => ({ groupId: group.id, videoIndex: group.videoIndex ?? 0 })),
-    customFields: { ...(image.customFields ?? {}) },
+    customFields: { ...image.customFields },
   };
 }
 
@@ -201,19 +201,28 @@ function ImageMetadataModal({
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   // Callers rebuild initialState on every render, so refill only on open, an explicit reset or a different
   // image; a refetch or a failed save keeps the user's edits.
-  useEffect(() => {
-    if (!open) return;
-    setBaselineState(initialState);
-    setForm(cloneFormState(initialState));
-    setCustomFieldsValid(true);
-  }, [open, resetSignal, image?.id]);
-  // When the edited image refetches (after Mark organized, a scrape or a finished job), untouched fields
-  // follow it and the user's edits stay.
-  useEffect(() => {
-    if (!open || !image) return;
-    setForm((current) => ({ ...current, ...untouchedFieldUpdates(current, baselineState, initialState) }));
-    setBaselineState(initialState);
-  }, [image]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevResetSignal, setPrevResetSignal] = useState(resetSignal);
+  const [prevImage, setPrevImage] = useState(image);
+  const refillForm = open !== prevOpen || resetSignal !== prevResetSignal || image?.id !== prevImage?.id;
+  if (refillForm) {
+    setPrevOpen(open);
+    setPrevResetSignal(resetSignal);
+    if (open) {
+      setBaselineState(initialState);
+      setForm(cloneFormState(initialState));
+      setCustomFieldsValid(true);
+    }
+  }
+  if (image !== prevImage) {
+    setPrevImage(image);
+    // When the edited image refetches (after Mark organized, a scrape or a finished job), untouched fields
+    // follow it and the user's edits stay.
+    if (open && !refillForm && image) {
+      setForm((current) => ({ ...current, ...untouchedFieldUpdates(current, baselineState, initialState) }));
+      setBaselineState(initialState);
+    }
+  }
   const showRating = Boolean(image);
   const tagProvenanceById = buildTagProvenanceById(image?.tags ?? [], image?.fieldProvenance);
   // Seed chip labels from the loaded image so selected chips don't each re-fetch their name by id.
@@ -785,14 +794,6 @@ export function ImageCreateModal({ open, initialTitle = "", onClose, onCreated }
   const handleUrlChange = (value: string) => {
     setUrl(value);
     setNoDownloaderFound(false);
-  };
-
-  const handleCreateWithoutDownload = (data: ImageCreate) => {
-    mutation.mutate({
-      data,
-      contextTagIdsByPerformer: EMPTY_FORM_STATE.contextTagIdsByPerformer,
-      selectedPerformerIds: EMPTY_FORM_STATE.selectedPerformerIds,
-    });
   };
 
   const visibleError =

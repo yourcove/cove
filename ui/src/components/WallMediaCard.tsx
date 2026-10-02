@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { createPlaybackTracker, type PlaybackTrackingTarget } from "../utils/interactionTracking";
@@ -76,23 +76,30 @@ export function WallMediaCard({
   const appConfig = useOptionalAppConfig();
   const mediaRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const onVideoElementChangeRef = useRef(onVideoElementChange);
-  onVideoElementChangeRef.current = onVideoElementChange;
-  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
-    const previous = videoRef.current;
-    videoRef.current = element;
-    if (previous && previous !== element)
-      queueMicrotask(() => {
-        if (videoRef.current === previous) return;
-        previous.pause();
-        previous.removeAttribute("src");
-        previous.load();
-      });
-    onVideoElementChangeRef.current?.(element);
-  }, []);
+  const setVideoRef = useCallback(
+    (element: HTMLVideoElement | null) => {
+      const previous = videoRef.current;
+      videoRef.current = element;
+      if (previous && previous !== element)
+        queueMicrotask(() => {
+          if (videoRef.current === previous) return;
+          previous.pause();
+          previous.removeAttribute("src");
+          previous.load();
+        });
+      onVideoElementChange?.(element);
+    },
+    [onVideoElementChange],
+  );
   const [videoFailed, setVideoFailed] = useState(false);
-  const [videoAvailable, setVideoAvailable] = useState(false);
-  const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
+  const [observedShouldLoadVideo, setShouldLoadVideo] = useState(false);
+  // Without IntersectionObserver there is nothing to wait for, so an enabled video loads straight away.
+  const shouldLoadVideo =
+    typeof IntersectionObserver === "undefined" ? Boolean(useVideo && videoSrc) : observedShouldLoadVideo;
+  // Without a status endpoint a loadable video is available at once; otherwise the status fetch decides.
+  const [videoAvailable, setVideoAvailable] = useState(() =>
+    Boolean(useVideo && videoSrc && shouldLoadVideo && !videoStatusSrc),
+  );
   const [shouldPlayVideo, setShouldPlayVideo] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
@@ -139,18 +146,50 @@ export function WallMediaCard({
   }, [isFullscreen, muted, playbackTracking, shouldPlayVideo, trackingEnabled]);
   const playbackTrackingSignature = useMemo(() => JSON.stringify(playbackTrackingTarget), [playbackTrackingTarget]);
 
-  useEffect(() => {
+  const [prevVideoSrc, setPrevVideoSrc] = useState(videoSrc);
+  if (videoSrc !== prevVideoSrc) {
+    setPrevVideoSrc(videoSrc);
     setVideoFailed(false);
     setCurrentTime(0);
     setVideoDuration(0);
     setIsPlaying(false);
+  }
+
+  // Nothing is loaded while video is disabled, so the next enable waits for the load observer again.
+  if ((!useVideo || !videoSrc) && observedShouldLoadVideo) {
+    setShouldLoadVideo(false);
+  }
+
+  // Availability is re-established whenever any input to the status check changes: immediately when
+  // there is no status endpoint, otherwise by the fetch in the effect below.
+  const [prevAvailabilityInputs, setPrevAvailabilityInputs] = useState({
+    shouldLoadVideo,
+    useVideo,
+    videoSrc,
+    videoStatusSrc,
+  });
+  if (
+    shouldLoadVideo !== prevAvailabilityInputs.shouldLoadVideo ||
+    useVideo !== prevAvailabilityInputs.useVideo ||
+    videoSrc !== prevAvailabilityInputs.videoSrc ||
+    videoStatusSrc !== prevAvailabilityInputs.videoStatusSrc
+  ) {
+    setPrevAvailabilityInputs({ shouldLoadVideo, useVideo, videoSrc, videoStatusSrc });
+    setVideoAvailable(Boolean(useVideo && videoSrc && shouldLoadVideo && !videoStatusSrc));
+  }
+
+  useEffect(() => {
     intervalStart.current = null;
     lastSeenTime.current = 0;
     lastKeepaliveSentAt.current = 0;
   }, [videoSrc]);
 
-  useEffect(() => {
+  // Keyed by the serialized target so a structurally identical target does not reset the tracker.
+  const syncPlaybackTarget = useEffectEvent(() => {
     void playbackTracker.current.setTarget(playbackTrackingTarget);
+  });
+  useEffect(() => {
+    syncPlaybackTarget();
   }, [playbackTrackingSignature]);
 
   useEffect(
@@ -168,7 +207,7 @@ export function WallMediaCard({
 
   useEffect(() => {
     if (!useVideo || !videoSrc) {
-      setShouldLoadVideo(false);
+      // oxlint-disable-next-line react/set-state-in-effect -- also notifies onVideoPlayEligibilityChange, which must happen after commit, not during render
       setVideoPlayEligibility(false);
       return;
     }
@@ -177,7 +216,6 @@ export function WallMediaCard({
     if (!element) return;
 
     if (typeof IntersectionObserver === "undefined") {
-      setShouldLoadVideo(true);
       setVideoPlayEligibility(true);
       return;
     }
@@ -207,18 +245,9 @@ export function WallMediaCard({
   }, [setVideoPlayEligibility, useVideo, videoLoadRootMargin, videoPlayThreshold, videoSrc]);
 
   useEffect(() => {
-    if (!useVideo || !videoSrc || !shouldLoadVideo) {
-      setVideoAvailable(false);
-      return;
-    }
-
-    if (!videoStatusSrc) {
-      setVideoAvailable(true);
-      return;
-    }
+    if (!useVideo || !videoSrc || !shouldLoadVideo || !videoStatusSrc) return;
 
     const controller = new AbortController();
-    setVideoAvailable(false);
     serverAwareFetch(videoStatusSrc, { method: "GET", signal: controller.signal })
       .then((response) => {
         return response.ok ? (response.json() as Promise<{ available?: boolean }>) : { available: false };
@@ -233,13 +262,13 @@ export function WallMediaCard({
     return () => controller.abort();
   }, [shouldLoadVideo, useVideo, videoSrc, videoStatusSrc]);
 
-  const seekToStartTime = () => {
+  const seekToStartTime = useCallback(() => {
     const video = videoRef.current;
     if (!video || videoStartTimeSec <= 0 || !Number.isFinite(video.duration)) return;
     if (video.duration > videoStartTimeSec) {
       video.currentTime = videoStartTimeSec;
     }
-  };
+  }, [videoStartTimeSec]);
 
   const restartBoundedVideo = (video: HTMLVideoElement, nextTime: number) => {
     if (videoEndTimeSec == null || !Number.isFinite(videoEndTimeSec) || nextTime < videoEndTimeSec) return false;
@@ -328,7 +357,7 @@ export function WallMediaCard({
 
   useEffect(() => {
     seekToStartTime();
-  }, [videoSrc, videoStartTimeSec, videoEndTimeSec, videoAvailable, shouldLoadVideo]);
+  }, [seekToStartTime, videoSrc, videoStartTimeSec, videoEndTimeSec, videoAvailable, shouldLoadVideo]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -427,10 +456,12 @@ export function WallMediaCard({
               if (intervalStart.current !== null && nextTime + 0.25 < previousTime) {
                 flushInterval("active");
                 intervalStart.current = nextTime;
+                // oxlint-disable-next-line react/purity -- runs in the onTimeUpdate event handler, not during render
                 lastKeepaliveSentAt.current = Date.now();
               }
               syncVideoMetrics();
               if (intervalStart.current !== null) {
+                // oxlint-disable-next-line react/purity -- runs in the onTimeUpdate event handler, not during render
                 const now = Date.now();
                 if (now - lastKeepaliveSentAt.current >= 10000) {
                   lastKeepaliveSentAt.current = now;
@@ -458,7 +489,8 @@ export function WallMediaCard({
         )}
         {children}
         {videoControls && useVideo && videoSrc && shouldLoadVideo && videoAvailable && !videoFailed
-          ? videoControls({
+          ? // oxlint-disable-next-line react/refs -- the controls call these ref-reading handlers from user events, not during render
+            videoControls({
               currentTime,
               duration: videoDuration,
               progressPercent: videoDuration > 0 ? Math.min(100, Math.max(0, (currentTime / videoDuration) * 100)) : 0,

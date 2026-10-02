@@ -1,18 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import {
-  X,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  ChevronDown,
-  Trash2,
-  Shuffle,
-  Repeat,
-  List,
-  SkipBack,
-  SkipForward,
-} from "lucide-react";
+import { X, ChevronUp, ChevronDown, Trash2, Shuffle, Repeat, List, SkipBack, SkipForward } from "lucide-react";
 import { videos } from "../api/client";
 
 export interface VideoQueueProps {
@@ -31,7 +19,7 @@ function formatQueueDuration(seconds?: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function VideoQueue({ videos: initialVideos, initialIndex = 0, onClose, onNavigate }: VideoQueueProps) {
+export function VideoQueue({ videos: initialVideos, initialIndex = 0, onClose }: VideoQueueProps) {
   const [queue, setQueue] = useState(initialVideos);
   const [currentIndex, setCurrentIndex] = useState(Math.min(initialIndex, initialVideos.length - 1));
   const [queueOpen, setQueueOpen] = useState(true);

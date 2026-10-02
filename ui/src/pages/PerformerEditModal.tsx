@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { IsoDateInput } from "../components/IsoDateInput";
@@ -70,7 +70,7 @@ function performerFormValues(performer: Performer) {
     urls: performer.urls.length > 0 ? performer.urls : [""],
     aliases: performer.aliases.length > 0 ? performer.aliases : [""],
     selectedTagIds: performer.tags.map((t) => t.id),
-    customFields: { ...(performer.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...performer.customFields } as Record<string, unknown>,
     remoteIds: performer.remoteIds.map((remoteId) => ({ ...remoteId })) as RemoteIdValue[],
   };
 }
@@ -161,7 +161,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     buildSelectedTagLookup(performer.tags),
   );
   const [tagSearch, setTagSearch] = useState("");
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(performer.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...performer.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
   const trimmedTagSearch = tagSearch.trim();
@@ -183,38 +183,44 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
 
   // Fill the form each time the dialog opens. A refetch while it is open keeps the user's edits, and
   // reopening after Cancel discards them.
-  useEffect(() => {
-    if (!open) return;
-    setBaseline(performer);
-    setName(performer.name);
-    setDisambiguation(performer.disambiguation || "");
-    setGender(performer.gender || "");
-    setBirthdate(performer.birthdate || "");
-    setEthnicity(performer.ethnicity || "");
-    setCountry(performer.country || "");
-    setEyeColor(performer.eyeColor || "");
-    setHairColor(performer.hairColor || "");
-    setHeightCm(performer.heightCm ?? undefined);
-    setWeight(performer.weight ?? undefined);
-    setMeasurements(performer.measurements || "");
-    setTattoos(performer.tattoos || "");
-    setPiercings(performer.piercings || "");
-    setRating(undefined);
-    setDetails(performer.details || "");
-    setDeathDate(performer.deathDate || "");
-    setFakeTits(performer.fakeTits || "");
-    setPenisLength(performer.penisLength ?? undefined);
-    setCircumcised(performer.circumcised || "");
-    setCareerStart(performer.careerStart || "");
-    setCareerEnd(performer.careerEnd || "");
-    setUrls(performer.urls.length > 0 ? performer.urls : [""]);
-    setAliases(performer.aliases.length > 0 ? performer.aliases : [""]);
-    setSelectedTagIds(performer.tags.map((t) => t.id));
-    setSelectedTagsById(buildSelectedTagLookup(performer.tags));
-    setTagSearch("");
-    setCustomFields({ ...(performer.customFields ?? {}) });
-    setRemoteIds(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
-  }, [performer.id, open]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevPerformerId, setPrevPerformerId] = useState(performer.id);
+  const openOrPerformerChanged = open !== prevOpen || performer.id !== prevPerformerId;
+  if (openOrPerformerChanged) {
+    setPrevOpen(open);
+    setPrevPerformerId(performer.id);
+    if (open) {
+      setBaseline(performer);
+      setName(performer.name);
+      setDisambiguation(performer.disambiguation || "");
+      setGender(performer.gender || "");
+      setBirthdate(performer.birthdate || "");
+      setEthnicity(performer.ethnicity || "");
+      setCountry(performer.country || "");
+      setEyeColor(performer.eyeColor || "");
+      setHairColor(performer.hairColor || "");
+      setHeightCm(performer.heightCm ?? undefined);
+      setWeight(performer.weight ?? undefined);
+      setMeasurements(performer.measurements || "");
+      setTattoos(performer.tattoos || "");
+      setPiercings(performer.piercings || "");
+      setRating(undefined);
+      setDetails(performer.details || "");
+      setDeathDate(performer.deathDate || "");
+      setFakeTits(performer.fakeTits || "");
+      setPenisLength(performer.penisLength ?? undefined);
+      setCircumcised(performer.circumcised || "");
+      setCareerStart(performer.careerStart || "");
+      setCareerEnd(performer.careerEnd || "");
+      setUrls(performer.urls.length > 0 ? performer.urls : [""]);
+      setAliases(performer.aliases.length > 0 ? performer.aliases : [""]);
+      setSelectedTagIds(performer.tags.map((t) => t.id));
+      setSelectedTagsById(buildSelectedTagLookup(performer.tags));
+      setTagSearch("");
+      setCustomFields({ ...performer.customFields });
+      setRemoteIds(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
+    }
+  }
 
   const currentValues: PerformerFormValues = {
     name,
@@ -277,14 +283,13 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   };
   // When the performer refetches while the dialog is open, untouched fields follow it and the user's edits
   // stay.
-  useEffect(() => {
-    if (!open || performer === baseline) return;
+  if (open && !openOrPerformerChanged && performer !== baseline) {
     applyFormFields(
       untouchedFieldUpdates(currentValues, performerFormValues(baseline), performerFormValues(performer)),
       formSetters,
     );
     setBaseline(performer);
-  }, [performer]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -308,7 +313,10 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     );
   };
 
-  const filteredTags = tagResults?.items.filter((tag) => !selectedTagIds.includes(tag.id)) ?? [];
+  const filteredTags = useMemo(
+    () => tagResults?.items.filter((tag) => !selectedTagIds.includes(tag.id)) ?? [],
+    [selectedTagIds, tagResults?.items],
+  );
   const tagExactMatchExists = useMemo(
     () =>
       trimmedTagSearch && tagResults?.items.some((tag) => tag.name.toLowerCase() === trimmedTagSearch.toLowerCase()),
@@ -342,7 +350,15 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     }
     return items;
   }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, tagResultsPlaceholder, trimmedTagSearch]);
-  const tagAutocomplete = useAutocomplete({
+  const {
+    activeKey: activeTagKey,
+    getOptionProps: getTagOptionProps,
+    inputProps: tagInputProps,
+    inputRef: tagInputRef,
+    isOpen: tagListOpen,
+    listboxProps: tagListboxProps,
+    listboxRef: tagListboxRef,
+  } = useAutocomplete({
     items: tagAutocompleteItems,
     inputValue: tagSearch,
     onInputValueChange: setTagSearch,
@@ -517,17 +533,17 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
             provenanceById={tagProvenanceById}
           />
           <input
-            ref={tagAutocomplete.inputRef}
-            {...tagAutocomplete.inputProps}
+            ref={tagInputRef}
+            {...tagInputProps}
             type="text"
             value={tagSearch}
             placeholder="Search tags..."
             className="w-full bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent mb-1"
           />
-          {trimmedTagSearch && tagAutocomplete.isOpen && (
+          {trimmedTagSearch && tagListOpen && (
             <div
-              ref={tagAutocomplete.listboxRef}
-              {...tagAutocomplete.listboxProps}
+              ref={tagListboxRef}
+              {...tagListboxProps}
               className="max-h-32 overflow-y-auto bg-card rounded border border-border"
             >
               {tagResultsLoading ? (
@@ -538,21 +554,19 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
               {filteredTags.map((tag, index) => (
                 <button
                   key={tag.id}
-                  {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
+                  {...getTagOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
                   type="button"
-                  className={`block w-full px-3 py-1.5 text-left text-sm ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
+                  className={`block w-full px-3 py-1.5 text-left text-sm ${activeTagKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
                 >
                   {tag.name}
                 </button>
               ))}
               {showTagCreateOption ? (
                 <button
-                  {...tagAutocomplete.getOptionProps<HTMLButtonElement>(
-                    tagAutocompleteItems[tagAutocompleteItems.length - 1],
-                  )}
+                  {...getTagOptionProps<HTMLButtonElement>(tagAutocompleteItems[tagAutocompleteItems.length - 1])}
                   type="button"
                   disabled={tagCreateMutation.isPending}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${activeTagKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
                 >
                   {tagCreateMutation.isPending ? (
                     <span className="text-secondary">Creating...</span>

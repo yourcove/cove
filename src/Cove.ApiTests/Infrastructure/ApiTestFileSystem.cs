@@ -414,6 +414,16 @@ public sealed class ApiTestFileSystem
             Path.Combine("previews", GetVideoBucket(videoId), $"{videoId}.mp4"),
             contents);
 
+    public string CreateVideoVrCard(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("vr-cards", GetVideoBucket(videoId), $"{videoId}.jpg"),
+            contents);
+
+    public string CreateVideoVrPreview(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("vr-previews", GetVideoBucket(videoId), $"{videoId}.mp4"),
+            contents);
+
     public string CreateVideoSprite(int videoId, byte[] contents)
         => CreateGeneratedFile(
             Path.Combine("vtt", GetVideoBucket(videoId), $"{videoId}_sprite.jpg"),

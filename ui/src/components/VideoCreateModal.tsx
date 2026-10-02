@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { videos } from "../api/client";
 import type { Video, VideoCreate } from "../api/types";
@@ -30,7 +30,7 @@ export function VideoCreateModal({
   onCreated: (id: number) => void;
 }) {
   const qc = useQueryClient();
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(open && !split ? initialTitle.trim() : "");
   const [code, setCode] = useState("");
   const [date, setDate] = useState("");
   const [details, setDetails] = useState("");
@@ -51,9 +51,17 @@ export function VideoCreateModal({
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>([]);
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<number[]>([]);
 
-  useEffect(() => {
+  // initialTitle prefills the title only when there is no split, so of `split` only whether it is set matters.
+  const hasSplit = Boolean(split);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialTitle, setPrevInitialTitle] = useState(initialTitle);
+  const [prevHasSplit, setPrevHasSplit] = useState(hasSplit);
+  if (open !== prevOpen || initialTitle !== prevInitialTitle || hasSplit !== prevHasSplit) {
+    setPrevOpen(open);
+    setPrevInitialTitle(initialTitle);
+    setPrevHasSplit(hasSplit);
     if (open && !split) setTitle(initialTitle.trim());
-  }, [initialTitle, open, split]);
+  }
 
   const touched = useRef(new Set<string>());
   const touchedCustomFields = useRef(new Set<string>());

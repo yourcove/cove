@@ -8,7 +8,6 @@ import {
   tagApplications,
   tags,
   entityImages,
-  metadata,
   fileOps,
   galleries,
 } from "../api/client";
@@ -24,23 +23,19 @@ import {
   resolveTagProvenance,
 } from "../components/shared";
 import {
-  Plus,
   Trash2,
   Search,
   Eye,
   EyeOff,
-  ArrowLeft,
   ThumbsUp,
   Check,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   MoreVertical,
-  Gauge,
   Clapperboard,
   FolderOpen,
   Layers,
-  Clock,
   List,
   RefreshCw,
   Camera,
@@ -58,6 +53,7 @@ import {
   AlertTriangle,
   FileVideoCamera,
   CloudUpload,
+  Glasses,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -131,16 +127,14 @@ import { faceDisplayName } from "../utils/faceDisplay";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailability } from "../components/VisualSimilarityPanel";
 import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailability } from "../components/AudioSimilarityPanel";
-import {
-  EntityReferenceMultiSelector,
-  EntityReferenceSelector,
-  EntityReferenceValue,
-} from "../components/EntityReferenceSelector";
+import { EntityReferenceMultiSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { videoEditClearFields } from "../utils/videoEditClearFields";
+import { VrLayoutFields, detectedVrLayout, explicitVrLayout } from "../components/VrLayoutFields";
+import { formatVrLayout, type VrDescriptor } from "../vr/immersiveVideo";
 import { invalidateGalleriesForVideoLinkChange } from "../utils/galleryVideoLinks";
 import { changedUpdateFields } from "../utils/changedUpdateFields";
 import { applyFormFields, untouchedFieldUpdates, type FormFieldSetters } from "../utils/rebaseEditForm";
@@ -382,7 +376,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     autoplay: queueAutoplay,
     toggleAutoplay,
   } = useVideoQueue();
-  const { getTabsForPage, getExtensionRevision, resolveComponent: resolveExtComponent, getFeature } = useExtensions();
+  const { getTabsForPage, getExtensionRevision, resolveComponent: resolveExtComponent } = useExtensions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
@@ -401,24 +395,27 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
   const [showMerge, setShowMerge] = useState(false);
   const [showIdentify, setShowIdentify] = useState(false);
   const [showSubmitDraft, setShowSubmitDraft] = useState(false);
-  // A draft goes to an external server, so never let an open dialog carry over to the next video in the queue.
-  useEffect(() => setShowSubmitDraft(false), [id]);
   const [showScrapeDialog, setShowScrapeDialog] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [alternateFileId, setAlternateFileId] = useState<number | null>(null);
   const [alignmentDialogOpen, setAlignmentDialogOpen] = useState(false);
-  useEffect(() => setAlternateFileId(null), [id]);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "details");
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilterState>(EMPTY_SEGMENT_FILTER);
+  const [prevId, setPrevId] = useState(id);
+  if (id !== prevId) {
+    setPrevId(id);
+    // A draft goes to an external server, so never let an open dialog carry over to the next video in the queue.
+    setShowSubmitDraft(false);
+    setAlternateFileId(null);
+    setSegmentFilter(EMPTY_SEGMENT_FILTER);
+  }
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "videos" }, onNavigate);
   const canWriteVideo = canWriteEntity("video", hasPermission);
   const canReadVideo = canReadEntity("video", hasPermission);
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
   const canDeleteVideoFiles = hasPermission("videos.delete.file");
-  const canReadGroups = canReadEntity("group", hasPermission);
-  const canReadGalleries = canReadEntity("gallery", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
   const canWriteFaces = canWriteEntity("face", hasPermission);
   // Correcting face occurrences needs a provider extension; without one the host has nothing to defer
@@ -471,7 +468,6 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
   const videoPlayDuration = videoEngagement?.playDuration ?? 0;
   const videoResumeTime = videoEngagement?.resumeTime;
   const videoLikeCount = videoEngagement?.likeCount ?? 0;
-  const videoDerivedLikeCount = videoEngagement?.derivedLikeCount ?? 0;
   const videoPageVisitCount = videoEngagement?.pageVisitCount ?? 0;
   const primaryFileForResume =
     video?.primaryFileId === undefined
@@ -594,7 +590,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     enabled: canReadSegments,
   });
   const segmentsLoadError = getLoadError(segmentsData, segmentsError);
-  const segments = segmentsData ?? [];
+  const segments = useMemo(() => segmentsData ?? [], [segmentsData]);
 
   const {
     data: displayProfilesData,
@@ -622,7 +618,6 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
 
   const {
     data: detectionsData,
-    isLoading: detectionsLoading,
     error: detectionsError,
     refetch: retryDetections,
   } = useQuery({
@@ -631,7 +626,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     enabled: canReadSegments,
   });
   const detectionsLoadError = getLoadError(detectionsData, detectionsError);
-  const detections = detectionsData ?? [];
+  const detections = useMemo(() => detectionsData ?? [], [detectionsData]);
   const segmentsTabLoadError = segmentsLoadError ?? displayProfilesLoadError ?? resolvedSpansLoadError;
 
   const videoFaceIds = useMemo(() => {
@@ -759,9 +754,6 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     [segmentRawById, tagIdToGroupId],
   );
 
-  useEffect(() => {
-    setSegmentFilter(EMPTY_SEGMENT_FILTER);
-  }, [id]);
   const visualSimilarityAvailability = useVideoVisualSimilarityAvailability(id);
   const audioSimilarityAvailability = useVideoAudioSimilarityAvailability(id);
   const hasVisualSimilarity = visualSimilarityAvailability.available;
@@ -794,17 +786,14 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     hasPermission,
   );
 
-  useEffect(() => {
-    if (
-      (activeTab === "similar" && visualSimilarityAvailability.loading) ||
-      (activeTab === "audio-similar" && audioSimilarityAvailability.loading)
-    ) {
-      return;
-    }
-    if (!tabs.some((tab) => tab.key === activeTab)) {
-      setActiveTab("details");
-    }
-  }, [activeTab, audioSimilarityAvailability.loading, tabs, visualSimilarityAvailability.loading]);
+  // Fall back to Details when the active tab is not offered, but not while a similarity tab is still
+  // finding out whether it is available. Details is always offered, so this settles after one update.
+  const activeTabAvailabilityLoading =
+    (activeTab === "similar" && visualSimilarityAvailability.loading) ||
+    (activeTab === "audio-similar" && audioSimilarityAvailability.loading);
+  if (!activeTabAvailabilityLoading && !tabs.some((tab) => tab.key === activeTab)) {
+    setActiveTab("details");
+  }
 
   useEffect(() => {
     if (!queue || queueCurrentId === id) {
@@ -982,6 +971,17 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
               <a {...directorVideosLinkProps(video.director, onNavigate)} className="hover:text-foreground">
                 Director {video.director}
               </a>
+            </FieldProvenanceHover>
+          ) : null}
+          {video.isVr ? (
+            <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="isVr">
+              <span
+                className="inline-flex items-center gap-1 rounded bg-card px-1.5 py-0.5 text-xs"
+                title={video.vr?.inferred ? "VR layout detected from the file" : "VR layout set on the video"}
+              >
+                <Glasses className="h-3 w-3" />
+                {formatVrLayout(video.vr)}
+              </span>
             </FieldProvenanceHover>
           ) : null}
         </div>
@@ -1338,6 +1338,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
             faces={videoFaces.map(({ face }) => face)}
             captions={file.captions}
             videoStyle={videoStyle}
+            vr={video.vr}
+            vrTitle={video.title || file.basename}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
             }}
@@ -1746,7 +1748,6 @@ export function DetailsTab({
   onMarkFaceNotPresent,
   markingFaceId,
   onSplitFace,
-  onRequestReportTag,
 }: {
   video: Video;
   onNavigate: (r: any) => void;
@@ -2606,13 +2607,18 @@ function VideoScrubber({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  // Load and parse VTT sprite data
-  useEffect(() => {
-    let cancelled = false;
-
+  // Drop the previous video's sprites as soon as the video changes, before its own load starts.
+  const [prevVideoId, setPrevVideoId] = useState(videoId);
+  if (videoId !== prevVideoId) {
+    setPrevVideoId(videoId);
     setSpriteData(null);
     setSpriteError(false);
     setSpriteLoadSettled(false);
+  }
+
+  // Load and parse VTT sprite data
+  useEffect(() => {
+    let cancelled = false;
 
     serverAwareFetch(spriteVttUrl)
       .then((r) => {
@@ -2818,7 +2824,7 @@ function VideoScrubber({
       return 0;
     }
     return -1;
-  }, [currentTime, spriteData, duration, thumbCount]);
+  }, [currentTime, spriteData]);
 
   // Auto-scroll to active thumbnail
   useEffect(() => {
@@ -3130,86 +3136,6 @@ function formatTimelineTime(seconds: number) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-function DetectionsPanel({
-  detections,
-  loading,
-  onSeek,
-}: {
-  detections: Detection[];
-  loading: boolean;
-  onSeek?: (time: number) => void;
-}) {
-  const classCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const detection of detections) {
-      counts.set(detection.class, (counts.get(detection.class) ?? 0) + 1);
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-  }, [detections]);
-
-  if (loading) {
-    return <div className="text-sm text-secondary">Loading detections...</div>;
-  }
-
-  if (detections.length === 0) {
-    return <div className="text-sm text-muted">No detections recorded for this video.</div>;
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-        <span>
-          {detections.length} detection{detections.length !== 1 ? "s" : ""}
-        </span>
-        {classCounts.map(([name, count]) => (
-          <span key={name} className="rounded-full border border-border bg-surface px-2 py-1">
-            {name} · {count}
-          </span>
-        ))}
-      </div>
-      <div className="space-y-1">
-        {detections.map((detection) => (
-          <div key={detection.id} className="rounded border border-border bg-card px-3 py-2 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <button
-                className="flex items-center gap-3 text-left hover:text-accent"
-                onClick={() => onSeek?.(detection.observedAtSec ?? 0)}
-              >
-                <span className="w-20 font-mono text-xs text-accent">
-                  {formatTimelineTime(detection.observedAtSec ?? 0)}
-                </span>
-                <span className="text-foreground">{detection.class}</span>
-                <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">
-                  {Math.round(detection.score * 100)}%
-                </span>
-              </button>
-              <div className="text-xs text-secondary">
-                {detection.frameWidth}×{detection.frameHeight}
-              </div>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-secondary">
-              <span className="rounded bg-surface px-1.5 py-0.5">x {detection.x.toFixed(3)}</span>
-              <span className="rounded bg-surface px-1.5 py-0.5">y {detection.y.toFixed(3)}</span>
-              <span className="rounded bg-surface px-1.5 py-0.5">w {detection.w.toFixed(3)}</span>
-              <span className="rounded bg-surface px-1.5 py-0.5">h {detection.h.toFixed(3)}</span>
-              {detection.refKind && detection.refId != null && (
-                <span className="rounded bg-surface px-1.5 py-0.5">
-                  {detection.refKind} #{detection.refId}
-                </span>
-              )}
-              {detection.groupKey && (
-                <span className="rounded bg-surface px-1.5 py-0.5">group {detection.groupKey}</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ===== Inline Video Edit Panel =====
 function videoFormValues(video: Video) {
   return {
@@ -3219,11 +3145,12 @@ function videoFormValues(video: Video) {
     director: video.director || "",
     date: video.date || "",
     isVr: video.isVr ?? false,
+    vrLayout: explicitVrLayout(video),
     rating: undefined as number | undefined,
     urls: video.urls.length > 0 ? video.urls : [""],
     studioId: video.studioId ?? undefined,
     remoteIds: (video.remoteIds?.length ? video.remoteIds : []) as RemoteIdValue[],
-    customFields: { ...(video.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...video.customFields } as Record<string, unknown>,
     selectedTagIds: getEditableTagIds(video.tags),
     selectedPerformerIds: video.performers.map((p) => p.id),
     selectedGalleryIds: video.galleries.map((g) => g.id),
@@ -3242,6 +3169,7 @@ function videoUpdatePayload(values: VideoFormValues): VideoUpdate {
     director: values.director,
     date: values.date || undefined,
     isVr: values.isVr,
+    vr: values.isVr && values.vrLayout ? values.vrLayout : undefined,
     rating: values.rating,
     studioId: values.studioId,
     urls: values.urls.map((url) => url.trim()).filter(Boolean),
@@ -3251,7 +3179,7 @@ function videoUpdatePayload(values: VideoFormValues): VideoUpdate {
     performerIds: values.selectedPerformerIds,
     galleryIds: values.selectedGalleryIds,
     groups: values.selectedGroups,
-    clearFields: videoEditClearFields(values.date, values.studioId),
+    clearFields: [...videoEditClearFields(values.date, values.studioId), ...(values.vrLayout ? [] : ["vr"])],
   };
 }
 
@@ -3274,10 +3202,11 @@ function VideoEditPanel({
   const [director, setDirector] = useState(video.director || "");
   const [date, setDate] = useState(video.date || "");
   const [isVr, setIsVr] = useState(video.isVr ?? false);
+  const [vrLayout, setVrLayout] = useState<VrDescriptor | null>(explicitVrLayout(video));
   const [rating, setRating] = useState<number | undefined>(undefined);
   const [urls, setUrls] = useState(video.urls.length > 0 ? video.urls : [""]);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(video.remoteIds?.length ? video.remoteIds : []);
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(video.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...video.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [studioId, setStudioId] = useState<number | undefined>(video.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(getEditableTagIds(video.tags));
@@ -3299,6 +3228,7 @@ function VideoEditPanel({
     director,
     date,
     isVr,
+    vrLayout,
     rating,
     urls,
     studioId,
@@ -3317,6 +3247,7 @@ function VideoEditPanel({
     director: setDirector,
     date: setDate,
     isVr: setIsVr,
+    vrLayout: setVrLayout,
     rating: setRating,
     urls: setUrls,
     studioId: setStudioId,
@@ -3332,16 +3263,16 @@ function VideoEditPanel({
   // fields follow it and the user's edits stay.
   // After a save, the server may return what was sent in its own form (lists in display order, trimmed
   // text), so fields untouched since the save take the saved video's values rather than looking edited.
-  const pendingValues = useRef<VideoFormValues | null>(null);
-  const submittedValues = useRef<VideoFormValues | null>(null);
-  useEffect(() => {
-    if (video === baseline) return;
+  // The submitted values apply only while the baseline they were saved over is still current.
+  const pendingSave = useRef<{ values: VideoFormValues; baseline: Video } | null>(null);
+  const [submittedSave, setSubmittedSave] = useState<{ values: VideoFormValues; baseline: Video } | null>(null);
+  if (video !== baseline) {
     const next = videoFormValues(video);
-    const from = submittedValues.current ?? videoFormValues(baseline);
-    submittedValues.current = null;
+    const from = submittedSave?.baseline === baseline ? submittedSave.values : videoFormValues(baseline);
+    setSubmittedSave(null);
     applyFormFields(video.id === baseline.id ? untouchedFieldUpdates(currentValues, from, next) : next, formSetters);
     setBaseline(video);
-  }, [video]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -3361,9 +3292,8 @@ function VideoEditPanel({
       return updated;
     },
     onSuccess: (_updated, data) => {
-      submittedValues.current = pendingValues.current;
+      setSubmittedSave(pendingSave.current);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["tagapplications"] });
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       // Links may have changed elsewhere since the edit started, so compare against both copies.
       if (data.galleryIds) {
@@ -3379,7 +3309,7 @@ function VideoEditPanel({
   });
 
   const handleSave = () => {
-    pendingValues.current = currentValues;
+    pendingSave.current = { values: currentValues, baseline };
     mutation.mutate(
       changedUpdateFields(videoUpdatePayload(videoFormValues(baseline)), videoUpdatePayload(currentValues)),
     );
@@ -3476,6 +3406,15 @@ function VideoEditPanel({
         />
         VR
       </label>
+      {isVr ? (
+        <VrLayoutFields
+          value={vrLayout}
+          detected={detectedVrLayout(video)}
+          onChange={setVrLayout}
+          inputClassName={inputCls}
+          compact
+        />
+      ) : null}
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="studio" block>
         <div className="space-y-1">
           <span className="text-xs text-secondary">Studio</span>

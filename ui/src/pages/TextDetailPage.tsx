@@ -15,7 +15,6 @@ import {
   Link2,
   MoreVertical,
   RefreshCw,
-  Rows3,
   ThumbsUp,
   Trash2,
 } from "lucide-react";
@@ -97,9 +96,11 @@ function SourcePdfViewer({
     Number.isFinite(pageCount ?? NaN) && (pageCount ?? 0) > 0 ? Math.floor(pageCount ?? 0) : undefined;
   const frameUrl = buildPdfFrameUrl(sourceUrl, page);
 
-  useEffect(() => {
+  const [prevSourceUrl, setPrevSourceUrl] = useState(sourceUrl);
+  if (prevSourceUrl !== sourceUrl) {
+    setPrevSourceUrl(sourceUrl);
     setPage(1);
-  }, [sourceUrl]);
+  }
 
   const setClampedPage = (nextPage: number) => {
     const maxPage = normalizedPageCount ?? Number.MAX_SAFE_INTEGER;
@@ -310,25 +311,11 @@ export function TextDetailPage({ id, onNavigate }: Props) {
       nextTabs.push({ key: "edit", label: "Edit" });
     }
     return nextTabs;
-  }, [
-    canReadFiles,
-    canReadGroups,
-    canReadPerformers,
-    canReadStudio,
-    canReadTags,
-    canWriteText,
-    text?.files.length,
-    text?.groups.length,
-    text?.performers.length,
-    text?.studioId,
-    text?.tags.length,
-  ]);
+  }, [canReadFiles, canWriteText, text?.files.length]);
 
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.key === activeTab)) {
-      setActiveTab("details");
-    }
-  }, [activeTab, tabs]);
+  if (!tabs.some((tab) => tab.key === activeTab)) {
+    setActiveTab("details");
+  }
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -938,26 +925,6 @@ function TextHistoryTab({
           <span className="text-muted">Updated:</span> <span className="text-foreground">{formatDate(updatedAt)}</span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function RelatedSection({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted">
-        {icon}
-        {title}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }

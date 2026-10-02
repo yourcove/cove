@@ -5,7 +5,17 @@ export type NavVisibilityUser = {
 };
 
 export type EntityResource =
-  "video" | "audio" | "text" | "image" | "performer" | "gallery" | "studio" | "tag" | "group" | "segment" | "face";
+  | "video"
+  | "audio"
+  | "text"
+  | "image"
+  | "performer"
+  | "gallery"
+  | "studio"
+  | "tag"
+  | "group"
+  | "segment"
+  | "face";
 export type NavPage =
   | "videos"
   | "audios"

@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useVideoQueue } from "../state/VideoQueueContext";
+import { videoQueueItem } from "../hooks/useVideoQueueNavigation";
 import { BulkEditDialog, VIDEO_BULK_FIELDS } from "./BulkEditDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExtensionSelectionActions } from "./ExtensionSelectionActions";
@@ -102,6 +103,7 @@ export function VideoSelectionActions({
     loadStoredBatchDownloadOptions(batchDownloadStorageKey),
   );
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads the stored download options from localStorage when the storage key changes; storage reads stay out of render
     setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
   }, [batchDownloadStorageKey]);
 
@@ -138,7 +140,7 @@ export function VideoSelectionActions({
     meta: { suppressGlobalError: true },
     mutationFn: async (options: BatchDownloadOptions) => queueBatchDownloads("Video", selectedDownloadTargets, options),
     onSuccess: (result) => {
-      for (const key of ["jobs", "jobs-active", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
+      for (const key of ["jobs", "jobs-history"]) queryClient.invalidateQueries({ queryKey: [key] });
       invalidate();
       window.alert(formatBatchDownloadSummary("video", result));
       onSelectNone();
@@ -155,12 +157,7 @@ export function VideoSelectionActions({
     setQueue(
       ids,
       ids[0],
-      selectedVideos.map((video) => ({
-        id: video.id,
-        title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-        subtitle: video.studioName || video.date || undefined,
-        imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-      })),
+      selectedVideos.map((video) => videoQueueItem(video)),
       { autoplay: continuePlaylistDefault },
     );
     onSelectNone();
@@ -203,7 +200,7 @@ export function VideoSelectionActions({
           Identify
         </button>
       )}
-      {canWrite && selectedIds.size >= 2 && (
+      {canWrite && canDelete && selectedIds.size >= 2 && (
         <button
           onClick={() => setShowMerge(true)}
           className={`${actionClass} text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20`}

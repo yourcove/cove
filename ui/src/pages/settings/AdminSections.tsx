@@ -661,7 +661,7 @@ function CreateUserDialog({
         });
       }
 
-      const created = await usersApi.create({
+      await usersApi.create({
         username,
         password,
         displayName: displayName || undefined,
@@ -858,11 +858,11 @@ function InviteDialog({ user, onClose }: { user: UserRow; onClose: () => void })
     onError: (e: any) => setErr(e?.message ?? "Failed"),
   });
 
+  // Run once per opened dialog: TanStack Query keeps `mutate` stable for the mutation's lifetime.
+  const { mutate: createInvite } = m;
   useEffect(() => {
-    m.mutate();
-    // Run once per opened dialog.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    createInvite();
+  }, [createInvite]);
 
   return (
     <Modal title={`Invite ${user.username}`} onClose={onClose}>

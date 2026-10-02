@@ -15,7 +15,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
@@ -30,6 +30,8 @@
     <ProjectReference Include="..\Cove.Api\Cove.Api.csproj" />
     <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
     <ProjectReference Include="..\Cove.Data\Cove.Data.csproj" />
+    <!-- Aliased: the manager and Cove.Api both compile top-level statements into a global Program. -->
+    <ProjectReference Include="..\Cove.InstanceManager\Cove.InstanceManager.csproj" Aliases="InstanceManager" />
   </ItemGroup>
 
 </Project>

@@ -30,14 +30,16 @@ public sealed class GenerateJobService(
         VideoFile File,
         string Path,
         bool HasThumbnail,
+        bool HasVrCard,
         bool HasPreview,
+        bool HasVrPreview,
         bool HasSprite,
         bool HasPhash,
         bool HasMd5);
 
     /// <summary>Work that needs frames decoded out of the source file. MD5 does not.</summary>
     private static bool NeedsDecodableSource(GenerateOptionsDto options)
-        => options.Thumbnails || options.Previews || options.Sprites
+        => options.Thumbnails || options.Previews || options.Sprites || options.VrStereo
             || options.SegmentThumbnails || options.SegmentPreviews || options.Segments
             || options.Phashes;
 
@@ -213,7 +215,9 @@ public sealed class GenerateJobService(
             file,
             GeneratePathFilter.Resolve(file),
             System.IO.File.Exists(thumbnailService.GetThumbnailPathForVideo(video.Id)),
+            !video.IsVr || videoAssetGenerator.HasVrCard(video.Id),
             System.IO.File.Exists(thumbnailService.GetPreviewPath(video.Id)),
+            !video.IsVr || videoAssetGenerator.HasVrPreview(video.Id),
             System.IO.File.Exists(thumbnailService.GetSpritePath(video.Id))
                 && System.IO.File.Exists(thumbnailService.GetSpriteVttPath(video.Id)),
             video.Files.Any(candidate => candidate.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value))),
@@ -225,7 +229,9 @@ public sealed class GenerateJobService(
         var generatedFileWork =
             (ShouldGenerateDefaultVideoThumbnail(options.Thumbnails, item.Video.ImageBlobId)
                 && (options.Overwrite || !item.HasThumbnail))
+            || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
             || (options.Previews && (options.Overwrite || !item.HasPreview))
+            || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
             || (options.Sprites && (options.Overwrite || !item.HasSprite))
             || options.SegmentThumbnails
             || options.SegmentPreviews
@@ -466,6 +472,19 @@ public sealed class GenerateJobService(
                     "Thumbnail generation failed");
         }
 
+        // The stereoscopic card a headset shows, beside the one-eye cover flat screens show.
+        if (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
+        {
+            await ReportGenerateResultAsync(
+                unit,
+                videoAssetGenerator.GenerateVrCardFromFileAsync(
+                    item.Video.Id,
+                    item.File.Id,
+                    options.Overwrite,
+                    ct),
+                "Stereoscopic card generation failed");
+        }
+
         if (options.Previews && (options.Overwrite || !item.HasPreview))
         {
             await ReportGenerateResultAsync(
@@ -476,6 +495,19 @@ public sealed class GenerateJobService(
                     options.Overwrite,
                     ct),
                 "Preview generation failed");
+        }
+
+        // The stereoscopic clip a headset shows, beside the one-eye preview flat screens show.
+        if (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
+        {
+            await ReportGenerateResultAsync(
+                unit,
+                videoAssetGenerator.GenerateVrPreviewFromFileAsync(
+                    item.Video.Id,
+                    item.File.Id,
+                    options.Overwrite,
+                    ct),
+                "Stereoscopic preview generation failed");
         }
 
         if (options.Sprites && (options.Overwrite || !item.HasSprite))

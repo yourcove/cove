@@ -582,7 +582,14 @@ internal sealed class EntityMergeMetadataService(CoveContext db)
         IReadOnlyDictionary<int, int> idMap,
         CancellationToken ct)
     {
-        var fieldProvenance = await db.FieldProvenance.Where(row => row.ValueJson != null).ToListAsync(ct);
+        var sourceIds = idMap.Where(pair => pair.Key != pair.Value).Select(pair => pair.Key).ToArray();
+        if (sourceIds.Length == 0)
+            return;
+
+        // The rewriters below are no-ops for rows whose JSON never mentions a merged source id,
+        // so each load is prefiltered to a superset of affected rows instead of the whole table.
+        var fieldProvenance = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.FieldProvenance, "field_provenance", "ValueJson", sourceIds).ToListAsync(ct);
         foreach (var row in fieldProvenance)
             row.ValueJson = EntityReferenceJsonRewriter.RewriteFieldProvenanceValue(
                 descriptor.EntityType,
@@ -590,23 +597,28 @@ internal sealed class EntityMergeMetadataService(CoveContext db)
                 row.ValueJson,
                 idMap);
 
-        var interactions = await db.Interactions.Where(interaction => interaction.Meta != null).ToListAsync(ct);
+        var interactions = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Interactions, "interactions", "Meta", sourceIds).ToListAsync(ct);
         foreach (var interaction in interactions)
             interaction.Meta = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, interaction.Meta, idMap);
 
-        var playbackSessions = await db.PlaybackSessions.Where(session => session.Context != null).ToListAsync(ct);
+        var playbackSessions = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.PlaybackSessions, "playback_sessions", "Context", sourceIds).ToListAsync(ct);
         foreach (var session in playbackSessions)
             session.Context = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, session.Context, idMap);
 
-        var playbackIntervals = await db.PlaybackIntervals.Where(interval => interval.Context != null).ToListAsync(ct);
+        var playbackIntervals = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.PlaybackIntervals, "playback_intervals", "Context", sourceIds).ToListAsync(ct);
         foreach (var interval in playbackIntervals)
             interval.Context = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, interval.Context, idMap);
 
-        var payloadSegments = await db.Segments.Where(segment => segment.Payload != null).ToListAsync(ct);
+        var payloadSegments = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Segments, "segments", "Payload", sourceIds).ToListAsync(ct);
         foreach (var segment in payloadSegments)
             segment.Payload = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, segment.Payload, idMap);
 
-        var savedFilters = await db.SavedFilters.Where(filter => filter.ObjectFilter != null).ToListAsync(ct);
+        var savedFilters = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.SavedFilters, "saved_filters", "ObjectFilter", sourceIds).ToListAsync(ct);
         foreach (var filter in savedFilters)
             filter.ObjectFilter = EntityReferenceJsonRewriter.Rewrite(
                 descriptor.EntityType,
@@ -615,22 +627,26 @@ internal sealed class EntityMergeMetadataService(CoveContext db)
                 filter.Mode.Equals(descriptor.EntityKind, StringComparison.OrdinalIgnoreCase)
                     || filter.Mode.Equals($"{descriptor.EntityKind}s", StringComparison.OrdinalIgnoreCase));
 
-        var users = await db.Users.Where(user => user.UiPreferencesJson != null).ToListAsync(ct);
+        var users = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Users, "users", "UiPreferencesJson", sourceIds).ToListAsync(ct);
         foreach (var user in users)
             user.UiPreferencesJson = EntityReferenceJsonRewriter.RewriteUserUiPreferences(
                 descriptor.EntityType,
                 user.UiPreferencesJson,
                 idMap);
 
-        var groups = await db.Groups.Where(group => group.QueryJson != null).ToListAsync(ct);
+        var groups = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.Groups, "groups", "QueryJson", sourceIds).ToListAsync(ct);
         foreach (var group in groups)
             group.QueryJson = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, group.QueryJson, idMap);
 
-        var groupItems = await db.GroupItems.Where(item => item.SourceQueryJson != null).ToListAsync(ct);
+        var groupItems = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.GroupItems, "group_items", "SourceQueryJson", sourceIds).ToListAsync(ct);
         foreach (var item in groupItems)
             item.SourceQueryJson = EntityReferenceJsonRewriter.Rewrite(descriptor.EntityType, item.SourceQueryJson, idMap);
 
-        var contentRules = await db.RoleContentRules.Where(rule => rule.ScopeValue != null).ToListAsync(ct);
+        var contentRules = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.RoleContentRules, "role_content_rules", "ScopeValue", sourceIds).ToListAsync(ct);
         foreach (var rule in contentRules)
             rule.ScopeValue = EntityReferenceJsonRewriter.RewriteRoleContentScope(
                 descriptor.EntityType,
@@ -639,7 +655,10 @@ internal sealed class EntityMergeMetadataService(CoveContext db)
                 rule.ScopeValue,
                 idMap) ?? rule.ScopeValue;
 
-        var shareLinks = await db.ShareLinks.Where(link => link.EntityKind.ToLower() == descriptor.EntityKind).ToListAsync(ct);
+        var shareLinks = await StoredJsonReferenceScan.PrefilterBySourceIds(
+            db.ShareLinks, "share_links", "EntityIds", sourceIds)
+            .Where(link => link.EntityKind.ToLower() == descriptor.EntityKind)
+            .ToListAsync(ct);
         foreach (var link in shareLinks)
             link.EntityIds = RewriteShareLinkIds(descriptor.EntityType, link.EntityIds, idMap);
 

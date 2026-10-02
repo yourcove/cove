@@ -4,9 +4,7 @@ import { galleries, images, videos, fileOps } from "../api/client";
 import type { FindFilter, Gallery, Image, ImageFilterCriteria, Video, VideoFilterCriteria } from "../api/types";
 import {
   formatDate,
-  formatDuration,
   formatFileSize,
-  getResolutionLabel,
   TagBadge,
   CustomFieldsDisplay,
   FieldProvenanceHover,
@@ -24,7 +22,6 @@ import {
   Loader2,
   MoreVertical,
   RefreshCw,
-  Star,
   ThumbsUp,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +47,6 @@ import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
-import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useKeySequence } from "../hooks/useKeySequence";
@@ -61,6 +57,7 @@ import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
@@ -71,6 +68,7 @@ import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { useAppConfig } from "../state/AppConfigContext";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -257,7 +255,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         handler: () => setActiveTab("fileinfo"),
       },
     ],
-    [canReadGalleryImages, canWriteGallery],
+    [canReadGalleryImages, canWriteGallery, setActiveTab],
   );
   useKeySequence(
     galleryKeyboardShortcuts.map((shortcut) => ({
@@ -272,7 +270,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     if (visibleGalleryTabs.length > 0 && !visibleGalleryTabs.some((tab) => tab.key === activeTab)) {
       setActiveTab(visibleGalleryTabs[0].key);
     }
-  }, [activeTab, visibleGalleryTabs]);
+  }, [activeTab, setActiveTab, visibleGalleryTabs]);
 
   const deleteMut = useMutation({
     mutationFn: () => galleries.delete(id),
@@ -673,7 +671,9 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+            ),
           })
         : videos.find(nextFilter, { galleryId: String(galleryId) }),
     [galleryId, hasObjectFilter, objectFilter],
@@ -706,6 +706,27 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, galleryId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "galleriesCriterion",
+                    galleryId,
+                  ),
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "galleriesCriterion", galleryId)}
       selectedIds={selectedIds}
       filter={filter}
@@ -736,6 +757,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNa
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       filterDefaultKey={GALLERY_VIDEOS_DEFAULT_FILTER_KEY}
       defaultFilterResolved
       allowInfinitePageSize

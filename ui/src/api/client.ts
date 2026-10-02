@@ -17,6 +17,7 @@ import type {
   VideoListEntry,
   Performer,
   PerformerCreate,
+  PerformerPairings,
   PerformerUpdate,
   PerformerCountryOption,
   Tag,
@@ -29,7 +30,6 @@ import type {
   TagGroup,
   TagGroupCreate,
   TagGroupUpdate,
-  TagGraphNode,
   TagGraphResponse,
   Studio,
   StudioCreate,
@@ -96,7 +96,6 @@ import type {
   DetectionUpdate,
   Face,
   FaceAppearance,
-  FaceAppearancesResponse,
   FaceCreate,
   FaceUpdate,
   FaceLink,
@@ -124,6 +123,7 @@ import type {
   PaginatedResponse,
   Stats,
   SystemStatus,
+  HttpsStatus,
   CoveConfig,
   FfmpegCapabilities,
   JobInfo,
@@ -175,18 +175,15 @@ import type {
   VideoFilteredQueryRequest,
   PerformerFilteredQueryRequest,
   AudioFilteredQueryRequest,
-  VideoFilterCriteria,
   VideoAggregate,
   ImageAggregate,
   AudioAggregate,
   TextAggregate,
   GalleryAggregate,
-  PerformerFilterCriteria,
   TagFilterCriteria,
   StudioFilterCriteria,
   GalleryFilterCriteria,
   ImageFilterCriteria,
-  AudioFilterCriteria,
   TextFilterCriteria,
   GroupFilterCriteria,
   ScrapeAttempt,
@@ -504,6 +501,7 @@ function buildQuery(filter?: FindFilter, extra?: Record<string, string | number 
     if (filter?.direction) params.set("direction", filter.direction);
   }
   if (filter?.seed != null) params.set("seed", String(filter.seed));
+  if (filter?.skipCount) params.set("skipCount", "true");
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) params.set(k, String(v));
@@ -598,6 +596,12 @@ export const videos = {
     request<PaginatedResponse<VideoListEntry>>(`/videos/with-compilations${buildQuery(filter, extra)}`),
   findFiltered: (req: VideoFilteredQueryRequest) =>
     request<PaginatedResponse<Video>>("/videos/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
+  /** The ids of every video a /find request matches, in its order. */
+  findIds: (req: VideoFilteredQueryRequest) =>
+    request<{ ids: number[] }>("/videos/find-ids", {
       method: "POST",
       body: JSON.stringify(normalizeCriterionPayload(req)),
     }),
@@ -1176,8 +1180,7 @@ export const performers = {
   countries: () => request<PerformerCountryOption[]>("/performers/countries"),
   groups: (id: number, filter?: FindFilter) =>
     request<PaginatedResponse<Group>>(`/performers/${id}/groups${buildQuery(filter)}`),
-  appearsWith: (id: number, filter?: FindFilter) =>
-    request<PaginatedResponse<Performer>>(`/performers/${id}/appears-with${buildQuery(filter)}`),
+  pairings: (id: number) => request<PerformerPairings>(`/performers/${id}/pairings`),
   create: (data: PerformerCreate) => request<Performer>("/performers", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: PerformerUpdate) =>
     request<Performer>(`/performers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -1219,7 +1222,11 @@ export const performers = {
   bulkDelete: (ids: number[]) =>
     request<BulkDeletionJobStart>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
-    request<Performer>("/performers/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
+    request<Performer>("/performers/merge", {
+      method: "POST",
+      body: JSON.stringify({ targetId, sourceIds }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
     request<MetadataServerPerformerMatch[]>(
       `/performers/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`,
@@ -1269,7 +1276,11 @@ export const tags = {
   bulkDelete: (ids: number[]) =>
     request<BulkDeletionJobStart>("/tags/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
-    request<TagDetail>("/tags/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
+    request<TagDetail>("/tags/merge", {
+      method: "POST",
+      body: JSON.stringify({ targetId, sourceIds }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
     request<MetadataServerTagMatch[]>(`/tags/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
@@ -1404,7 +1415,11 @@ export const studios = {
   bulkDelete: (ids: number[]) =>
     request<BulkDeletionJobStart>("/studios/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
-    request<Studio>("/studios/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
+    request<Studio>("/studios/merge", {
+      method: "POST",
+      body: JSON.stringify({ targetId, sourceIds }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) => {
     const params = new URLSearchParams();
     if (term) params.set("term", term);
@@ -1809,6 +1824,7 @@ export const entityImages = {
 // ===== System =====
 export const system = {
   status: () => request<SystemStatus>("/system/status"),
+  httpsStatus: () => request<HttpsStatus>("/https"),
   shutdown: () => request<{ message: string }>("/system/shutdown", { method: "POST" }),
   stats: () => request<Stats>("/system/stats"),
   getConfig: () => request<CoveConfig>("/system/config"),
@@ -1968,6 +1984,8 @@ export interface ScanOptions {
   scanGenerateCovers?: boolean;
   scanGeneratePreviews?: boolean;
   scanGenerateSprites?: boolean;
+  /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
+  scanGenerateVrStereo?: boolean;
   scanGeneratePhashes?: boolean;
   scanGenerateMd5?: boolean;
   scanGenerateThumbnails?: boolean;
@@ -1981,6 +1999,8 @@ export interface GenerateOptions {
   thumbnails?: boolean;
   previews?: boolean;
   sprites?: boolean;
+  /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
+  vrStereo?: boolean;
   segments?: boolean;
   segmentThumbnails?: boolean;
   segmentPreviews?: boolean;

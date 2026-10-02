@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Download, FileText, Headphones, Image as ImageIcon, Layers3, Loader2, X } from "lucide-react";
 import { groups, system } from "../api/client";
@@ -134,18 +134,27 @@ export function SourceDownloadDialog({
       }),
   });
 
-  useEffect(() => {
-    if (!open) return;
-    const preferences = loadSourceDownloadPreferences(entity);
-    setSelectedIndexes(new Set(matches.map((_, index) => index)));
-    setGroupMode(preferences.groupMode ?? "none");
-    setSelectedGroupId(preferences.selectedGroupId ?? null);
-    setParentGroupId(preferences.parentGroupId ?? null);
-    setGroupSearch("");
-    setParentGroupSearch("");
-    setContainerTitle(resolvedBaseTitle);
-    setAllowDuplicateDownloads(false);
-  }, [entity, matches, open, resolvedBaseTitle]);
+  // Reset the form whenever the dialog opens or its inputs change while open.
+  const [resetKey, setResetKey] = useState({ open: false, entity, matches, resolvedBaseTitle });
+  if (
+    resetKey.open !== open ||
+    resetKey.entity !== entity ||
+    resetKey.matches !== matches ||
+    resetKey.resolvedBaseTitle !== resolvedBaseTitle
+  ) {
+    setResetKey({ open, entity, matches, resolvedBaseTitle });
+    if (open) {
+      const preferences = loadSourceDownloadPreferences(entity);
+      setSelectedIndexes(new Set(matches.map((_, index) => index)));
+      setGroupMode(preferences.groupMode ?? "none");
+      setSelectedGroupId(preferences.selectedGroupId ?? null);
+      setParentGroupId(preferences.parentGroupId ?? null);
+      setGroupSearch("");
+      setParentGroupSearch("");
+      setContainerTitle(resolvedBaseTitle);
+      setAllowDuplicateDownloads(false);
+    }
+  }
 
   const selectedMatches = matches.filter((_, index) => selectedIndexes.has(index));
   const hasSelection = selectedMatches.length > 0;
@@ -233,7 +242,8 @@ export function SourceDownloadDialog({
   const toggleIndex = (index: number) => {
     setSelectedIndexes((current) => {
       const next = new Set(current);
-      next.has(index) ? next.delete(index) : next.add(index);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };

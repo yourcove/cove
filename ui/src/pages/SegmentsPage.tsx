@@ -17,7 +17,6 @@ import {
   buildAppliedDerivedQuery,
   buildDerivedQueryDescriptor,
   createDerivedSpanCustomFilterSection,
-  formatOperatorLabel,
   isDerivedSpanQueryFilterActive,
   readDerivedSpanQueryFilter,
 } from "./segments/derivedQueryCriterion";
@@ -39,14 +38,7 @@ import { buildSpanTitle } from "./segments/segmentDisplayUtils";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
 import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
 import { useRawSegmentsQuery } from "./segments/useRawSegmentsQuery";
-import type {
-  AppliedDerivedQuery,
-  DerivedSpanItem,
-  DerivedSpanOperandFilterValue,
-  DerivedSpanQueryFilterValue,
-  RawSegmentItem,
-  SegmentsPageContentView,
-} from "./segments/types";
+import type { DerivedSpanItem, RawSegmentItem, SegmentsPageContentView } from "./segments/types";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 import { getLoadError } from "../utils/queryLoadState";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
@@ -370,17 +362,13 @@ export function SegmentsPage({ onNavigate }: Props) {
     return nonRawProfiles.length > 0 ? nonRawProfiles : profiles;
   }, [profilesQuery.data]);
 
-  useEffect(() => {
-    if (availableProfiles.length === 0) {
-      return;
-    }
-
-    if (activeProfileId != null && availableProfiles.some((profile) => profile.id === activeProfileId)) {
-      return;
-    }
-
+  // Fall back to the default (or first) profile when the active one is unset or no longer available.
+  if (
+    availableProfiles.length > 0 &&
+    !(activeProfileId != null && availableProfiles.some((profile) => profile.id === activeProfileId))
+  ) {
     setActiveProfileId(availableProfiles.find((profile) => profile.isDefault)?.id ?? availableProfiles[0].id);
-  }, [activeProfileId, availableProfiles]);
+  }
 
   const selectedVideoQueries = useQueries({
     queries: !isRawView
@@ -539,6 +527,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       derivedQueryDescriptor,
       direction,
       q,
+      seed,
       videoSelection.excludeIds,
       videoSelection.includeIds,
       videoTagDepth,
@@ -599,6 +588,7 @@ export function SegmentsPage({ onNavigate }: Props) {
         durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
         sort,
         direction,
+        seed,
         page,
         perPage: pageSize,
       });
@@ -750,25 +740,35 @@ export function SegmentsPage({ onNavigate }: Props) {
     chunkSize: defaultPerPage,
   });
 
+  const {
+    fetchNextPage: fetchNextRawPage,
+    hasNextPage: rawHasNextPage,
+    isFetchingNextPage: rawIsFetchingNextPage,
+  } = rawInfiniteQuery;
+  const {
+    fetchNextPage: fetchNextDerivedPage,
+    hasNextPage: derivedHasNextPage,
+    isFetchingNextPage: derivedIsFetchingNextPage,
+  } = derivedInfiniteQuery;
   const loadMoreSegments = useCallback(() => {
     if (isRawView) {
-      if (rawInfiniteQuery.hasNextPage && !rawInfiniteQuery.isFetchingNextPage) {
-        void rawInfiniteQuery.fetchNextPage();
+      if (rawHasNextPage && !rawIsFetchingNextPage) {
+        void fetchNextRawPage();
       }
       return;
     }
 
-    if (derivedInfiniteQuery.hasNextPage && !derivedInfiniteQuery.isFetchingNextPage) {
-      void derivedInfiniteQuery.fetchNextPage();
+    if (derivedHasNextPage && !derivedIsFetchingNextPage) {
+      void fetchNextDerivedPage();
     }
   }, [
-    derivedInfiniteQuery.fetchNextPage,
-    derivedInfiniteQuery.hasNextPage,
-    derivedInfiniteQuery.isFetchingNextPage,
+    derivedHasNextPage,
+    derivedIsFetchingNextPage,
+    fetchNextDerivedPage,
+    fetchNextRawPage,
     isRawView,
-    rawInfiniteQuery.fetchNextPage,
-    rawInfiniteQuery.hasNextPage,
-    rawInfiniteQuery.isFetchingNextPage,
+    rawHasNextPage,
+    rawIsFetchingNextPage,
   ]);
 
   const spanItems = infinitePageSize ? derivedInfiniteQuery.items : (segmentsWindowQuery.data?.items ?? []);
@@ -955,9 +955,13 @@ export function SegmentsPage({ onNavigate }: Props) {
     [isRawView, videoSelection.includeIds],
   );
 
-  useEffect(() => {
-    handleSelectNone();
-  }, [handleSelectNone, selectionResetKey]);
+  // useMultiSelect clears the selected ids itself when selectionResetKey changes; the all-matching
+  // snapshot belongs to the same selection, so it is dropped alongside them.
+  const [prevSelectionResetKey, setPrevSelectionResetKey] = useState(selectionResetKey);
+  if (selectionResetKey !== prevSelectionResetKey) {
+    setPrevSelectionResetKey(selectionResetKey);
+    setSelectedMatchingItems(null);
+  }
 
   useEffect(() => {
     const currentSort = filter.sort ?? "updated_at";

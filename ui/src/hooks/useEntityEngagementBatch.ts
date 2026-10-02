@@ -5,8 +5,9 @@ import type { AffinityHostType, EntityEngagement } from "../api/types";
 
 export function useEntityEngagementBatch(hostType: AffinityHostType, hostIds: number[]) {
   const queryClient = useQueryClient();
-  const idsKey = hostIds.join(",");
-  const normalizedHostIds = useMemo(() => [...new Set(hostIds)].sort((left, right) => left - right), [idsKey]);
+  // Key the memo on the normalized id list so the query key only changes when the set of ids does.
+  const idsKey = [...new Set(hostIds)].sort((left, right) => left - right).join(",");
+  const normalizedHostIds = useMemo(() => (idsKey ? idsKey.split(",").map(Number) : []), [idsKey]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["engagement", hostType, "batch", normalizedHostIds],

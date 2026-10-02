@@ -57,30 +57,26 @@ export function useMultiSelect<T extends { id: string | number }>(items: T[], op
 
   // Infinite lists can unload pages above or below the viewport, so those selections are preserved until the query changes.
   const itemIdsKey = items.map((item) => String(item.id)).join(",");
-  const prevKey = useRef(itemIdsKey);
   const resetKey = options.resetKey ?? "";
-  const prevResetKey = useRef(resetKey);
+  // `epoch` counts selection resets, so the range anchor can be cleared after each one.
+  const [tracked, setTracked] = useState({ itemIdsKey, resetKey, epoch: 0 });
 
+  if (tracked.resetKey !== resetKey) {
+    setTracked({ itemIdsKey, resetKey, epoch: tracked.epoch + 1 });
+    setSelectedIds(new Set<T["id"]>());
+  } else if (tracked.itemIdsKey !== itemIdsKey) {
+    if (preserveOnItemsChange) {
+      setTracked({ ...tracked, itemIdsKey });
+    } else {
+      setTracked({ itemIdsKey, resetKey, epoch: tracked.epoch + 1 });
+      setSelectedIds(new Set<T["id"]>());
+    }
+  }
+
+  const selectionEpoch = tracked.epoch;
   useEffect(() => {
-    if (prevResetKey.current !== resetKey) {
-      prevResetKey.current = resetKey;
-      prevKey.current = itemIdsKey;
-      lastToggledId.current = null;
-      setSelectedIds(new Set<T["id"]>());
-      return;
-    }
-
-    if (prevKey.current !== itemIdsKey) {
-      prevKey.current = itemIdsKey;
-
-      if (preserveOnItemsChange) {
-        return;
-      }
-
-      lastToggledId.current = null;
-      setSelectedIds(new Set<T["id"]>());
-    }
-  }, [itemIdsKey, preserveOnItemsChange, resetKey]);
+    lastToggledId.current = null;
+  }, [selectionEpoch]);
 
   const isSelectableItem = useCallback(
     (item: T) => isSelectableId(item.id) && isSelectable(item),

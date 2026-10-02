@@ -10,18 +10,7 @@ import {
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
-import {
-  AlertCircle,
-  Check,
-  CloudDownload,
-  CloudUpload,
-  Eye,
-  EyeOff,
-  Loader2,
-  Search,
-  Tag as TagIcon,
-  X,
-} from "lucide-react";
+import { AlertCircle, Check, CloudUpload, Loader2, Search, Tag as TagIcon } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface TagTaggerProps {

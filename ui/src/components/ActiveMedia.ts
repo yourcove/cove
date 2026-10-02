@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffectEvent, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 /** Observed content, not a grid selection. No tokens or URLs are exposed. */
 export interface ActiveMediaContext {
@@ -40,9 +40,12 @@ export function registerActiveMedia(owner: symbol, value: ActiveMediaContext | n
 
 export function usePublishActiveMedia(value: ActiveMediaContext | null, priority: number, enabled = value !== null) {
   const owner = useRef(Symbol("media-viewer"));
+  // Re-register only when a published field changes; callers may pass a fresh
+  // object with identical contents on every render.
+  const register = useEffectEvent(() => registerActiveMedia(owner.current, value, priority));
   useLayoutEffect(() => {
     if (!enabled) return;
-    return registerActiveMedia(owner.current, value, priority);
+    return register();
   }, [value?.kind, value?.id, value?.surface, value?.positionSeconds, priority, enabled]);
 }
 

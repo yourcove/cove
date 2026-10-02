@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
 import type { Group, GroupUpdate } from "../api/types";
@@ -32,7 +32,7 @@ function groupFormValues(group: Group) {
     description: group.description ?? "",
     urls: group.urls.length > 0 ? group.urls : [""],
     selectedTagIds: group.tags.map((t) => t.id),
-    customFields: { ...(group.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...group.customFields } as Record<string, unknown>,
     kind: (group.kind ?? "static") as "static" | "dynamic",
     querySourceKey: group.querySourceKey ?? FILTER_DYNAMIC_SOURCE_KEY,
     queryJson: group.queryJson ?? defaultDynamicGroupFilterQueryJson(),
@@ -85,7 +85,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   const [queryJson, setQueryJson] = useState(group.queryJson ?? defaultDynamicGroupFilterQueryJson());
   const [showInVideoLists, setShowInVideoLists] = useState(group.showInVideoLists ?? false);
 
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(group.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...group.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const tagProvenanceById = buildTagProvenanceById(group.tags, group.fieldProvenance);
   const { data: dynamicSources } = useQuery({
@@ -102,35 +102,44 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   // The group the form was last filled from; saving sends only the fields changed since.
   const [baseline, setBaseline] = useState(group);
 
-  useEffect(() => {
-    if (!open) return;
-    setBaseline(group);
-    setName(group.name);
-    setAliases(splitAliases(group.aliases));
-    setDirector(group.director ?? "");
-    setDate(group.date ?? "");
-    setStudioId(group.studioId ?? undefined);
-    setDescription(group.description ?? "");
-    setUrls(group.urls.length > 0 ? group.urls : [""]);
-    setSelectedTagIds(group.tags.map((t) => t.id));
-    setCustomFields({ ...(group.customFields ?? {}) });
-    setKind(group.kind ?? "static");
-    setQuerySourceKey(group.querySourceKey ?? FILTER_DYNAMIC_SOURCE_KEY);
-    setQueryJson(group.queryJson ?? defaultDynamicGroupFilterQueryJson());
-    setShowInVideoLists(group.showInVideoLists ?? false);
-  }, [group.id, open]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevGroupId, setPrevGroupId] = useState(group.id);
+  if (open !== prevOpen || group.id !== prevGroupId) {
+    setPrevOpen(open);
+    setPrevGroupId(group.id);
+    if (open) {
+      setBaseline(group);
+      setName(group.name);
+      setAliases(splitAliases(group.aliases));
+      setDirector(group.director ?? "");
+      setDate(group.date ?? "");
+      setStudioId(group.studioId ?? undefined);
+      setDescription(group.description ?? "");
+      setUrls(group.urls.length > 0 ? group.urls : [""]);
+      setSelectedTagIds(group.tags.map((t) => t.id));
+      setCustomFields({ ...group.customFields });
+      setKind(group.kind ?? "static");
+      setQuerySourceKey(group.querySourceKey ?? FILTER_DYNAMIC_SOURCE_KEY);
+      setQueryJson(group.queryJson ?? defaultDynamicGroupFilterQueryJson());
+      setShowInVideoLists(group.showInVideoLists ?? false);
+    }
+  }
 
-  useEffect(() => {
-    if (!open || group.querySourceKey || !dynamicSources?.length) return;
+  // A group without a stored source starts on the filter source; when the server does not offer it, switch to
+  // the first source it does offer. The select lists only offered sources, so the filter source can only come
+  // back through the refill above, which this check then catches again.
+  if (open && !group.querySourceKey && dynamicSources?.length && querySourceKey === FILTER_DYNAMIC_SOURCE_KEY) {
     const fallbackKey =
       dynamicSources.find((source) => source.key === FILTER_DYNAMIC_SOURCE_KEY)?.key ?? dynamicSources[0].key;
-    setQuerySourceKey((current) => (current === FILTER_DYNAMIC_SOURCE_KEY ? fallbackKey : current));
-  }, [dynamicSources, group.id, group.querySourceKey, open]);
+    if (fallbackKey !== FILTER_DYNAMIC_SOURCE_KEY) setQuerySourceKey(fallbackKey);
+  }
 
-  useEffect(() => {
-    if (!open || !containingGroups) return;
-    setSelectedParentGroupIds(containingGroups.map((parent) => parent.id));
-  }, [containingGroups, open]);
+  // Starts undefined so a dialog that mounts open with parent groups already cached still takes them.
+  const [prevContainingGroups, setPrevContainingGroups] = useState<typeof containingGroups>(undefined);
+  if (open !== prevOpen || containingGroups !== prevContainingGroups) {
+    setPrevContainingGroups(containingGroups);
+    if (open && containingGroups) setSelectedParentGroupIds(containingGroups.map((parent) => parent.id));
+  }
 
   const mutation = useMutation({
     mutationFn: async (data: GroupUpdate) => {

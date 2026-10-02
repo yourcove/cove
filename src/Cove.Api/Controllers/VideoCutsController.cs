@@ -113,7 +113,7 @@ public sealed class VideoCutsController(
 
         if (!dto.Exact)
         {
-            var ffprobe = FfprobeMediaProbeService.ResolveFfprobePath(config);
+            var ffprobe = FfmpegExecutableLocator.FindFfprobe(config);
             if (ffprobe is null)
                 return Conflict(new { error = "ffprobe was not found, so the file's keyframes could not be read." });
             var keyframes = new Dictionary<double, double>();

@@ -117,21 +117,37 @@ export function FaceCompareDialog({
     [evidence, active?.coverImageUrl],
   );
 
-  useEffect(() => {
-    setSelectedPerformerId(suggestion?.performerId ?? null);
-  }, [face?.id, open, suggestion?.performerId]);
-
-  useEffect(() => {
-    setSetPerformerImage(canSetPerformerImage);
-  }, [canSetPerformerImage, face?.id, open, active?.performerId]);
-
-  useEffect(() => {
-    setSuggestionImageIndex(0);
-  }, [active?.performerId, open]);
-
-  useEffect(() => {
-    setFaceImageIndex(0);
-  }, [face?.id, open]);
+  // Reset the selection, the image checkbox and the carousels when what they depend on changes. The
+  // key starts out null so the first render applies the defaults too (the checkbox defaults to
+  // canSetPerformerImage, not to its initial false).
+  const resetKey = {
+    open,
+    faceId: face?.id,
+    suggestionPerformerId: suggestion?.performerId,
+    activePerformerId: active?.performerId,
+    canSetPerformerImage,
+  };
+  const [prevResetKey, setPrevResetKey] = useState<typeof resetKey | null>(null);
+  const resetKeyChanged = (field: keyof typeof resetKey) => !prevResetKey || prevResetKey[field] !== resetKey[field];
+  const openOrFaceChanged = resetKeyChanged("open") || resetKeyChanged("faceId");
+  const suggestionChanged = resetKeyChanged("suggestionPerformerId");
+  const activeChanged = resetKeyChanged("activePerformerId");
+  const canSetChanged = resetKeyChanged("canSetPerformerImage");
+  if (openOrFaceChanged || suggestionChanged || activeChanged || canSetChanged) {
+    setPrevResetKey(resetKey);
+    if (openOrFaceChanged || suggestionChanged) {
+      setSelectedPerformerId(suggestion?.performerId ?? null);
+    }
+    if (openOrFaceChanged || activeChanged || canSetChanged) {
+      setSetPerformerImage(canSetPerformerImage);
+    }
+    if (resetKeyChanged("open") || activeChanged) {
+      setSuggestionImageIndex(0);
+    }
+    if (openOrFaceChanged) {
+      setFaceImageIndex(0);
+    }
+  }
 
   if (!open || !face || !suggestion || !active) {
     return null;
@@ -485,9 +501,11 @@ function CompareImage({ src, alt, alignTop }: { src: string; alt: string; alignT
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  const [prevSrc, setPrevSrc] = useState(src);
+  if (src !== prevSrc) {
+    setPrevSrc(src);
     setImageAspect(null);
-  }, [src]);
+  }
 
   const shouldContain =
     imageAspect != null && frameAspect != null

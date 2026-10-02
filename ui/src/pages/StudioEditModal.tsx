@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { studios } from "../api/client";
 import type { Studio, StudioUpdate } from "../api/types";
@@ -26,7 +26,7 @@ function studioFormValues(studio: Studio) {
     aliases: studio.aliases.length > 0 ? studio.aliases : [""],
     parentId: studio.parentId ?? undefined,
     selectedTagIds: studio.tags.map((t) => t.id),
-    customFields: { ...(studio.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...studio.customFields } as Record<string, unknown>,
     remoteIds: studio.remoteIds.map((remoteId) => ({ ...remoteId })) as RemoteIdValue[],
   };
 }
@@ -60,7 +60,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   const [parentId, setParentId] = useState<number | undefined>(studio.parentId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(studio.tags.map((t) => t.id));
 
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(studio.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...studio.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(studio.remoteIds.map((remoteId) => ({ ...remoteId })));
   const tagProvenanceById = buildTagProvenanceById(studio.tags, studio.fieldProvenance);
@@ -70,18 +70,24 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
 
   // Fill the form each time the dialog opens. A refetch while it is open keeps the user's edits, and
   // reopening after Cancel discards them.
-  useEffect(() => {
-    if (!open) return;
-    setBaseline(studio);
-    setName(studio.name);
-    setDetails(studio.details ?? "");
-    setUrls(studio.urls.length > 0 ? studio.urls : [""]);
-    setAliases(studio.aliases.length > 0 ? studio.aliases : [""]);
-    setParentId(studio.parentId ?? undefined);
-    setSelectedTagIds(studio.tags.map((t) => t.id));
-    setCustomFields({ ...(studio.customFields ?? {}) });
-    setRemoteIds(studio.remoteIds.map((remoteId) => ({ ...remoteId })));
-  }, [studio.id, open]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevStudioId, setPrevStudioId] = useState(studio.id);
+  const openOrStudioChanged = open !== prevOpen || studio.id !== prevStudioId;
+  if (openOrStudioChanged) {
+    setPrevOpen(open);
+    setPrevStudioId(studio.id);
+    if (open) {
+      setBaseline(studio);
+      setName(studio.name);
+      setDetails(studio.details ?? "");
+      setUrls(studio.urls.length > 0 ? studio.urls : [""]);
+      setAliases(studio.aliases.length > 0 ? studio.aliases : [""]);
+      setParentId(studio.parentId ?? undefined);
+      setSelectedTagIds(studio.tags.map((t) => t.id));
+      setCustomFields({ ...studio.customFields });
+      setRemoteIds(studio.remoteIds.map((remoteId) => ({ ...remoteId })));
+    }
+  }
 
   const currentValues: StudioFormValues = {
     name,
@@ -104,14 +110,13 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
     remoteIds: setRemoteIds,
   };
   // When the studio refetches while the dialog is open, untouched fields follow it and the user's edits stay.
-  useEffect(() => {
-    if (!open || studio === baseline) return;
+  if (open && !openOrStudioChanged && studio !== baseline) {
     applyFormFields(
       untouchedFieldUpdates(currentValues, studioFormValues(baseline), studioFormValues(studio)),
       formSetters,
     );
     setBaseline(studio);
-  }, [studio]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },

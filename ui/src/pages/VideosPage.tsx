@@ -1,5 +1,5 @@
 import { VideoCreateModal } from "../components/VideoCreateModal";
-import { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, useSyncExternalStore, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, entityImages, videos } from "../api/client";
 import type {
@@ -26,7 +26,7 @@ import {
   type MultiSelectToggleOptions,
 } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
+import { formatDuration } from "../components/shared";
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
@@ -34,7 +34,6 @@ import {
   Film,
   Eye,
   Loader2,
-  Search,
   Play,
   Pause,
   Layers,
@@ -94,6 +93,7 @@ import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
+import { listKey, vrOnlyFilter, type VrListSource } from "../vr/vrListRegistry";
 
 const VideoDownloadDialog = lazy(() =>
   import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })),
@@ -129,6 +129,19 @@ function isMobileViewerViewport() {
     typeof window.matchMedia === "function" &&
     window.matchMedia(MOBILE_VIEWER_MEDIA_QUERY).matches
   );
+}
+
+function subscribeMobileViewer(onChange: () => void) {
+  if (typeof window.matchMedia !== "function") return () => {};
+
+  const mediaQuery = window.matchMedia(MOBILE_VIEWER_MEDIA_QUERY);
+  if (typeof mediaQuery.addEventListener === "function") {
+    mediaQuery.addEventListener("change", onChange);
+    return () => mediaQuery.removeEventListener("change", onChange);
+  }
+
+  mediaQuery.addListener(onChange);
+  return () => mediaQuery.removeListener(onChange);
 }
 
 function getBoolCriterionValue(value: unknown) {
@@ -196,7 +209,7 @@ export function VideosPage({ onNavigate }: Props) {
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [wallColumnCount, setWallColumnCount] = useState(5);
-  const [isMobileViewer, setIsMobileViewer] = useState(isMobileViewerViewport);
+  const isMobileViewer = useSyncExternalStore(subscribeMobileViewer, isMobileViewerViewport, () => false);
   const verticalViewerRef = useRef<HTMLDivElement>(null);
   const [verticalFullscreen, setVerticalFullscreen] = useState(false);
   const [verticalFullscreenDismissed, setVerticalFullscreenDismissed] = useState(false);
@@ -213,7 +226,6 @@ export function VideosPage({ onNavigate }: Props) {
     perPage: defaultState.filter.perPage,
   });
   const [downloadTarget, setDownloadTarget] = useState<Video | "new" | null>(null);
-  const queryClient = useQueryClient();
   const { setQueue } = useVideoQueue();
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
@@ -232,32 +244,23 @@ export function VideosPage({ onNavigate }: Props) {
       : 720
     : (verticalViewerHeight ?? (typeof window !== "undefined" ? window.innerHeight : 720));
 
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      setIsMobileViewer(false);
-      return;
-    }
-
-    const mediaQuery = window.matchMedia(MOBILE_VIEWER_MEDIA_QUERY);
-    const syncMobileViewer = () => setIsMobileViewer(mediaQuery.matches);
-    syncMobileViewer();
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", syncMobileViewer);
-      return () => mediaQuery.removeEventListener("change", syncMobileViewer);
-    }
-
-    mediaQuery.addListener(syncMobileViewer);
-    return () => mediaQuery.removeListener(syncMobileViewer);
-  }, []);
-
-  useEffect(() => {
+  // Leaving vertical mode resets its viewer state.
+  const [prevVerticalModeInputs, setPrevVerticalModeInputs] = useState({ displayMode, verticalFullscreenDismissed });
+  if (
+    displayMode !== prevVerticalModeInputs.displayMode ||
+    verticalFullscreenDismissed !== prevVerticalModeInputs.verticalFullscreenDismissed
+  ) {
+    setPrevVerticalModeInputs({ displayMode, verticalFullscreenDismissed });
     if (displayMode !== "vertical") {
       setVerticalFullscreen(false);
       setVerticalFullscreenDismissed(false);
       setVerticalAutoScrollEnabled(false);
       setActiveVerticalVideoId(null);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (displayMode !== "vertical") return;
 
     const mediaQuery = window.matchMedia("(max-width: 767px)");
     const syncMobileFullscreen = () => {
@@ -271,18 +274,37 @@ export function VideosPage({ onNavigate }: Props) {
     return () => mediaQuery.removeEventListener("change", syncMobileFullscreen);
   }, [displayMode, verticalFullscreenDismissed]);
 
-  useEffect(() => {
+  // Vertical mode starts from the configured feed sound default, including on first render.
+  const [prevVerticalSoundInputs, setPrevVerticalSoundInputs] = useState<{
+    defaultFeedVideoSound: boolean;
+    displayMode: typeof displayMode;
+  } | null>(null);
+  if (
+    prevVerticalSoundInputs === null ||
+    defaultFeedVideoSound !== prevVerticalSoundInputs.defaultFeedVideoSound ||
+    displayMode !== prevVerticalSoundInputs.displayMode
+  ) {
+    setPrevVerticalSoundInputs({ defaultFeedVideoSound, displayMode });
     if (displayMode === "vertical") {
       setVerticalSoundEnabled(defaultFeedVideoSound);
     }
-  }, [defaultFeedVideoSound, displayMode]);
+  }
 
-  useEffect(() => {
+  // The measured bounds only apply to the inline vertical viewer.
+  const [prevVerticalBoundsInputs, setPrevVerticalBoundsInputs] = useState({ displayMode, verticalFullscreen });
+  if (
+    displayMode !== prevVerticalBoundsInputs.displayMode ||
+    verticalFullscreen !== prevVerticalBoundsInputs.verticalFullscreen
+  ) {
+    setPrevVerticalBoundsInputs({ displayMode, verticalFullscreen });
     if (displayMode !== "vertical" || verticalFullscreen) {
       setVerticalViewerTop(0);
       setVerticalViewerHeight(null);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (displayMode !== "vertical" || verticalFullscreen) return;
 
     const updateVerticalBounds = () => {
       const element = verticalViewerRef.current;
@@ -323,12 +345,6 @@ export function VideosPage({ onNavigate }: Props) {
     };
   }, [verticalFullscreen]);
 
-  useEffect(() => {
-    if (displayMode !== "feed") {
-      setFeedAudioVideoId(null);
-    }
-  }, [displayMode]);
-
   const wakeVerticalAutoScroll = useCallback(() => setVerticalAutoScrollAwake(true), []);
 
   useEffect(() => {
@@ -353,7 +369,8 @@ export function VideosPage({ onNavigate }: Props) {
   }, [objectFilter]);
 
   const filterExpression = normalizedObjectFilter[FILTER_EXPRESSION_STATE_KEY] as
-    FilterExpression<VideoFilterCriteria> | undefined;
+    | FilterExpression<VideoFilterCriteria>
+    | undefined;
   const backendObjectFilter = useMemo(
     () =>
       Object.fromEntries(
@@ -516,8 +533,16 @@ export function VideosPage({ onNavigate }: Props) {
     !hasCompilationBlockingObjectFilter &&
     (displayMode === "grid" || displayMode === "list");
 
+  // The aggregate request counts the matches once per filter. The page and infinite-scroll lists then
+  // skip their own count, which on a broad search reads every match again for each page. If the
+  // aggregate fails, the lists count again so paging still works without it.
+  const aggregateEnabled = !visualSearchActive && !canShowCompilationGroups;
   const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
-  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+  const {
+    data: filteredAggregate,
+    isLoading: filteredAggregateLoading,
+    isError: filteredAggregateFailed,
+  } = useQuery({
     queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter, filterExpression],
     queryFn: () =>
       videos.aggregate({
@@ -525,8 +550,13 @@ export function VideosPage({ onNavigate }: Props) {
         objectFilter: hasObjectFilter ? (backendObjectFilter as VideoFilterCriteria) : undefined,
         filterExpression,
       }),
-    enabled: !visualSearchActive && !canShowCompilationGroups,
+    enabled: aggregateEnabled,
   });
+  // A total the aggregate already delivered stays in use if a later refetch of it fails, so an error
+  // after an edit does not switch the page query and drop the loaded page and its selection.
+  const countFromAggregate = aggregateEnabled && (filteredAggregate !== undefined || !filteredAggregateFailed);
+  // Paged lists wait for the aggregate total before paging by it; infinite scroll follows full pages.
+  const totalCountPending = countFromAggregate && !infinitePageSize && filteredAggregateLoading;
 
   useEffect(() => {
     if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
@@ -544,6 +574,31 @@ export function VideosPage({ onNavigate }: Props) {
     setFilter({ ...filter, sorts: undefined, page: 1 });
   }, [filter, includeCompilationGroups, setFilter]);
 
+  // The same page of the same list, for the headset. Visual search has no page-by-page fetch.
+  const vrListSource = useMemo<VrListSource | undefined>(
+    () =>
+      visualSearchActive
+        ? undefined
+        : {
+            label: "Videos",
+            key: listKey({ ...filter }, backendObjectFilter, filterExpression ?? null),
+            page: filter.page ?? 1,
+            perPage: filter.perPage || 40,
+            fetchPage: (page, perPage, vrOnly) =>
+              hasObjectFilter || vrOnly
+                ? videos.findFiltered({
+                    findFilter: { ...filter, page, perPage },
+                    objectFilter: (vrOnly
+                      ? vrOnlyFilter(backendObjectFilter)
+                      : backendObjectFilter) as VideoFilterCriteria,
+                    filterExpression,
+                  })
+                : videos.find({ ...filter, page, perPage }),
+            setPage: (page) => setFilter({ ...filter, page }),
+          },
+    [backendObjectFilter, filter, filterExpression, hasObjectFilter, setFilter, visualSearchActive],
+  );
+
   const {
     data,
     isLoading,
@@ -551,7 +606,7 @@ export function VideosPage({ onNavigate }: Props) {
     refetch: refetchPage,
     isPlaceholderData: pageIsPlaceholder,
   } = useQuery({
-    queryKey: ["videos", filter, backendObjectFilter, filterExpression, searchMode],
+    queryKey: ["videos", filter, backendObjectFilter, filterExpression, searchMode, countFromAggregate],
     queryFn: () => {
       if (visualSearchActive) {
         return visualSimilarity.searchVideos({
@@ -561,13 +616,14 @@ export function VideosPage({ onNavigate }: Props) {
         });
       }
 
+      const pageFilter = countFromAggregate ? { ...filter, skipCount: true } : filter;
       return hasObjectFilter
         ? videos.findFiltered({
-            findFilter: filter,
+            findFilter: pageFilter,
             objectFilter: backendObjectFilter as VideoFilterCriteria,
             filterExpression,
           })
-        : videos.find(filter);
+        : videos.find(pageFilter);
     },
     enabled: !infinitePageSize && !canShowCompilationGroups,
   });
@@ -589,9 +645,13 @@ export function VideosPage({ onNavigate }: Props) {
   });
 
   const infiniteVideosQuery = usePaginatedInfiniteQuery<Video>({
+    // countFromAggregate stays out of the key: if the aggregate fails, later chunks count for themselves
+    // instead of the list restarting from the top.
     queryKey: ["videos", "infinite", infiniteFilterKey, backendObjectFilter, filterExpression, searchMode],
     enabled: infinitePageSize,
     chunkSize: infiniteChunkSize,
+    // A total the aggregate already delivered stays valid if a later refetch of it fails.
+    knownTotalCount: aggregateEnabled ? filteredAggregate?.count : undefined,
     queryFn: (page, perPage) => {
       const nextFilter = { ...filter, page, perPage };
       if (visualSearchActive) {
@@ -602,13 +662,14 @@ export function VideosPage({ onNavigate }: Props) {
         });
       }
 
+      const pageFilter = countFromAggregate ? { ...nextFilter, skipCount: true } : nextFilter;
       return hasObjectFilter
         ? videos.findFiltered({
-            findFilter: nextFilter,
+            findFilter: pageFilter,
             objectFilter: backendObjectFilter as VideoFilterCriteria,
             filterExpression,
           })
-        : videos.find(nextFilter);
+        : videos.find(pageFilter);
     },
   });
 
@@ -626,7 +687,9 @@ export function VideosPage({ onNavigate }: Props) {
     ? infiniteVideosQuery.totalCount
     : canShowCompilationGroups
       ? unifiedData?.totalCount
-      : data?.totalCount;
+      : countFromAggregate
+        ? filteredAggregate?.count
+        : data?.totalCount;
   const loading = infinitePageSize
     ? infiniteVideosQuery.isPending
     : canShowCompilationGroups
@@ -652,25 +715,28 @@ export function VideosPage({ onNavigate }: Props) {
       void retryLoad();
     },
   });
+  const {
+    fetchNextPage: fetchNextVideosPage,
+    hasNextPage: videosHasNextPage,
+    isFetchingNextPage: videosIsFetchingNextPage,
+  } = infiniteVideosQuery;
   const loadMoreVideos = useCallback(() => {
-    if (infiniteVideosQuery.hasNextPage && !infiniteVideosQuery.isFetchingNextPage) {
-      void infiniteVideosQuery.fetchNextPage();
+    if (videosHasNextPage && !videosIsFetchingNextPage) {
+      void fetchNextVideosPage();
     }
-  }, [infiniteVideosQuery.fetchNextPage, infiniteVideosQuery.hasNextPage, infiniteVideosQuery.isFetchingNextPage]);
+  }, [fetchNextVideosPage, videosHasNextPage, videosIsFetchingNextPage]);
 
-  useEffect(() => {
-    if (displayMode !== "feed") {
+  // Feed audio only follows a video while the feed is showing and sound is on by default.
+  const [prevFeedAudioInputs, setPrevFeedAudioInputs] = useState({ defaultFeedVideoSound, displayMode });
+  if (
+    defaultFeedVideoSound !== prevFeedAudioInputs.defaultFeedVideoSound ||
+    displayMode !== prevFeedAudioInputs.displayMode
+  ) {
+    setPrevFeedAudioInputs({ defaultFeedVideoSound, displayMode });
+    if (displayMode !== "feed" || !defaultFeedVideoSound) {
       setFeedAudioVideoId(null);
-      return;
     }
-    if (!defaultFeedVideoSound) setFeedAudioVideoId(null);
-  }, [defaultFeedVideoSound, displayMode]);
-
-  useEffect(() => {
-    if (displayMode !== "vertical") {
-      setActiveVerticalVideoId(null);
-    }
-  }, [displayMode]);
+  }
 
   useEffect(() => {
     if (displayMode !== "vertical" || !verticalAutoScrollEnabled || activeVerticalVideoId == null) {
@@ -749,12 +815,12 @@ export function VideosPage({ onNavigate }: Props) {
           })
         : videos.find(nextFilter);
     },
-    [backendObjectFilter, hasObjectFilter, visualSearchActive, visualSimilarity],
+    [backendObjectFilter, filterExpression, hasObjectFilter, visualSearchActive, visualSimilarity],
   );
   const { openVideo: navigateToVideo, navigateFromList: navigateFromVideoList } = useVideoQueueNavigation({
     items,
     filter,
-    totalCount: totalCount ?? items.length,
+    totalCount: totalCountPending ? undefined : (totalCount ?? items.length),
     infinitePageSize,
     queryPage: queryVideoQueuePage,
     onNavigate,
@@ -825,7 +891,7 @@ export function VideosPage({ onNavigate }: Props) {
     } finally {
       setSelectAllMatchingPending(false);
     }
-  }, [backendObjectFilter, filter, hasObjectFilter, selectIds, visualSearchActive, visualSimilarity]);
+  }, [backendObjectFilter, filter, filterExpression, hasObjectFilter, selectIds, visualSearchActive, visualSimilarity]);
 
   // When sort changes to random, generate a new seed for reproducibility
   const handleFilterChange = useCallback(
@@ -879,6 +945,7 @@ export function VideosPage({ onNavigate }: Props) {
           ) : undefined
         }
         summaryLoading={!visualSearchActive && !canShowCompilationGroups && filteredAggregateLoading}
+        totalCountPending={totalCountPending}
         pageKey="videos"
         filterMode="videos"
         filter={filter}
@@ -926,6 +993,8 @@ export function VideosPage({ onNavigate }: Props) {
         selectAllMatchingLabel="Select shown"
         savedFilterUIOptions={savedFilterUIOptions}
         onApplySavedFilterUIOptions={applySavedFilterUIOptions}
+        vrListSource={vrListSource}
+        onNavigate={onNavigate}
         renderOperations={() => (
           <>
             {displayMode === "list" && (
@@ -939,7 +1008,7 @@ export function VideosPage({ onNavigate }: Props) {
             <button
               type="button"
               onClick={() => playRandomMutation.mutate()}
-              disabled={playRandomMutation.isPending || loading || (totalCount ?? 0) === 0}
+              disabled={playRandomMutation.isPending || loading || (totalCount ?? items.length) === 0}
               className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-border bg-card/70 px-2.5 py-2 text-sm text-secondary transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-1 sm:text-xs"
               title="Play random"
               aria-label="Play random"

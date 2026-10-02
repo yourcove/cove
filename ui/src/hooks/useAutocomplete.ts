@@ -56,7 +56,6 @@ export function useAutocomplete<T>({
   const optionElements = useRef(new Map<string, HTMLElement>());
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const previousInputValue = useRef(inputValue);
 
   const selectableItems = useMemo(() => items.filter((item) => !item.disabled), [items]);
   const selectableKeys = useMemo(() => selectableItems.map((item) => item.key), [selectableItems]);
@@ -83,24 +82,26 @@ export function useAutocomplete<T>({
     [close, onSelect],
   );
 
-  useEffect(() => {
+  const [prevDisabled, setPrevDisabled] = useState(disabled);
+  if (prevDisabled !== disabled) {
+    setPrevDisabled(disabled);
     if (disabled) {
-      close();
-    }
-  }, [close, disabled]);
-
-  useEffect(() => {
-    if (previousInputValue.current === inputValue) return;
-    previousInputValue.current = inputValue;
-    if (!preserveActiveKeyOnInputChange) setActiveKey(null);
-    setIsOpen(!disabled && inputValue.trim().length > 0);
-  }, [disabled, inputValue, preserveActiveKeyOnInputChange]);
-
-  useEffect(() => {
-    if (activeKey != null && (!itemKeys.includes(activeKey) || (!busy && !selectableKeys.includes(activeKey)))) {
+      setIsOpen(false);
       setActiveKey(null);
     }
-  }, [activeKey, busy, itemKeys, selectableKeys]);
+  }
+
+  const [previousInputValue, setPreviousInputValue] = useState(inputValue);
+  if (previousInputValue !== inputValue) {
+    setPreviousInputValue(inputValue);
+    if (!preserveActiveKeyOnInputChange) setActiveKey(null);
+    setIsOpen(!disabled && inputValue.trim().length > 0);
+  }
+
+  // Drop an active option that is gone, or that is disabled once loading has finished.
+  if (activeKey != null && (!itemKeys.includes(activeKey) || (!busy && !selectableKeys.includes(activeKey)))) {
+    setActiveKey(null);
+  }
 
   useEffect(() => {
     if (activeKey == null) return;

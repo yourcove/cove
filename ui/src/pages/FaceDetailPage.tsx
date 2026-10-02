@@ -248,7 +248,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     enabled: face != null,
   });
   const faceDetectionsLoadError = getLoadError(faceDetectionsData, faceDetectionsError);
-  const faceDetections = faceDetectionsData ?? [];
+  const faceDetections = useMemo(() => faceDetectionsData ?? [], [faceDetectionsData]);
 
   const [label, setLabel] = useState("");
   const [performerSearch, setPerformerSearch] = useState("");
@@ -272,13 +272,12 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     enabled: canEngageFace,
   });
 
-  useEffect(() => {
-    if (!face) {
-      return;
-    }
-
-    setLabel(face.label ?? "");
-  }, [face]);
+  // Starts undefined so a face that is already cached on mount still fills the label.
+  const [prevFace, setPrevFace] = useState<typeof face>(undefined);
+  if (prevFace !== face) {
+    setPrevFace(face);
+    if (face) setLabel(face.label ?? "");
+  }
 
   useEffect(() => {
     if (!isEditModalOpen) {
@@ -296,13 +295,19 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     window.setTimeout(() => mergeInputRef.current?.focus(), 0);
   }, [isMergeModalOpen]);
 
-  useEffect(() => {
-    if (!isCreatePerformerModalOpen) {
-      return;
+  const [prevCreatePerformerSource, setPrevCreatePerformerSource] = useState({
+    open: isCreatePerformerModalOpen,
+    faceLabel: face?.label,
+  });
+  if (
+    prevCreatePerformerSource.open !== isCreatePerformerModalOpen ||
+    prevCreatePerformerSource.faceLabel !== face?.label
+  ) {
+    setPrevCreatePerformerSource({ open: isCreatePerformerModalOpen, faceLabel: face?.label });
+    if (isCreatePerformerModalOpen) {
+      setNewPerformerName((current) => current.trim() || face?.label?.trim() || "");
     }
-
-    setNewPerformerName((current) => current.trim() || face?.label?.trim() || "");
-  }, [face?.label, isCreatePerformerModalOpen]);
+  }
 
   useEffect(() => {
     if (!showActionsMenu) {
@@ -505,9 +510,11 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
 
   useDocumentTitle(face ? title : null);
 
-  useEffect(() => {
+  const [prevHeroImageCount, setPrevHeroImageCount] = useState(heroImageUrls.length);
+  if (prevHeroImageCount !== heroImageUrls.length) {
+    setPrevHeroImageCount(heroImageUrls.length);
     setHeroImageIndex((current) => Math.min(current, Math.max(0, heroImageUrls.length - 1)));
-  }, [heroImageUrls.length]);
+  }
 
   if (isLoading) {
     return (

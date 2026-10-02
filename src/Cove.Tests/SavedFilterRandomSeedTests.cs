@@ -64,4 +64,25 @@ public class SavedFilterRandomSeedTests
     {
         Assert.Equal(input, SavedFiltersController.StripRandomSeed(input));
     }
+
+    // skipCount is a per-request option; a list opened from a saved filter must still count.
+    [Theory]
+    [InlineData("{\"q\":\"needle\",\"skipCount\":true}")]
+    [InlineData("{\"q\":\"needle\",\"SkipCount\":true}")]
+    public void StripRequestOnlyOptions_RemovesSkipCount(string input)
+    {
+        var result = JsonNode.Parse(SavedFiltersController.StripRequestOnlyOptions(input)!)!.AsObject();
+
+        Assert.Equal("needle", result["q"]!.GetValue<string>());
+        Assert.DoesNotContain(result, property => string.Equals(property.Key, "skipCount", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not json")]
+    [InlineData("{\"q\":\"needle\"}")]
+    public void StripRequestOnlyOptions_ReturnsInputUnchanged_WithoutSkipCount(string? input)
+    {
+        Assert.Equal(input, SavedFiltersController.StripRequestOnlyOptions(input));
+    }
 }

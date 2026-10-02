@@ -96,7 +96,7 @@ function createOwnerLeaseManager() {
         return () => {
           activeOwners.delete(entry);
           cleanupCounts.set(entry, (cleanupCounts.get(entry) ?? 0) + 1);
-          for (const release of [...(ownerReleases.get(entry) ?? [])]) release();
+          for (const release of ownerReleases.get(entry) ?? []) release();
         };
       },
     };

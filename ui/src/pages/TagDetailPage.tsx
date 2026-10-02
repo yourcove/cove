@@ -36,8 +36,6 @@ import type {
 } from "../api/types";
 import {
   formatDate,
-  formatDuration,
-  getResolutionLabel,
   TagBadge,
   CustomFieldsDisplay,
   FieldProvenanceHover,
@@ -50,7 +48,6 @@ import {
   FolderOpen,
   GitMerge,
   Headphones,
-  Heart,
   ImageIcon,
   Layers,
   Loader2,
@@ -68,17 +65,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NarrativeText } from "../components/NarrativeText";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { ExtensionSlot } from "../router/RouteRegistry";
-import {
-  AudioTile,
-  VideoCard,
-  PerformerTile,
-  ImageTile,
-  GalleryTile,
-  StudioTile,
-  GroupTile,
-  SegmentTile,
-  TextTile,
-} from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
@@ -121,8 +107,8 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
-import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import {
   useDetailBooleanUrlState,
   useDetailTabUrlState,
@@ -138,6 +124,7 @@ import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -288,7 +275,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     if (visibleTagTabs.length > 0 && !visibleTagTabs.some((tab) => tab.key === activeTab)) {
       setActiveTab(visibleTagTabs[0].key as TabKey);
     }
-  }, [activeTab, visibleTagTabs]);
+  }, [activeTab, setActiveTab, visibleTagTabs]);
 
   useEffect(() => {
     if (!showOpsMenu) return;
@@ -696,11 +683,13 @@ function TagVideosPanel({
       hasObjectFilter || includeSubTags
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as VideoFilterCriteria,
-              "tagsCriterion",
-              tagId,
-              includeSubTags ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as VideoFilterCriteria,
+                "tagsCriterion",
+                tagId,
+                includeSubTags ? -1 : undefined,
+              ),
             ),
           })
         : videos.find(nextFilter, { tagIds: String(tagId) }),
@@ -734,6 +723,28 @@ function TagVideosPanel({
   const toolbar = (
     <MediaDetailListToolbar
       mediaType="videos"
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, tagId, includeSubTags),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                ...splitFilterExpression(
+                  withRequiredMultiId(
+                    vrOnlyFilter(objectFilter) as VideoFilterCriteria,
+                    "tagsCriterion",
+                    tagId,
+                    includeSubTags ? -1 : undefined,
+                  ),
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       aggregateObjectFilter={withRequiredMultiId(objectFilter, "tagsCriterion", tagId, includeSubTags ? -1 : undefined)}
       selectedIds={selectedIds}
       filter={filter}
@@ -763,6 +774,7 @@ function TagVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -852,11 +864,13 @@ function TagPerformersPanel({
       hasObjectFilter || includeSubTags
         ? performers.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(
-              objectFilter as PerformerFilterCriteria,
-              "tagsCriterion",
-              tagId,
-              includeSubTags ? -1 : undefined,
+            ...splitFilterExpression(
+              withRequiredMultiId(
+                objectFilter as PerformerFilterCriteria,
+                "tagsCriterion",
+                tagId,
+                includeSubTags ? -1 : undefined,
+              ),
             ),
           })
         : performers.find(nextFilter, { tagIds: String(tagId) }),
@@ -889,6 +903,7 @@ function TagPerformersPanel({
         <BulkSelectionActions
           entityType="performers"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "tag", id: tagId }}
         />
@@ -897,6 +912,7 @@ function TagPerformersPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="performers"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1253,11 +1269,13 @@ function TagAudiosPanel({
     queryFn: (nextFilter) =>
       audios.findFiltered({
         findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(
-          objectFilter as AudioFilterCriteria,
-          "tagsCriterion",
-          tagId,
-          includeSubTags ? -1 : undefined,
+        ...splitFilterExpression(
+          withRequiredMultiId(
+            objectFilter as AudioFilterCriteria,
+            "tagsCriterion",
+            tagId,
+            includeSubTags ? -1 : undefined,
+          ),
         ),
       }),
   });
@@ -1303,6 +1321,7 @@ function TagAudiosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="audios"
+      supportsFilterExpressions
       defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
@@ -1752,6 +1771,7 @@ function TagStudiosPanel({
         <BulkSelectionActions
           entityType="studios"
           selectedIds={selectedIds}
+          mergeItems={items}
           onDone={selectNone}
           removeFromParent={{ type: "tag", id: tagId }}
         />
@@ -1836,7 +1856,7 @@ function TagGroupsPanel({
     fetchAllIds,
     loadMore,
   } = useDetailListQuery<Group>({
-    queryKey: ["tag-groups", tagId, objectFilter, includeSubTags],
+    queryKey: ["tag-linked-groups", tagId, objectFilter, includeSubTags],
     filter,
     queryFn: (nextFilter) =>
       hasObjectFilter || includeSubTags

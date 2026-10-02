@@ -42,16 +42,12 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     queryFn: (page, perPage) => queryPage({ ...filter, page, perPage }),
   });
 
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, isPlaceholderData } = infiniteQuery;
   const loadMore = useCallback(() => {
-    if (!infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
-      void infiniteQuery.fetchNextPage();
+    if (!isPlaceholderData && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
     }
-  }, [
-    infiniteQuery.fetchNextPage,
-    infiniteQuery.hasNextPage,
-    infiniteQuery.isFetchingNextPage,
-    infiniteQuery.isPlaceholderData,
-  ]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, isPlaceholderData]);
 
   const fetchAllIds = useCallback(() => fetchAllMatchingIds(filter, queryPage), [filter, queryPage]);
 

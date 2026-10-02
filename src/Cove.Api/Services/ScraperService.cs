@@ -17,7 +17,17 @@ namespace Cove.Api.Services;
 
 public sealed record AutoScrapeAttemptResult(string ScraperId, string ScraperName, bool ReturnedResults, string? Error);
 
-public sealed record AutoScrapeResult(string? ScraperId, Dictionary<string, object>? Result, IReadOnlyList<AutoScrapeAttemptResult> Attempts);
+public sealed record AutoScrapeResult(string? ScraperId, Dictionary<string, object>? Result, IReadOnlyList<AutoScrapeAttemptResult> Attempts)
+{
+    /// <summary>The downloader's own metadata outranked every scraper that had not already failed.</summary>
+    public bool UseInlineMetadata { get; init; }
+}
+
+/// <summary>Metadata a downloader returned with its file, offered as an auto-scrape candidate.</summary>
+/// <param name="Tier">From <see cref="ScraperService.GetDownloaderMetadataTier"/>.</param>
+public sealed record InlineMetadataOffer(string DownloaderId, int Tier);
+
+internal sealed record UrlScrapeCandidate(ScraperSummaryDto? Scraper, int Tier, int Strength);
 
 public partial class ScraperService
 {
@@ -35,6 +45,15 @@ public partial class ScraperService
     private readonly Dictionary<string, ScraperManifest> _manifestCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExtensionScraperRegistration> _extensionScraperCache = new(StringComparer.OrdinalIgnoreCase);
     private const string BuiltinScraperSourcePath = "builtin:cove.core.scrapers";
+
+    /// <summary>
+    /// Scraper preference value that picks the metadata the downloader returned with its file over every
+    /// scraper for the site. Only downloads have such metadata; elsewhere the preference has no effect.
+    /// </summary>
+    public const string DownloaderMetadataPreferenceId = "cove:downloader-metadata";
+    private const int SiteSpecificTier = 2;
+    private const int ClaimedSiteTier = 1;
+    private const int CatchAllTier = 0;
     private static readonly Regex BracketTagRegex = new(@"\[[^\[\]\r\n]{1,80}\]", RegexOptions.Compiled);
     private static readonly JsonSerializerOptions ExtensionScrapeJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -112,26 +131,118 @@ public partial class ScraperService
     }
 
     /// <summary>
-    /// Find loaded scrapers whose URL patterns match the given URL.
-    /// Built-in extension scrapers are preferred and listed first.
+    /// Find loaded scrapers whose URL patterns match the given URL, best first: the scraper configured in
+    /// Scraping preferences for the URL's site, then scrapers built for the site, then scrapers that only
+    /// claim the site through preference sites, then catch-all scrapers.
     /// </summary>
     public IReadOnlyList<ScraperSummaryDto> FindScrapersForUrl(string url, string? entityType = null)
+        => RankUrlCandidates(url, entityType, inline: null)
+            .Where(candidate => candidate.Scraper is not null)
+            .Select(candidate => candidate.Scraper!)
+            .ToList();
+
+    /// <summary>
+    /// Rank the scrapers for a URL, with the metadata a downloader returned alongside its file slotted in as
+    /// one more candidate when <paramref name="inline"/> is given.
+    /// </summary>
+    private List<UrlScrapeCandidate> RankUrlCandidates(string url, string? entityType, InlineMetadataOffer? inline)
     {
         if (string.IsNullOrWhiteSpace(url))
             return [];
 
-        var normalized = url.Trim();
-        var loweredUrl = normalized.ToLowerInvariant();
+        var loweredUrl = url.Trim().ToLowerInvariant();
+        var preferredId = FindPreferredScraperId(loweredUrl, entityType);
 
-        return GetScrapers()
+        var candidates = GetScrapers()
             .Where(s => string.IsNullOrWhiteSpace(entityType) ||
                         string.Equals(s.EntityType, entityType, StringComparison.OrdinalIgnoreCase))
             .Where(s => s.SupportedScrapes.Any(k => string.Equals(k, "URL", StringComparison.OrdinalIgnoreCase)))
             .Where(s => ScraperMatchesUrl(loweredUrl, s))
-            .OrderBy(s => s.SourcePath.StartsWith("builtin:", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(s => BestPatternStrength(loweredUrl, s.Urls.Concat(s.PreferenceSites ?? [])))
-            .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(s => new UrlScrapeCandidate(s, GetMatchTier(loweredUrl, s), BestPatternStrength(loweredUrl, s.Urls.Concat(s.PreferenceSites ?? []))))
             .ToList();
+
+        if (inline is not null)
+            candidates.Add(new UrlScrapeCandidate(null, inline.Tier, 0));
+
+        return candidates
+            .OrderByDescending(c => IsPreferred(c, preferredId))
+            .ThenByDescending(c => c.Tier)
+            // At equal tier the downloader's metadata wins: it is already fetched and came from the same page.
+            .ThenByDescending(c => c.Scraper is null)
+            .ThenByDescending(c => c.Strength)
+            .ThenBy(c => c.Scraper?.SourcePath.StartsWith("builtin:", StringComparison.OrdinalIgnoreCase) ?? false)
+            .ThenBy(c => c.Scraper?.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsPreferred(UrlScrapeCandidate candidate, string? preferredId)
+        => preferredId is not null && (candidate.Scraper is null
+            ? string.Equals(preferredId, DownloaderMetadataPreferenceId, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(preferredId, candidate.Scraper.Id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The scraper id configured for the URL's site in Scraping preferences. The longest matching site wins,
+    /// so a <c>de.example.com</c> preference beats an <c>example.com</c> one; a preference for the entity type
+    /// beats one that applies to every entity type.
+    /// </summary>
+    private string? FindPreferredScraperId(string loweredUrl, string? entityType)
+    {
+        var host = TryGetHost(loweredUrl);
+        if (host.Length == 0)
+            return null;
+
+        return _config.Scraping.ScraperPreferences
+            .Where(p => !string.IsNullOrWhiteSpace(p.ScraperId))
+            .Where(p => string.IsNullOrWhiteSpace(p.EntityType)
+                        || string.Equals(p.EntityType, entityType, StringComparison.OrdinalIgnoreCase))
+            .Select(p => (Preference: p, Site: NormalizePreferenceSite(p.Site)))
+            .Where(p => p.Site.Length > 0 && p.Site != "*"
+                        && (host == p.Site || host.EndsWith($".{p.Site}", StringComparison.Ordinal)))
+            .OrderByDescending(p => p.Site.Length)
+            .ThenByDescending(p => !string.IsNullOrWhiteSpace(p.Preference.EntityType))
+            .Select(p => p.Preference.ScraperId.Trim())
+            .FirstOrDefault();
+    }
+
+    private static int GetMatchTier(string loweredUrl, ScraperSummaryDto scraper)
+    {
+        if (scraper.Urls.Any(pattern => !IsCatchAllPattern(pattern) && UrlMatchesPattern(loweredUrl, pattern)))
+            return SiteSpecificTier;
+
+        return scraper.PreferenceSites?.Any(site => UrlMatchesPreferenceSite(loweredUrl, site)) == true
+            ? ClaimedSiteTier
+            : CatchAllTier;
+    }
+
+    /// <summary>
+    /// How specifically a downloader's URL patterns cover the URL, for ranking the metadata it returned
+    /// against scrapers. A catch-all downloader such as yt-dlp still ranks above catch-all scrapers.
+    /// </summary>
+    public static int GetDownloaderMetadataTier(string url, IEnumerable<string> downloaderUrlPatterns)
+    {
+        var loweredUrl = url.Trim().ToLowerInvariant();
+        return downloaderUrlPatterns.Any(pattern => !IsCatchAllPattern(pattern) && UrlMatchesPattern(loweredUrl, pattern))
+            ? SiteSpecificTier
+            : ClaimedSiteTier;
+    }
+
+    /// <summary>
+    /// Whether a URL pattern names no site, like <c>https://*/*</c> or <c>*</c>: every literal part of it is a
+    /// scheme, a separator or a wildcard.
+    /// </summary>
+    internal static bool IsCatchAllPattern(string pattern)
+    {
+        var rest = pattern.Trim().ToLowerInvariant();
+        foreach (var scheme in (string[])["https://", "http://", "//"])
+        {
+            if (rest.StartsWith(scheme, StringComparison.Ordinal))
+            {
+                rest = rest[scheme.Length..];
+                break;
+            }
+        }
+
+        return rest.All(ch => ch is '*' or '/' or '.' or ':');
     }
 
     private static bool ScraperMatchesUrl(string loweredUrl, ScraperSummaryDto scraper)
@@ -155,33 +266,48 @@ public partial class ScraperService
             : null;
     }
 
-    public async Task<AutoScrapeResult> ScrapeUrlAutoDetailedAsync(string url, string entityType, CancellationToken ct = default)
+    public Task<AutoScrapeResult> ScrapeUrlAutoDetailedAsync(string url, string entityType, CancellationToken ct = default)
+        => ScrapeUrlAutoDetailedAsync(url, entityType, inline: null, ct);
+
+    /// <summary>
+    /// Try the ranked scrapers for the URL in order until one returns results. When <paramref name="inline"/>
+    /// is given, the downloader's own metadata takes its ranked place in that order: reaching it stops the
+    /// search and returns a result with <see cref="AutoScrapeResult.UseInlineMetadata"/> set.
+    /// </summary>
+    public async Task<AutoScrapeResult> ScrapeUrlAutoDetailedAsync(string url, string entityType, InlineMetadataOffer? inline, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(url))
             return new AutoScrapeResult(null, null, []);
 
-        var candidates = FindScrapersForUrl(url, entityType);
+        var candidates = RankUrlCandidates(url, entityType, inline);
         TraceAutoScrapeCandidates(candidates.Count, entityType, url);
         var attempts = new List<AutoScrapeAttemptResult>(candidates.Count);
         foreach (var candidate in candidates)
         {
+            if (candidate.Scraper is null)
+            {
+                TraceAutoScrapeAttempt(inline!.DownloaderId, "supplied the downloader's own metadata", entityType, url);
+                return new AutoScrapeResult(null, null, attempts) { UseInlineMetadata = true };
+            }
+
+            var scraper = candidate.Scraper;
             try
             {
-                var result = await ScrapeUrlAsync(candidate.Id, entityType, url, ct);
+                var result = await ScrapeUrlAsync(scraper.Id, entityType, url, ct);
                 if (result is { Count: > 0 })
                 {
-                    attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, true, null));
-                    TraceAutoScrapeAttempt(candidate.Id, "returned results", entityType, url);
-                    return new AutoScrapeResult(candidate.Id, result, attempts);
+                    attempts.Add(new AutoScrapeAttemptResult(scraper.Id, scraper.Name, true, null));
+                    TraceAutoScrapeAttempt(scraper.Id, "returned results", entityType, url);
+                    return new AutoScrapeResult(scraper.Id, result, attempts);
                 }
 
-                attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, null));
-                TraceAutoScrapeAttempt(candidate.Id, "returned no results", entityType, url);
+                attempts.Add(new AutoScrapeAttemptResult(scraper.Id, scraper.Name, false, null));
+                TraceAutoScrapeAttempt(scraper.Id, "returned no results", entityType, url);
             }
             catch (Exception ex)
             {
-                attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, ex.Message));
-                TraceAutoScrapeAttempt(candidate.Id, "failed", entityType, url, ex);
+                attempts.Add(new AutoScrapeAttemptResult(scraper.Id, scraper.Name, false, ex.Message));
+                TraceAutoScrapeAttempt(scraper.Id, "failed", entityType, url, ex);
             }
         }
 
@@ -915,7 +1041,14 @@ public partial class ScraperService
         GetScrapers();
 
         if (TryGetExtensionScraperRegistration(scraperId, entityType, out var extensionRegistration))
-            return await ScrapeNameWithExtensionAsync(extensionRegistration, name, ct);
+        {
+            // Extension search results are usually built from listing pages and omit detail-only
+            // fields (tags, performers, full details); fill them in from each candidate's page.
+            var extensionCandidates = await ScrapeNameWithExtensionAsync(extensionRegistration, name, ct);
+            return extensionCandidates is { Count: > 0 } && extensionRegistration.Descriptor.Capabilities.HasFlag(ScraperCapabilities.ByUrl)
+                ? await EnrichNameSearchCandidatesAsync(scraperId, entityType, extensionCandidates, searchUrl: null, ct)
+                : extensionCandidates;
+        }
 
         var baseId = GetBaseScraperId(scraperId);
 
@@ -1125,7 +1258,7 @@ public partial class ScraperService
         string scraperId,
         string entityType,
         List<Dictionary<string, object>> candidates,
-        string searchUrl,
+        string? searchUrl,
         CancellationToken ct)
     {
         if (candidates.Count == 0)
@@ -1153,17 +1286,22 @@ public partial class ScraperService
         string scraperId,
         string entityType,
         Dictionary<string, object> candidate,
-        string searchUrl,
+        string? searchUrl,
         CancellationToken ct)
     {
         var merged = new Dictionary<string, object>(candidate, StringComparer.OrdinalIgnoreCase);
-        var candidateUrl = ExtractCandidateUrl(candidate);
+        var candidateUrl = ExtractCandidateUrl(merged);
         if (string.IsNullOrWhiteSpace(candidateUrl))
             return merged;
 
-        var absoluteUrl = ResolveCandidateUrl(searchUrl, candidateUrl);
-        if (!string.IsNullOrWhiteSpace(absoluteUrl))
-            merged["URL"] = absoluteUrl;
+        // Extension candidates (no search URL) already carry absolute URLs in their own shape.
+        string? absoluteUrl = null;
+        if (searchUrl != null)
+        {
+            absoluteUrl = ResolveCandidateUrl(searchUrl, candidateUrl);
+            if (!string.IsNullOrWhiteSpace(absoluteUrl))
+                merged["URL"] = absoluteUrl;
+        }
 
         try
         {
@@ -1171,8 +1309,14 @@ public partial class ScraperService
             if (scraped == null || scraped.Count == 0)
                 return merged;
 
+            // Extension search results are the extension's own answer for the chosen candidate, so
+            // the detail scrape only fills fields they left empty (it must not rename the match).
+            var fillMissingOnly = searchUrl == null;
             foreach (var (field, value) in scraped)
-                merged[field] = value;
+            {
+                if (!fillMissingOnly || !merged.TryGetValue(field, out var existing) || IsEmptyCandidateValue(existing))
+                    merged[field] = value;
+            }
         }
         catch (Exception ex)
         {
@@ -1182,16 +1326,49 @@ public partial class ScraperService
         return merged;
     }
 
+    private static bool IsEmptyCandidateValue(object? value) => value switch
+    {
+        null => true,
+        string text => string.IsNullOrWhiteSpace(text),
+        JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => true,
+        JsonElement { ValueKind: JsonValueKind.String } element => string.IsNullOrWhiteSpace(element.GetString()),
+        JsonElement { ValueKind: JsonValueKind.Array } element => element.GetArrayLength() == 0,
+        System.Collections.ICollection collection => collection.Count == 0,
+        _ => false,
+    };
+
     private static string? ExtractCandidateUrl(IReadOnlyDictionary<string, object> candidate)
     {
         foreach (var field in new[] { "URL", "Url" })
         {
-            if (candidate.TryGetValue(field, out var value) && value is string text && !string.IsNullOrWhiteSpace(text))
+            if (!candidate.TryGetValue(field, out var value))
+                continue;
+
+            var text = value switch
+            {
+                string stringValue => stringValue,
+                JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+                _ => null,
+            };
+            if (!string.IsNullOrWhiteSpace(text))
                 return text.Trim();
         }
 
-        if (candidate.TryGetValue("URLs", out var urlsValue) && urlsValue is List<string> urls && urls.Count > 0)
-            return urls[0];
+        if (candidate.TryGetValue("URLs", out var urlsValue))
+        {
+            if (urlsValue is List<string> urls && urls.Count > 0)
+                return urls[0];
+
+            // Extension results are round-tripped through JSON, so list values arrive as JsonElement.
+            if (urlsValue is JsonElement { ValueKind: JsonValueKind.Array } urlArray)
+            {
+                foreach (var item in urlArray.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        return item.GetString()!.Trim();
+                }
+            }
+        }
 
         return null;
     }

@@ -1,6 +1,6 @@
 import { QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitMerge, Loader2, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { MAX_REVIEWED_ITEMS } from "./MergeDialog";
 
 export interface DetailMergeCandidate {
@@ -44,14 +44,17 @@ export function DetailMergeDialog({
   // "intoOther":   merge this entry into another one (the other one is kept, this is removed).
   const [direction, setDirection] = useState<"intoCurrent" | "intoOther">("intoCurrent");
 
-  useEffect(() => {
+  // Clear the dialog when it closes so the next open starts fresh.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (!open) {
       setReview(false);
       setSearchTerm("");
       setSelectedIds([]);
       setDirection("intoCurrent");
     }
-  }, [open]);
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["detail-merge", entityType, targetItem.id, searchTerm],

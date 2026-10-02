@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ChangeEventHandler, type InputHTMLAttributes } from "react";
+import { useCallback, useEffect, useRef, type ChangeEventHandler, type InputHTMLAttributes } from "react";
 import { CalendarDays } from "lucide-react";
 import { isValidRelativeDate, looksLikeRelativeDate } from "../utils/relativeDate";
 
@@ -46,15 +46,18 @@ export function IsoDateInput({
   const dateMessage = allowRelative
     ? `Use YYYY, YYYY-MM, YYYY-MM-DD, or an offset such as -7d, -1y3m, or ${allowHours ? "-6h" : "+2w"}; combine y, m, w, d${allowHours ? ", and h" : ""} from largest to smallest. Use 0d for ${presentLabel}.`
     : "Use YYYY, YYYY-MM, or YYYY-MM-DD.";
-  const isValidValue = (candidate: string) => {
-    if (looksLikeRelativeDate(candidate)) return allowRelative && isValidRelativeDate(candidate, allowHours);
-    return pickerType !== "date" || isValidPartialIsoDate(candidate);
-  };
+  const isValidValue = useCallback(
+    (candidate: string) => {
+      if (looksLikeRelativeDate(candidate)) return allowRelative && isValidRelativeDate(candidate, allowHours);
+      return pickerType !== "date" || isValidPartialIsoDate(candidate);
+    },
+    [allowRelative, allowHours, pickerType],
+  );
 
   useEffect(() => {
     if (textRef.current)
       textRef.current.setCustomValidity(typeof value !== "string" || isValidValue(value) ? "" : dateMessage);
-  }, [allowRelative, pickerType, value]);
+  }, [dateMessage, isValidValue, value]);
 
   const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     event.currentTarget.setCustomValidity(isValidValue(event.currentTarget.value) ? "" : dateMessage);

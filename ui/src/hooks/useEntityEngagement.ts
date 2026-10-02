@@ -104,7 +104,7 @@ function isEntityEngagement(value: unknown): value is EntityEngagement {
 }
 
 function syncRatings(current: EntityRatings | undefined, hostId: number, aspect: string, value: number | null) {
-  const nextRatings = { ...(current?.ratings ?? {}) };
+  const nextRatings = { ...current?.ratings };
   if (value == null) {
     delete nextRatings[aspect];
   } else {

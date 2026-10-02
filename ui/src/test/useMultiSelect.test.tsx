@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { useState } from "react";
@@ -181,5 +181,52 @@ describe("useMultiSelect", () => {
     await user.click(screen.getByRole("button", { name: "Toggle first" }));
     await user.click(screen.getByRole("button", { name: "Range to unloaded" }));
     expect(screen.getByTestId("selected")).toHaveTextContent("5,1,3");
+  });
+});
+
+describe("useMultiSelect resets", () => {
+  const firstItems = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
+  const nextItems = [...firstItems, { id: 5 }];
+
+  it("clears the selection and the range anchor when items change without preservation", () => {
+    const { result, rerender } = renderHook(({ items }) => useMultiSelect(items), {
+      initialProps: { items: firstItems },
+    });
+
+    act(() => result.current.toggle(1));
+    expect([...result.current.selectedIds]).toEqual([1]);
+
+    rerender({ items: nextItems });
+    expect(result.current.selectedIds.size).toBe(0);
+
+    act(() => result.current.toggle(4, { range: true }));
+    expect([...result.current.selectedIds]).toEqual([4]);
+  });
+
+  it("keeps the selection and the range anchor when preserved items change", () => {
+    const { result, rerender } = renderHook(({ items }) => useMultiSelect(items, { preserveOnItemsChange: true }), {
+      initialProps: { items: firstItems },
+    });
+
+    act(() => result.current.toggle(1));
+    rerender({ items: nextItems });
+    expect([...result.current.selectedIds]).toEqual([1]);
+
+    act(() => result.current.toggle(4, { range: true }));
+    expect([...result.current.selectedIds].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("clears the selection and the range anchor when the reset key changes", () => {
+    const { result, rerender } = renderHook(
+      ({ resetKey }) => useMultiSelect(firstItems, { preserveOnItemsChange: true, resetKey }),
+      { initialProps: { resetKey: "a" } },
+    );
+
+    act(() => result.current.toggle(1));
+    rerender({ resetKey: "b" });
+    expect(result.current.selectedIds.size).toBe(0);
+
+    act(() => result.current.toggle(3, { range: true }));
+    expect([...result.current.selectedIds]).toEqual([3]);
   });
 });

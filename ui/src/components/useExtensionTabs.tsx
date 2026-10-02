@@ -25,17 +25,15 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
 
   // Fetch counts for extension tabs with countEndpoint
   const [extCounts, setExtCounts] = useState<Record<string, number>>({});
+  // With no record or no counted tabs, drop counts left over from a previous record or tab set.
+  if ((entityId == null || !extTabs.some((t) => t.countEndpoint)) && Object.keys(extCounts).length !== 0) {
+    setExtCounts({});
+  }
   useEffect(() => {
-    if (entityId == null) {
-      setExtCounts((current) => (Object.keys(current).length === 0 ? current : {}));
-      return;
-    }
+    if (entityId == null) return;
 
     const toFetch = extTabs.filter((t) => t.countEndpoint);
-    if (toFetch.length === 0) {
-      setExtCounts((current) => (Object.keys(current).length === 0 ? current : {}));
-      return;
-    }
+    if (toFetch.length === 0) return;
 
     let cancelled = false;
     Promise.all(

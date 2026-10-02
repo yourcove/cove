@@ -65,18 +65,22 @@ export function GlobalSearch({ navigate }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const lastTrackedSearchKey = useRef("");
   const searchId = useId();
-  const { hasPermission, permissions } = useAuth();
+  const { hasPermission } = useAuth();
   const serverAvailability = useSyncExternalStore(
     subscribeToServerAvailability,
     getServerAvailability,
     getServerAvailability,
   );
 
+  // Short terms commit immediately; longer terms are debounced.
+  const [prevNormalizedTerm, setPrevNormalizedTerm] = useState(normalizedTerm);
+  if (prevNormalizedTerm !== normalizedTerm) {
+    setPrevNormalizedTerm(normalizedTerm);
+    if (normalizedTerm.length < 2) setCommittedTerm(normalizedTerm);
+  }
+
   useEffect(() => {
-    if (normalizedTerm.length < 2) {
-      setCommittedTerm(normalizedTerm);
-      return;
-    }
+    if (normalizedTerm.length < 2) return;
     const timeout = window.setTimeout(() => setCommittedTerm(normalizedTerm), GLOBAL_SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
   }, [normalizedTerm]);
@@ -93,7 +97,7 @@ export function GlobalSearch({ navigate }: Props) {
       audios: canReadEntity("audio", hasPermission),
       texts: canReadEntity("text", hasPermission),
     }),
-    [hasPermission, permissions],
+    [hasPermission],
   );
 
   const searchableLabels = useMemo(() => {
@@ -125,11 +129,14 @@ export function GlobalSearch({ navigate }: Props) {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, []);
 
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!open) setDesktopPanelStyle(null);
+  }
+
   useEffect(() => {
-    if (!open) {
-      setDesktopPanelStyle(null);
-      return;
-    }
+    if (!open) return;
 
     const updatePanelPosition = () => {
       const trigger = containerRef.current;

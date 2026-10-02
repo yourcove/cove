@@ -87,7 +87,7 @@ export function useMediaRecoveryController({
   }, []);
 
   const dispatch = useCallback(
-    (event: MediaRecoveryEvent) => {
+    function dispatch(event: MediaRecoveryEvent) {
       if (!mountedRef.current) return;
 
       const previousState = stateRef.current;

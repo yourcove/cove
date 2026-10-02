@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, segmentDisplayProfiles, segmentLibrary, tags } from "../../../api/client";
 import type {
@@ -26,6 +26,9 @@ import {
 import { bulkCreateDisplayProfileRules } from "./bulkCreateRules";
 import { compareNatural } from "../../../utils/naturalCompare";
 
+// Stable across renders so the list only counts as changed when the query data does.
+const noProfiles: SegmentDisplayProfile[] = [];
+
 export function useDisplayProfilesSettings() {
   const queryClient = useQueryClient();
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
@@ -40,23 +43,25 @@ export function useDisplayProfilesSettings() {
   const [previewVideoSearch, setPreviewVideoSearch] = useState("");
   const [previewVideoId, setPreviewVideoId] = useState<number | null>(null);
 
-  const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+  const { data: profiles = noProfiles, isLoading: profilesLoading } = useQuery({
     queryKey: ["segment-display-profiles"],
     queryFn: () => segmentDisplayProfiles.list(),
   });
 
-  useEffect(() => {
+  // Re-pick the selection whenever the profile list changes; null first so a cached list is picked at mount.
+  const [prevProfiles, setPrevProfiles] = useState<SegmentDisplayProfile[] | null>(null);
+  if (profiles !== prevProfiles) {
+    setPrevProfiles(profiles);
     if (profiles.length === 0) {
       setSelectedProfileId(null);
-      return;
+    } else {
+      setSelectedProfileId((current) =>
+        current != null && profiles.some((profile) => profile.id === current)
+          ? current
+          : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0].id),
+      );
     }
-
-    setSelectedProfileId((current) =>
-      current != null && profiles.some((profile) => profile.id === current)
-        ? current
-        : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0].id),
-    );
-  }, [profiles]);
+  }
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const { data: rules = [], isLoading: rulesLoading } = useQuery({

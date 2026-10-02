@@ -141,22 +141,14 @@ describe("videoListColumns", () => {
     expect(getVideoDisplayDuration({ ...video, clipStartSec: 10, clipEndSec: 25 })).toBe(15);
   });
 
-  it("renders every column without throwing", () => {
-    for (const column of VIDEO_LIST_COLUMNS) {
-      const { unmount } = render(<div>{column.render(video, engagement, context)}</div>);
-      unmount();
-      const { unmount: unmountEmpty } = render(
-        <div>
-          {column.render(
-            { ...video, title: undefined, files: [], tags: [], performers: [], groups: [], galleries: [] },
-            undefined,
-            context,
-          )}
-        </div>,
-      );
-      unmountEmpty();
-    }
-  });
+  it.each(VIDEO_LIST_COLUMNS.map((column) => [column.id, column] as const))(
+    "renders the %s column without throwing",
+    (_id, column) => {
+      expect(() => render(<div>{column.render(video, engagement, context)}</div>).unmount()).not.toThrow();
+      const emptyVideo = { ...video, title: undefined, files: [], tags: [], performers: [], groups: [], galleries: [] };
+      expect(() => render(<div>{column.render(emptyVideo, undefined, context)}</div>).unmount()).not.toThrow();
+    },
+  );
 
   it("formats file-derived and engagement values", () => {
     const cell = (id: string) => VIDEO_LIST_COLUMN_BY_ID.get(id as never)!.render(video, engagement, context);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { scrapeAttempts, system } from "../api/client";
 import type { ApplyVideoScrapeAttemptRequest, ScrapeAttempt, ScraperSummary } from "../api/types";
@@ -700,41 +700,49 @@ function ScraperEntityTaggerRow({
   const [performerActions, setPerformerActions] = useState<ScrapeRelationActionMap>({});
   const itemLinkProps = route ? createNestedRouteLinkProps<HTMLAnchorElement>(route) : undefined;
 
-  useEffect(() => {
+  // Reset the apply choices whenever the plan or its inputs change (starting with the first render).
+  const planSource = {
+    applyPlan,
+    existingPerformerNames,
+    existingTagNames,
+    createMissingPerformers: preferences.createMissingPerformers,
+    createMissingTags: preferences.createMissingTags,
+    selectedResult,
+  };
+  const [appliedPlanSource, setAppliedPlanSource] = useState<typeof planSource | null>(null);
+  if (
+    appliedPlanSource === null ||
+    (Object.keys(planSource) as Array<keyof typeof planSource>).some(
+      (key) => appliedPlanSource[key] !== planSource[key],
+    )
+  ) {
+    setAppliedPlanSource(planSource);
     if (!selectedResult || !applyPlan.scrapedData) {
       setReplaceFields([]);
       setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
       setTagActions({});
       setPerformerActions({});
-      return;
+    } else {
+      setReplaceFields([...applyPlan.replaceFields]);
+      setCollectionModes({ ...applyPlan.collectionModes });
+      setTagActions(
+        buildRelationActionMap(
+          applyPlan.scrapedData.tags,
+          applyPlan.currentData.tags,
+          existingTagNames,
+          preferences.createMissingTags,
+        ),
+      );
+      setPerformerActions(
+        buildRelationActionMap(
+          applyPlan.scrapedData.performers,
+          applyPlan.currentData.performers,
+          existingPerformerNames,
+          preferences.createMissingPerformers,
+        ),
+      );
     }
-
-    setReplaceFields([...applyPlan.replaceFields]);
-    setCollectionModes({ ...applyPlan.collectionModes });
-    setTagActions(
-      buildRelationActionMap(
-        applyPlan.scrapedData.tags,
-        applyPlan.currentData.tags,
-        existingTagNames,
-        preferences.createMissingTags,
-      ),
-    );
-    setPerformerActions(
-      buildRelationActionMap(
-        applyPlan.scrapedData.performers,
-        applyPlan.currentData.performers,
-        existingPerformerNames,
-        preferences.createMissingPerformers,
-      ),
-    );
-  }, [
-    applyPlan,
-    existingPerformerNames,
-    existingTagNames,
-    preferences.createMissingPerformers,
-    preferences.createMissingTags,
-    selectedResult,
-  ]);
+  }
 
   const importMut = useMutation({
     mutationFn: () => {

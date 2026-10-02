@@ -229,6 +229,9 @@ public class UiConfig
     public double PlayerVideoStartMinDuration { get; set; }
     public bool ContinuePlaylistDefault { get; set; }
     public bool ShowAbLoopControls { get; set; } = true;
+    // Search and lists
+    /// <summary>Typing a search switches a list to relevance order. Off keeps the list's current sort.</summary>
+    public bool SortSearchesByRelevance { get; set; } = true;
     // Preview
     public bool SoundOnPreview { get; set; }
     public double PreviewSegmentDuration { get; set; } = 0.75;

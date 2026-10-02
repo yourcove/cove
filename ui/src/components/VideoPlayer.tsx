@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { createPortal } from "react-dom";
 import { usePublishActiveMedia } from "./ActiveMedia";
 import {
@@ -20,7 +29,9 @@ import {
 } from "lucide-react";
 import { videos } from "../api/client";
 import { supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
-import type { Detection, Face, Segment } from "../api/types";
+import type { Detection, Face, Segment, VrDescriptor } from "../api/types";
+import { EnterVrButton } from "./EnterVrButton";
+import { FLAT_VR } from "../vr/immersiveVideo";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
 import { ExtensionSlot, useHasExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
@@ -39,18 +50,6 @@ import { useKeySequence } from "../hooks/useKeySequence";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
-
-function generateUuid() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = (Math.random() * 16) | 0;
-    const value = character === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
 
 const VOLUME_KEY = "cove-video-player-volume";
 const MUTED_KEY = "cove-video-player-muted";
@@ -220,6 +219,8 @@ export function VideoPlayer({
   interactionResetKey,
   suspended = false,
   keyboardShortcutsEnabled = true,
+  vr,
+  vrTitle,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -263,6 +264,10 @@ export function VideoPlayer({
   suspended?: boolean;
   /** Keeps media lifecycle active while declining global player shortcut ownership. */
   keyboardShortcutsEnabled?: boolean;
+  /** VR layout of the video. When set, the controls offer immersive playback where WebXR allows it. */
+  vr?: VrDescriptor | null;
+  /** Shown on the in-headset timeline during immersive playback. */
+  vrTitle?: string;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -294,7 +299,7 @@ export function VideoPlayer({
   const [showSpeed, setShowSpeed] = useState(false);
   const [rate, setRate] = useState(1);
   const [pip, setPip] = useState(false);
-  const [loop, setLoop] = useState(false);
+  const [loop, setLoop] = useState(() => !!clip?.loop);
   const [abLoop, setAbLoop] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
   const [showCaptions, setShowCaptions] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
@@ -330,9 +335,11 @@ export function VideoPlayer({
       window.removeEventListener("scroll", closeOnPageScroll, true);
     };
   }, [showMobileOptions]);
-  useEffect(() => {
+  const [prevCompactControls, setPrevCompactControls] = useState(compactControls);
+  if (compactControls !== prevCompactControls) {
+    setPrevCompactControls(compactControls);
     if (!compactControls) setShowMobileOptions(false);
-  }, [compactControls]);
+  }
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const selectedQualityRef = useRef("Direct");
   // Safari cannot play the piped fragmented MP4 transcode; it gets the same encode as an HLS playlist.
@@ -410,8 +417,12 @@ export function VideoPlayer({
   const videoMetricsReadyRef = useRef(false);
   const playerActiveRef = useRef(true);
   const mediaIdentity = `${videoId}|${fileId ?? ""}|${streamUrl}|${clip?.start ?? ""}|${clip?.end ?? ""}`;
+  // Callers usually build `clip` inline, so effects read these primitives rather than the object.
+  const hasClip = clip != null;
   const clipStart = clip?.start ?? 0;
-  const clipEnd = Math.max(clipStart, clip?.end ?? duration);
+  const clipEndProp = clip?.end;
+  const clipLoop = clip?.loop;
+  const clipEnd = Math.max(clipStart, clipEndProp ?? duration);
   const timelineStart = clip ? clipStart : 0;
   const timelineDuration = clip ? Math.max(clipEnd - clipStart, 0.001) : Math.max(duration, 0.001);
   const visibleCurrentTime = clip ? Math.max(0, currentTime - clipStart) : currentTime;
@@ -540,7 +551,17 @@ export function VideoPlayer({
   );
   // Callers commonly build playbackTracking inline. Preserve the normalized target identity while its
   // serialized meaning is unchanged so parent renders cannot tear down tracking effects and flush intervals.
-  const playbackTrackingTarget = useMemo(() => nextPlaybackTrackingTarget, [playbackTrackingSignature]);
+  const [stablePlaybackTracking, setStablePlaybackTracking] = useState({
+    signature: playbackTrackingSignature,
+    target: nextPlaybackTrackingTarget,
+  });
+  if (stablePlaybackTracking.signature !== playbackTrackingSignature) {
+    setStablePlaybackTracking({ signature: playbackTrackingSignature, target: nextPlaybackTrackingTarget });
+  }
+  const playbackTrackingTarget =
+    stablePlaybackTracking.signature === playbackTrackingSignature
+      ? stablePlaybackTracking.target
+      : nextPlaybackTrackingTarget;
 
   useLayoutEffect(() => {
     const previousIdentity = interactionIdentityRef.current;
@@ -548,14 +569,28 @@ export function VideoPlayer({
     interactionIdentityRef.current = { videoId, interactionResetKey };
   }, [interactionResetKey, resetInteractionModes, videoId]);
 
+  // Per-video and per-file playback state is reset while rendering, so the first commit for a new
+  // video or file already uses the direct stream and a cleared timeline. The refs that go with it are
+  // reset by the effects below.
+  const [prevPlaybackIdentity, setPrevPlaybackIdentity] = useState({ videoId, fileId });
+  if (videoId !== prevPlaybackIdentity.videoId || fileId !== prevPlaybackIdentity.fileId) {
+    setPrevPlaybackIdentity({ videoId, fileId });
+    if (videoId !== prevPlaybackIdentity.videoId) {
+      setCurTime(0);
+      setBuffered(0);
+      setVideoBox({ left: 0, top: 0, width: 0, height: 0 });
+      setIntrinsicSize({ width: 0, height: 0 });
+    }
+    setPlaying(false);
+    setCompatibilityFallbackReason(null);
+    setSelectedQuality("Direct");
+    setTranscodeStartSec(0);
+    setCompatibilityLookup({ identity: compatibilityIdentity, pending: compatibilityRequired });
+  }
+
   useLayoutEffect(() => {
     videoMetricsReadyRef.current = false;
     pendingTrackingStartRef.current = null;
-    setPlaying(false);
-    setCurTime(0);
-    setBuffered(0);
-    setVideoBox({ left: 0, top: 0, width: 0, height: 0 });
-    setIntrinsicSize({ width: 0, height: 0 });
   }, [videoId]);
 
   useLayoutEffect(() => {
@@ -573,21 +608,20 @@ export function VideoPlayer({
     lastHideInteractionAt.current = 0;
     playTriggered.current = false;
     pendingAutostartRef.current = false;
-    setPlaying(false);
     autoTranscodeTriedRef.current = false;
     compatibilityFallbackAppliedRef.current = false;
-    setCompatibilityFallbackReason(null);
     selectedQualityRef.current = "Direct";
-    setSelectedQuality("Direct");
-    setTranscodeStartSec(0);
-    setCompatibilityLookup({ identity: compatibilityIdentity, pending: compatibilityRequired });
     // Keyed on the file as well as the video: a different file has its own container and codecs,
     // so the playback strategy has to be derived again. Leaving the guards set from the previous
     // file would suppress both the proactive fallback and the error-driven fallback for it.
   }, [videoId, fileId]);
 
-  useEffect(() => {
+  // Keyed by the serialized target so a structurally identical target does not reset the tracker.
+  const syncPlaybackTarget = useEffectEvent(() => {
     void playbackTracker.current.setTarget(playbackTrackingTarget);
+  });
+  useEffect(() => {
+    syncPlaybackTarget();
   }, [playbackTrackingSignature]);
 
   const trackPlayerInteraction = useCallback(
@@ -621,18 +655,39 @@ export function VideoPlayer({
     [fullscreen, muted, playbackTrackingTarget, rate],
   );
 
-  useEffect(() => {
-    clipEndedHandled.current = false;
+  const [prevClipSource, setPrevClipSource] = useState({
+    clipEnd: clip?.end,
+    clipLoop: clip?.loop,
+    clipStart: clip?.start,
+    videoId,
+    streamUrl,
+  });
+  if (
+    clip?.end !== prevClipSource.clipEnd ||
+    clip?.loop !== prevClipSource.clipLoop ||
+    clip?.start !== prevClipSource.clipStart ||
+    videoId !== prevClipSource.videoId ||
+    streamUrl !== prevClipSource.streamUrl
+  ) {
+    setPrevClipSource({ clipEnd: clip?.end, clipLoop: clip?.loop, clipStart: clip?.start, videoId, streamUrl });
     if (clip) {
       setLoop(!!clip.loop);
     }
-  }, [clip?.end, clip?.loop, clip?.start, videoId, streamUrl]);
+  }
 
   useEffect(() => {
+    clipEndedHandled.current = false;
+  }, [clip?.end, clip?.loop, clip?.start, videoId, streamUrl]);
+
+  // Only the initial volume is pushed here; later changes are applied by the volume and mute handlers.
+  const applyInitialVolume = useEffectEvent(() => {
     const v = videoRef.current;
     if (!v) return;
     v.volume = vol;
     v.muted = muted;
+  });
+  useEffect(() => {
+    applyInitialVolume();
   }, []);
 
   const toAbsoluteTime = useCallback(
@@ -1018,13 +1073,14 @@ export function VideoPlayer({
     }
 
     if (shouldSeek) {
-      const nextTime = clip
-        ? Math.min(Math.max(effectiveStartTime ?? clip.start, clip.start), clip.end ?? duration)
+      const nextTime = hasClip
+        ? Math.min(Math.max(effectiveStartTime ?? clipStart, clipStart), clipEndProp ?? duration)
         : (effectiveStartTime ?? defaultPlaybackStartTime);
       if (v && nextTime != null) {
         if (selectedQuality === "Direct") {
           v.currentTime = nextTime;
         } else {
+          // oxlint-disable-next-line react/set-state-in-effect -- the resume seek for a transcode is applied by restarting the stream at this offset, decided against the mounted media element
           setTranscodeStartSec(nextTime);
         }
         setCurTime(roundPlaybackTime(nextTime));
@@ -1062,9 +1118,9 @@ export function VideoPlayer({
       }
     }
 
-    if (clip?.loop && clip.end != null) {
-      setAbLoop({ a: clip.start, b: clip.end });
-    } else if (clip) {
+    if (clipLoop && clipEndProp != null) {
+      setAbLoop({ a: clipStart, b: clipEndProp });
+    } else if (hasClip) {
       setAbLoop({ a: null, b: null });
     }
   }, [
@@ -1072,10 +1128,14 @@ export function VideoPlayer({
     clip?.end,
     clip?.loop,
     clip?.start,
+    clipEndProp,
+    clipLoop,
+    clipStart,
     defaultPlaybackStartTime,
     duration,
     effectiveSourceSignature,
     effectiveStartTime,
+    hasClip,
     mediaRecoveryPhase,
     navigationSeekTo,
     recordMediaUserPause,
@@ -1183,6 +1243,7 @@ export function VideoPlayer({
     lastTickAt.current = Date.now();
   }, []);
 
+  // oxlint-disable-next-line react/refs -- extension lease cleanups can call this during a child's commit, before this component's layout effects, so it is kept current during render
   trackingLeaseTransitionRef.current = (paused, resume) => {
     if (paused) {
       pendingTrackingStartRef.current = null;
@@ -1408,7 +1469,7 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
     };
-  }, [audioCodec, fileId, format, nativeHlsSupported, videoCodec, videoId]);
+  }, [audioCodec, compatibilityIdentity, fileId, format, nativeHlsSupported, videoCodec, videoId]);
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -1518,7 +1579,7 @@ export function VideoPlayer({
   }, [currentTime, trackPlayerInteraction]);
 
   const playerKeyboardBindings = useMemo(() => {
-    const withPlayer = (action: (video: HTMLVideoElement) => void) => () => {
+    const runWithPlayer = (action: (video: HTMLVideoElement) => void) => {
       const v = videoRef.current;
       if (!v) return;
       if (interactionSnapshotRef.current.active) return;
@@ -1530,74 +1591,83 @@ export function VideoPlayer({
         id: "player.playPause",
         keys: "Space",
         surface: "player" as const,
-        action: withPlayer((v) => {
-          if (v.paused) playVideo();
-          else {
-            recordMediaUserPause();
-            v.pause();
-          }
-        }),
+        action: () =>
+          runWithPlayer((v) => {
+            if (v.paused) playVideo();
+            else {
+              recordMediaUserPause();
+              v.pause();
+            }
+          }),
       },
       {
         id: "player.seekBackward",
         keys: "ArrowLeft",
         surface: "player" as const,
-        action: withPlayer(() => seekToAbsoluteTime(currentTime - 5)),
+        action: () => runWithPlayer(() => seekToAbsoluteTime(currentTime - 5)),
       },
       {
         id: "player.seekForward",
         keys: "ArrowRight",
         surface: "player" as const,
-        action: withPlayer(() => seekToAbsoluteTime(currentTime + 5)),
+        action: () => runWithPlayer(() => seekToAbsoluteTime(currentTime + 5)),
       },
       {
         id: "player.seekBackwardLarge",
         keys: "Shift+ArrowLeft",
         surface: "player" as const,
-        action: withPlayer(() => seekToAbsoluteTime(currentTime - 10)),
+        action: () => runWithPlayer(() => seekToAbsoluteTime(currentTime - 10)),
       },
       {
         id: "player.seekForwardLarge",
         keys: "Shift+ArrowRight",
         surface: "player" as const,
-        action: withPlayer(() => seekToAbsoluteTime(currentTime + 10)),
+        action: () => runWithPlayer(() => seekToAbsoluteTime(currentTime + 10)),
       },
       {
         id: "player.volumeUp",
         keys: "ArrowUp",
         surface: "player" as const,
-        action: withPlayer((v) => {
-          v.volume = Math.min(1, v.volume + 0.1);
-          setVol(v.volume);
-          localStorage.setItem(VOLUME_KEY, String(v.volume));
-        }),
+        action: () =>
+          runWithPlayer((v) => {
+            v.volume = Math.min(1, v.volume + 0.1);
+            setVol(v.volume);
+            localStorage.setItem(VOLUME_KEY, String(v.volume));
+          }),
       },
       {
         id: "player.volumeDown",
         keys: "ArrowDown",
         surface: "player" as const,
-        action: withPlayer((v) => {
-          v.volume = Math.max(0, v.volume - 0.1);
-          setVol(v.volume);
-          localStorage.setItem(VOLUME_KEY, String(v.volume));
-        }),
+        action: () =>
+          runWithPlayer((v) => {
+            v.volume = Math.max(0, v.volume - 0.1);
+            setVol(v.volume);
+            localStorage.setItem(VOLUME_KEY, String(v.volume));
+          }),
       },
       {
         id: "player.mute",
         keys: "m",
         surface: "player" as const,
-        action: withPlayer((v) => {
-          v.muted = !v.muted;
-          setMuted(v.muted);
-          localStorage.setItem(MUTED_KEY, String(v.muted));
-        }),
+        action: () =>
+          runWithPlayer((v) => {
+            v.muted = !v.muted;
+            setMuted(v.muted);
+            localStorage.setItem(MUTED_KEY, String(v.muted));
+          }),
       },
-      { id: "player.fullscreen", keys: "f", surface: "player" as const, action: withPlayer(() => toggleFullscreen()) },
+      {
+        id: "player.fullscreen",
+        keys: "f",
+        surface: "player" as const,
+        action: () => runWithPlayer(() => toggleFullscreen()),
+      },
       ...Array.from({ length: 10 }, (_, value) => ({
         id: `player.seekPercent.${value}`,
         keys: String(value),
         surface: "player" as const,
-        action: withPlayer(() => seekToAbsoluteTime(timelineStart + timelineDuration * (value / 10))),
+        action: () => runWithPlayer(() => seekToAbsoluteTime(timelineStart + timelineDuration * (value / 10))),
       })),
     ];
   }, [
@@ -1814,8 +1884,8 @@ export function VideoPlayer({
       const targetTime =
         pendingImperativeSeek?.time ??
         (pendingNavigationSeek ? navigationSeekTo : pendingRestore?.time) ??
-        (clip
-          ? Math.min(Math.max(effectiveResumeTime ?? clip.start, clip.start), clip.end ?? mediaDuration)
+        (hasClip
+          ? Math.min(Math.max(effectiveResumeTime ?? clipStart, clipStart), clipEndProp ?? mediaDuration)
           : (effectiveResumeTime ?? configuredStartTime)) ??
         positionBeforeLoad;
       if (targetTime != null && Number.isFinite(targetTime)) {
@@ -1853,13 +1923,15 @@ export function VideoPlayer({
     };
   }, [
     autostart,
-    clip?.start,
+    clipEndProp,
+    clipStart,
     compatibilityLookupPending,
     duration,
     effectiveResumeTime,
     effectiveSourceSignature,
     effectiveSourceType,
     effectiveStreamUrl,
+    hasClip,
     mediaIdentity,
     navigationSeekTo,
     playerVideoStartMinDuration,
@@ -1977,6 +2049,7 @@ export function VideoPlayer({
     [interactionResetKey, videoId],
   );
   usePublishActiveMedia(
+    // oxlint-disable-next-line react/refs -- the context holds ref-reading player callbacks that extensions call from events, not during render
     mediaPlayerExtensionContext
       ? {
           kind: "video",
@@ -1991,7 +2064,9 @@ export function VideoPlayer({
   const createMediaPlayerEntryContext = useCallback(
     (entry: SlotEntry<MediaPlayerExtensionContext>) => {
       const ownerKey = JSON.stringify([entry.extensionId ?? null, entry.id]);
-      const ownerToken = Symbol(ownerKey);
+      // resetInteractionModes clears every owner token and bumps the generation, which replaces this factory
+      // so each slot entry re-mounts with a fresh token for the new generation.
+      const ownerToken = Symbol(`${ownerKey}#${interactionGeneration}`);
       return {
         context: {
           acquireInteractionMode: (options?: MediaPlayerInteractionModeOptions) =>
@@ -2244,6 +2319,7 @@ export function VideoPlayer({
         </div>
       ) : null}
 
+      {/* oxlint-disable-next-line react/refs -- the context holds ref-reading player callbacks that extensions call from events, not during render */}
       {mediaPlayerExtensionContext ? (
         <div className="pointer-events-none absolute inset-0 z-[4]">
           <ExtensionSlot
@@ -2353,6 +2429,7 @@ export function VideoPlayer({
           </span>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-2">
+            {/* oxlint-disable-next-line react/refs -- the context holds ref-reading player callbacks that extensions call from events, not during render */}
             {!compactControls && mediaPlayerExtensionContext ? (
               <>
                 <ExtensionSlot
@@ -2473,6 +2550,7 @@ export function VideoPlayer({
                           X-ray
                         </button>
                       ) : null}
+                      {/* oxlint-disable-next-line react/refs -- the context holds ref-reading player callbacks that extensions call from events, not during render */}
                       {compactControls && hasMediaPlayerActions && mediaPlayerExtensionContext ? (
                         <>
                           <div className="my-2 border-t border-border pt-2 px-2 text-xs text-secondary">
@@ -2598,6 +2676,20 @@ export function VideoPlayer({
               >
                 {faceOverlayEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
               </button>
+            ) : null}
+
+            {extensionSurface === "detail" ? (
+              <EnterVrButton
+                videoRef={videoRef}
+                vr={vr ?? FLAT_VR}
+                title={vrTitle}
+                transport={{
+                  currentTime: () => toAbsoluteTime(videoRef.current?.currentTime ?? 0),
+                  duration: () => duration,
+                  seek: (seconds) => seekToAbsoluteTime(seconds, false),
+                  isSeeking: () => videoRef.current?.seeking ?? false,
+                }}
+              />
             ) : null}
 
             <button

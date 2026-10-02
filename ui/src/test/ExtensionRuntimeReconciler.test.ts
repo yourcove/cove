@@ -265,13 +265,16 @@ describe("ExtensionRuntimeReconciler", () => {
   it("unloads dependents before their dependencies on replacement and disposal", async () => {
     const events: string[] = [];
     const registrations = createRegistrationAdapter(events);
+    const baseRegisteredWhileDependentUnloads: boolean[] = [];
     const reconciler = createExtensionRuntimeReconciler({
       registrations: registrations.adapter,
       importBundle: async (url) => ({
         default: {
           components: { Panel: () => null },
           onUnload: () => {
-            if (url.includes("dependent")) expect(registrations.components.has("base:Panel")).toBe(true);
+            if (url.includes("dependent")) {
+              baseRegisteredWhileDependentUnloads.push(registrations.components.has("base:Panel"));
+            }
           },
         },
       }),
@@ -295,6 +298,7 @@ describe("ExtensionRuntimeReconciler", () => {
       "unregister:dependent",
       "unregister:base",
     ]);
+    expect(baseRegisteredWhileDependentUnloads).toEqual([true, true]);
   });
 
   it("does not reload or rerun lifecycle hooks for an unchanged descriptor", async () => {

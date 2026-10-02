@@ -181,12 +181,7 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
       : undefined;
   const tracking = normalizeTrackingPreferences(preferences?.tracking, legacyTrackingEnabled);
   const includeCompilationGroups = preferences?.videos?.includeCompilationGroups;
-  const videos =
-    typeof includeCompilationGroups === "boolean"
-      ? {
-          ...(typeof includeCompilationGroups === "boolean" ? { includeCompilationGroups } : {}),
-        }
-      : null;
+  const videos = typeof includeCompilationGroups === "boolean" ? { includeCompilationGroups } : null;
   const playback = normalizePlaybackPreferences(preferences?.playback);
   const keybindingOverrides = normalizeKeybindingOverrides(preferences?.keybindingOverrides);
   const keyboardShortcuts = normalizeKeyboardShortcutPreferences(preferences?.keyboardShortcuts);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { auth } from "../api/client";
 import { authStore } from "../auth/authStore";
@@ -31,20 +31,25 @@ export function RedeemInvitePage() {
   const inviteUsernameLocked = mode === "invite" && !!inviteInfo?.username && !inviteInfo.usernameRequired;
   const showUsername = mode === "setup" || mode === "invite";
 
-  useEffect(() => {
+  // Starts undefined so status already cached at mount is still applied, as the mount-time effect did.
+  const [prevBootstrapStatus, setPrevBootstrapStatus] = useState<typeof bootstrapStatus>(undefined);
+  if (bootstrapStatus !== prevBootstrapStatus) {
+    setPrevBootstrapStatus(bootstrapStatus);
     if (!initialToken && bootstrapStatus?.hasSetupToken && !bootstrapStatus.ownerExists) {
       setMode("setup");
     }
-  }, [bootstrapStatus, initialToken]);
+  }
 
-  useEffect(() => {
-    if (mode !== "invite") return;
-    if (inviteInfo?.username) {
-      setUsername(inviteInfo.username);
-    } else {
-      setUsername("");
-    }
-  }, [inviteInfo?.username, mode]);
+  // Null until the first render syncs, so an invite starts from its own username rather than "owner".
+  const inviteUsername = inviteInfo?.username;
+  const [prevInviteSync, setPrevInviteSync] = useState<{
+    inviteUsername: typeof inviteUsername;
+    mode: TokenMode;
+  } | null>(null);
+  if (prevInviteSync === null || prevInviteSync.inviteUsername !== inviteUsername || prevInviteSync.mode !== mode) {
+    setPrevInviteSync({ inviteUsername, mode });
+    if (mode === "invite") setUsername(inviteUsername || "");
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();

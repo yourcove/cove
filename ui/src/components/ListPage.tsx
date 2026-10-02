@@ -8,6 +8,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { ViewInVrButton } from "./ViewInVrButton";
+import type { VrListSource } from "../vr/vrListRegistry";
 import {
   LayoutGrid,
   List,
@@ -17,18 +19,12 @@ import {
   FolderTree,
   ZoomIn,
   ZoomOut,
-  SlidersHorizontal,
   Rows3,
   MonitorPlay,
   Play,
   Pause,
 } from "lucide-react";
-import type {
-  CustomFieldEntityType,
-  ExtensionListFilterContribution,
-  ExtensionListSortContribution,
-  FindFilter,
-} from "../api/types";
+import type { ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { getDefaultFilter, SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
@@ -39,7 +35,6 @@ import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState"
 import { useResolvedKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { resolveKeybinding } from "../keyboard/keybindings";
-import { useAppConfig } from "../state/AppConfigContext";
 import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
 import {
   createCustomFieldQueryDefinitions,
@@ -63,7 +58,7 @@ import {
   type PreviousSearchSort,
 } from "../utils/relevanceSort";
 import { trackInteraction } from "../utils/interactionTracking";
-import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
+import { toolbarIconButtonClass, toolbarSegmentClass } from "./listToolbarStyles";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
@@ -85,6 +80,7 @@ import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchCont
 import { PaginationControls } from "./PaginationControls";
 import { MultiSortControl } from "./MultiSortControl";
 import { getWallColumnCountFromSizeLevel, getWallSizeLevelFromColumnCount, WallSizeControl } from "./WallSizeControl";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -96,6 +92,11 @@ export interface ListPageProps {
   totalCount: number;
   isLoading?: boolean;
   summaryLoading?: boolean;
+  /**
+   * The total comes from a separate request that has not settled (the Videos aggregate). `totalCount`
+   * is not the result count yet, so paging neither clamps to it nor navigates by it until it arrives.
+   */
+  totalCountPending?: boolean;
   error?: Error | null;
   onRetry?: () => void;
   loadState?: QueryLoadState<unknown>;
@@ -123,6 +124,9 @@ export interface ListPageProps {
   metadataByline?: ReactNode;
   onNew?: () => void;
   renderOperations?: () => ReactNode;
+  /** When set, a "View in VR" button shows this list in a headset. */
+  vrListSource?: VrListSource;
+  onNavigate?: (route: any) => void;
   filterMode?: string;
   savedFilterScope?: string;
   cardSizeEntityType?: string;
@@ -151,7 +155,6 @@ export interface ListPageProps {
   showPagingControls?: boolean;
   customFilterSections?: FilterDialogCustomSection[];
   showClearAllObjectFilters?: boolean;
-  showCustomFilterDivider?: boolean;
   supportsFilterExpressions?: boolean;
 }
 const DEFAULT_ZOOM_LEVEL = 1;
@@ -265,6 +268,7 @@ export function ListPage({
   totalCount,
   isLoading = false,
   summaryLoading = false,
+  totalCountPending = false,
   error,
   onRetry,
   loadState,
@@ -292,6 +296,8 @@ export function ListPage({
   metadataByline,
   onNew,
   renderOperations,
+  vrListSource,
+  onNavigate,
   filterMode,
   savedFilterScope,
   cardSizeEntityType: requestedCardSizeEntityType,
@@ -313,7 +319,6 @@ export function ListPage({
   showPagingControls = true,
   customFilterSections,
   showClearAllObjectFilters = true,
-  showCustomFilterDivider = true,
   supportsFilterExpressions = false,
 }: ListPageProps) {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
@@ -331,7 +336,6 @@ export function ListPage({
   const [autoScrollControlsAwake, setAutoScrollControlsAwake] = useState(true);
   const defaultUIOptionsModeRef = useRef<string | undefined>(undefined);
   const restoredPrefsRef = useRef(false);
-  const { config } = useAppConfig();
   const { getListFiltersForEntity, getListSortsForEntity } = useExtensions();
   const keybindingOverrides = useResolvedKeybindingOverrides();
   const customFieldEntityType = customFieldEntityTypeForFilterMode(filterMode);
@@ -416,6 +420,7 @@ export function ListPage({
 
   const perPage = filter.perPage ?? 25;
   const previousSearchSortRef = useRef<PreviousSearchSort | null>(null);
+  const switchToRelevance = useOptionalAppConfig()?.config?.ui.sortSearchesByRelevance ?? true;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const page = filter.page ?? 1;
   const resolvedLoadState =
@@ -465,6 +470,7 @@ export function ListPage({
     }
   });
   const resultsState: QueryLoadState<unknown> = reloading ? { status: "success", data: undefined } : resolvedLoadState;
+  // oxlint-disable-next-line react/refs -- intentionally shows the last committed results while a reload is pending
   const resultsChildren = reloading ? settledChildrenRef.current : children;
   const effectivePerPage = infinitePageSize ? Math.max(shownTotalCount, 1) : perPage;
   const totalPages = Math.max(1, Math.ceil(shownTotalCount / effectivePerPage));
@@ -504,11 +510,9 @@ export function ListPage({
     (displayMode === "grid" || displayMode === "wall" || displayMode === "feed" || displayMode === "vertical");
   const wakeAutoScrollControls = useCallback(() => setAutoScrollControlsAwake(true), []);
 
-  useEffect(() => {
-    if ((!infinitePageSize || !showAutoScrollControls) && autoScrollEnabled) {
-      setAutoScrollEnabled(false);
-    }
-  }, [autoScrollEnabled, infinitePageSize, showAutoScrollControls]);
+  if ((!infinitePageSize || !showAutoScrollControls) && autoScrollEnabled) {
+    setAutoScrollEnabled(false);
+  }
 
   useEffect(() => {
     if (!showInfiniteAutoScrollControls || !autoScrollControlsAwake) {
@@ -531,6 +535,7 @@ export function ListPage({
     let frameId = 0;
 
     if (container) {
+      // oxlint-disable-next-line react/immutability -- the effect owns this DOM style and restores it on cleanup
       container.style.scrollSnapType = "none";
     }
 
@@ -643,20 +648,21 @@ export function ListPage({
         listEntityType,
         sortOptions,
         previousSearchSort: previousSearchSortRef.current,
+        switchToRelevance,
       });
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions],
+    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions, switchToRelevance],
   );
 
   const goTo = useCallback(
     (p: number) => {
       // An unavailable result count is not a one-page collection.
-      if (resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
+      if (totalCountPending || resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
       onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) });
     },
-    [filter, onFilterChange, resolvedLoadState.status, totalPages],
+    [filter, onFilterChange, resolvedLoadState.status, totalCountPending, totalPages],
   );
 
   // List-page keyboard shortcuts
@@ -838,9 +844,12 @@ export function ListPage({
 
   useDocumentTitle(title, manageDocumentTitle);
 
+  // Pull a page past the end back to the last page, but not while a separately loaded total is
+  // pending: until it lands the list reports none, which would reset a deep page to the first one.
   useEffect(() => {
     if (
       infinitePageSize ||
+      totalCountPending ||
       resolvedLoadState.status === "pending" ||
       resolvedLoadState.status === "error" ||
       page <= totalPages
@@ -849,7 +858,7 @@ export function ListPage({
     }
 
     onFilterChange({ ...filter, page: totalPages });
-  }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalPages]);
+  }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalCountPending, totalPages]);
 
   return (
     <div className="list-page space-y-0">
@@ -868,7 +877,7 @@ export function ListPage({
               : resolvedLoadState.status === "error"
                 ? "Unavailable"
                 : shownTotalCount > 0
-                  ? `${start}-${end} of ${shownTotalCount.toLocaleString()}`
+                  ? `${start.toLocaleString()}-${end.toLocaleString()} of ${shownTotalCount.toLocaleString()}`
                   : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
@@ -1060,6 +1069,7 @@ export function ListPage({
 
         {/* Operations */}
         <div className="list-page-operations ml-auto flex flex-wrap items-center justify-end gap-2 sm:ml-0 lg:flex-1 lg:basis-0 lg:min-w-fit">
+          {vrListSource && onNavigate ? <ViewInVrButton source={vrListSource} onNavigate={onNavigate} /> : null}
           {renderOperations?.()}
           <ExtensionSlot slot="list-page-toolbar-end" context={slotContext} />
           {pageKey && <ExtensionSlot slot={`${pageKey}-list-toolbar-end`} context={slotContext} />}
@@ -1305,7 +1315,6 @@ export function ListPage({
           criteria={mergedCriteriaDefinitions}
           activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}
-          showCustomSectionDivider={showCustomFilterDivider}
           supportsFilterExpressions={supportsFilterExpressions}
           subjectLabel={title.toLowerCase()}
           onApply={(f) => {

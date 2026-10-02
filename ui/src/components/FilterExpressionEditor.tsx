@@ -54,9 +54,12 @@ export function FilterExpressionEditor({
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   const ratingOptions = useRatingOptions();
   const appConfig = useOptionalAppConfig();
-  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
-  const describeCondition = (filter: Record<string, unknown>) =>
-    describeFilterExpressionCondition(filter, criteria, ratingOptions, metadataServers);
+  const metadataServers = appConfig?.config?.scraping?.metadataServers;
+  const describeCondition = useCallback(
+    (filter: Record<string, unknown>) =>
+      describeFilterExpressionCondition(filter, criteria, ratingOptions, metadataServers ?? []),
+    [criteria, metadataServers, ratingOptions],
+  );
   const destinations = useMemo(() => {
     const result: ExpressionGroupDestination[] = [];
     const visit = (group: EditableFilterExpression, path: number[], depth: number) => {
@@ -80,7 +83,7 @@ export function FilterExpressionEditor({
     };
     visit(value as EditableFilterExpression, [], 0);
     return result;
-  }, [criteria, metadataServers, ratingOptions, value]);
+  }, [describeCondition, value]);
   const legalDestinations = useCallback(
     (sourcePath: number[]) => {
       const sourceFilter = getExpressionLeaf(value, sourcePath);
@@ -175,7 +178,6 @@ export function FilterExpressionEditor({
             onAddCondition={onAddCondition}
             onEditCondition={onEditCondition}
             describeCondition={describeCondition}
-            destinations={destinations}
             legalDestinations={legalDestinations}
             keyboardMove={keyboardMove}
             activeKeyboardDestination={activeKeyboardDestination}
@@ -213,7 +215,6 @@ function ExpressionGroupEditor({
   ungroupChildFromParent,
   removeGroupFromParent,
   describeCondition,
-  destinations,
   legalDestinations,
   keyboardMove,
   activeKeyboardDestination,
@@ -235,7 +236,6 @@ function ExpressionGroupEditor({
   ungroupChildFromParent?: () => void;
   removeGroupFromParent?: () => void;
   describeCondition: (filter: Record<string, unknown>) => string;
-  destinations: ExpressionGroupDestination[];
   legalDestinations: (sourcePath: number[]) => ExpressionGroupDestination[];
   keyboardMove: { sourcePath: number[]; destinationIndex: number } | null;
   activeKeyboardDestination?: ExpressionGroupDestination;
@@ -278,14 +278,16 @@ function ExpressionGroupEditor({
     group.relatedScope?.matchMode === "distinct" && group.children.length >= MAX_DISTINCT_RELATED_CONDITIONS;
   const operatorText =
     mode === "NOT" || mode === "NONE" ? presentation.label : `${presentation.label} of ${displayedChildren.length}`;
-  useEffect(() => {
+  const [prevGroup, setPrevGroup] = useState(group);
+  if (prevGroup !== group) {
+    setPrevGroup(group);
     setSelected(new Set());
     setGroupingMode(false);
     setOpenMenu(null);
     setMoveMenuIndex(null);
     setOperatorPickerOpen(false);
     setCollapsed(false);
-  }, [group]);
+  }
   useEffect(() => {
     if (!operatorPickerOpen) return;
     window.setTimeout(
@@ -806,7 +808,6 @@ function ExpressionGroupEditor({
                     parentOperator={group.operator}
                     ungroupChildFromParent={() => ungroupChild(index)}
                     removeGroupFromParent={() => removeChild(index)}
-                    destinations={destinations}
                     legalDestinations={legalDestinations}
                     keyboardMove={keyboardMove}
                     activeKeyboardDestination={activeKeyboardDestination}

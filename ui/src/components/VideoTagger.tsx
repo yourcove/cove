@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState, useRef, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system } from "../api/client";
 import type {
@@ -59,19 +59,12 @@ import {
   Loader2,
   Check,
   X,
-  Plus,
-  Minus,
   AlertCircle,
-  CloudDownload,
   Fingerprint,
-  Settings2,
-  EyeOff,
-  Eye,
   Upload,
   CloudUpload,
   MoreHorizontal,
   ChevronDown,
-  AlertTriangle,
   ExternalLink,
 } from "lucide-react";
 import { useMetadataServerDraftSubmit } from "../hooks/useMetadataServerDraftSubmit";
@@ -165,7 +158,10 @@ function upgradeSavedPerformerGenders(saved: Partial<TaggerConfig>) {
 }
 
 type VideoMetadataSearchStrategy =
-  "remote-id-and-fingerprint-text" | "remote-id-fingerprint" | "remote-id" | "fingerprint";
+  | "remote-id-and-fingerprint-text"
+  | "remote-id-fingerprint"
+  | "remote-id"
+  | "fingerprint";
 
 const VIDEO_METADATA_SEARCH_STRATEGIES: TaggerRunAllOption[] = [
   {
@@ -440,10 +436,6 @@ function getPerformerChoices(result: MetadataServerVideoMatch): PerformerChoice[
   }));
 }
 
-function getPerformerChoiceDisplayNames(choices: PerformerChoice[]) {
-  return Object.fromEntries(choices.map((choice) => [relationKey(choice.key), choice.label]));
-}
-
 function getCurrentPerformerChoiceKeys(video: Video, choices: PerformerChoice[]) {
   const linkedIds = new Set(video.performers.map((performer) => performer.id));
   return choices
@@ -503,12 +495,6 @@ function getVideoTagNames(video: Video) {
   return video.tags.map((tag) => tag.name).filter(Boolean);
 }
 
-function getVideoPerformerNames(video: Video) {
-  return video.performers
-    .map((performer) => formatPerformerIdentity(performer.name, performer.disambiguation))
-    .filter(Boolean);
-}
-
 function normalizeDecisionValue(value?: string | null) {
   return value?.trim() ?? "";
 }
@@ -535,7 +521,7 @@ function buildDefaultVideoFieldStrategies(video: Video, result: UnifiedVideoMatc
 }
 
 function getVideoFieldStrategies(video: Video, result: UnifiedVideoMatch, state: VideoSearchState | undefined) {
-  return { ...buildDefaultVideoFieldStrategies(video, result), ...(state?.fieldStrategies ?? {}) };
+  return { ...buildDefaultVideoFieldStrategies(video, result), ...state?.fieldStrategies };
 }
 
 // Default cover decision: an auto-generated frame cover (no explicit imagePath) is treated as "not set",
@@ -606,7 +592,7 @@ function getVideoCollectionModes(
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
 ) {
-  return { ...buildDefaultVideoCollectionModes(result, state, taggerConfig), ...(state?.collectionModes ?? {}) };
+  return { ...buildDefaultVideoCollectionModes(result, state, taggerConfig), ...state?.collectionModes };
 }
 
 function collectionModeToFieldStrategy(mode: CollectionMode): VideoFieldStrategy {
@@ -1879,16 +1865,15 @@ function TaggerVideoRow({
     },
   });
 
-  // Keep the published apply pointed at the current mutation without re-registering on every render:
-  // the registration effect depends only on whether this row has something to apply.
-  const applyRef = useRef<() => Promise<unknown>>(() => Promise.resolve());
-  applyRef.current = () => importMut.mutateAsync();
+  // mutateAsync keeps its identity across renders, so the registration only changes when whether this row
+  // has something to apply does.
+  const applyImport = importMut.mutateAsync;
   const canApply = Boolean(selectedResult) && !state?.saved;
   useEffect(() => {
     if (!onRegisterApply) return;
-    onRegisterApply(video.id, canApply ? () => applyRef.current() : null);
+    onRegisterApply(video.id, canApply ? () => applyImport() : null);
     return () => onRegisterApply(video.id, null);
-  }, [onRegisterApply, video.id, canApply]);
+  }, [applyImport, onRegisterApply, video.id, canApply]);
 
   const submitEndpoint = source?.kind === "metadata-server" ? source.endpoint : undefined;
   const normalizedSubmitEndpoint = normalizeEndpoint(submitEndpoint);
@@ -2437,17 +2422,14 @@ function TaggerResultRow({
   localDuration,
   excludedPerformers,
   excludedTags,
-  skipStudio,
   forceIncludedPerformers,
   forceIncludedTags,
-  forceIncludeStudio,
   fieldStrategies,
   collectionModes,
   onFieldStrategyChange,
   onCollectionModeChange,
   onTogglePerformer,
   onToggleTag,
-  onToggleStudio,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,

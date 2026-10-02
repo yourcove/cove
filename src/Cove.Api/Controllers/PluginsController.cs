@@ -402,11 +402,16 @@ public class PluginsController(
             return;
         }
 
+        await RunPythonScriptAsync(pythonPath, scriptPath, taskName, args, logger, ct);
+    }
+
+    internal static async Task RunPythonScriptAsync(string pythonPath, string scriptPath, string taskName, Dictionary<string, string>? args, ILogger logger, CancellationToken ct)
+    {
         using var process = new System.Diagnostics.Process();
         process.StartInfo = new System.Diagnostics.ProcessStartInfo
         {
             FileName = pythonPath,
-            Arguments = $"\"{scriptPath}\"",
+            ArgumentList = { scriptPath },
             WorkingDirectory = Path.GetDirectoryName(scriptPath),
             RedirectStandardOutput = true,
             RedirectStandardError = true,

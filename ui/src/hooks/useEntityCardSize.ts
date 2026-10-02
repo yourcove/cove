@@ -129,6 +129,7 @@ export function useEntityCardSize(entityType?: string, legacyPageKey?: string, d
   const [level, setLevelState] = useState(() => readEntityCardSize(normalizedEntityType, legacyPageKey, defaultValue));
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- re-reads localStorage (and may migrate the legacy zoom key) when the entity type changes; storage access stays out of render
     setLevelState(readEntityCardSize(normalizedEntityType, legacyPageKey, defaultValue));
   }, [defaultValue, legacyPageKey, normalizedEntityType]);
 

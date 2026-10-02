@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Download, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { extensions } from "../api/client";
 import { useKeyboardShortcuts } from "../keyboard/KeyboardShortcutProvider";
 import { normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
@@ -118,14 +118,16 @@ export function KeyboardShortcutSettings() {
   }, [actions, extensionInfos, query]);
   const activeShortcutTab = shortcutTabs.find((tab) => tab.id === activeShortcutTabId) ?? shortcutTabs[0];
 
-  useEffect(() => {
-    if (!shortcutTabs.some((tab) => tab.id === activeShortcutTabId)) setActiveShortcutTabId("cove");
-  }, [activeShortcutTabId, shortcutTabs]);
+  if (activeShortcutTabId !== "cove" && !shortcutTabs.some((tab) => tab.id === activeShortcutTabId)) {
+    setActiveShortcutTabId("cove");
+  }
 
   const isRenaming = renaming !== null;
   useEffect(() => {
     if (!isRenaming) return;
-    return () => renameButtonRef.current?.focus();
+    // Renaming is started from this button, so it is mounted now; return focus to it on close.
+    const renameButton = renameButtonRef.current;
+    return () => renameButton?.focus();
   }, [isRenaming]);
 
   const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -162,6 +164,11 @@ export function KeyboardShortcutSettings() {
     });
   };
 
+  // Reads the latest preset when the recorded shortcut is committed without re-subscribing the listener.
+  const commitRecordedBindings = useEffectEvent((actionId: string, bindings: string[]) => {
+    updateBindings(actionId, bindings);
+  });
+
   useEffect(() => {
     if (!recording) return;
     setDispatchSuspended(true);
@@ -173,7 +180,7 @@ export function KeyboardShortcutSettings() {
         return;
       }
       if (event.key === "Enter" && recording.strokes.length > 0) {
-        updateBindings(recording.actionId, [...recording.existing, recording.strokes.join(" ")]);
+        commitRecordedBindings(recording.actionId, [...recording.existing, recording.strokes.join(" ")]);
         setRecording(null);
         return;
       }

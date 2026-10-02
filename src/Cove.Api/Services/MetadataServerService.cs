@@ -383,6 +383,16 @@ query Me {
 
         foreach (var box in boxes)
         {
+            if (IsThePornDbEndpoint(box.Endpoint))
+            {
+                // ThePornDB's GraphQL schema has no searchStudio field, only findStudio(id, name),
+                // so studio search degrades to an exact-name lookup for that host.
+                var found = await GetRemoteStudioAsync(box, studioId: null, studioName: term, ct);
+                if (found != null)
+                    results.Add(ToStudioMatchDto(box, found));
+                continue;
+            }
+
             try
             {
                 var response = await SendQueryAsync<MetadataServerSearchStudioResponse>(box, SearchStudioQuery, new { term }, ct);
@@ -2906,6 +2916,13 @@ query Me {
         var domainA = GetRegistrableDomain(a);
         return domainA.Length > 0 && string.Equals(domainA, GetRegistrableDomain(b), StringComparison.OrdinalIgnoreCase);
     }
+
+    // ThePornDB (theporndb.net) runs a non-Stash GraphQL schema without a searchStudio field; studio
+    // search there degrades to findStudio(name:). Keyed on the host so endpoint display names don't matter.
+    private const string ThePornDbDomain = "theporndb.net";
+
+    private static bool IsThePornDbEndpoint(string? endpoint)
+        => string.Equals(GetRegistrableDomain(endpoint), ThePornDbDomain, StringComparison.Ordinal);
 
     // Reduces an endpoint to its registrable domain: the last two DNS labels of the host, with any
     // leading "www." dropped (api.theporndb.net -> theporndb.net, www.fansdb.cc -> fansdb.cc). This is a

@@ -1,0 +1,3 @@
+P:System.Diagnostics.ProcessStartInfo.Arguments;A command-line string lets a file name split into extra arguments. Use FfmpegProcessRunner for ffmpeg/ffprobe, or ProcessStartInfo.ArgumentList.
+M:System.Diagnostics.ProcessStartInfo.#ctor(System.String,System.String);A command-line string lets a file name split into extra arguments. Use ProcessStartInfo.ArgumentList.
+M:System.Diagnostics.Process.Start(System.String,System.String);A command-line string lets a file name split into extra arguments. Use Process.Start(string, IEnumerable<string>) or ProcessStartInfo.ArgumentList.

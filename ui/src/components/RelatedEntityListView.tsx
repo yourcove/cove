@@ -88,7 +88,17 @@ import { EntityMedia, getTagMediaImageUrl } from "./EntityMedia";
 import { getWallColumnCountFromSizeLevel } from "./WallSizeControl";
 
 type RelatedEntityItem =
-  Video | Image | Performer | Gallery | Studio | Tag | Group | Audio | TextDocument | SegmentRecord | Face;
+  | Video
+  | Image
+  | Performer
+  | Gallery
+  | Studio
+  | Tag
+  | Group
+  | Audio
+  | TextDocument
+  | SegmentRecord
+  | Face;
 
 const ENTITY_CARD_SIZE_TYPE: Partial<Record<RelatedEntityType, string>> = {
   videos: "videos",
@@ -227,10 +237,12 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
       onImageDetails,
     });
 
-  useEffect(() => {
+  const [prevFeedVideoSound, setPrevFeedVideoSound] = useState(feedVideoSound);
+  if (prevFeedVideoSound !== feedVideoSound) {
+    setPrevFeedVideoSound(feedVideoSound);
     setVerticalSoundEnabled(feedVideoSound);
     if (!feedVideoSound) setFeedAudioVideoId(null);
-  }, [feedVideoSound]);
+  }
 
   if (effectiveDisplayMode === "tagger") {
     return renderRelatedTagger({ entityType, items, selectedIds, selecting, onToggle, onNavigate, taggerResetKey });
@@ -1625,18 +1637,14 @@ function RelatedVideoVerticalViewer({
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const [viewerHeight, setViewerHeight] = useState<number | null>(null);
   const [activeVideoId, setActiveVideoId] = useState<number | null>(videos[0]?.id ?? null);
+  // Keep the active video on one that is still loaded.
+  const validActiveVideoId =
+    videos.length === 0 ? null : videos.some((video) => video.id === activeVideoId) ? activeVideoId : videos[0].id;
+  if (validActiveVideoId !== activeVideoId) {
+    setActiveVideoId(validActiveVideoId);
+  }
   const activeIndex = videos.findIndex((video) => video.id === activeVideoId);
   const itemHeight = Math.max(420, viewerHeight ?? 720);
-
-  useEffect(() => {
-    if (videos.length === 0) {
-      setActiveVideoId(null);
-      return;
-    }
-    if (!videos.some((video) => video.id === activeVideoId)) {
-      setActiveVideoId(videos[0].id);
-    }
-  }, [activeVideoId, videos]);
 
   useEffect(() => {
     const updateViewerHeight = () => {

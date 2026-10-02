@@ -34,7 +34,6 @@ import type {
 } from "../api/types";
 import {
   formatDate,
-  formatDuration,
   TagBadge,
   CustomFieldsDisplay,
   FieldProvenanceHover,
@@ -64,7 +63,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { GroupEditModal } from "./GroupEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NarrativeText } from "../components/NarrativeText";
@@ -78,7 +77,6 @@ import {
   SegmentTile,
   TextTile,
 } from "../components/EntityCards";
-import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
@@ -105,10 +103,11 @@ import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
-import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
 import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -117,6 +116,7 @@ import { sortSeededRandom } from "../utils/seededRandomSort";
 import { parseDateFilterValue } from "../utils/relativeDate";
 import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { compareNatural } from "../utils/naturalCompare";
+import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
 interface Props {
   id: number;
@@ -265,7 +265,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   } = useEntityEngagement("group", id, {
     enabled: !!group,
   });
-  const { data: playbackManifest, isLoading: playbackManifestLoading } = useQuery({
+  const { data: playbackManifest } = useQuery({
     queryKey: ["group", id, "playback-manifest"],
     queryFn: () => groups.items.playbackManifest(id),
     enabled: canReadVideos,
@@ -317,13 +317,20 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       },
       hasPermission,
     ).filter((tab) => tab.key !== "items" || canReadVideos || canReadGroups);
-  }, [canReadGroups, canReadVideos, group?.subGroupCount, groupItems.length, groupTabs, hasPermission]);
+  }, [
+    canReadGroups,
+    canReadVideos,
+    group?.itemCount,
+    group?.kind,
+    group?.subGroupCount,
+    groupItems.length,
+    groupTabs,
+    hasPermission,
+  ]);
 
-  useEffect(() => {
-    if (tabs.length > 0 && !tabs.some((tab) => tab.key === activeTab)) {
-      setActiveTab(tabs[0].key as TabKey);
-    }
-  }, [activeTab, tabs]);
+  if (tabs.length > 0 && !tabs.some((tab) => tab.key === activeTab)) {
+    setActiveTab(tabs[0].key as TabKey);
+  }
 
   if (isLoading) {
     return (
@@ -799,7 +806,7 @@ function GroupItemsPanel({
     enabled: canReadGroups,
   });
   const subGroupsLoadError = getLoadError(subGroupsData, subGroupsError);
-  const subGroups = subGroupsData ?? [];
+  const subGroups = useMemo(() => subGroupsData ?? [], [subGroupsData]);
   const { data: searchResults } = useQuery({
     queryKey: ["groups-search-for-subgroup", group.id, searchTerm],
     queryFn: () => groups.find({ page: 1, perPage: 20, q: searchTerm }),
@@ -809,10 +816,19 @@ function GroupItemsPanel({
   const isDynamic = group.kind === "dynamic";
   const prerequisiteError = groupItemsLoadError ?? subGroupsLoadError;
 
-  useEffect(() => {
-    if (!addSubGroupRequestId || isDynamic || !canWriteGroup || !canReadGroups) return;
-    setShowAddDialog(true);
-  }, [addSubGroupRequestId, canReadGroups, canWriteGroup, isDynamic]);
+  // Open the add dialog for a pending request, including one that was made before this panel mounted.
+  const addRequest = { addSubGroupRequestId, canReadGroups, canWriteGroup, isDynamic };
+  const [handledAddRequest, setHandledAddRequest] = useState<typeof addRequest | null>(null);
+  if (
+    handledAddRequest === null ||
+    handledAddRequest.addSubGroupRequestId !== addSubGroupRequestId ||
+    handledAddRequest.canReadGroups !== canReadGroups ||
+    handledAddRequest.canWriteGroup !== canWriteGroup ||
+    handledAddRequest.isDynamic !== isDynamic
+  ) {
+    setHandledAddRequest(addRequest);
+    if (addSubGroupRequestId && !isDynamic && canWriteGroup && canReadGroups) setShowAddDialog(true);
+  }
 
   const staticMixedItems = useMemo(
     () => buildMixedGroupItems(groupItems ?? [], subGroups, isDynamic),
@@ -904,7 +920,7 @@ function GroupItemsPanel({
     queryFn: queryMixedItemsPage,
     enabled: canReadGroups && (isDynamic || (!groupItemsLoading && !subGroupsLoading)),
   });
-  const displayedMixedItems = mixedData?.items ?? [];
+  const displayedMixedItems = useMemo(() => mixedData?.items ?? [], [mixedData?.items]);
   const getCompilationItemOrder = useCallback(async () => {
     const allItemsPage = await queryMixedItemsPage({ ...mixedFilter, page: 1, perPage: 0 });
     return allItemsPage.items
@@ -957,6 +973,7 @@ function GroupItemsPanel({
   const canDeleteSelectedItems =
     selectedCount > 0 && (selectedDeletableKinds.size > 0 || canDeleteAnyMixedHostType(hasPermission));
 
+  const clampMixedFilterPage = useEffectEvent((page: number) => setMixedFilter({ ...mixedFilter, page }));
   useEffect(() => {
     if (infinitePageSize) return;
 
@@ -965,7 +982,7 @@ function GroupItemsPanel({
     const currentPage = mixedFilter.page ?? 1;
     if (currentPage <= totalPages) return;
 
-    setMixedFilter({ ...mixedFilter, page: totalPages });
+    clampMixedFilterPage(totalPages);
   }, [infinitePageSize, mixedFilter.page, mixedFilter.perPage, totalItemCount]);
 
   const getSelectedItemsByIds = useCallback(
@@ -2103,7 +2120,7 @@ function normalizeFolderPath(value: string) {
 function matchesStringCollectionCriterion(values: string[], criterion?: StringCriterion, pathCaseSensitive = true) {
   if (!criterion) return true;
   const modifier = criterion.modifier ?? "EQUALS";
-  if (modifier === "IS_NULL") return values.length === 0 || values.every((value) => !value.trim());
+  if (modifier === "IS_NULL") return values.every((value) => !value.trim());
   if (modifier === "NOT_NULL") return values.some((value) => value.trim().length > 0);
   if (
     modifier === "NOT_EQUALS" ||
@@ -2111,7 +2128,7 @@ function matchesStringCollectionCriterion(values: string[], criterion?: StringCr
     modifier === "NOT_MATCHES_REGEX" ||
     modifier === "NOT_UNDER_PATH"
   ) {
-    return values.length === 0 || values.every((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
+    return values.every((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
   }
   return values.some((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
 }
@@ -2380,7 +2397,9 @@ type HydratedGroupItemData =
   | { type: "group"; group: Group };
 
 type HydratedGroupItemState =
-  { status: "loading" } | { status: "error" } | { status: "ready"; data: HydratedGroupItemData };
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; data: HydratedGroupItemData };
 
 function useGroupItemEntities(items: MixedGroupItem[]) {
   const queryItems = useMemo(
@@ -2733,7 +2752,9 @@ function GroupVideosPanel({
       hasObjectFilter
         ? videos.findFiltered({
             findFilter: nextFilter,
-            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+            ...splitFilterExpression(
+              withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+            ),
           })
         : videos.find(nextFilter, { groupId: String(groupId) }),
     [groupId, hasObjectFilter, objectFilter],
@@ -2801,6 +2822,23 @@ function GroupVideosPanel({
       filter={filter}
       onFilterChange={setFilter}
       totalCount={groupVideos?.totalCount ?? 0}
+      onNavigate={onNavigate}
+      vrListSource={{
+        label: pageLabel(),
+        key: listKey({ ...filter }, objectFilter, groupId),
+        page: filter.page ?? 1,
+        perPage: filter.perPage || 24,
+        fetchPage: (page, perPage, vrOnly) =>
+          vrOnly
+            ? videos.findFiltered({
+                findFilter: { ...filter, page, perPage },
+                ...splitFilterExpression(
+                  withRequiredMultiId(vrOnlyFilter(objectFilter) as VideoFilterCriteria, "groupsCriterion", groupId),
+                ),
+              })
+            : queryPage({ ...filter, page, perPage }),
+        setPage: (page) => setFilter({ ...filter, page }),
+      }}
       sortOptions={[
         { value: "title", label: "Title" },
         { value: "date", label: "Date" },
@@ -2830,6 +2868,7 @@ function GroupVideosPanel({
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       listEntityType="videos"
+      supportsFilterExpressions
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { metadata, system } from "../api/client";
 import type { MetadataServer, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
-import { Search, X, Loader2, Check, GripVertical, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { Search, X, Loader2, ChevronDown, ChevronUp, Info } from "lucide-react";
 import {
   PERFORMER_GENDER_OPTIONS,
   buildAllowedGenderKeys,
@@ -81,13 +81,21 @@ function buildIdentifySources(metadataServers: MetadataServer[], scrapers: Scrap
   return sources;
 }
 
+// Stable fallbacks, so the reset below only sees a new list when the real data changes.
+const NO_METADATA_SERVERS: MetadataServer[] = [];
+const NO_SCRAPERS: ScraperSummary[] = [];
+
 export function IdentifyDialog({ open, onClose, videoIds }: Props) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
 
-  const metadataServers = config?.scraping?.metadataServers ?? [];
+  const metadataServers = config?.scraping?.metadataServers ?? NO_METADATA_SERVERS;
   const identifyDefaults = config?.scraping?.identifyDefaults ?? DEFAULT_IDENTIFY_DEFAULTS;
-  const { data: scrapers = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers, enabled: open });
+  const { data: scrapers = NO_SCRAPERS } = useQuery({
+    queryKey: ["scrapers"],
+    queryFn: system.listScrapers,
+    enabled: open,
+  });
 
   const [sources, setSources] = useState<IdentifySource[]>(() => buildIdentifySources(metadataServers, []));
 
@@ -104,25 +112,38 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
   );
   const [performerGenders, setPerformerGenders] = useState<string[]>(() => [...PERFORMER_GENDER_OPTIONS]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setSources(buildIdentifySources(metadataServers, scrapers));
-    setCreateTags(identifyDefaults.createTags);
-    setCreatePerformers(identifyDefaults.createPerformers);
-    setCreateStudios(identifyDefaults.createStudios);
-    setFieldStrategies(buildDefaultFieldStrategies());
-    setPerformerGenders([...PERFORMER_GENDER_OPTIONS]);
-  }, [
-    open,
+  // Reset the sources and defaults whenever the dialog opens or its inputs change while open.
+  const {
+    createTags: defaultCreateTags,
+    createPerformers: defaultCreatePerformers,
+    createStudios: defaultCreateStudios,
+  } = identifyDefaults;
+  const [resetKey, setResetKey] = useState({
+    open: false,
     metadataServers,
     scrapers,
-    identifyDefaults.createTags,
-    identifyDefaults.createPerformers,
-    identifyDefaults.createStudios,
-  ]);
+    defaultCreateTags,
+    defaultCreatePerformers,
+    defaultCreateStudios,
+  });
+  if (
+    resetKey.open !== open ||
+    resetKey.metadataServers !== metadataServers ||
+    resetKey.scrapers !== scrapers ||
+    resetKey.defaultCreateTags !== defaultCreateTags ||
+    resetKey.defaultCreatePerformers !== defaultCreatePerformers ||
+    resetKey.defaultCreateStudios !== defaultCreateStudios
+  ) {
+    setResetKey({ open, metadataServers, scrapers, defaultCreateTags, defaultCreatePerformers, defaultCreateStudios });
+    if (open) {
+      setSources(buildIdentifySources(metadataServers, scrapers));
+      setCreateTags(defaultCreateTags);
+      setCreatePerformers(defaultCreatePerformers);
+      setCreateStudios(defaultCreateStudios);
+      setFieldStrategies(buildDefaultFieldStrategies());
+      setPerformerGenders([...PERFORMER_GENDER_OPTIONS]);
+    }
+  }
 
   const identifyMut = useMutation({
     mutationFn: () => {

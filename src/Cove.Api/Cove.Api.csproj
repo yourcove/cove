@@ -91,6 +91,18 @@
     </PackageReference>
   </ItemGroup>
 
+  <!--
+    Child processes take their arguments as a list (ProcessStartInfo.ArgumentList), never as one
+    command-line string, so a file name can never be split into extra arguments. See BannedSymbols.txt.
+  -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
     <ProjectReference Include="..\Cove.Data\Cove.Data.csproj" />

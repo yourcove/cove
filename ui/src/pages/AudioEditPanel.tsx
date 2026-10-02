@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { audios } from "../api/client";
 import type { Audio, AudioUpdate, VideoGroupInput } from "../api/types";
@@ -31,7 +31,7 @@ function audioFormValues(audio: Audio) {
     date: audio.date ?? "",
     studioId: audio.studioId ?? undefined,
     urls: audio.urls.length > 0 ? audio.urls : [""],
-    customFields: { ...(audio.customFields ?? {}) } as Record<string, unknown>,
+    customFields: { ...audio.customFields } as Record<string, unknown>,
     selectedTagIds: getEditableTagIds(audio.tags),
     selectedPerformerIds: audio.performers.map((performer) => performer.id),
     selectedGroups: audio.groups.map((group) => ({ groupId: group.id, videoIndex: 0 })) as VideoGroupInput[],
@@ -68,7 +68,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
   const [date, setDate] = useState(audio.date ?? "");
   const [studioId, setStudioId] = useState<number | undefined>(audio.studioId ?? undefined);
   const [urls, setUrls] = useState<string[]>(audio.urls.length > 0 ? audio.urls : [""]);
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(audio.customFields ?? {}) });
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...audio.customFields });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(getEditableTagIds(audio.tags));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(
@@ -110,15 +110,14 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
   };
   // When the audio refetches (after Mark organized, a scrape or a finished job), untouched fields follow it
   // and the user's edits stay.
-  useEffect(() => {
-    if (audio === baseline) return;
+  if (audio !== baseline) {
     const next = audioFormValues(audio);
     applyFormFields(
       audio.id === baseline.id ? untouchedFieldUpdates(currentValues, audioFormValues(baseline), next) : next,
       formSetters,
     );
     setBaseline(audio);
-  }, [audio]);
+  }
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },

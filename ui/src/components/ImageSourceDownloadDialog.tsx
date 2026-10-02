@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Download, FolderOpen, Image as ImageIcon, Layers3, Loader2, X } from "lucide-react";
@@ -135,22 +135,26 @@ export function ImageSourceDownloadDialog({
       }),
   });
 
-  useEffect(() => {
-    if (!open) return;
-    const preferences = loadImageSourceDownloadPreferences();
-    setSelectedIndexes(new Set(matches.map((_, index) => index)));
-    setGalleryMode(preferences.galleryMode ?? "none");
-    setGroupMode(preferences.groupMode ?? "none");
-    setSelectedGalleryId(preferences.selectedGalleryId ?? null);
-    setSelectedGroupId(preferences.selectedGroupId ?? null);
-    setParentGroupId(preferences.parentGroupId ?? null);
-    setGallerySearch("");
-    setGroupSearch("");
-    setParentGroupSearch("");
-    setGalleryTitle(resolvedBaseTitle);
-    setGroupTitle(resolvedBaseTitle);
-    setAllowDuplicateDownloads(false);
-  }, [matches, open, resolvedBaseTitle]);
+  // Reset the form whenever the dialog opens or its inputs change while open.
+  const [resetKey, setResetKey] = useState({ open: false, matches, resolvedBaseTitle });
+  if (resetKey.open !== open || resetKey.matches !== matches || resetKey.resolvedBaseTitle !== resolvedBaseTitle) {
+    setResetKey({ open, matches, resolvedBaseTitle });
+    if (open) {
+      const preferences = loadImageSourceDownloadPreferences();
+      setSelectedIndexes(new Set(matches.map((_, index) => index)));
+      setGalleryMode(preferences.galleryMode ?? "none");
+      setGroupMode(preferences.groupMode ?? "none");
+      setSelectedGalleryId(preferences.selectedGalleryId ?? null);
+      setSelectedGroupId(preferences.selectedGroupId ?? null);
+      setParentGroupId(preferences.parentGroupId ?? null);
+      setGallerySearch("");
+      setGroupSearch("");
+      setParentGroupSearch("");
+      setGalleryTitle(resolvedBaseTitle);
+      setGroupTitle(resolvedBaseTitle);
+      setAllowDuplicateDownloads(false);
+    }
+  }
 
   const selectedMatches = matches.filter((_, index) => selectedIndexes.has(index));
   const hasSelection = selectedMatches.length > 0;
@@ -270,7 +274,8 @@ export function ImageSourceDownloadDialog({
   const toggleIndex = (index: number) => {
     setSelectedIndexes((current) => {
       const next = new Set(current);
-      next.has(index) ? next.delete(index) : next.add(index);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };

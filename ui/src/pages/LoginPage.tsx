@@ -4,6 +4,8 @@ import { auth } from "../api/client";
 import type { ExternalLoginMethodRow } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
+// Control characters in a redirect target can smuggle whitespace or line breaks past the same-origin check.
+// oxlint-disable-next-line no-control-regex -- matching control characters is the purpose of this pattern
 const unsafeLocalUrlCharacters = /[\\\u0000-\u001f\u007f]/;
 
 function getSafePostLoginRedirect(): string | null {
@@ -38,6 +40,38 @@ function buildExternalStartUrl(method: ExternalLoginMethodRow): string | null {
   }
 }
 
+type ExternalLoginResult = { kind: "none" } | { kind: "error"; message: string } | { kind: "code"; code: string };
+
+function readExternalLoginResult(): ExternalLoginResult {
+  const url = new URL(window.location.href);
+  const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
+  const queryMarkers = url.searchParams.has("external_login_code") || url.searchParams.has("external_login_error");
+  const codeValues = fragment.getAll("external_login_code");
+  const errorValues = fragment.getAll("external_login_error");
+  const hasCode = codeValues.length > 0;
+  const code = codeValues.length === 1 ? codeValues[0] : null;
+  const hasProviderError = errorValues.length > 0;
+  if (!queryMarkers && !hasCode && !hasProviderError) return { kind: "none" };
+
+  if (queryMarkers || (hasCode && hasProviderError) || errorValues.length > 1) {
+    return { kind: "error", message: "External sign-in expired or was already used." };
+  }
+
+  if (hasProviderError) {
+    return {
+      kind: "error",
+      message:
+        errorValues[0] === "unlinked"
+          ? "This external identity is not linked. Sign in locally, then link it from Account settings."
+          : "External sign-in failed. Please try again.",
+    };
+  }
+
+  if (!code) return { kind: "error", message: "External sign-in expired or was already used." };
+
+  return { kind: "code", code };
+}
+
 export function LoginPage() {
   const { login, externalLoginRedeem } = useAuth();
   const { data: bootstrapStatus } = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
@@ -50,24 +84,20 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [externalSubmitting, setExternalSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The provider's result arrives once in the page URL; read it when the page mounts.
+  const [externalResult] = useState(readExternalLoginResult);
+  const [externalSubmitting, setExternalSubmitting] = useState(() => externalResult.kind === "code");
+  const [error, setError] = useState<string | null>(() =>
+    externalResult.kind === "error" ? externalResult.message : null,
+  );
   const externalResultHandled = useRef(false);
 
   useEffect(() => {
-    if (externalResultHandled.current) return;
-
-    const url = new URL(window.location.href);
-    const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-    const queryMarkers = url.searchParams.has("external_login_code") || url.searchParams.has("external_login_error");
-    const codeValues = fragment.getAll("external_login_code");
-    const errorValues = fragment.getAll("external_login_error");
-    const hasCode = codeValues.length > 0;
-    const code = codeValues.length === 1 ? codeValues[0] : null;
-    const hasProviderError = errorValues.length > 0;
-    if (!queryMarkers && !hasCode && !hasProviderError) return;
+    if (externalResultHandled.current || externalResult.kind === "none") return;
 
     externalResultHandled.current = true;
+    const url = new URL(window.location.href);
+    const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
     url.searchParams.delete("external_login_code");
     url.searchParams.delete("external_login_error");
     fragment.delete("external_login_code");
@@ -76,28 +106,9 @@ export function LoginPage() {
     url.hash = remainingFragment ? `#${remainingFragment}` : "";
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 
-    if (queryMarkers || (hasCode && hasProviderError) || errorValues.length > 1) {
-      setError("External sign-in expired or was already used.");
-      return;
-    }
+    if (externalResult.kind !== "code") return;
 
-    if (hasProviderError) {
-      setError(
-        errorValues[0] === "unlinked"
-          ? "This external identity is not linked. Sign in locally, then link it from Account settings."
-          : "External sign-in failed. Please try again.",
-      );
-      return;
-    }
-
-    if (!code) {
-      setError("External sign-in expired or was already used.");
-      return;
-    }
-
-    setExternalSubmitting(true);
-    setError(null);
-    void externalLoginRedeem(code)
+    void externalLoginRedeem(externalResult.code)
       .then((result) => {
         if (!result.ok) {
           setError(result.error ?? "External sign-in could not be completed.");
@@ -105,7 +116,7 @@ export function LoginPage() {
       })
       .catch(() => setError("External sign-in could not be completed."))
       .finally(() => setExternalSubmitting(false));
-  }, [externalLoginRedeem]);
+  }, [externalLoginRedeem, externalResult]);
 
   const externalLoginMethods = externalProviders
     .filter((method) => method.showOnLoginPage !== false)

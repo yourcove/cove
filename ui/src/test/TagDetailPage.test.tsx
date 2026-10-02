@@ -74,6 +74,7 @@ vi.mock("../hooks/useDetailListQuery", () => ({
 
 vi.mock("../state/AppConfigContext", () => ({
   useAppConfig: () => ({ config: {} }),
+  useOptionalAppConfig: () => null,
 }));
 
 vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({

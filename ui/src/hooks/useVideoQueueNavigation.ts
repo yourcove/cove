@@ -7,16 +7,25 @@ import { useOptionalVideoQueue } from "../state/VideoQueueContext";
 interface UseVideoQueueNavigationOptions {
   items: Video[];
   filter: FindFilter;
-  totalCount: number;
+  /** The list total, or undefined while it is still loading. */
+  totalCount: number | undefined;
   infinitePageSize: boolean;
   queryPage: (filter: FindFilter) => Promise<PaginatedResponse<Video>>;
   onNavigate: (route: any) => void;
 }
 
-function toQueueItem(video: Video) {
+/** How a video appears in the play queue: its title or first file name, studio or date, and cover. */
+export function videoQueueItem(video: {
+  id: number;
+  title?: string | null;
+  files?: ReadonlyArray<{ basename?: string | null }>;
+  studioName?: string | null;
+  date?: string | null;
+  updatedAt?: string;
+}) {
   return {
     id: video.id,
-    title: video.title || video.files[0]?.basename || `Video ${video.id}`,
+    title: video.title || video.files?.[0]?.basename || `Video ${video.id}`,
     subtitle: video.studioName || video.date || undefined,
     imagePath: videos.screenshotUrl(video.id, video.updatedAt),
   };
@@ -46,33 +55,40 @@ export function useVideoQueueNavigation({
         setQueue(
           ids,
           videoId,
-          items.map(toQueueItem),
+          items.map(videoQueueItem),
           !infinitePageSize
             ? {
                 autoplay,
                 startIndex: (firstPage - 1) * pageSize,
-                totalCount,
+                // The videos through this page are a lower bound for the queue: the total may still be loading,
+                // or come from a separate count taken before videos were added.
+                totalCount: Math.max(totalCount ?? 0, (firstPage - 1) * pageSize + ids.length),
                 loadPrevious:
                   firstPage > 1
                     ? async () => {
                         const page = firstPage - 1;
                         const response = await queryPage({ ...filter, page });
                         firstPage = page;
-                        return { items: response.items.map(toQueueItem), hasMore: page > 1 };
-                      }
-                    : undefined,
-                loadNext:
-                  lastPage * pageSize < totalCount
-                    ? async () => {
-                        const page = lastPage + 1;
-                        const response = await queryPage({ ...filter, page });
-                        lastPage = page;
                         return {
-                          items: response.items.map(toQueueItem),
-                          hasMore: page * pageSize < response.totalCount,
+                          items: response.items.map(videoQueueItem),
+                          hasMore: page > 1,
+                          totalCount: response.totalCount,
                         };
                       }
                     : undefined,
+                // Without a total yet, a full page may have more after it; an empty next page ends the queue.
+                loadNext: (totalCount === undefined ? items.length >= pageSize : lastPage * pageSize < totalCount)
+                  ? async () => {
+                      const page = lastPage + 1;
+                      const response = await queryPage({ ...filter, page });
+                      lastPage = page;
+                      return {
+                        items: response.items.map(videoQueueItem),
+                        hasMore: page * pageSize < response.totalCount,
+                        totalCount: response.totalCount,
+                      };
+                    }
+                  : undefined,
               }
             : { autoplay },
         );

@@ -132,7 +132,9 @@ const VideoFilenameParserPage = lazy(() =>
 const HomePage = lazy(() => import("./pages/HomePage").then((m) => ({ default: m.HomePage })));
 
 export default function App() {
+  // Resolve the canonical route up front; the mount effect below only rewrites the URL to match it.
   const [route, setRoute] = useState<Route>(() => {
+    if (window.location.pathname === "/logs") return { page: "settings" };
     const legacyRoute = parseLegacyHashRoute(window.location.hash);
     return normalizeRoute(legacyRoute ?? resolveCurrentRoute());
   });
@@ -141,7 +143,6 @@ export default function App() {
     if (window.location.pathname === "/logs") {
       const settingsLogsRoute: Route = { page: "settings" };
       navigateToUrl("/settings/system-info/logs", { replace: true, state: settingsLogsRoute });
-      setRoute(settingsLogsRoute);
       syncRouteHistory("push");
       return;
     }
@@ -153,7 +154,6 @@ export default function App() {
         replace: true,
         state: normalizedLegacyRoute,
       });
-      setRoute(normalizedLegacyRoute);
     } else {
       const currentRoute = resolveCurrentRoute();
       const normalizedCurrentRoute = normalizeRoute(currentRoute);
@@ -162,7 +162,6 @@ export default function App() {
           replace: true,
           state: normalizedCurrentRoute,
         });
-        setRoute(normalizedCurrentRoute);
       }
     }
     // Redirect /home to / (canonical home URL)
@@ -382,11 +381,12 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   // Show setup wizard if config has no library paths and user hasn't dismissed it
   const needsSetup = config && config.covePaths.filter((p) => p.path.trim() !== "").length === 0 && !setupDismissed;
 
-  useEffect(() => {
-    if (needsSetup) {
-      setSetupFlowActive(true);
-    }
-  }, [needsSetup]);
+  // Enter the setup flow whenever setup becomes needed.
+  const [prevNeedsSetup, setPrevNeedsSetup] = useState(false);
+  if (Boolean(needsSetup) !== prevNeedsSetup) {
+    setPrevNeedsSetup(Boolean(needsSetup));
+    if (needsSetup) setSetupFlowActive(true);
+  }
 
   useEffect(() => {
     const openTutorial = (event: Event) => {
@@ -397,12 +397,18 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
     return () => window.removeEventListener(TUTORIAL_STORYBOARD_EVENT, openTutorial);
   }, []);
 
-  useEffect(() => {
+  // Null until the first render so a page loaded on a manual route opens the tutorial straight away.
+  const [prevRoute, setPrevRoute] = useState<Route | null>(null);
+  if (route !== prevRoute) {
+    setPrevRoute(route);
     if (route.page === "manual") {
       setTutorialRequest({ topicId: route.manualTopicId, slideId: route.manualSlideId });
       setTutorialOpen(true);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (route.page === "manual") return;
 
     const params = new URLSearchParams(window.location.search);
     const topicId = params.get("tutorial") ?? undefined;
@@ -410,6 +416,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
       return;
     }
 
+    // oxlint-disable-next-line react/set-state-in-effect -- ?tutorial lives in window.location.search, which is not part of the route state and cannot be read during render
     setTutorialRequest({ topicId, slideId: params.get("tutorialSlide") ?? params.get("slide") ?? undefined });
     setTutorialOpen(true);
   }, [route]);
@@ -577,6 +584,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   if (override) {
     const Component = resolveComponent(override.extensionId, override.componentName);
     if (Component) {
+      // oxlint-disable-next-line react/static-components -- resolved from the extension component registry, which returns a stable reference
       return <Component onNavigate={navigate} />;
     }
   }
@@ -597,6 +605,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       if (route.slug !== undefined) {
         props.slug = route.slug;
       }
+      // oxlint-disable-next-line react/static-components -- resolved from the extension component registry, which returns a stable reference
       return <Component {...props} />;
     }
   }

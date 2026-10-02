@@ -106,7 +106,7 @@ export function normalizeBatchDownloadOptions(
     allowDuplicateDownloads: !!options.allowDuplicateDownloads,
     generate: {
       ...DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS,
-      ...(options.generate ?? {}),
+      ...options.generate,
     },
   };
 }

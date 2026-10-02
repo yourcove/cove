@@ -117,6 +117,30 @@ public class ScraperServiceTests
     }
 
     [Fact]
+    public async Task ScrapeNameAsync_ExtensionScraper_FillsMissingCandidateFieldsFromUrlScrape()
+    {
+        var service = CreateService(scraperProvider: new FakeAudioSearchScraperProvider());
+
+        var results = await service.ScrapeNameAsync("fake.audio/audio", "audio", "Example", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(results);
+        Assert.Equal(2, results.Count);
+        var first = results[0];
+        Assert.Equal("Example One", Assert.IsType<JsonElement>(first["title"]).GetString());
+        // Values the search result already had win; empty ones are filled from the detail scrape.
+        Assert.Equal("Snippet for one", Assert.IsType<JsonElement>(first["details"]).GetString());
+        Assert.Equal("2024-01-02", Assert.IsType<JsonElement>(first["date"]).GetString());
+        Assert.Equal(["Tag A", "Tag B"], Assert.IsType<JsonElement>(first["tagNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
+        Assert.Equal(["Performer"], Assert.IsType<JsonElement>(first["performerNames"]).EnumerateArray().Select(item => item.GetString()).ToList());
+        Assert.False(first.ContainsKey("URL"));
+
+        // A candidate whose detail scrape returns nothing keeps its search-result data.
+        var second = results[1];
+        Assert.Equal("Snippet for two", Assert.IsType<JsonElement>(second["details"]).GetString());
+        Assert.Empty(Assert.IsType<JsonElement>(second["tagNames"]).EnumerateArray());
+    }
+
+    [Fact]
     public async Task ScrapeUrlAutoAsync_AudioUrlWithoutExtensionScraper_ReturnsNull()
     {
         var service = CreateService();
@@ -403,10 +427,96 @@ public class ScraperServiceTests
         return extensionManager;
     }
 
+    [Fact]
+    public void FindScrapersForUrl_SiteScraper_BeatsCatchAllScraperThatClaimsTheSite()
+    {
+        var service = CreateService(scraperProvider: new FakeVideoSiteProvider());
+
+        var matches = service.FindScrapersForUrl("https://www.tube.example/view_video.php?viewkey=1", "video");
+
+        Assert.Equal([FakeVideoSiteProvider.SiteScraperId, FakeVideoSiteProvider.CatchAllScraperId], matches.Select(match => match.Id));
+    }
+
+    [Fact]
+    public void FindScrapersForUrl_ConfiguredPreferenceForParentSite_LeadsOnSubdomain()
+    {
+        var config = new CoveConfiguration();
+        config.Scraping.ScraperPreferences.Add(new ScraperPreference { EntityType = "video", Site = "tube.example", ScraperId = FakeVideoSiteProvider.CatchAllScraperId });
+        var service = CreateService(scraperProvider: new FakeVideoSiteProvider(), config: config);
+
+        var matches = service.FindScrapersForUrl("https://de.tube.example/view_video.php?viewkey=1", "video");
+
+        Assert.Equal(FakeVideoSiteProvider.CatchAllScraperId, matches[0].Id);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAutoDetailedAsync_SiteScraper_OutranksCatchAllDownloaderMetadata()
+    {
+        var provider = new FakeVideoSiteProvider();
+        var service = CreateService(scraperProvider: provider);
+        var inline = new InlineMetadataOffer("tests.ytdlp/video", ScraperService.GetDownloaderMetadataTier("https://tube.example/v/1", ["https://*/*", "http://*/*"]));
+
+        var result = await service.ScrapeUrlAutoDetailedAsync("https://tube.example/v/1", "video", inline, TestContext.Current.CancellationToken);
+
+        Assert.False(result.UseInlineMetadata);
+        Assert.Equal(FakeVideoSiteProvider.SiteScraperId, result.ScraperId);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAutoDetailedAsync_CatchAllDownloaderMetadata_OutranksCatchAllScrapers()
+    {
+        var provider = new FakeVideoSiteProvider();
+        var service = CreateService(scraperProvider: provider);
+        var inline = new InlineMetadataOffer("tests.ytdlp/video", ScraperService.GetDownloaderMetadataTier("https://elsewhere.example/v/1", ["https://*/*"]));
+
+        var result = await service.ScrapeUrlAutoDetailedAsync("https://elsewhere.example/v/1", "video", inline, TestContext.Current.CancellationToken);
+
+        Assert.True(result.UseInlineMetadata);
+        Assert.Empty(provider.ScrapedIds);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAutoDetailedAsync_DownloaderMetadataPreference_SkipsSiteScraper()
+    {
+        var config = new CoveConfiguration();
+        config.Scraping.ScraperPreferences.Add(new ScraperPreference { Site = "tube.example", ScraperId = ScraperService.DownloaderMetadataPreferenceId });
+        var provider = new FakeVideoSiteProvider();
+        var service = CreateService(scraperProvider: provider, config: config);
+        var inline = new InlineMetadataOffer("tests.ytdlp/video", ScraperService.GetDownloaderMetadataTier("https://tube.example/v/1", ["https://*/*"]));
+
+        var result = await service.ScrapeUrlAutoDetailedAsync("https://tube.example/v/1", "video", inline, TestContext.Current.CancellationToken);
+
+        Assert.True(result.UseInlineMetadata);
+        Assert.Empty(provider.ScrapedIds);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAutoDetailedAsync_FailingSiteScraper_FallsThroughToDownloaderMetadata()
+    {
+        var provider = new FakeVideoSiteProvider { SiteScraperReturnsNothing = true };
+        var service = CreateService(scraperProvider: provider);
+        var inline = new InlineMetadataOffer("tests.ytdlp/video", ScraperService.GetDownloaderMetadataTier("https://tube.example/v/1", ["https://*/*"]));
+
+        var result = await service.ScrapeUrlAutoDetailedAsync("https://tube.example/v/1", "video", inline, TestContext.Current.CancellationToken);
+
+        Assert.True(result.UseInlineMetadata);
+        Assert.Equal([FakeVideoSiteProvider.SiteScraperId], provider.ScrapedIds);
+    }
+
+    [Theory]
+    [InlineData("https://*/*", true)]
+    [InlineData("http://*", true)]
+    [InlineData("*", true)]
+    [InlineData("*.tube.example/*", false)]
+    [InlineData("tube.example/view_video.php", false)]
+    public void IsCatchAllPattern_RecognizesPatternsThatNameNoSite(string pattern, bool expected)
+        => Assert.Equal(expected, ScraperService.IsCatchAllPattern(pattern));
+
     private static ScraperService CreateService(
         IReadOnlyDictionary<string, string>? responses = null,
         IScraperProvider? scraperProvider = null,
-        ExtensionManager? extensionManager = null)
+        ExtensionManager? extensionManager = null,
+        CoveConfiguration? config = null)
     {
         extensionManager ??= new ExtensionManager(new ExtensionContext
         {
@@ -418,7 +528,7 @@ public class ScraperServiceTests
             extensionManager.Register(scraperProvider);
 
         return new ScraperService(
-            new CoveConfiguration(),
+            config ?? new CoveConfiguration(),
             NullLogger<ScraperService>.Instance,
             new FakeHttpClientFactory(responses ?? new Dictionary<string, string>()),
             extensionManager);
@@ -486,6 +596,43 @@ public class ScraperServiceTests
             });
     }
 
+    /// <summary>A site scraper and a yt-dlp-style catch-all scraper that also claims the site.</summary>
+    private sealed class FakeVideoSiteProvider : IScraperProvider
+    {
+        public const string SiteScraperId = "fake.tube/site";
+        public const string CatchAllScraperId = "fake.tube/catch-all";
+
+        public bool SiteScraperReturnsNothing { get; init; }
+        public List<string> ScrapedIds { get; } = [];
+
+        public string Id => "fake.tube";
+        public string Name => "Fake Tube";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+        }
+
+        // The site pattern is shorter than the catch-all one, so pattern length alone would rank them backwards.
+        public IReadOnlyList<ScraperDescriptor> GetScrapers() =>
+        [
+            new(SiteScraperId, "B Site Scraper", ScraperEntity.Video, ScraperCapabilities.ByUrl, ["tube.example"], ScraperRiskLevel.NetworkOnly),
+            new(CatchAllScraperId, "A Catch-all Scraper", ScraperEntity.Video, ScraperCapabilities.ByUrl, ["https://*/*", "http://*/*"], ScraperRiskLevel.NetworkOnly, ["tube.example"]),
+        ];
+
+        public Task<ScrapedVideoDto?> ScrapeVideoAsync(ScraperRequest<VideoScrapeInput> request, CancellationToken ct)
+        {
+            ScrapedIds.Add(request.ScraperId);
+            return Task.FromResult<ScrapedVideoDto?>(request.ScraperId == SiteScraperId && SiteScraperReturnsNothing
+                ? null
+                : new ScrapedVideoDto { Title = request.ScraperId });
+        }
+    }
+
     private sealed class FakeDynamicScraperProvider : IScraperProvider
     {
         private static readonly ScraperDescriptor Descriptor = new(
@@ -510,5 +657,50 @@ public class ScraperServiceTests
         }
 
         public IReadOnlyList<ScraperDescriptor> GetScrapers() => [Descriptor];
+    }
+
+    private sealed class FakeAudioSearchScraperProvider : IScraperProvider
+    {
+        private static readonly ScraperDescriptor Descriptor = new(
+            "fake.audio/audio",
+            "Fake Audio",
+            ScraperEntity.Audio,
+            ScraperCapabilities.ByUrl | ScraperCapabilities.ByName,
+            ["audio.example.net/*"],
+            ScraperRiskLevel.NetworkOnly);
+
+        public string Id => "fake.audio";
+        public string Name => "Fake Audio";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+        }
+
+        public IReadOnlyList<ScraperDescriptor> GetScrapers() => [Descriptor];
+
+        public Task<IReadOnlyList<ScrapedAudioDto>> SearchAudiosAsync(ScraperRequest<string> request, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<ScrapedAudioDto>>(
+            [
+                new ScrapedAudioDto { Title = "Example One", Details = "Snippet for one", Urls = ["https://audio.example.net/file/1"] },
+                new ScrapedAudioDto { Title = "Example Two", Details = "Snippet for two", Urls = ["https://audio.example.net/file/2"] },
+            ]);
+
+        public Task<ScrapedAudioDto?> ScrapeAudioAsync(ScraperRequest<AudioScrapeInput> request, CancellationToken ct)
+            => Task.FromResult(request.Input.Url == "https://audio.example.net/file/1"
+                ? new ScrapedAudioDto
+                {
+                    Title = "Example One",
+                    Details = "Full details for one",
+                    Date = "2024-01-02",
+                    Urls = ["https://audio.example.net/file/1"],
+                    PerformerNames = ["Performer"],
+                    TagNames = ["Tag A", "Tag B"],
+                }
+                : null);
     }
 }

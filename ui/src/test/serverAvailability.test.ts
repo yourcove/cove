@@ -169,13 +169,13 @@ describe("server availability", () => {
     );
 
     const request = serverAwareFetch("/api/test", { timeoutMs: 100 });
-    const rejection = expect(request).rejects.toMatchObject({
-      name: "TimeoutError",
-      message: "API request timed out after 100 ms.",
-    });
-    await vi.advanceTimersByTimeAsync(100);
-
-    await rejection;
+    await Promise.all([
+      expect(request).rejects.toMatchObject({
+        name: "TimeoutError",
+        message: "API request timed out after 100 ms.",
+      }),
+      vi.advanceTimersByTimeAsync(100),
+    ]);
     await vi.advanceTimersByTimeAsync(4_000);
     expect(getServerAvailability()).toBe("unavailable");
   });
@@ -239,11 +239,11 @@ describe("server availability", () => {
 
     const response = await serverAwareFetch("/api/test", { signal: controller.signal, timeoutMs: null });
     const reason = new Error("navigation changed");
-    const bodyRejection = expect(response.text()).rejects.toBe(reason);
+    const body = response.text();
     controller.abort(reason);
 
     expect(fetchSignal?.aborted).toBe(true);
-    await bodyRejection;
+    await expect(body).rejects.toBe(reason);
     expect(getServerAvailability()).toBe("available");
   });
 
@@ -266,18 +266,19 @@ describe("server availability", () => {
     );
 
     const response = await serverAwareFetch("/api/test", { timeoutMs: 100 });
-    const bodyRejection = expect(response.text()).rejects.toMatchObject({
-      name: "TimeoutError",
-      message: "API request timed out after 100 ms.",
-    });
-    await vi.advanceTimersByTimeAsync(100);
+    await Promise.all([
+      expect(response.text()).rejects.toMatchObject({
+        name: "TimeoutError",
+        message: "API request timed out after 100 ms.",
+      }),
+      vi.advanceTimersByTimeAsync(100),
+    ]);
 
     expect(fetchSignal?.aborted).toBe(true);
     expect(fetchSignal?.reason).toMatchObject({
       name: "TimeoutError",
       message: "API request timed out after 100 ms.",
     });
-    await bodyRejection;
   });
 
   it("allows long-running requests to opt out of the timeout", async () => {

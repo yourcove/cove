@@ -46,6 +46,8 @@ export interface VideoQueueItem {
 interface VideoQueuePageResult {
   items: VideoQueueItem[];
   hasMore: boolean;
+  /** The list total the page reported. It replaces a total the queue did not know when it opened. */
+  totalCount?: number;
 }
 interface VideoQueueOptions {
   startIndex?: number;
@@ -146,7 +148,23 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     try {
       const result = await loader();
       if (queueGenerationRef.current !== generation) return null;
-      if (result.items.length === 0) return null;
+      if (result.items.length === 0) {
+        // A queue opened without a known total offers the next page whenever its last page was full;
+        // an empty page means the list ended there.
+        if (direction === "previous") loadersRef.current.loadPrevious = undefined;
+        else loadersRef.current.loadNext = undefined;
+        setQueueState((current) =>
+          current
+            ? {
+                ...current,
+                ...(direction === "previous" ? { hasRemotePrevious: false } : { hasRemoteNext: false }),
+                ...(result.totalCount === undefined ? {} : { totalCount: result.totalCount }),
+              }
+            : current,
+        );
+        return null;
+      }
+      const reportedTotal = result.totalCount === undefined ? {} : { totalCount: result.totalCount };
       const ids = result.items.map((item) => item.id);
       const itemMap = Object.fromEntries(result.items.map((item) => [item.id, item]));
       const targetId = direction === "previous" ? (ids.at(-1) ?? null) : (ids[0] ?? null);
@@ -161,6 +179,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
             startIndex: Math.max(0, (current.startIndex ?? 0) - ids.length),
             items: { ...current.items, ...itemMap },
             hasRemotePrevious: result.hasMore,
+            ...reportedTotal,
           };
         }
         if (!result.hasMore) loadersRef.current.loadNext = undefined;
@@ -170,6 +189,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
           currentIndex: current.videoIds.length,
           items: { ...current.items, ...itemMap },
           hasRemoteNext: result.hasMore,
+          ...reportedTotal,
         };
       });
       return targetId;

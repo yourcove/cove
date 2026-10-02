@@ -49,20 +49,29 @@ export function ConfirmDialog({
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setDeleteFile(showDeleteFile ? (appConfig?.config?.ui.deleteFileDefault ?? false) : false);
-    setDeleteGenerated(showDeleteGenerated ? (appConfig?.config?.deleteGeneratedDefault ?? false) : false);
-  }, [
-    appConfig?.config?.deleteGeneratedDefault,
-    appConfig?.config?.ui.deleteFileDefault,
-    open,
+  // Reapply the configured defaults whenever the dialog opens or those defaults change while open.
+  const deleteFileDefault = appConfig?.config?.ui.deleteFileDefault;
+  const deleteGeneratedDefault = appConfig?.config?.deleteGeneratedDefault;
+  const [resetKey, setResetKey] = useState({
+    open: false,
+    deleteFileDefault,
+    deleteGeneratedDefault,
     showDeleteFile,
     showDeleteGenerated,
-  ]);
+  });
+  if (
+    resetKey.open !== open ||
+    resetKey.deleteFileDefault !== deleteFileDefault ||
+    resetKey.deleteGeneratedDefault !== deleteGeneratedDefault ||
+    resetKey.showDeleteFile !== showDeleteFile ||
+    resetKey.showDeleteGenerated !== showDeleteGenerated
+  ) {
+    setResetKey({ open, deleteFileDefault, deleteGeneratedDefault, showDeleteFile, showDeleteGenerated });
+    if (open) {
+      setDeleteFile(showDeleteFile ? (deleteFileDefault ?? false) : false);
+      setDeleteGenerated(showDeleteGenerated ? (deleteGeneratedDefault ?? false) : false);
+    }
+  }
 
   if (!open) return null;
 

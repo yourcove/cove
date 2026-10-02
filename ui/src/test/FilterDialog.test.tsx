@@ -1706,12 +1706,12 @@ describe("FilterDialog", () => {
   });
 
   it.each([
-    { criterion: "tags", searchName: "Search tags", mockFind: tagsFind },
-    { criterion: "performers", searchName: "Search performers", mockFind: performersFind },
-    { criterion: "studios", searchName: "Search studios", mockFind: studiosFind },
+    { criterion: "tags", searchName: "Search tags", mockFind: tagsFind, extraFindArgs: [expect.anything()] },
+    { criterion: "performers", searchName: "Search performers", mockFind: performersFind, extraFindArgs: [] },
+    { criterion: "studios", searchName: "Search studios", mockFind: studiosFind, extraFindArgs: [] },
   ])(
     "requests $criterion by relevance only while a search term is present",
-    async ({ criterion, searchName, mockFind }) => {
+    async ({ criterion, searchName, mockFind, extraFindArgs }) => {
       const user = userEvent.setup();
       mockFind.mockResolvedValue({ items: [] });
       renderWithQueryClient(
@@ -1733,7 +1733,7 @@ describe("FilterDialog", () => {
       await waitFor(() =>
         expect(mockFind).toHaveBeenLastCalledWith(
           expect.objectContaining({ q: "needle", perPage: 50, sort: "relevance" }),
-          ...(criterion === "tags" ? [expect.anything()] : []),
+          ...extraFindArgs,
         ),
       );
     },

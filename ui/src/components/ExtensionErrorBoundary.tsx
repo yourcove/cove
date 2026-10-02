@@ -11,6 +11,7 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  resetKey: unknown;
 }
 
 /**
@@ -18,10 +19,17 @@ interface State {
  * Prevents a crashing extension from taking down the host page.
  */
 export class ExtensionErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, resetKey: this.props.resetKey };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
+  }
+
+  // A new resetKey clears a caught error before rendering, so the children get another try without
+  // first rendering the fallback for the new key.
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (Object.is(props.resetKey, state.resetKey)) return null;
+    return { hasError: false, error: null, resetKey: props.resetKey };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -30,12 +38,6 @@ export class ExtensionErrorBoundary extends Component<Props, State> {
       error,
       errorInfo.componentStack,
     );
-  }
-
-  componentDidUpdate(previousProps: Props) {
-    if (this.state.hasError && previousProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false, error: null });
-    }
   }
 
   render() {

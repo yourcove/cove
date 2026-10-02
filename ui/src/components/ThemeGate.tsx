@@ -17,11 +17,8 @@ export function ThemeGate({ children }: { children: ReactNode }) {
   // A latch, not a derived value: `loaded` goes false again whenever the loader refetches, and
   // re-closing the gate would unmount the whole app below it and lose player and queue state.
   const [opened, setOpened] = useState(() => bootedLookAtStartup);
+  if (loaded && !opened) setOpened(true);
   const waiting = !opened && !loaded;
-
-  useEffect(() => {
-    if (loaded) setOpened(true);
-  }, [loaded]);
 
   useEffect(() => {
     if (!waiting) return;

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 
 namespace Cove.Api.Services;
@@ -19,10 +18,13 @@ public static class VideoKeyframes
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
     /// <summary>ffprobe arguments listing the packets of one stream between two raw file timestamps.</summary>
-    public static string ProbeArguments(string path, int streamIndex, double fromFileTime, double toFileTime)
-        => string.Create(CultureInfo.InvariantCulture,
-            $"-v error -select_streams {streamIndex} -read_intervals {Math.Max(0, fromFileTime):0.######}%{toFileTime:0.######} ")
-         + "-show_entries packet=pts_time,flags -of csv=p=0 \"" + path.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+    public static IReadOnlyList<string> ProbeArguments(string path, int streamIndex, double fromFileTime, double toFileTime)
+        =>
+        [
+            "-v", "error", "-select_streams", streamIndex.ToString(CultureInfo.InvariantCulture),
+            "-read_intervals", string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, fromFileTime):0.######}%{toFileTime:0.######}"),
+            "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", path,
+        ];
 
     /// <summary>
     /// The latest keyframe at or before <paramref name="fileTime"/> in ffprobe's <c>pts_time,flags</c>
@@ -67,33 +69,13 @@ public static class VideoKeyframes
         return 0;
     }
 
-    private static async Task<string> RunAsync(string ffprobe, string arguments, CancellationToken ct)
+    private static async Task<string> RunAsync(string ffprobe, IReadOnlyList<string> arguments, CancellationToken ct)
     {
-        var startInfo = new ProcessStartInfo(ffprobe, arguments)
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        FfmpegProcessEnvironment.Apply(startInfo, ffprobe);
-        using var process = Process.Start(startInfo)
-            ?? throw new VideoConversionException("ffprobe could not be started to find where the cut can begin.");
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(Timeout);
-        try
-        {
-            var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-            await process.WaitForExitAsync(timeout.Token);
-            if (process.ExitCode != 0)
-                throw new VideoConversionException($"ffprobe could not read the file's keyframes: {(await stderr).Trim()}");
-            return await stdout;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+        var result = await FfmpegProcessRunner.RunAsync(ffprobe, arguments, Timeout, ct);
+        if (result.TimedOut)
             throw new VideoConversionException("Finding the file's keyframes took too long, so the cut was not made.");
-        }
+        if (result.ExitCode != 0)
+            throw new VideoConversionException($"ffprobe could not read the file's keyframes: {result.StandardError.Trim()}");
+        return result.StandardOutput;
     }
 }

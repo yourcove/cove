@@ -249,13 +249,11 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     setSegmentVideoTime(segment.startSec);
   };
 
-  useEffect(() => {
-    if (!segment) {
-      return;
-    }
-
+  const [prevSegment, setPrevSegment] = useState<typeof segment>(undefined);
+  if (segment !== prevSegment) {
+    setPrevSegment(segment);
     resetEditState();
-  }, [segment]);
+  }
 
   const {
     data: siblingSegmentsData,
@@ -268,7 +266,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     enabled: !!segment,
   });
   const siblingSegmentsLoadError = getLoadError(siblingSegmentsData, siblingSegmentsError);
-  const siblingSegments = siblingSegmentsData ?? [];
+  const siblingSegments = useMemo(() => siblingSegmentsData ?? [], [siblingSegmentsData]);
   const { data: playbackVideo, isLoading: playbackVideoLoading } = useQuery({
     queryKey: ["video", segment?.hostId],
     queryFn: () => videos.get(segment!.hostId),
@@ -1127,48 +1125,6 @@ function ReadOnlyField({ label, value }: { label: string; value?: string }) {
   );
 }
 
-function VideoReferenceCard({
-  videoId,
-  title,
-  updatedAt,
-  startSec,
-  disabled,
-  onNavigate,
-}: {
-  videoId: number;
-  title: string;
-  updatedAt?: string;
-  startSec: number;
-  disabled: boolean;
-  onNavigate: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onNavigate}
-      disabled={disabled}
-      className="group flex w-full overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-accent disabled:cursor-default disabled:hover:border-border"
-    >
-      <div className="aspect-video w-36 shrink-0 bg-black sm:w-44">
-        <img
-          src={videos.screenshotUrl(videoId, updatedAt, startSec)}
-          alt=""
-          className="h-full w-full object-cover"
-          loading="lazy"
-        />
-      </div>
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Video</div>
-          <div className="mt-1 truncate text-sm font-medium text-foreground group-hover:text-accent">{title}</div>
-          <div className="mt-1 text-xs text-secondary">Starts at {formatSegmentTime(startSec)}</div>
-        </div>
-        <ExternalLink className="h-4 w-4 shrink-0 text-muted" />
-      </div>
-    </button>
-  );
-}
-
 function SegmentSummaryCard({
   segment,
   canReadVideos,
@@ -1647,10 +1603,6 @@ function formatSegmentTime(value: number) {
 
 function formatConfidence(confidence?: number) {
   return confidence == null ? "Not set" : `${(confidence * 100).toFixed(0)}%`;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function formatSegmentSourceLabel(sourceKey?: string) {
