@@ -687,6 +687,58 @@ public class RepositorySortBehaviorTests
         Assert.Equal(expected, items.Select(video => video.Title).ToArray());
     }
 
+    // Missing dates go last in either direction. Missing titles follow the provider's null order, but a
+    // compound sort must place them where the single sort does.
+    [Theory]
+    [InlineData("date", Cove.Core.Enums.SortDirection.Asc, new[] { "older", "newer", "missing" })]
+    [InlineData("date", Cove.Core.Enums.SortDirection.Desc, new[] { "newer", "older", "missing" })]
+    [InlineData("title", Cove.Core.Enums.SortDirection.Asc, null)]
+    [InlineData("title", Cove.Core.Enums.SortDirection.Desc, null)]
+    public async Task VideoRepository_DateAndTitleSorts_PlaceMissingValuesAlikeInSingleAndCompoundSorts(
+        string key,
+        Cove.Core.Enums.SortDirection direction,
+        string[]? expected)
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            new Video { Title = "b newer", Date = new DateOnly(2024, 1, 1), Details = "newer" },
+            new Video { Title = "a older", Date = new DateOnly(2020, 1, 1), Details = "older" },
+            new Video { Details = "missing" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new VideoRepository(context);
+        var (single, _) = await repository.FindAsync(
+            filter: null,
+            new FindFilter { Page = 1, PerPage = 20, Sort = key, Direction = direction },
+            ct: TestContext.Current.CancellationToken);
+        var (compound, _) = await repository.FindAsync(
+            filter: null,
+            new FindFilter { Page = 1, PerPage = 20, Sorts = [new SortClause(key, direction), new SortClause("updated_at", direction)] },
+            ct: TestContext.Current.CancellationToken);
+
+        if (expected != null)
+            Assert.Equal(expected, single.Select(video => video.Details).ToArray());
+        Assert.Equal(single.Select(video => video.Details).ToArray(), compound.Select(video => video.Details).ToArray());
+    }
+
+    // The Videos list with compilation groups orders its combined rows itself; missing dates go last there too.
+    [Theory]
+    [InlineData(false, new[] { 2, 1, 3 })]
+    [InlineData(true, new[] { 1, 2, 3 })]
+    public void VideoListWithCompilations_DateSort_PutsMissingDatesLast(bool descending, int[] expected)
+    {
+        var entries = new[]
+        {
+            new Cove.Api.Controllers.VideosController.VideoListEntryKey { Kind = "video", Id = 1, Date = new DateOnly(2024, 1, 1) },
+            new Cove.Api.Controllers.VideosController.VideoListEntryKey { Kind = "video", Id = 2, Date = new DateOnly(2020, 1, 1) },
+            new Cove.Api.Controllers.VideosController.VideoListEntryKey { Kind = "video", Id = 3 },
+        };
+
+        var ordered = Cove.Api.Controllers.VideosController.ApplyVideoListEntrySorting(entries.AsQueryable(), "date", descending, seed: null);
+
+        Assert.Equal(expected, ordered.Select(entry => entry.Id).ToArray());
+    }
+
     private static Video CreateVideoWithDimensions(string title, Folder folder, string basename, int width, int height)
     {
         var video = new Video { Title = title };

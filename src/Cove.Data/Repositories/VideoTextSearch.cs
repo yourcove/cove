@@ -7,22 +7,40 @@ namespace Cove.Data.Repositories;
 
 /// <summary>
 /// Resolves the small related-entity dictionaries once, then searches the indexed ID arrays
-/// on videos. Scores contain no per-video relationship-name or alias subqueries.
+/// on videos; gallery and group members and path matches resolve to video IDs when there are
+/// few enough. Match predicates and scores otherwise contain no per-video subqueries.
 /// </summary>
-internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyList<VideoTextSearch.Term> terms)
+internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyList<VideoTextSearch.Term> terms,
+    ILookup<int, int>? galleryMembers = null, ILookup<int, int>? groupMembers = null, int[]? pathVideos = null)
 {
     internal sealed record Term(string Text, int[] ExactTags, int[] PartialTags,
         int[] ExactPerformers, int[] PartialPerformers, int[] ExactStudios, int[] PartialStudios,
         int[] ExactGalleries, int[] PartialGalleries, int[] ExactGroups, int[] PartialGroups);
+
+    // Member ids are sent as query parameters, several times per term. A short token can match
+    // most gallery or group names, so above this many members the search tests the link tables.
+    // Not a result limit: every member still matches, only through a subquery.
+    internal const int MemberSubqueryThreshold = 20_000;
+
+    // Path matches are resolved the same way. A common fragment such as a file extension matches
+    // nearly every video, so above this many the search tests the files table directly,
+    // still matching all of them.
+    internal const int PathSubqueryThreshold = 100_000;
 
     private sealed class NameRow
     {
         public int Id { get; init; }
         public string Name { get; init; } = "";
     }
+    private sealed class MemberRow
+    {
+        public int OwnerId { get; init; }
+        public int VideoId { get; init; }
+    }
     private bool IsPostgres => db.Database.IsNpgsql();
 
-    internal static async Task<VideoTextSearch> CreateAsync(CoveContext db, string search, CancellationToken ct)
+    internal static async Task<VideoTextSearch> CreateAsync(CoveContext db, string search, CancellationToken ct,
+        int memberSubqueryThreshold = MemberSubqueryThreshold, int pathSubqueryThreshold = PathSubqueryThreshold)
     {
         var tokens = FullTextSearchHelpers.TokenizeSearchTerms(search);
         if (tokens.Count == 0)
@@ -46,6 +64,26 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
         var groups = await db.Groups.AsNoTracking().Select(group => new NameRow { Id = group.Id, Name = group.Name })
             .Where(row => tokens.Any(token => row.Name.ToLower().Contains(token))).ToListAsync(ct);
 
+        // Gallery and group membership lives in link tables. Resolve member videos here so the
+        // search tests the video row (Id = ANY) instead of an EXISTS that defeats the index BitmapOr.
+        var galleryIds = galleries.Select(row => row.Id).Distinct().ToArray();
+        var galleryMembers = await ResolveMembersAsync(galleryIds, db.Set<VideoGallery>().AsNoTracking()
+            .Where(link => galleryIds.Contains(link.GalleryId))
+            .Select(link => new MemberRow { OwnerId = link.GalleryId, VideoId = link.VideoId }), memberSubqueryThreshold, ct);
+        var groupIds = groups.Select(row => row.Id).Distinct().ToArray();
+        var groupMembers = await ResolveMembersAsync(groupIds, db.GroupItems.AsNoTracking()
+            .Where(item => item.VideoId != null && groupIds.Contains(item.GroupId))
+            .Select(item => new MemberRow { OwnerId = item.GroupId, VideoId = item.VideoId!.Value }), memberSubqueryThreshold, ct);
+
+        // Path substrings have no index to test them on the video row, and an OR with a files subquery
+        // stops PostgreSQL combining the indexed arms. Find the videos with a file containing every
+        // term once, so the search can test Id = ANY like the related-name matches.
+        var matchingFiles = db.VideoFiles.AsNoTracking().Where(file => file.VideoId != null);
+        foreach (var token in tokens)
+            matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+        var pathVideos = await matchingFiles.Select(file => file.VideoId!.Value).Distinct()
+            .Take(pathSubqueryThreshold + 1).ToArrayAsync(ct);
+
         // Use the original token order (including repeated words) for phrase recognition.
         var normalizedQuery = " " + NormalizeWords(search) + " ";
         int[] Matches(List<NameRow> rows, string token, bool exact, bool wholeWord = false)
@@ -63,8 +101,21 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
             Matches(performers, token, true), Matches(performers, token, false),
             Matches(studios, token, true), Matches(studios, token, false),
             Matches(galleries, token, true), Matches(galleries, token, false),
-            Matches(groups, token, true), Matches(groups, token, false))).ToArray());
+            Matches(groups, token, true), Matches(groups, token, false))).ToArray(),
+            galleryMembers, groupMembers, pathVideos.Length > pathSubqueryThreshold ? null : pathVideos);
     }
+
+    /// <summary>Member videos by owner, or null when there are more than <paramref name="threshold"/>.</summary>
+    private static async Task<ILookup<int, int>?> ResolveMembersAsync(int[] ownerIds, IQueryable<MemberRow> members, int threshold, CancellationToken ct)
+    {
+        if (ownerIds.Length == 0)
+            return Enumerable.Empty<MemberRow>().ToLookup(row => row.OwnerId, row => row.VideoId);
+        var rows = await members.Take(threshold + 1).ToListAsync(ct);
+        return rows.Count > threshold ? null : rows.ToLookup(row => row.OwnerId, row => row.VideoId);
+    }
+
+    private static int[] MemberVideos(ILookup<int, int> members, int[] ownerIds)
+        => ownerIds.SelectMany(id => members[id]).Distinct().ToArray();
 
     private static string NormalizeWords(string value)
         => string.Join(' ', new string(value.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : ' ').ToArray())
@@ -82,16 +133,20 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
         foreach (var term in terms)
             matches = And(matches, Or(TextMatch(term.Text), Related(term, false)));
 
-        // The substring fallback is deliberately same-file. It handles paths whose
-        // PostgreSQL lexemes differ from ordinary words, without mixing separate files.
+        // The substring fallback handles paths, which PostgreSQL indexes as whole lexemes rather than
+        // as words. It matches every term within one file. Resolved candidates keep the predicate on
+        // the video row. Past the cap the search checks each candidate video's own files: an uncorrelated
+        // `Id IN (files ...)` subquery here was planned as a per-row scan of a materialized match list and
+        // did not finish on large libraries, while a correlated EXISTS probes the (VideoId, Path) index.
+        if (pathVideos != null)
+            return query.Where(Or(matches, MemberOf(pathVideos)));
         var files = db.VideoFiles.Where(file => file.VideoId != null);
         foreach (var term in terms)
         {
             var token = term.Text;
             files = files.Where(file => file.Path.ToLower().Contains(token));
         }
-        var fileIds = files.Select(file => file.VideoId!.Value);
-        return query.Where(Or(matches, video => fileIds.Contains(video.Id)));
+        return query.Where(Or(matches, video => files.Any(file => file.VideoId == video.Id)));
     }
 
     private Expression<Func<Video, bool>> TextMatch(string token)
@@ -168,12 +223,18 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
         if (studios.Length > 0)
             result = Or(result, video => video.StudioId != null && studios.Contains(video.StudioId.Value));
         if (galleries.Length > 0)
-            result = Or(result, video => video.VideoGalleries.Any(link => galleries.Contains(link.GalleryId)));
+            result = Or(result, galleryMembers is { } resolvedGalleries
+                ? MemberOf(MemberVideos(resolvedGalleries, galleries))
+                : video => video.VideoGalleries.Any(link => galleries.Contains(link.GalleryId)));
         if (groups.Length > 0)
-            result = Or(result, video => video.GroupItems.Any(item => groups.Contains(item.GroupId)));
+            result = Or(result, groupMembers is { } resolvedGroups
+                ? MemberOf(MemberVideos(resolvedGroups, groups))
+                : video => video.GroupItems.Any(item => groups.Contains(item.GroupId)));
         return result;
     }
 
+    private static Expression<Func<Video, bool>> MemberOf(int[] videoIds)
+        => videoIds.Length == 0 ? video => false : video => videoIds.Contains(video.Id);
     private static Expression<Func<Video, int>> Points(Expression<Func<Video, bool>> test, int points)
         => Expression.Lambda<Func<Video, int>>(Expression.Condition(test.Body, Expression.Constant(points), Expression.Constant(0)), test.Parameters);
     private static Expression<Func<Video, bool>> Not(Expression<Func<Video, bool>> test)

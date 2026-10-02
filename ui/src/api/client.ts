@@ -501,6 +501,7 @@ function buildQuery(filter?: FindFilter, extra?: Record<string, string | number 
     if (filter?.direction) params.set("direction", filter.direction);
   }
   if (filter?.seed != null) params.set("seed", String(filter.seed));
+  if (filter?.skipCount) params.set("skipCount", "true");
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) params.set(k, String(v));

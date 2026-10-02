@@ -42,6 +42,7 @@ import {
 } from "../utils/relevanceSort";
 import { PaginationControls } from "./PaginationControls";
 import { WallSizeControl } from "./WallSizeControl";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -229,6 +230,7 @@ export function DetailListToolbar({
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   // Sort displaced by a relevance search, restored when the query is cleared.
   const previousSearchSortRef = useRef<PreviousSearchSort | null>(null);
+  const switchToRelevance = useOptionalAppConfig()?.config?.ui.sortSearchesByRelevance ?? true;
   const { activeObjectFilter, filterButton, filterChips, filterDialog } = useObjectFilterControls({
     criteriaDefinitions,
     objectFilter,
@@ -303,11 +305,12 @@ export function DetailListToolbar({
         listEntityType: resolvedListEntityType,
         sortOptions,
         previousSearchSort: previousSearchSortRef.current,
+        switchToRelevance,
       });
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [filter, onFilterChange, resolvedListEntityType, sortOptions],
+    [filter, onFilterChange, resolvedListEntityType, sortOptions, switchToRelevance],
   );
 
   const handleZoomChange = (level: number) => {

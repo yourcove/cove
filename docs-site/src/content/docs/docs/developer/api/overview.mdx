@@ -107,6 +107,8 @@ Common paginated responses return `items`, `totalCount`, `page`, and `perPage`:
 
 Do not assume every list uses the same maximum `perPage` or sort vocabulary. Some specialized endpoints return a `hasMore` value or a resource-specific response instead of `totalCount`.
 
+Counting every match is the most expensive part of a broad search, so the video list can skip it. Pass `skipCount=true` to `GET /api/videos`, or `"skipCount": true` in the `findFilter` of `POST /api/videos/find`, when you already have the total, for example from `POST /api/videos/aggregate`. The response then reports `totalCount` as `-1` unless the request still needed a count, such as one with `perPage` set to `0`. Other lists ignore `skipCount` and always count.
+
 ## Advanced filtering
 
 Resources with advanced filters commonly expose `POST /api/<resource>/find`. The request has a `findFilter` for paging and sorting and an `objectFilter` whose fields depend on that resource:

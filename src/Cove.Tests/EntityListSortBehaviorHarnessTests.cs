@@ -1143,7 +1143,7 @@ public class EntityListSortBehaviorHarnessTests
             "updated_at" => Order(fixture.Videos, video => video.UpdatedAt, descending),
             "created_at" => Order(fixture.Videos, video => video.CreatedAt, descending),
             "title" => Order(fixture.Videos, video => video.Title, descending),
-            "date" => Order(fixture.Videos, video => video.Date ?? DateOnly.MinValue, descending),
+            "date" => Order(fixture.Videos, video => video.Date ?? (descending ? DateOnly.MinValue : DateOnly.MaxValue), descending),
             "rating" => Order(fixture.Videos, video => fixture.Rating(RatingHostType.Video, video.Id), descending),
             "play_count" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).ViewCount, descending),
             "like_counter" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).LikeCount, descending),
