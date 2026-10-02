@@ -653,10 +653,13 @@ function TimecodeInput({
 }) {
   const [text, setText] = useState(formatTimecode(value));
   const [invalid, setInvalid] = useState(false);
-  useEffect(() => {
+  // A new value from outside replaces whatever was being typed.
+  const [shownValue, setShownValue] = useState(value);
+  if (shownValue !== value) {
+    setShownValue(value);
     setText(formatTimecode(value));
     setInvalid(false);
-  }, [value]);
+  }
   const commit = () => {
     const parsed = parseTimecode(text);
     if (parsed == null) {
