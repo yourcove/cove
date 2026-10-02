@@ -149,6 +149,42 @@ public class ScanServiceTests
     }
 
     [Theory]
+    [InlineData(".mp4")]
+    [InlineData(".avi")]
+    public async Task ValidateDeclaredContainerLengthAsync_LeavesMislabeledMpegTransportStreamToFfprobe(string extension)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-mislabeled-ts-{Guid.NewGuid():N}{extension}");
+        try
+        {
+            // Three 188-byte TS packets. Read as ISO boxes, the first packet's bytes declare a box far
+            // larger than the file (the same shape as real HLS rips saved as .mp4).
+            var bytes = new byte[188 * 3];
+            for (var packet = 0; packet < 3; packet++)
+            {
+                var offset = packet * 188;
+                bytes.AsSpan(offset, 188).Fill(0xff);
+                bytes[offset] = 0x47;
+                bytes[offset + 1] = 0x40;
+                bytes[offset + 2] = 0x00;
+                bytes[offset + 3] = 0x10;
+            }
+            bytes[4] = 0x00;
+            bytes[5] = 0x00;
+            bytes[6] = 0xb0;
+            bytes[7] = 0x0d;
+            await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Null(failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
     [InlineData(1)]
     [InlineData(7)]
     public async Task ValidateDeclaredContainerLengthAsync_AcceptsShortZeroPaddingAfterCompleteMp4Box(int paddingLength)

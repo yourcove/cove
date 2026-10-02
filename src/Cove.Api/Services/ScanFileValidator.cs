@@ -489,7 +489,9 @@ public sealed class ScanFileValidator(
     /// <summary>
     /// Cheap container-specific truncation checks. They complement ffprobe's metadata read: formats
     /// such as MP4 and RIFF frequently declare byte ranges that must exist even when their headers are
-    /// readable at the start of an in-progress copy.
+    /// readable at the start of an in-progress copy. Each check runs only when the file carries that
+    /// container's signature, because extensions lie (an MPEG-TS saved as .mp4 is common); a file in
+    /// some other container is left to ffprobe, which identifies formats by content.
     /// </summary>
     public static async Task<string?> ValidateDeclaredContainerLengthAsync(string path, CancellationToken ct)
     {
@@ -528,11 +530,23 @@ public sealed class ScanFileValidator(
         return null;
     }
 
+    // Box types an ISO media file (MP4/QuickTime) can begin with. Anything else at offset 4 means the
+    // bytes are not a box stream, so their "sizes" are meaningless.
+    private static readonly string[] IsoBmffLeadingBoxTypes =
+        ["ftyp", "styp", "moov", "mdat", "moof", "free", "skip", "wide", "pnot", "pdin", "uuid", "sidx"];
+
     private static async Task<string?> ValidateIsoBmffLengthAsync(string path, CancellationToken ct)
     {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true);
         var length = stream.Length;
         var header = new byte[16];
+        if (length >= 8)
+        {
+            await stream.ReadExactlyAsync(header.AsMemory(0, 8), ct);
+            var leadingType = System.Text.Encoding.ASCII.GetString(header, 4, 4);
+            if (!IsoBmffLeadingBoxTypes.Contains(leadingType, StringComparer.Ordinal))
+                return null;
+        }
         long offset = 0;
         var boxes = 0;
         var hasMovie = false;
@@ -612,7 +626,7 @@ public sealed class ScanFileValidator(
         await stream.ReadExactlyAsync(header, ct);
         var signature = System.Text.Encoding.ASCII.GetString(header, 0, 4);
         if (signature is not ("RIFF" or "RF64"))
-            return "the file does not contain a RIFF header";
+            return null;
 
         var declaredPayloadSize = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4, 4));
         if (signature == "RIFF" && (long)declaredPayloadSize + 8 > stream.Length)

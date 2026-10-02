@@ -586,44 +586,87 @@ export function buildDefaultVideoApplyPlan(
   };
 }
 
+/**
+ * Scraper preference value that picks the metadata a downloader returned with its file over every scraper for
+ * the site. Mirrors ScraperService.DownloaderMetadataPreferenceId on the server.
+ */
+export const DOWNLOADER_METADATA_PREFERENCE_ID = "cove:downloader-metadata";
+
+// Whether a URL pattern names no site, like "https://*/*" or "*".
+export function isCatchAllScraperPattern(pattern: string) {
+  const rest = pattern
+    .trim()
+    .toLowerCase()
+    .replace(/^(https?:)?\/\//, "");
+  return /^[*/.:]*$/.test(rest);
+}
+
+function scraperPatternMatches(normalizedUrl: string, pattern: string) {
+  const normalizedPattern = pattern.trim().toLowerCase();
+  if (!normalizedPattern) {
+    return false;
+  }
+
+  let index = 0;
+  for (const fragment of normalizedPattern.split("*").filter(Boolean)) {
+    const found = normalizedUrl.indexOf(fragment, index);
+    if (found < 0) {
+      return false;
+    }
+    index = found + fragment.length;
+  }
+  return true;
+}
+
+function hostMatchesSite(host: string, site: string) {
+  return site !== "" && site !== "*" && (host === site || host.endsWith(`.${site}`));
+}
+
+/**
+ * Same ranking as the server's auto scrape: scrapers built for the site, then scrapers that only claim the
+ * site through preference sites, then catch-all scrapers; the longest matching pattern breaks ties.
+ */
 function getScraperSpecificity(scraper: ScraperSummary, videoUrl?: string) {
   const normalizedUrl = videoUrl?.trim().toLowerCase();
   if (!normalizedUrl) {
     return 0;
   }
 
-  return scraper.urls.reduce((bestScore, pattern) => {
-    const normalizedPattern = pattern.trim().toLowerCase();
-    if (!normalizedPattern) {
-      return bestScore;
-    }
-
-    const fragments = normalizedPattern.split("*").filter(Boolean);
-    if (fragments.length === 0 || !fragments.every((fragment) => normalizedUrl.includes(fragment))) {
-      return bestScore;
-    }
-
-    const score = fragments.length * 1000 + fragments.reduce((sum, fragment) => sum + fragment.length, 0);
-    return Math.max(bestScore, score);
-  }, 0);
+  const host = getScraperSiteKey(normalizedUrl);
+  const matchingPatterns = [...scraper.urls, ...(scraper.preferenceSites ?? [])].filter((pattern) =>
+    scraperPatternMatches(normalizedUrl, pattern),
+  );
+  const strength = Math.max(0, ...matchingPatterns.map((pattern) => pattern.trim().length));
+  const tier = scraper.urls.some(
+    (pattern) => !isCatchAllScraperPattern(pattern) && scraperPatternMatches(normalizedUrl, pattern),
+  )
+    ? 2
+    : (scraper.preferenceSites ?? []).some((site) => hostMatchesSite(host, getScraperSiteKey(site)))
+      ? 1
+      : 0;
+  return tier * 100_000 + strength;
 }
 
+/** The longest configured site matching the URL's host wins; an entity-specific preference beats a blanket one. */
 function getConfiguredScraperId(
   scrapers: ScraperSummary[],
   videoUrl: string | undefined,
   scraperPreferences: ScraperPreference[],
 ) {
-  const site = getScraperSiteKey(videoUrl);
-  if (!site) {
+  const host = getScraperSiteKey(videoUrl);
+  if (!host) {
     return "";
   }
 
   const entityType = scrapers[0]?.entityType?.toLowerCase() ?? "";
-  const configuredScraperId =
-    scraperPreferences.find(
-      (preference) => preference.site === site && (preference.entityType?.toLowerCase() ?? "") === entityType,
-    )?.scraperId ??
-    scraperPreferences.find((preference) => preference.site === site && !preference.entityType)?.scraperId;
+  const configuredScraperId = scraperPreferences
+    .filter((preference) => {
+      const preferenceEntity = preference.entityType?.toLowerCase() ?? "";
+      return (preferenceEntity === "" || preferenceEntity === entityType) && hostMatchesSite(host, preference.site);
+    })
+    .sort(
+      (left, right) => right.site.length - left.site.length || Number(!!right.entityType) - Number(!!left.entityType),
+    )[0]?.scraperId;
   return configuredScraperId && scrapers.some((scraper) => scraper.id === configuredScraperId)
     ? configuredScraperId
     : "";

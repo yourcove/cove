@@ -278,10 +278,12 @@ internal sealed class ScanJobRunner(
 
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look
                 // folders up in memory instead of each re-querying (and re-locking) the Folders table,
-                // and the batched save path below stays free of incidental folder writes.
+                // and the batched save path below stays free of incidental folder writes. Only the
+                // directories this scan touches are resolved; the library-wide canonical-path index is
+                // built only if one of them has no folder under its exact stored path.
                 using var directoryPaths = new ScanDiskCollection<string>(db, path => path, FilesystemPaths.PathComparer, ScanSortKey.DirectoryDepth, ScanDirectoryDepthComparer.Instance, ct);
                 using var directoryIds = new ScanDiskCollection<ResolvedScanFolder>(db, folder => folder.Path, FilesystemPaths.PathComparer, ScanSortKey.Filesystem, FilesystemPaths.PathComparer, ct);
-                await ScanFolderResolver.IndexExistingFoldersAsync(db, directoryIds, ct);
+                var canonicalFolders = new ScanCanonicalFolderIndex(logger);
                 foreach (var work in filesToProcess)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -289,7 +291,7 @@ internal sealed class ScanJobRunner(
                 }
                 foreach (var directoryPage in directoryPaths.Chunk(256))
                 {
-                    var resolved = await folderResolver.ResolvePathsAsync(db, directoryPage, directoryIds, ct);
+                    var resolved = await folderResolver.ResolvePathsAsync(db, directoryPage, canonicalFolders, ct);
                     foreach (var pair in resolved) directoryIds.Add(new ResolvedScanFolder(pair.Key, pair.Value));
                     db.ChangeTracker.Clear();
                 }

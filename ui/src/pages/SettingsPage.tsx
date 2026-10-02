@@ -88,7 +88,7 @@ import type {
 } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ExtensionLoadFailureDetails } from "../extensions/ExtensionLoadStatus";
-import { getScraperSiteKey } from "../components/videoScrapeUtils";
+import { DOWNLOADER_METADATA_PREFERENCE_ID, getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 import { DisplayProfilesSettingsPanel } from "./settings/DisplayProfilesSettingsPanel";
@@ -1412,7 +1412,9 @@ export function SettingsPage() {
   const { data: availableDownloaders = [] } = useQuery({
     queryKey: ["system-downloaders"],
     queryFn: system.listDownloaders,
-    enabled: canWriteSystemSettings && activeTab === "data-sources-downloader-paths",
+    enabled:
+      canWriteSystemSettings &&
+      (activeTab === "data-sources-downloader-paths" || activeTab === "data-sources-scrapers"),
   });
 
   const { data: availablePluginTasks = [] } = useQuery({
@@ -1484,6 +1486,17 @@ export function SettingsPage() {
       .filter((group) => group.scrapers.length > 1)
       .sort((left, right) => left.entityType.localeCompare(right.entityType) || left.site.localeCompare(right.site));
   }, [availableScrapers]);
+
+  // Entity types some downloader returns its own metadata for, so "use the downloader's metadata" is a real choice.
+  const inlineMetadataEntityTypes = useMemo(
+    () =>
+      new Set(
+        availableDownloaders
+          .filter((downloader) => downloader.capabilities.includes("InlineMetadata"))
+          .map((downloader) => downloader.supportedEntity.toLowerCase()),
+      ),
+    [availableDownloaders],
+  );
 
   const updateScraperPreference = (entityType: string, site: string, scraperId: string) => {
     updateDraft((current) => ({
@@ -3962,7 +3975,7 @@ export function SettingsPage() {
 
                 <SectionCard
                   title="Preferred Scrapers"
-                  description="Pick the default scraper Cove should surface first for each entity type and site."
+                  description="Pick the scraper Cove tries first for each entity type and site, when scraping by URL and after downloads. Without a preference, a scraper built for the site is used ahead of catch-all ones such as yt-dlp, including the metadata a catch-all downloader returns with its file."
                 >
                   {scraperPreferenceGroups.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
@@ -3998,6 +4011,11 @@ export function SettingsPage() {
                                 className="mt-2 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                               >
                                 <option value="">No preference</option>
+                                {inlineMetadataEntityTypes.has(group.entityType) && (
+                                  <option value={DOWNLOADER_METADATA_PREFERENCE_ID}>
+                                    Downloader's own metadata (downloads only)
+                                  </option>
+                                )}
                                 {group.scrapers.map((scraper) => (
                                   <option key={scraper.id} value={scraper.id}>
                                     {scraper.name}

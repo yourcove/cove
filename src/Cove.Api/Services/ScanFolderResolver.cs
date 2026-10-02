@@ -19,51 +19,17 @@ internal sealed class ScanFolderResolver(ILogger logger)
     private static SemaphoreSlim GetFolderCreationLock(string dirPath)
         => FolderCreationLocks[(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(dirPath) % (uint)FolderCreationLocks.Length];
 
-    public async Task<ConcurrentDictionary<string, int>> ResolveAsync(
+    public Task<ConcurrentDictionary<string, int>> ResolveAsync(
         CoveContext db,
         IReadOnlyCollection<DiscoveredFile> files,
         CancellationToken ct)
-    {
-        using var canonicalFolderIds = new ScanDiskCollection<ResolvedScanFolder>(
-            db,
-            folder => folder.Path,
-            FilesystemPaths.PathComparer,
-            ScanSortKey.Filesystem,
-            FilesystemPaths.PathComparer,
-            ct);
-        await IndexExistingFoldersAsync(db, canonicalFolderIds, ct);
-        return await ResolvePathsAsync(db, files.Select(file => ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path))
-            .Distinct(FilesystemPaths.PathComparer).ToArray(), canonicalFolderIds, ct);
-    }
-
-    internal static async Task IndexExistingFoldersAsync(
-        CoveContext db,
-        ScanDiskCollection<ResolvedScanFolder> canonicalFolderIds,
-        CancellationToken ct)
-    {
-        int? after = null;
-        while (true)
-        {
-            var query = db.Folders.AsNoTracking();
-            if (after.HasValue) query = query.Where(folder => folder.Id > after.Value);
-            var page = await query.OrderBy(folder => folder.Id).Take(256)
-                .Select(folder => new { folder.Id, folder.Path }).ToListAsync(ct);
-            if (page.Count == 0) return;
-            after = page[^1].Id;
-            foreach (var folder in page)
-            {
-                var canonical = ScanPath.TryCanonicalizeStoredFolderPath(folder.Path);
-                if (canonical != null)
-                    canonicalFolderIds.TryAdd(new ResolvedScanFolder(canonical, folder.Id));
-            }
-            db.ChangeTracker.Clear();
-        }
-    }
+        => ResolvePathsAsync(db, files.Select(file => ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path))
+            .Distinct(FilesystemPaths.PathComparer).ToArray(), new ScanCanonicalFolderIndex(logger), ct);
 
     internal async Task<ConcurrentDictionary<string, int>> ResolvePathsAsync(
         CoveContext db,
         IReadOnlyCollection<string> directories,
-        ScanDiskCollection<ResolvedScanFolder> canonicalFolderIds,
+        ScanCanonicalFolderIndex canonicalFolders,
         CancellationToken ct)
     {
         var folderIdsByPath = new ConcurrentDictionary<string, int>(FilesystemPaths.PathComparer);
@@ -80,12 +46,7 @@ internal sealed class ScanFolderResolver(ILogger logger)
                 .ToListAsync(ct);
 
             foreach (var row in rows)
-            {
                 folderIdsByPath[row.Path] = row.Id;
-                var canonical = ScanPath.TryCanonicalizeStoredFolderPath(row.Path);
-                if (canonical != null)
-                    canonicalFolderIds.TryAdd(new ResolvedScanFolder(canonical, row.Id));
-            }
         }
 
         // Create any folders that don't exist yet. Shallowest paths first so a child can pick up its
@@ -105,21 +66,14 @@ internal sealed class ScanFolderResolver(ILogger logger)
         // equality means the same directory, so this can never merge genuinely distinct folders.
         if (missing.Count > 0)
         {
-            var reusedByCanonicalPath = 0;
-            foreach (var dir in missing)
-            {
-                if (!folderIdsByPath.ContainsKey(dir)
-                    && canonicalFolderIds.TryGet(new ResolvedScanFolder(dir, 0), out var existing))
-                {
-                    folderIdsByPath[dir] = existing!.Id;
-                    reusedByCanonicalPath++;
-                }
-            }
+            var reusedByCanonicalPath = await canonicalFolders.FindAsync(db, missing, ct);
+            foreach (var (dir, id) in reusedByCanonicalPath)
+                folderIdsByPath[dir] = id;
 
-            if (reusedByCanonicalPath > 0)
+            if (reusedByCanonicalPath.Count > 0)
                 logger.LogInformation(
                     "Scan reused {Count} existing folder(s) matched by canonicalized path (differently-normalized stored paths, e.g. Stash-migrated) to avoid duplicate folders.",
-                    reusedByCanonicalPath);
+                    reusedByCanonicalPath.Count);
 
             missing = missing.Where(dir => !folderIdsByPath.ContainsKey(dir)).ToList();
         }
@@ -133,7 +87,6 @@ internal sealed class ScanFolderResolver(ILogger logger)
             if (existing != null)
             {
                 folderIdsByPath[dir] = existing.Id;
-                canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, existing.Id));
                 continue;
             }
 
@@ -148,13 +101,15 @@ internal sealed class ScanFolderResolver(ILogger logger)
             {
                 if (folderIdsByPath.TryGetValue(parentDir, out var parentId))
                     folder.ParentFolderId = parentId;
-                else if (canonicalFolderIds.TryGet(new ResolvedScanFolder(parentDir, 0), out var canonicalParent))
-                    folder.ParentFolderId = canonicalParent!.Id;
                 else
                 {
+                    // Exact stored path first, as for the directories themselves; the canonical index is
+                    // only consulted for a parent stored under a differently-normalized path.
                     var parent = await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Path == parentDir, ct);
                     if (parent != null)
                         folder.ParentFolderId = parent.Id;
+                    else if ((await canonicalFolders.FindAsync(db, [parentDir], ct)).TryGetValue(parentDir, out var canonicalParentId))
+                        folder.ParentFolderId = canonicalParentId;
                 }
             }
 
@@ -171,12 +126,10 @@ internal sealed class ScanFolderResolver(ILogger logger)
                 if (raced == null)
                     throw;
                 folderIdsByPath[dir] = raced.Id;
-                canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, raced.Id));
                 continue;
             }
 
             folderIdsByPath[dir] = folder.Id;
-            canonicalFolderIds.TryAdd(new ResolvedScanFolder(dir, folder.Id));
             db.Entry(folder).State = EntityState.Detached;
         }
 

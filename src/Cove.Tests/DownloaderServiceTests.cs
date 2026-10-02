@@ -484,6 +484,47 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    public async Task DownloadAndIngestAsync_PreferredScraper_ReplacesInlineVideoMetadata()
+    {
+        var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(libraryRoot);
+
+        var config = new CoveConfiguration { CovePaths = [new CovePath { Path = libraryRoot }] };
+        config.Scraping.ScraperPreferences.Add(new ScraperPreference { EntityType = "video", Site = "example.com", ScraperId = FakeExampleVideoScraperProvider.ScraperId });
+        var metadataApplyService = new FakeVideoMetadataApplyService();
+        var service = CreateService(
+            out var services,
+            out _,
+            config,
+            new FakeScanService(),
+            metadataApplyService,
+            scraperProvider: new FakeExampleVideoScraperProvider());
+
+        try
+        {
+            await service.DownloadAndIngestAsync(
+                new DownloaderRequest(
+                    "tests.fake-downloader/example",
+                    "https://example.com/watch/999",
+                    DownloaderEntity.Video,
+                    new DownloaderPermissions(["example.com"]),
+                    "hd"),
+                entityId: 42,
+                progress: null,
+                CancellationToken.None,
+                autoApplyMetadata: true);
+
+            Assert.Equal("Scraped Video", metadataApplyService.Metadata?.Title);
+        }
+        finally
+        {
+            await services.DisposeAsync();
+            if (Directory.Exists(libraryRoot))
+                Directory.Delete(libraryRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ConvertScrapeResultToVideoMetadata_ReturnsMetadataWhenOnlyUrlsArePresent()
     {
         var metadata = DownloaderService.ConvertScrapeResultToVideoMetadata(
@@ -1453,7 +1494,8 @@ public class DownloaderServiceTests
         Action<CoveContext>? seedDatabase = null,
         bool includeForumProvider = false,
         ILogger<DownloaderService>? logger = null,
-        PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
+        PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null,
+        IScraperProvider? scraperProvider = null)
     {
         var serviceCollection = new ServiceCollection();
         var databaseName = $"cove-downloader-tests-{Guid.NewGuid():N}";
@@ -1469,6 +1511,8 @@ public class DownloaderServiceTests
         extensionManager.Register(downloaderProvider);
         if (includeForumProvider)
             extensionManager.Register(new FakeForumProvider());
+        if (scraperProvider != null)
+            extensionManager.Register(scraperProvider);
 
         serviceCollection.AddHttpClient();
         serviceCollection.AddDbContext<DownloaderTestContext>(options => options.UseInMemoryDatabase(databaseName));
@@ -1660,6 +1704,29 @@ public class DownloaderServiceTests
                     Urls = [request.Url],
                 } : null);
         }
+    }
+
+    private sealed class FakeExampleVideoScraperProvider : IScraperProvider
+    {
+        public const string ScraperId = "tests.example-scraper/video";
+
+        public string Id => "tests.example-scraper";
+        public string Name => "Example Scraper";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+        }
+
+        public IReadOnlyList<ScraperDescriptor> GetScrapers()
+            => [new(ScraperId, "Example Video Scraper", ScraperEntity.Video, ScraperCapabilities.ByUrl, ["example.com/watch/*"], ScraperRiskLevel.NetworkOnly)];
+
+        public Task<ScrapedVideoDto?> ScrapeVideoAsync(ScraperRequest<VideoScrapeInput> request, CancellationToken ct)
+            => Task.FromResult<ScrapedVideoDto?>(new ScrapedVideoDto { Title = "Scraped Video" });
     }
 
     private sealed class FakeForumProvider : IDownloaderProvider, IScraperProvider
