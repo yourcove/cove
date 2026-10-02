@@ -491,7 +491,7 @@ public class VideoRepository : IVideoRepository
     internal async Task<IQueryable<Video>> ApplyVideoRelevanceOrderingAsync(IQueryable<Video> query, string? search, CancellationToken ct = default)
         => (await GetSearchPlanAsync(search, ct))?.Order(query) ?? query;
 
-    private IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)
+    internal IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)
     {
         if (sort == "random")
             return SeededRandomOrdering.OrderBy(query, seed, video => video.Id, desc);
@@ -504,14 +504,11 @@ public class VideoRepository : IVideoRepository
         "play_count", "like_counter", "last_played_at", "play_duration", "resume_time",
     };
 
-    private static CompoundSortRegistry<Video> CreateMultiSortRegistry()
+    internal static CompoundSortRegistry<Video> CreateMultiSortRegistry()
         => new(new Dictionary<string, Action<CompoundSortQuery<Video>, bool>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["title"] = (compound, desc) =>
-            {
-                compound.Append(video => video.Title == null ? 1 : 0, false);
-                compound.Append(video => video.Title, desc);
-            },
+            // Without a missing-title flag, like the single title sort, so both put missing titles in the same place.
+            ["title"] = (compound, desc) => compound.Append(video => video.Title, desc),
             ["rating"] = (compound, desc) => compound.AppendRating(desc),
             ["play_count"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc),
             ["like_counter"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc),
@@ -560,7 +557,7 @@ public class VideoRepository : IVideoRepository
         compound.Append(video => video.Code, desc);
     }
 
-    private IQueryable<Video> ApplyMultiSorting(
+    internal IQueryable<Video> ApplyMultiSorting(
         IQueryable<Video> query,
         IReadOnlyList<SortClause> clauses,
         CompoundSortRegistry<Video> registry)
@@ -602,9 +599,13 @@ public class VideoRepository : IVideoRepository
 
         return sort switch
         {
+            // Title orders by the natural-collated column alone so IX_videos_Title_natural can serve the first
+            // page; a missing-title flag in front of it would sort every match. Compound sorts order it the same way.
             "title" => desc ? query.OrderByDescending(s => NaturalSort.Key(s.Title)).ThenByDescending(s => s.Id) : query.OrderBy(s => NaturalSort.Key(s.Title)).ThenBy(s => s.Id),
-            // Null dates sort to bottom: treat null as MinValue so they come last when desc
-            "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Date ?? DateOnly.MinValue).ThenBy(s => s.Id),
+            // Missing dates sort last in either direction, as in compound sorts.
+            "date" => desc
+                ? query.OrderBy(s => s.Date == null ? 1 : 0).ThenByDescending(s => s.Date).ThenByDescending(s => s.Id)
+                : query.OrderBy(s => s.Date == null ? 1 : 0).ThenBy(s => s.Date).ThenBy(s => s.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Video, desc),
             "play_count" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc),

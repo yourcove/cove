@@ -946,7 +946,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         return MapToDto(video, customFieldValues, engagement, preferUserSnapshot, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private sealed class VideoListEntryKey : CustomFieldSortProjection
+    internal sealed class VideoListEntryKey : CustomFieldSortProjection
     {
         public string Kind { get; set; } = string.Empty;
         public int Id { get; set; }
@@ -959,7 +959,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         public int Rating { get; set; }
     }
 
-    private static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
+    internal static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
     {
         var randomSeed = seed ?? 0;
         var ordered = sort switch
@@ -967,9 +967,10 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             "title" or "name" => desc
                 ? query.OrderByDescending(item => NaturalSort.Key(item.Title))
                 : query.OrderBy(item => NaturalSort.Key(item.Title)),
+            // Missing dates sort last in either direction, as in the video repository.
             "date" => desc
-                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue)
-                : query.OrderBy(item => item.Date ?? DateOnly.MinValue),
+                ? query.OrderBy(item => item.Date == null ? 1 : 0).ThenByDescending(item => item.Date)
+                : query.OrderBy(item => item.Date == null ? 1 : 0).ThenBy(item => item.Date),
             "rating" => desc
                 ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
                 : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),

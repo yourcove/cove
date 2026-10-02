@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -208,6 +209,29 @@ public class CompoundSortQueryShapeTests
         Assert.Contains("'/profile/name'", sortSql, StringComparison.Ordinal);
     }
 
+    // Single and compound video sorts order dates and titles the same way. Missing dates go last in either
+    // direction; titles keep the natural-collated order IX_videos_Title_natural serves, without a null flag.
+    [Theory]
+    [InlineData("date", false, "CASE WHEN v.\"Date\" IS NULL THEN 1 ELSE 0 END, v.\"Date\"")]
+    [InlineData("date", true, "CASE WHEN v.\"Date\" IS NULL THEN 1 ELSE 0 END, v.\"Date\" DESC")]
+    [InlineData("title", false, "v.\"Title\" COLLATE cove_natural")]
+    [InlineData("title", true, "v.\"Title\" COLLATE cove_natural DESC")]
+    public void VideoDateAndTitleSorts_OrderSingleAndCompoundSortsAlike(string key, bool descending, string expectedPrefix)
+    {
+        using var context = CreatePostgresContext();
+        var repository = new VideoRepository(context);
+        var direction = descending ? Cove.Core.Enums.SortDirection.Desc : Cove.Core.Enums.SortDirection.Asc;
+        var videos = context.Videos.IgnoreQueryFilters();
+
+        var single = Collapse(repository.ApplySorting(videos, key, descending).Select(video => video.Id).ToQueryString());
+        var compound = Collapse(repository.ApplyMultiSorting(videos,
+            [new SortClause(key, direction), new SortClause("updated_at", direction)],
+            VideoRepository.CreateMultiSortRegistry()).Select(video => video.Id).ToQueryString());
+
+        Assert.EndsWith("ORDER BY " + expectedPrefix + ", v.\"Id\"" + (descending ? " DESC" : ""), single, StringComparison.Ordinal);
+        Assert.Contains("ORDER BY " + expectedPrefix + ", ", compound, StringComparison.Ordinal);
+    }
+
     private static CoveContext CreatePostgresContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -218,6 +242,8 @@ public class CompoundSortQueryShapeTests
 
         return new CoveContext(options);
     }
+
+    private static string Collapse(string sql) => Regex.Replace(sql, @"\s+", " ");
 
     private static int CountOccurrences(string value, string fragment)
     {
