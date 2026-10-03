@@ -210,7 +210,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         return obj.ToJsonString();
     }
 
-    private static SavedFilterDto MapToDto(SavedFilter f) => new(
+    internal static SavedFilterDto MapToDto(SavedFilter f) => new(
         f.Id, f.Mode, f.Name, f.FindFilter, f.ObjectFilter, f.UIOptions);
 }
 

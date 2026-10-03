@@ -3764,6 +3764,17 @@ export interface Dashboard extends DashboardSummary {
   widgets: DashboardWidget[];
 }
 
+/** One response with everything the home page needs to show a dashboard. */
+export interface DashboardView {
+  dashboards: DashboardSummary[];
+  /** The requested dashboard, else the default one; null until the first one is bootstrapped. */
+  dashboard: Dashboard | null;
+  /** False when a requested dashboard is not the caller's, so the default is shown instead. */
+  requestedFound: boolean;
+  /** The saved filters behind the dashboard's saved-filter rows that the caller can read. */
+  savedFilters: SavedFilter[];
+}
+
 export interface ExtensionUiBundle {
   dependencies?: string[];
   extensionId: string;

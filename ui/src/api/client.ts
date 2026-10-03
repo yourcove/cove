@@ -219,6 +219,7 @@ import type {
   PlaybackIntervalsRequest,
   Dashboard,
   DashboardSummary,
+  DashboardView,
   DashboardWidget,
 } from "./types";
 
@@ -2313,6 +2314,7 @@ export const dashboards = {
     request<Dashboard>("/dashboards/bootstrap", { method: "POST", body: JSON.stringify({ widgets }) }),
   list: () => request<DashboardSummary[]>("/dashboards"),
   get: (id: number) => request<Dashboard>(`/dashboards/${id}`),
+  view: (id?: number) => request<DashboardView>(id == null ? "/dashboards/view" : `/dashboards/view?id=${id}`),
   create: (name: string) => request<Dashboard>("/dashboards", { method: "POST", body: JSON.stringify({ name }) }),
   update: (id: number, data: { name: string; expectedVersion: number; widgets: DashboardWidget[] }) =>
     request<Dashboard>(`/dashboards/${id}`, { method: "PUT", body: JSON.stringify(data) }),

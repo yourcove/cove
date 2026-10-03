@@ -101,6 +101,24 @@ vi.mock("../api/client", () => ({
       updatedAt: "",
       widgets: mocks.dashboardWidgets,
     })),
+    view: vi.fn(async () =>
+      mocks.dashboardCreated
+        ? {
+            dashboards: [{ id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "" }],
+            dashboard: {
+              id: 1,
+              name: "Home",
+              isDefault: true,
+              version: 1,
+              createdAt: "",
+              updatedAt: "",
+              widgets: mocks.dashboardWidgets,
+            },
+            requestedFound: true,
+            savedFilters: [],
+          }
+        : { dashboards: [], dashboard: null, requestedFound: false, savedFilters: [] },
+    ),
   },
 }));
 

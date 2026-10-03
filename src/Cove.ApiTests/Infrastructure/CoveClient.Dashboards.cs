@@ -35,6 +35,16 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<DashboardViewDto> GetDashboardViewAsync(
+        int? id,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<DashboardViewDto>(
+            HttpMethod.Get,
+            WithCacheNonce(id is int requested ? $"/api/dashboards/view?id={requested}" : "/api/dashboards/view"),
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<DashboardDto> CreateDashboardAsync(
         DashboardCreateRequest request,
         CancellationToken cancellationToken = default)

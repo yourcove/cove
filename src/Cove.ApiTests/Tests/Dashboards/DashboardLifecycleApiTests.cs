@@ -84,6 +84,44 @@ public sealed class DashboardLifecycleApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("GET", "/api/dashboards/view")]
+    public async Task GivenDashboardWithSavedFilterRows_WhenViewIsRead_ThenItCarriesTheListTheDashboardAndOnlyTheCallersFilters()
+    {
+        var eva = AsUser(ApiTestUsers.Eva);
+        var anthony = AsUser(ApiTestUsers.Anthony);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var evaFilter = await eva.CreateSavedFilterAsync(
+            new SavedFilterCreateDto("videos", "Eva's videos", "{\"sort\":\"date\"}", "{}", null), cancellationToken);
+        var anthonyFilter = await anthony.CreateSavedFilterAsync(
+            new SavedFilterCreateDto("videos", "Anthony's videos", "{}", "{}", null), cancellationToken);
+        var home = await eva.BootstrapDashboardAsync(
+            new DashboardBootstrapRequest(
+            [
+                Widget("eva", "cove.core", "collection", "Eva's videos", new { source = "saved", savedFilterId = evaFilter.Id }),
+                Widget("anthony", "cove.core", "collection", "Anthony's videos", new { source = "saved", savedFilterId = anthonyFilter.Id }),
+            ]),
+            cancellationToken);
+        var second = await eva.CreateDashboardAsync(new DashboardCreateRequest("Second"), cancellationToken);
+        var anthonyHome = await anthony.BootstrapDashboardAsync(new DashboardBootstrapRequest([]), cancellationToken);
+
+        var view = await eva.GetDashboardViewAsync(id: null, cancellationToken);
+        var requested = await eva.GetDashboardViewAsync(second.Id, cancellationToken);
+        var foreign = await anthony.GetDashboardViewAsync(home.Id, cancellationToken);
+
+        view.Dashboards.Select(item => item.Id).Should().Equal(home.Id, second.Id);
+        view.Dashboard!.Id.Should().Be(home.Id);
+        view.Dashboard.Widgets.Should().HaveCount(2);
+        view.RequestedFound.Should().BeTrue();
+        view.SavedFilters.Should().ContainSingle().Which.Should().Be(await eva.GetSavedFilterAsync(evaFilter.Id, cancellationToken));
+        requested.Dashboard!.Id.Should().Be(second.Id);
+        requested.RequestedFound.Should().BeTrue();
+        foreign.Dashboard!.Id.Should().Be(anthonyHome.Id);
+        foreign.RequestedFound.Should().BeFalse();
+        foreign.SavedFilters.Should().BeEmpty();
+        await AsAnonymous().AssertResponseAsync("/api/dashboards/view", HttpStatusCode.Unauthorized, cancellationToken);
+    }
+
+    [Fact]
     public async Task GivenSeparateUsersAndStaleVersion_WhenMutationsRun_ThenIsolationValidationAndConflictAreEnforced()
     {
         var eva = AsUser(ApiTestUsers.Eva);

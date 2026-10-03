@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Loader2 } from "lucide-react";
 import { Navbar } from "./components/Navbar";
 import {
@@ -20,7 +20,9 @@ import { LoginPage } from "./pages/LoginPage";
 import { AuthBootstrapPage } from "./pages/AuthBootstrapPage";
 import { RedeemInvitePage } from "./pages/RedeemInvitePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { auth, database } from "./api/client";
+import type { AuthUser } from "./auth/authStore";
+import { auth, database, jobs } from "./api/client";
+import { dashboardPrincipalKey, prefetchDashboardPage } from "./pages/dashboardPageQuery";
 import { useKeySequence } from "./hooks/useKeySequence";
 import { KeyboardShortcutProvider, useKeyboardShortcuts } from "./keyboard/KeyboardShortcutProvider";
 import { KeyboardShortcutsDialog } from "./components/KeyboardShortcutsDialog";
@@ -46,6 +48,7 @@ import { StartupGate } from "./components/StartupGate";
 import { getApiValidationFailureDetail } from "./utils/requestFailure";
 import { ExtensionKeyboardActions } from "./extensions/ExtensionKeyboardActions";
 import { ThemeGate } from "./components/ThemeGate";
+import { DashboardSkeleton } from "./components/DashboardSkeleton";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -54,6 +57,55 @@ function normalizeRoute(route: Route): Route {
 
   return route;
 }
+
+/** The route the app shows for the current location, resolved the way the app's own route state is. */
+function resolveAppRoute(): Route {
+  if (window.location.pathname === "/logs") return { page: "settings" };
+  return normalizeRoute(parseLegacyHashRoute(window.location.hash) ?? resolveCurrentRoute());
+}
+
+/** Which dashboard HomePage shows for a route; null when the route does not render HomePage. */
+function homePageDashboard(route: Route): { dashboardId?: number } | null {
+  if (route.page === "home" || route.page === "manual") return {};
+  if (route.page === "dashboard" && route.id !== undefined) return { dashboardId: route.id };
+  return null;
+}
+
+// Every page AppRoutes renders itself, so a route can be told apart from an extension's before the
+// manifest arrives. Keep in step with the "Built-in pages" block at the end of AppRoutes.
+const BUILT_IN_PAGES = new Set<string>([
+  "home",
+  "dashboard",
+  "manual",
+  "videos",
+  "video",
+  "audios",
+  "audio",
+  "texts",
+  "text",
+  "video-span",
+  "segments",
+  "segment",
+  "faces",
+  "face",
+  "performers",
+  "performer",
+  "studios",
+  "studio",
+  "tags",
+  "tag",
+  "galleries",
+  "gallery",
+  "groups",
+  "group",
+  "compilation",
+  "images",
+  "image",
+  "settings",
+  "stats",
+  "duplicates",
+  "videoparser",
+]);
 
 const BUILTIN_ROUTE_PERMISSIONS: Partial<Record<Route["page"], string>> = {
   videos: "videos.read",
@@ -133,11 +185,7 @@ const HomePage = lazy(() => import("./pages/HomePage").then((m) => ({ default: m
 
 export default function App() {
   // Resolve the canonical route up front; the mount effect below only rewrites the URL to match it.
-  const [route, setRoute] = useState<Route>(() => {
-    if (window.location.pathname === "/logs") return { page: "settings" };
-    const legacyRoute = parseLegacyHashRoute(window.location.hash);
-    return normalizeRoute(legacyRoute ?? resolveCurrentRoute());
-  });
+  const [route, setRoute] = useState<Route>(resolveAppRoute);
 
   useEffect(() => {
     if (window.location.pathname === "/logs") {
@@ -294,6 +342,39 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Starts what the first screen of a session needs while the extension runtime and the page's code are
+ * still loading: the navbar's job queries and, when the destination is a dashboard, its page and data.
+ * Each uses the exact query key its consumer reads, so the consumer joins the request instead of
+ * repeating it.
+ */
+function prefetchFirstScreen(queryClient: QueryClient, principalKey: string, route: Route) {
+  void queryClient.prefetchQuery({ queryKey: ["jobs"], queryFn: jobs.list });
+  void queryClient.prefetchQuery({ queryKey: ["jobs-history"], queryFn: jobs.history });
+  const dashboard = homePageDashboard(route);
+  if (dashboard) prefetchDashboardPage(queryClient, principalKey, dashboard.dashboardId);
+}
+
+/**
+ * Prefetches the first screen once per sign-in -- wherever the form was shown, or on a load that finds
+ * a session. Signing out re-arms it, so the next principal gets its own.
+ */
+export function useFirstScreenPrefetch(user: Pick<AuthUser, "id" | "kind"> | null, loading: boolean) {
+  const queryClient = useQueryClient();
+  const prefetchedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      prefetchedForRef.current = null;
+      return;
+    }
+    const principalKey = dashboardPrincipalKey(user);
+    if (prefetchedForRef.current === principalKey) return;
+    prefetchedForRef.current = principalKey;
+    prefetchFirstScreen(queryClient, principalKey, resolveAppRoute());
+  }, [loading, queryClient, user]);
+}
+
 function getPostLoginRedirectUrl(): string {
   const redirect = new URLSearchParams(window.location.search).get("redirect");
   if (!redirect || !redirect.startsWith("/") || redirect.startsWith("//")) {
@@ -327,6 +408,9 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
 
     navigateToUrl(getPostLoginRedirectUrl(), { replace: true });
   }, [authEnabled, loading, user]);
+
+  // After the redirect above, so the destination it reads is the one shown.
+  useFirstScreenPrefetch(user, loading);
 
   if (window.location.pathname === "/auth/bootstrap") {
     return <AuthBootstrapPage />;
@@ -534,9 +618,14 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
         <ErrorBoundary>
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
-              </div>
+              // The dashboard's own loading skeleton, so its page chunk arriving changes nothing on screen.
+              route.page === "home" || route.page === "dashboard" ? (
+                <DashboardSkeleton />
+              ) : (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+                </div>
+              )
             }
           >
             <AppRoutes route={route} navigate={navigate} />
@@ -571,12 +660,22 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
 
 export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
   const { routes } = useRouteRegistry();
-  const { getPageOverride, resolveComponent, manifest } = useExtensions();
+  const { getPageOverride, resolveComponent, manifest, isPageAwaitingExtensions } = useExtensions();
   const { hasPermission } = useAuth();
 
   const requiredPermission = BUILTIN_ROUTE_PERMISSIONS[route.page];
   if (requiredPermission && !hasPermission(requiredPermission)) {
     return <AccessDeniedPage navigate={navigate} />;
+  }
+
+  // The shell renders before extension modules finish importing; hold a page an extension provides
+  // or overrides rather than flash the built-in page or nothing in its place.
+  if (isPageAwaitingExtensions(route.page, BUILT_IN_PAGES.has(route.page))) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+      </div>
+    );
   }
 
   // 1. Check for page overrides (extension replaces a built-in page)

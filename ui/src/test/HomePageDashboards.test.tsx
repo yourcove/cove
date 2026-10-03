@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AppRoutes } from "../App";
 import { getCarouselPageDestinations, getWidgetRevealScrollDelta, HomePage } from "../pages/HomePage";
+import { prefetchDashboardPage } from "../pages/dashboardPageQuery";
 import { navigateToUrl } from "../router/location";
 import type { Route } from "../router/location";
 import { RouteRegistryProvider } from "../router/RouteRegistry";
@@ -26,6 +27,8 @@ const { state, mocks } = vi.hoisted(() => ({
       defaultPresentation?: "flow" | "canvas";
     }>,
     extensionComponents: {} as Record<string, (props: any) => React.ReactNode>,
+    extensionsLoaded: true,
+    pagesAwaitingExtensions: [] as string[],
     savedFilters: [] as Array<{
       id: number;
       name: string;
@@ -63,6 +66,8 @@ const { state, mocks } = vi.hoisted(() => ({
     bootstrap: vi.fn(),
     list: vi.fn(),
     get: vi.fn(),
+    view: vi.fn(),
+    viewSavedFilters: [] as unknown[],
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -98,6 +103,7 @@ vi.mock("../api/client", () => ({
     bootstrap: mocks.bootstrap,
     list: mocks.list,
     get: mocks.get,
+    view: mocks.view,
     create: mocks.create,
     update: mocks.update,
     duplicate: vi.fn(),
@@ -121,6 +127,9 @@ vi.mock("../utils/userUiPreferences", () => ({
 vi.mock("../extensions/ExtensionLoader", () => ({
   useExtensions: () => ({
     manifest: { dashboardWidgets: state.dashboardDefinitions, pages: [] },
+    loaded: state.extensionsLoaded,
+    extensionsSettling: !state.extensionsLoaded,
+    isPageAwaitingExtensions: (page: string) => state.pagesAwaitingExtensions.includes(page),
     resolveComponent: (_extensionId: string, componentName: string) => state.extensionComponents[componentName],
     getExtensionRevision: () => 0,
     getPageOverride: () => undefined,
@@ -171,6 +180,8 @@ describe("HomePage dashboards", () => {
     state.userId = "7";
     state.dashboardDefinitions = [];
     state.extensionComponents = {};
+    state.extensionsLoaded = true;
+    state.pagesAwaitingExtensions = [];
     state.savedFilters = [];
     state.dashboards = [summary(1, "Home", true)];
     state.active = dashboard(1, "Home", true);
@@ -182,6 +193,20 @@ describe("HomePage dashboards", () => {
       return state.active;
     });
     mocks.list.mockImplementation(async () => state.dashboards);
+    // The view endpoint answers what list + get answered, so tests can keep steering those.
+    mocks.viewSavedFilters = [];
+    mocks.view.mockImplementation(async (id?: number) => {
+      const list = (await mocks.list()) as Array<{ id: number; isDefault: boolean }>;
+      const fallback = list.find((item) => item.isDefault) ?? list[0];
+      const requested = id == null ? fallback : list.find((item) => item.id === id);
+      const shown = requested ?? fallback;
+      return {
+        dashboards: list,
+        dashboard: shown ? await mocks.get(shown.id) : null,
+        requestedFound: requested != null,
+        savedFilters: mocks.viewSavedFilters,
+      };
+    });
     mocks.get.mockImplementation(async (id: number) => {
       if (state.active?.id === id) return state.active;
       throw new Error("Dashboard not found");
@@ -431,6 +456,113 @@ describe("HomePage dashboards", () => {
 
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.groupGet).toHaveBeenCalledTimes(2));
+  });
+
+  it("starts a saved-filter row from the filter the dashboard view carried, without fetching it again", async () => {
+    mocks.viewSavedFilters = [
+      { id: 5, name: "Embedded filter", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+    ];
+    mocks.videosFind.mockResolvedValue({
+      items: [{ id: 101, title: "Embedded video", files: [], tags: [], performers: [] }],
+      totalCount: 1,
+    });
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    // As in the app, whose queries stay fresh for 30 seconds.
+    renderHome(
+      vi.fn(),
+      undefined,
+      new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
+    );
+
+    expect(await screen.findByText("Embedded video")).toBeInTheDocument();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+    expect(mocks.savedFilterGet).not.toHaveBeenCalled();
+  });
+
+  it("joins a dashboard prefetch that sign-in started instead of loading the dashboard again", async () => {
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const viewImplementation = mocks.view.getMockImplementation()!;
+    mocks.view.mockImplementation(async (id?: number) => {
+      await answered;
+      return viewImplementation(id);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    renderHome(vi.fn(), undefined, client);
+    answer();
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+  });
+
+  it("never creates a dashboard from a prefetch, and creates it once the page renders", async () => {
+    state.dashboards = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    await waitFor(() => expect(client.getQueryState(["dashboard-page", "user:7", "default"])?.status).toBe("error"));
+    expect(mocks.bootstrap).not.toHaveBeenCalled();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+
+    renderHome(vi.fn(), undefined, client);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.bootstrap).toHaveBeenCalledOnce();
+  });
+
+  it("creates the first dashboard when the page joins a prefetch still in flight", async () => {
+    state.dashboards = [];
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const viewImplementation = mocks.view.getMockImplementation()!;
+    mocks.view.mockImplementation(async (id?: number) => {
+      await answered;
+      return viewImplementation(id);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    renderHome(vi.fn(), undefined, client);
+    await waitFor(() =>
+      expect(
+        client
+          .getQueryCache()
+          .find({ queryKey: ["dashboard-page", "user:7", "default"] })
+          ?.getObserversCount(),
+      ).toBe(1),
+    );
+    answer();
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.bootstrap).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/created when the page that shows it renders/)).not.toBeInTheDocument();
+  });
+
+  it("still fetches a saved filter the dashboard view left out", async () => {
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    renderHome();
+
+    await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledWith(5));
   });
 
   it("shows and retries a failed built-in collection widget", async () => {
@@ -879,6 +1011,175 @@ describe("HomePage dashboards", () => {
 
     expect(await screen.findByText("Library Pulse")).toBeInTheDocument();
     expect(screen.getByText(/Configuration has been preserved/)).toBeInTheDocument();
+  });
+
+  // The dashboard can render before extension modules finish importing; their widgets are pending,
+  // not unavailable.
+  it("holds a placeholder for an extension widget while extension modules are still loading", async () => {
+    state.extensionsLoaded = false;
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "pulse-1",
+        owner: "example.extension",
+        widgetKey: "pulse",
+        label: "Library Pulse",
+        configuration: {},
+      },
+    ]);
+
+    renderHome();
+
+    await screen.findByRole("button", { name: /Customize/ });
+    expect(screen.getByText("Loading widget").closest('[role="status"][aria-busy="true"]')).not.toBeNull();
+    expect(screen.queryByText(/Configuration has been preserved/)).toBeNull();
+  });
+
+  it("shows the dashboard's shape instead of a spinner while its layout loads", async () => {
+    mocks.list.mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderHome();
+
+    expect(container.querySelector("[data-dashboard-skeleton]")).not.toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading dashboard");
+    expect(container.querySelectorAll("[data-row-skeleton]").length).toBeGreaterThan(0);
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("holds a row skeleton while a saved filter loads instead of collapsing the widget", async () => {
+    mocks.savedFilterGet.mockImplementation(() => new Promise(() => {}));
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved filter",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    const { container } = renderHome();
+
+    await screen.findByRole("button", { name: /Customize/ });
+    expect(container.querySelector("[data-row-skeleton]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-card-skeleton]").length).toBeGreaterThan(0);
+  });
+
+  it("sizes skeleton cards like the cards that replace them", async () => {
+    let resolveItems!: (value: unknown) => void;
+    const performersFind = vi.mocked((await import("../api/client")).performers.find);
+    performersFind.mockImplementationOnce(
+      () =>
+        new Promise<any>((resolve) => {
+          resolveItems = resolve;
+        }),
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "performers",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Performers",
+        configuration: { source: "premade", mode: "performers", sortBy: "name", direction: "asc", header: "People" },
+      },
+    ]);
+
+    const { container } = renderHome();
+
+    await screen.findByRole("heading", { name: "People" });
+    const skeleton = container.querySelector("[data-card-skeleton]")!;
+    expect(skeleton).not.toBeNull();
+    const skeletonMedia = skeleton.firstElementChild!;
+    const skeletonBody = skeletonMedia.nextElementSibling!;
+
+    await act(async () => resolveItems({ items: [{ id: 8, name: "Avery", imagePath: "/p/8.jpg" }], totalCount: 1 }));
+    const card = await screen.findByRole("link", { name: /Avery/ });
+    const cardMedia = card.firstElementChild!;
+    const cardBody = cardMedia.nextElementSibling!;
+
+    const sizing = (element: Element) =>
+      [...element.classList].filter((name) => /^(w-\[|aspect-|min-h-)/.test(name)).sort();
+    expect(sizing(skeleton)).toEqual(["w-[160px]"]);
+    expect(sizing(card)).toEqual(sizing(skeleton));
+    expect(sizing(skeletonMedia)).toEqual(["aspect-[2/3]"]);
+    expect(sizing(cardMedia)).toEqual(sizing(skeletonMedia));
+    expect(sizing(cardBody)).toEqual(sizing(skeletonBody));
+    expect(sizing(cardBody)).toHaveLength(1);
+  });
+
+  it("shows a card's no-image placeholder when its image fails to load", async () => {
+    vi.mocked((await import("../api/client")).performers.find).mockResolvedValueOnce({
+      items: [{ id: 8, name: "Avery", imagePath: "/p/8.jpg" }],
+      totalCount: 1,
+    } as any);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "performers",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Performers",
+        configuration: { source: "premade", mode: "performers", sortBy: "name", direction: "asc", header: "People" },
+      },
+    ]);
+
+    renderHome();
+
+    const card = await screen.findByRole("link", { name: /Avery/ });
+    const image = card.querySelector("img")!;
+    expect(image).not.toBeNull();
+    fireEvent.error(image);
+    expect(card.querySelector("img")).toBeNull();
+    expect(card.querySelector("svg.lucide-user")).not.toBeNull();
+  });
+
+  it("fetches the first visible cards' images eagerly and fades them in once loaded", async () => {
+    const videoItems = Array.from({ length: 8 }, (_, index) => ({
+      id: index + 1,
+      title: `Clip ${index + 1}`,
+      files: [],
+      tags: [],
+      performers: [],
+    }));
+    mocks.videosFind.mockImplementation(async () => ({ items: videoItems, totalCount: videoItems.length }));
+    const premade = (instanceId: string, header: string) => ({
+      instanceId,
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: header,
+      configuration: { source: "premade", mode: "videos", sortBy: "created_at", direction: "desc", header },
+    });
+    // An extension widget on top is not a row of images and must not take one of the eager slots.
+    const extensionWidget = {
+      instanceId: "ext",
+      owner: "example.extension",
+      widgetKey: "pulse",
+      label: "Library Pulse",
+      configuration: {},
+    };
+    state.active = dashboard(1, "Home", true, [
+      extensionWidget,
+      premade("a", "First"),
+      premade("b", "Second"),
+      premade("c", "Third"),
+    ]);
+
+    renderHome();
+
+    const rowImages = async (header: string) => {
+      const row = (await screen.findByRole("heading", { name: header })).closest(".recommendation-row")!;
+      await within(row as HTMLElement).findAllByRole("link", { name: /Clip/ });
+      return [...row.querySelectorAll("img")];
+    };
+    const first = await rowImages("First");
+    expect(first.map((image) => image.getAttribute("loading"))).toEqual([
+      ...Array(6).fill("eager"),
+      ...Array(2).fill("lazy"),
+    ]);
+    expect((await rowImages("Second"))[0]).toHaveAttribute("loading", "eager");
+    expect((await rowImages("Third")).every((image) => image.getAttribute("loading") === "lazy")).toBe(true);
+
+    expect(first[0]).toHaveClass("opacity-0");
+    fireEvent.load(first[0]);
+    expect(first[0]).toHaveClass("opacity-100");
   });
 
   it("does not duplicate a single-instance extension widget", async () => {
@@ -1400,6 +1701,22 @@ describe("HomePage dashboards", () => {
         widgets: [expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })],
       }),
     );
+  });
+
+  // An extension that overrides a built-in page must not have the built-in page flash in first.
+  it("holds a page an extension is still loading instead of rendering the built-in page", async () => {
+    state.pagesAwaitingExtensions = ["home"];
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouteRegistryProvider>
+          <AppRoutes route={{ page: "home" }} navigate={vi.fn()} />
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Customize/ })).toBeNull();
+    expect(mocks.list).not.toHaveBeenCalled();
   });
 
   it("creates another personal dashboard and opens it for editing", async () => {

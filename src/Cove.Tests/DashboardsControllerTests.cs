@@ -241,6 +241,101 @@ public sealed class DashboardsControllerTests
         Assert.Equal(DashboardWidgetPresentation.Flow, Assert.Single(dashboard.Widgets).Presentation);
     }
 
+    [Fact]
+    public async Task View_returns_the_default_dashboard_with_its_list_and_the_saved_filters_its_rows_read()
+    {
+        await using var scope = CreateScope();
+        var own = await SeedSavedFilterAsync(scope, "Mine", userId: 7);
+        var other = await SeedSavedFilterAsync(scope, "Someone else's", userId: 8);
+        var unrelated = await SeedSavedFilterAsync(scope, "Not on the dashboard", userId: 7);
+        var controller = scope.ControllerFor(7);
+        var home = await BootstrapAsync(controller,
+        [
+            SavedFilterWidget("own", own.Id),
+            SavedFilterWidget("other", other.Id),
+            SavedFilterWidget("deleted", 9999),
+            SavedFilterWidget("own-again", own.Id),
+            Widget("premade", "cove.core", "collection", "Videos", new { source = "premade", mode = "videos", sortBy = "date", direction = "desc" }),
+            Widget("extension", "ext.example", "collection", "Extension", new { source = "saved", savedFilterId = unrelated.Id }),
+        ]);
+        var second = Assert.IsType<DashboardDto>(Assert.IsType<CreatedAtActionResult>(
+            (await controller.Create(new DashboardCreateRequest("Second"), TestContext.Current.CancellationToken)).Result).Value);
+
+        var view = await ViewAsync(controller, id: null);
+
+        Assert.Equal([home.Id, second.Id], view.Dashboards.Select(item => item.Id));
+        Assert.Equal(home.Id, view.Dashboard?.Id);
+        Assert.Equal(6, view.Dashboard!.Widgets.Count);
+        Assert.True(view.RequestedFound);
+        var filter = Assert.Single(view.SavedFilters);
+        Assert.Equal(new SavedFilterDto(own.Id, "videos", "Mine", "{}", "{}", "{}"), filter);
+    }
+
+    [Fact]
+    public async Task View_shows_a_requested_dashboard_and_falls_back_to_the_default_for_one_that_is_not_the_callers()
+    {
+        await using var scope = CreateScope();
+        var controller = scope.ControllerFor(7);
+        var home = await BootstrapAsync(controller, []);
+        var second = Assert.IsType<DashboardDto>(Assert.IsType<CreatedAtActionResult>(
+            (await controller.Create(new DashboardCreateRequest("Second"), TestContext.Current.CancellationToken)).Result).Value);
+        var foreign = await BootstrapAsync(scope.ControllerFor(8), []);
+
+        var requested = await ViewAsync(controller, second.Id);
+        var missing = await ViewAsync(controller, foreign.Id);
+
+        Assert.Equal(second.Id, requested.Dashboard?.Id);
+        Assert.True(requested.RequestedFound);
+        Assert.Equal(home.Id, missing.Dashboard?.Id);
+        Assert.False(missing.RequestedFound);
+        Assert.Equal(2, missing.Dashboards.Count);
+    }
+
+    [Fact]
+    public async Task View_leaves_saved_filters_out_for_a_principal_that_cannot_read_them()
+    {
+        await using var scope = CreateScope();
+        var own = await SeedSavedFilterAsync(scope, "Mine", userId: 7);
+        await BootstrapAsync(scope.ControllerFor(7), [SavedFilterWidget("own", own.Id)]);
+
+        var view = await ViewAsync(scope.ControllerFor(7, Permissions.VideosRead), id: null);
+
+        Assert.Single(view.Dashboard!.Widgets);
+        Assert.Empty(view.SavedFilters);
+    }
+
+    [Fact]
+    public async Task View_reports_no_dashboard_before_the_first_one_is_bootstrapped()
+    {
+        await using var scope = CreateScope();
+
+        var view = await ViewAsync(scope.ControllerFor(7), id: null);
+
+        Assert.Empty(view.Dashboards);
+        Assert.Null(view.Dashboard);
+        Assert.False(view.RequestedFound);
+        Assert.Empty(view.SavedFilters);
+        Assert.IsType<UnauthorizedObjectResult>((await scope.ControllerFor(null).View(null, TestContext.Current.CancellationToken)).Result);
+    }
+
+    private static async Task<DashboardDto> BootstrapAsync(DashboardsController controller, IReadOnlyList<DashboardWidgetDto> widgets)
+        => Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
+            (await controller.Bootstrap(new DashboardBootstrapRequest(widgets), TestContext.Current.CancellationToken)).Result).Value);
+
+    private static async Task<DashboardViewDto> ViewAsync(DashboardsController controller, int? id)
+        => Assert.IsType<DashboardViewDto>(Assert.IsType<OkObjectResult>((await controller.View(id, TestContext.Current.CancellationToken)).Result).Value);
+
+    private static DashboardWidgetDto SavedFilterWidget(string instanceId, int savedFilterId)
+        => Widget(instanceId, "cove.core", "collection", "Saved filter", new { source = "saved", savedFilterId });
+
+    private static async Task<SavedFilter> SeedSavedFilterAsync(TestScope scope, string name, int userId)
+    {
+        var filter = new SavedFilter { Name = name, Mode = "videos", FindFilter = "{}", ObjectFilter = "{}", UIOptions = "{}", UserId = userId };
+        scope.Context.SavedFilters.Add(filter);
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return filter;
+    }
+
     private static DashboardWidgetDto Widget(
         string instanceId,
         string owner,

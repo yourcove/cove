@@ -216,6 +216,46 @@ describe("ExtensionLoaderProvider theme persistence", () => {
     expect(screen.getByTestId("active-theme")).toHaveTextContent(SELECTED_THEME_ID);
   });
 
+  // Themes are declarative, so the app need not sit behind every extension module import to know its
+  // look. The boot cache still waits for the reconciled manifest, which may withdraw the theme.
+  it("paints the theme from the fetched manifest while extension modules are still importing", async () => {
+    const manifest = buildManifest();
+    manifest.extensionBundles = [{ extensionId: "ext.slow", version: "1.0.0", jsBundleUrl: "/ext/slow.mjs" }];
+    mocks.getManifest.mockResolvedValue(manifest);
+    let finishImport: () => void = () => {};
+    const importBundle = vi.fn(
+      () =>
+        new Promise<{ default: object }>((resolve) => {
+          finishImport = () => resolve({ default: {} });
+        }),
+    );
+    function ReadinessProbe() {
+      const { loaded, themeReady } = useExtensions();
+      return <div data-testid="readiness">{`${themeReady}/${loaded}`}</div>;
+    }
+
+    render(
+      <ExtensionLoaderProvider importBundle={importBundle}>
+        <ReadinessProbe />
+      </ExtensionLoaderProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("readiness")).toHaveTextContent("true/false"));
+    expect(importBundle).toHaveBeenCalled();
+    expect(document.documentElement).toHaveAttribute("data-theme", SELECTED_THEME_ID);
+    expect(localStorage.getItem(THEME_BOOT_STORAGE_KEY)).toBeNull();
+    const themeStylesheet = document.getElementById("cove-theme-css");
+    expect(themeStylesheet).not.toBeNull();
+
+    await act(async () => finishImport());
+
+    await waitFor(() => expect(screen.getByTestId("readiness")).toHaveTextContent("true/true"));
+    expect(document.documentElement).toHaveAttribute("data-theme", SELECTED_THEME_ID);
+    // The reconciled manifest carries the same theme; its stylesheet must not be dropped and re-added.
+    expect(document.getElementById("cove-theme-css")).toBe(themeStylesheet);
+    expect(localStorage.getItem(THEME_BOOT_STORAGE_KEY)).not.toBeNull();
+  });
+
   // Guards the other half of the contract: these tests assert that nothing writes the preference on
   // the user's behalf, which a no-op `setActiveTheme` would also satisfy. A real selection must
   // still persist.
@@ -309,6 +349,7 @@ describe("ExtensionLoaderProvider theme boot cache", () => {
   it("takes over the elements the boot script painted, leaving one override behind", async () => {
     applyThemeBootSnapshot(document, bootSnapshot());
     expect(document.querySelectorAll("[data-cove-boot]")).toHaveLength(2);
+    const bootLink = document.getElementById("cove-theme-css");
     mocks.getManifest.mockResolvedValue(buildManifest());
 
     renderLoader();
@@ -317,6 +358,9 @@ describe("ExtensionLoaderProvider theme boot cache", () => {
     await waitFor(() => expect(document.querySelectorAll("#cove-theme-override")).toHaveLength(1));
     expect(document.querySelectorAll("[data-cove-boot]")).toHaveLength(0);
     expect(document.getElementById("cove-theme-override")).not.toHaveAttribute("data-cove-boot");
+    // Same stylesheet URL: the booted link is adopted, not removed and re-added.
+    expect(document.querySelectorAll("#cove-theme-css")).toHaveLength(1);
+    expect(document.getElementById("cove-theme-css")).toBe(bootLink);
   });
 
   // A manifest that does not load says nothing about what the user chose.

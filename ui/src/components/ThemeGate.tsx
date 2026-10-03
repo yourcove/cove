@@ -5,6 +5,7 @@ import { hasBootedLook } from "../theme/themeBoot";
 // A theme is only known once /me and the manifest resolve, and the manifest needs a signed-in user,
 // so a first sign-in on a new browser has nothing cached to pre-paint from. Hold the spinner the
 // surrounding gates already use rather than render the app in the default palette and repaint it.
+// Only the manifest is waited for: themes are declarative, and extension modules attach as they load.
 //
 // Read once, at startup: a page the boot script already painted has nothing to wait for.
 const bootedLookAtStartup = hasBootedLook();
@@ -13,12 +14,12 @@ const bootedLookAtStartup = hasBootedLook();
 const THEME_SETTLE_TIMEOUT_MS = 2000;
 
 export function ThemeGate({ children }: { children: ReactNode }) {
-  const { loaded } = useExtensions();
-  // A latch, not a derived value: `loaded` goes false again whenever the loader refetches, and
-  // re-closing the gate would unmount the whole app below it and lose player and queue state.
+  const { themeReady } = useExtensions();
+  // A latch, not a derived value: re-closing the gate would unmount the whole app below it and lose
+  // player and queue state.
   const [opened, setOpened] = useState(() => bootedLookAtStartup);
-  if (loaded && !opened) setOpened(true);
-  const waiting = !opened && !loaded;
+  if (themeReady && !opened) setOpened(true);
+  const waiting = !opened && !themeReady;
 
   useEffect(() => {
     if (!waiting) return;

@@ -36,6 +36,21 @@ interface LoginResponse {
   refreshToken: string;
   user?: { id: number | string; username: string };
   username?: string;
+  /** What `/me` returns for the issued token; absent when only `/me` can tell. */
+  me?: MeResponse | null;
+}
+
+function toAuthUser(me: MeResponse): AuthUser {
+  return {
+    id: String(me.user.id),
+    username: me.user.username,
+    kind: me.user.kind,
+    isSystem: me.user.isSystem,
+    hasPassword: me.user.hasPassword,
+    permissions: me.permissions,
+    readGrantedEntityKinds: me.readGrantedEntityKinds ?? [],
+    uiPreferences: me.user.uiPreferences ?? null,
+  };
 }
 
 async function fetchMe(): Promise<MeResponse | null> {
@@ -105,16 +120,7 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     }
 
     if (me) {
-      const u: AuthUser = {
-        id: String(me.user.id),
-        username: me.user.username,
-        kind: me.user.kind,
-        isSystem: me.user.isSystem,
-        hasPassword: me.user.hasPassword,
-        permissions: me.permissions,
-        readGrantedEntityKinds: me.readGrantedEntityKinds ?? [],
-        uiPreferences: me.user.uiPreferences ?? null,
-      };
+      const u = toAuthUser(me);
       authStore.setUser(u);
       setUser(u);
     } else {
@@ -228,7 +234,13 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
       const body = (await res.json()) as LoginResponse;
       authStore.clearShareCredentials();
       authStore.setTokens(body.token, body.refreshToken);
-      await refreshMe();
+      if (body.me) {
+        const u = toAuthUser(body.me);
+        authStore.setUser(u);
+        setUser(u);
+      } else {
+        await refreshMe();
+      }
       return { ok: true };
     },
     [refreshMe],

@@ -63,12 +63,35 @@ public sealed class DashboardsController(CoveContext db, ICurrentPrincipalAccess
         if (!TryGetUserId(out var userId))
             return Unauthorized(new { code = "UNAUTHORIZED" });
 
-        var dashboards = await UserDashboards(userId)
-            .OrderByDescending(item => item.IsDefault)
-            .ThenBy(item => item.CreatedAt)
-            .ThenBy(item => item.Id)
-            .ToListAsync(ct);
-        return Ok(dashboards.Select(MapSummary).ToList());
+        return Ok(await UserDashboardSummaries(userId).ToListAsync(ct));
+    }
+
+    /// <summary>
+    /// Everything the home page needs to show a dashboard in one request: the switcher's list, the
+    /// requested dashboard (or the default one when none is requested or the request is not one of
+    /// the caller's), and the saved filters its rows read, so the rows can query their items at once.
+    /// </summary>
+    [HttpGet("view")]
+    public async Task<ActionResult<DashboardViewDto>> View([FromQuery] int? id, CancellationToken ct)
+    {
+        if (!TryGetUserId(out var userId))
+            return Unauthorized(new { code = "UNAUTHORIZED" });
+
+        // Summaries only; the widget JSON is loaded for the one dashboard shown.
+        var dashboards = await UserDashboardSummaries(userId).ToListAsync(ct);
+        var fallback = dashboards.FirstOrDefault(item => item.IsDefault) ?? dashboards.FirstOrDefault();
+        var requested = id is int requestedId ? dashboards.FirstOrDefault(item => item.Id == requestedId) : fallback;
+        var shown = requested ?? fallback;
+        var shownEntity = shown is null
+            ? null
+            : await UserDashboards(userId).FirstOrDefaultAsync(item => item.Id == shown.Id, ct);
+        var dashboard = shownEntity is null ? null : await MapAsync(shownEntity, ct);
+
+        return Ok(new DashboardViewDto(
+            dashboards,
+            dashboard,
+            RequestedFound: requested is not null,
+            SavedFilters: dashboard is null ? [] : await ReadableSavedFiltersAsync(dashboard.Widgets, userId, ct)));
     }
 
     [HttpGet("{id:int}")]
@@ -284,6 +307,14 @@ public sealed class DashboardsController(CoveContext db, ICurrentPrincipalAccess
     private IQueryable<Dashboard> UserDashboards(int userId)
         => db.Dashboards.Where(item => item.UserId == userId);
 
+    /// <summary>The caller's dashboards in switcher order, without loading their widget JSON.</summary>
+    private IQueryable<DashboardSummaryDto> UserDashboardSummaries(int userId)
+        => UserDashboards(userId)
+            .OrderByDescending(item => item.IsDefault)
+            .ThenBy(item => item.CreatedAt)
+            .ThenBy(item => item.Id)
+            .Select(item => new DashboardSummaryDto(item.Id, item.Name, item.IsDefault, item.Version, item.CreatedAt, item.UpdatedAt));
+
     private bool TryGetUserId(out int userId)
     {
         userId = principals.Current?.UserId ?? 0;
@@ -404,8 +435,42 @@ public sealed class DashboardsController(CoveContext db, ICurrentPrincipalAccess
         return converted;
     }
 
-    private static DashboardSummaryDto MapSummary(Dashboard dashboard)
-        => new(dashboard.Id, dashboard.Name, dashboard.IsDefault, dashboard.Version, dashboard.CreatedAt, dashboard.UpdatedAt);
+    /// <summary>
+    /// The saved filters behind the dashboard's saved-filter rows that GET /api/savedfilters/{id}
+    /// would return to this caller. A filter it would answer 404 for is left out, so the row asks for
+    /// it and fails exactly as before.
+    /// </summary>
+    private async Task<IReadOnlyList<SavedFilterDto>> ReadableSavedFiltersAsync(
+        IReadOnlyList<DashboardWidgetDto> widgets,
+        int userId,
+        CancellationToken ct)
+    {
+        // The same test the permission filter applies to [RequiresPermission(SavedFiltersRead)].
+        var principal = principals.Current;
+        if (principal is null || !(principal.Has(Permissions.SavedFiltersRead) || principal.HasReadGrant(Permissions.SavedFiltersRead)))
+            return [];
+
+        var ids = widgets.Select(SavedFilterIdOf).OfType<int>().Distinct().ToList();
+        if (ids.Count == 0)
+            return [];
+
+        var filters = await db.SavedFilters.AsNoTracking()
+            .Where(filter => ids.Contains(filter.Id) && filter.UserId == userId)
+            .ToListAsync(ct);
+        return filters.Select(SavedFiltersController.MapToDto).ToList();
+    }
+
+    /// <summary>Mirrors the client's reading of a core collection widget that shows a saved filter.</summary>
+    private static int? SavedFilterIdOf(DashboardWidgetDto widget)
+    {
+        if (widget.Owner != "cove.core" || widget.WidgetKey != "collection" || widget.Configuration.ValueKind != JsonValueKind.Object)
+            return null;
+        if (!widget.Configuration.TryGetProperty("source", out var source) || source.ValueKind != JsonValueKind.String || source.GetString() != "saved")
+            return null;
+        return widget.Configuration.TryGetProperty("savedFilterId", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out var value)
+            ? value
+            : null;
+    }
 
     private async Task<ConflictObjectResult> VersionConflictAsync(Dashboard dashboard, CancellationToken ct)
         => new(new DashboardVersionConflictDto("DASHBOARD_VERSION_CONFLICT", await MapAsync(dashboard, ct)));
@@ -465,6 +530,11 @@ public sealed record DashboardWidgetDto(
     DashboardWidgetPresentation Presentation = DashboardWidgetPresentation.Flow);
 public sealed record DashboardDto(int Id, string Name, bool IsDefault, int Version, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<DashboardWidgetDto> Widgets);
 public sealed record DashboardSummaryDto(int Id, string Name, bool IsDefault, int Version, DateTime CreatedAt, DateTime UpdatedAt);
+public sealed record DashboardViewDto(
+    IReadOnlyList<DashboardSummaryDto> Dashboards,
+    DashboardDto? Dashboard,
+    bool RequestedFound,
+    IReadOnlyList<SavedFilterDto> SavedFilters);
 public sealed record DashboardBootstrapRequest(IReadOnlyList<DashboardWidgetDto>? Widgets);
 public sealed record DashboardCreateRequest(string? Name);
 public sealed record DashboardUpdateRequest(string? Name, int ExpectedVersion, IReadOnlyList<DashboardWidgetDto> Widgets);

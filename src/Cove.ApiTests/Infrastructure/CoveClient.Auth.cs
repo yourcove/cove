@@ -307,10 +307,10 @@ public sealed partial class CoveClient
         var login = await ApiResponse.ReadAsync<AuthSessionResponse>(response, requestDescription, cancellationToken);
         if (string.IsNullOrWhiteSpace(login.Token) || string.IsNullOrWhiteSpace(login.RefreshToken))
             throw new InvalidOperationException($"{requestDescription} did not return an authentication session.");
-        return new CoveAuthSession(login.User.Username, login.Token, login.RefreshToken, BaseAddress);
+        return new CoveAuthSession(login.User.Username, login.Token, login.RefreshToken, BaseAddress, login.Me);
     }
 
-    private sealed record AuthSessionResponse(string Token, string RefreshToken, UserDto User);
+    private sealed record AuthSessionResponse(string Token, string RefreshToken, UserDto User, JsonElement? Me);
 
     private sealed record ApiTestExternalIdentityRequest(
         string Subject,
@@ -328,16 +328,20 @@ internal sealed class CoveAuthSession : IDisposable
 {
     private readonly CoveClient _client;
 
-    internal CoveAuthSession(string username, string accessToken, string refreshToken, Uri baseAddress)
+    internal CoveAuthSession(string username, string accessToken, string refreshToken, Uri baseAddress, JsonElement? me)
     {
         Username = username;
         RefreshToken = refreshToken;
+        Me = me is { ValueKind: JsonValueKind.Object } value ? value : null;
         _client = new CoveClient(username, baseAddress, accessToken);
     }
 
     internal string Username { get; }
 
     internal string RefreshToken { get; }
+
+    /// <summary>The current-user payload the sign-in response carried, if any.</summary>
+    internal JsonElement? Me { get; }
 
     internal CoveClient Client => _client;
 
