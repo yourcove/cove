@@ -1124,17 +1124,9 @@ public partial class CoveContext : DbContext
             Database.OpenConnection();
 
         var transactionScoped = Database.CurrentTransaction != null;
-        var acquiredCount = 0;
         try
         {
-            foreach (var key in keys)
-            {
-                if (transactionScoped)
-                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_xact_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
-                else
-                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
-                acquiredCount++;
-            }
+            Database.ExecuteSql(DerivedArrayLockSql(keys, transactionScoped));
             return new DatabaseDerivedArrayWriteLock(keys, transactionScoped, openedConnection);
         }
         catch
@@ -1142,13 +1134,7 @@ public partial class CoveContext : DbContext
             try
             {
                 if (!transactionScoped)
-                {
-                    for (var index = acquiredCount - 1; index >= 0; index--)
-                    {
-                        var key = keys[index];
-                        Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
-                    }
-                }
+                    Database.ExecuteSql(DerivedArrayUnlockHeldSql(keys));
             }
             finally
             {
@@ -1172,21 +1158,9 @@ public partial class CoveContext : DbContext
             await Database.OpenConnectionAsync(cancellationToken);
 
         var transactionScoped = Database.CurrentTransaction != null;
-        var acquiredCount = 0;
         try
         {
-            foreach (var key in keys)
-            {
-                if (transactionScoped)
-                    await Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT pg_advisory_xact_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
-                        cancellationToken);
-                else
-                    await Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT pg_advisory_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
-                        cancellationToken);
-                acquiredCount++;
-            }
+            await Database.ExecuteSqlAsync(DerivedArrayLockSql(keys, transactionScoped), cancellationToken);
             return new DatabaseDerivedArrayWriteLock(keys, transactionScoped, openedConnection);
         }
         catch
@@ -1194,15 +1168,7 @@ public partial class CoveContext : DbContext
             try
             {
                 if (!transactionScoped)
-                {
-                    for (var index = acquiredCount - 1; index >= 0; index--)
-                    {
-                        var key = keys[index];
-                        await Database.ExecuteSqlInterpolatedAsync(
-                            $"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
-                            CancellationToken.None);
-                    }
-                }
+                    await Database.ExecuteSqlAsync(DerivedArrayUnlockHeldSql(keys), CancellationToken.None);
             }
             finally
             {
@@ -1213,6 +1179,43 @@ public partial class CoveContext : DbContext
         }
     }
 
+    // A save can touch thousands of parents, so every key is locked or unlocked in a single round trip. The plan is a
+    // single function scan over unnest, which emits rows in array order, so keys are taken in GetLockKeys' sorted
+    // order as the per-key statements did, keeping concurrent writers from deadlocking.
+    private static FormattableString DerivedArrayLockSql(DerivedArrayLockKey[] keys, bool transactionScoped)
+    {
+        var (namespaces, parentIds) = DerivedArrayLockArguments(keys);
+        if (transactionScoped)
+            return $"SELECT pg_advisory_xact_lock(k.ns, k.id) FROM unnest({namespaces}, {parentIds}) AS k(ns, id)";
+        return $"SELECT pg_advisory_lock(k.ns, k.id) FROM unnest({namespaces}, {parentIds}) AS k(ns, id)";
+    }
+
+    private static FormattableString DerivedArrayUnlockSql(DerivedArrayLockKey[] keys)
+    {
+        var (namespaces, parentIds) = DerivedArrayLockArguments(keys);
+        return $"SELECT pg_advisory_unlock(k.ns, k.id) FROM unnest({namespaces}, {parentIds}) AS k(ns, id)";
+    }
+
+    // A failed lock statement may have taken only some keys before it stopped; session-level advisory locks
+    // survive the failure, so release the ones this session holds. Session locks are only taken by a save outside a
+    // transaction, so no earlier hold on the same key can be in place to be released by mistake.
+    private static FormattableString DerivedArrayUnlockHeldSql(DerivedArrayLockKey[] keys)
+    {
+        var (namespaces, parentIds) = DerivedArrayLockArguments(keys);
+        return $"""
+            SELECT pg_advisory_unlock(k.ns, k.id)
+            FROM unnest({namespaces}, {parentIds}) AS k(ns, id)
+            WHERE EXISTS (
+                SELECT 1 FROM pg_locks AS l
+                WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.granted
+                    AND l.classid = k.ns::oid AND l.objid = k.id::oid AND l.objsubid = 2)
+            """;
+    }
+
+    private static (int[] Namespaces, int[] ParentIds) DerivedArrayLockArguments(DerivedArrayLockKey[] keys)
+        => (keys.Select(key => DerivedArrayAdvisoryLockNamespace + key.Namespace).ToArray(),
+            keys.Select(key => key.ParentId).ToArray());
+
     private bool UsesDatabaseDerivedArrayWriteLocks() =>
         Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL";
 
@@ -1221,14 +1224,8 @@ public partial class CoveContext : DbContext
         var keys = databaseLock.Keys ?? [];
         try
         {
-            if (!databaseLock.TransactionScoped)
-            {
-                for (var index = keys.Length - 1; index >= 0; index--)
-                {
-                    var key = keys[index];
-                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
-                }
-            }
+            if (!databaseLock.TransactionScoped && keys.Length > 0)
+                Database.ExecuteSql(DerivedArrayUnlockSql(keys));
         }
         finally
         {
@@ -1242,16 +1239,8 @@ public partial class CoveContext : DbContext
         var keys = databaseLock.Keys ?? [];
         try
         {
-            if (!databaseLock.TransactionScoped)
-            {
-                for (var index = keys.Length - 1; index >= 0; index--)
-                {
-                    var key = keys[index];
-                    await Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
-                        CancellationToken.None);
-                }
-            }
+            if (!databaseLock.TransactionScoped && keys.Length > 0)
+                await Database.ExecuteSqlAsync(DerivedArrayUnlockSql(keys), CancellationToken.None);
         }
         finally
         {
@@ -1524,13 +1513,13 @@ public partial class CoveContext : DbContext
         if (targets.VideoPerformerParents.Count > 0)
             RebuildArray<Video, VideoPerformer>(targets.VideoPerformerParents, s => s.PerformerIds, e => e.VideoId, e => e.PerformerId);
         if (targets.ImageTagParents.Count > 0)
-            RebuildArray<Image, ImageTag>(targets.ImageTagParents, i => i.TagIds, e => e.ImageId, e => e.TagId);
+            RebuildArray<Image, ImageTag>(targets.ImageTagParents, i => i.TagIds, e => e.ImageId, e => e.TagId, (i, count) => i.TagCount = count);
         if (targets.ImagePerformerParents.Count > 0)
-            RebuildArray<Image, ImagePerformer>(targets.ImagePerformerParents, i => i.PerformerIds, e => e.ImageId, e => e.PerformerId);
+            RebuildArray<Image, ImagePerformer>(targets.ImagePerformerParents, i => i.PerformerIds, e => e.ImageId, e => e.PerformerId, (i, count) => i.PerformerCount = count);
         if (targets.GalleryTagParents.Count > 0)
-            RebuildArray<Gallery, GalleryTag>(targets.GalleryTagParents, g => g.TagIds, e => e.GalleryId, e => e.TagId);
+            RebuildArray<Gallery, GalleryTag>(targets.GalleryTagParents, g => g.TagIds, e => e.GalleryId, e => e.TagId, (g, count) => g.TagCount = count);
         if (targets.GalleryPerformerParents.Count > 0)
-            RebuildArray<Gallery, GalleryPerformer>(targets.GalleryPerformerParents, g => g.PerformerIds, e => e.GalleryId, e => e.PerformerId);
+            RebuildArray<Gallery, GalleryPerformer>(targets.GalleryPerformerParents, g => g.PerformerIds, e => e.GalleryId, e => e.PerformerId, (g, count) => g.PerformerCount = count);
     }
 
     private readonly record struct DerivedCountTargets(
@@ -2915,7 +2904,8 @@ public partial class CoveContext : DbContext
         HashSet<int> parentIds,
         System.Linq.Expressions.Expression<Func<TParent, int[]>> arrayProp,
         Expression<Func<TLink, int>> linkParentId,
-        Expression<Func<TLink, int>> linkChildId)
+        Expression<Func<TLink, int>> linkChildId,
+        Action<TParent, int>? setLinkCount = null)
         where TParent : class
         where TLink : class
     {
@@ -2985,6 +2975,9 @@ public partial class CoveContext : DbContext
             // Order for stable diffs and predictable serialization.
             var newArray = set.OrderBy(x => x).ToArray();
             arraySetter(parent, newArray);
+            // The post-save count refresh derives the same value from the join table. Setting it here lets the
+            // parent be written once instead of once for the array and again for the count.
+            setLinkCount?.Invoke(parent, newArray.Length);
         }
     }
 
