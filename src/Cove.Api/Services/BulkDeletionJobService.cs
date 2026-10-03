@@ -774,8 +774,7 @@ public sealed class BulkEntityDeletionService(
                 dependencySegmentVideoIds = [.. hostCleanup.SegmentVideoIds];
                 await customFields.StageDeleteValuesForEntityAsync(CustomFieldEntityTypes.Face, id, ct);
                 await db.SaveChangesAsync(ct);
-                foreach (var (hostType, hostId) in propagationHosts)
-                    await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, ct);
+                await facePerformerPropagationService.ReconcileHostsUnscopedAsync(propagationHosts, ct);
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
                 if (blobReferenceTransaction is not null)

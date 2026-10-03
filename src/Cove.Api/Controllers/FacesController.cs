@@ -41,6 +41,9 @@ public class FacesController(
     IStreamService? streamService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
+    // Hosts a batch link stages before saving and clearing the change tracker. Each staged host also holds an advisory
+    // lock during the save, and PostgreSQL's lock table is shared server-wide and sized in the thousands by default.
+    private const int BatchLinkSaveHostBudget = 2500;
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
 
     // Extensions live in isolated DI containers since the extensions-runtime redesign and surface
@@ -813,8 +816,40 @@ public class FacesController(
             cancellationToken,
             includeReferenceMatches: true);
 
-        foreach (var faceId in requestedFaceIds)
+        // Each linked face stages rows for every host it appears on, so a large selection is saved in chunks with the
+        // tracker cleared between them, keeping memory and held locks bounded by the chunk rather than the selection.
+        var hostCountsByFace = await facePerformerPropagationService.CountFaceHostsAsync(eligibleFaceIds, cancellationToken);
+        var pendingHostChanges = 0;
+        var invalidatedCount = 0;
+
+        async Task SaveAsync()
         {
+            await db.SaveChangesAsync(cancellationToken);
+            for (; invalidatedCount < succeeded.Count; invalidatedCount++)
+                await InvalidateSuggestionForLinkChangeAsync(succeeded[invalidatedCount], cancellationToken);
+        }
+
+        async Task SaveChunkAsync(int nextFaceIndex)
+        {
+            await SaveAsync();
+            db.ChangeTracker.Clear();
+            // Reload rather than re-attach: the saved instances still reference the previous chunk's graph
+            // through their navigations, and attaching them would track it again.
+            var remainingFaceIds = requestedFaceIds[nextFaceIndex..];
+            facesById = await db.Faces
+                .Where(face => remainingFaceIds.Contains(face.Id))
+                .ToDictionaryAsync(face => face.Id, cancellationToken);
+            pendingHostChanges = 0;
+        }
+
+        for (var faceIndex = 0; faceIndex < requestedFaceIds.Length; faceIndex++)
+        {
+            var faceId = requestedFaceIds[faceIndex];
+            var faceHostCount = hostCountsByFace.GetValueOrDefault(faceId);
+            if (pendingHostChanges > 0 && pendingHostChanges + faceHostCount > BatchLinkSaveHostBudget)
+                await SaveChunkAsync(faceIndex);
+            pendingHostChanges += faceHostCount;
+
             try
             {
                 if (!facesById.TryGetValue(faceId, out var face))
@@ -932,9 +967,7 @@ public class FacesController(
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-        foreach (var faceId in succeeded)
-            await InvalidateSuggestionForLinkChangeAsync(faceId, cancellationToken);
+        await SaveAsync();
         return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
     }
 
@@ -1077,8 +1110,7 @@ public class FacesController(
                 return;
 
             await db.SaveChangesAsync(cancellationToken);
-            foreach (var (hostType, hostId) in propagationHosts)
-                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
+            await facePerformerPropagationService.ReconcileHostsUnscopedAsync(propagationHosts, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
@@ -1347,8 +1379,7 @@ public class FacesController(
 
             await db.SaveChangesAsync(cancellationToken);
 
-            foreach (var (hostType, hostId) in affectedHosts)
-                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
+            await facePerformerPropagationService.ReconcileHostsUnscopedAsync(affectedHosts, cancellationToken);
 
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

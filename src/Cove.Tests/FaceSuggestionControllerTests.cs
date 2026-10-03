@@ -142,6 +142,66 @@ public sealed class FaceSuggestionControllerTests
         Assert.Empty(suggestions);
     }
 
+    [Fact]
+    public async Task BatchLinkTopSuggestion_SavesLargeSelectionsInChunksWithinTheHostBudget()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        // Three faces on 1,000 images each: staging the third would pass the 2,500 host budget, so the batch
+        // saves the first two before it.
+        const int hostsPerFace = 1000;
+        var performer = new Performer { Name = "Chosen Performer" };
+        var faces = Enumerable.Range(0, 3).Select(index => new Face { Label = $"Face {index}" }).ToArray();
+        var images = Enumerable.Range(0, faces.Length * hostsPerFace).Select(index => new Image { Title = $"Image {index}" }).ToArray();
+        context.Add(performer);
+        context.AddRange(faces);
+        context.AddRange(images);
+        await context.SaveChangesAsync(ct);
+        for (var index = 0; index < images.Length; index++)
+        {
+            context.FaceAppearances.Add(new FaceAppearance
+            {
+                FaceId = faces[index / hostsPerFace].Id,
+                HostType = FaceAppearanceHostType.Image,
+                HostId = images[index].Id,
+                SourceKey = "ext:ai.faces",
+            });
+        }
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+
+        var stagedLinksPerSave = new List<int>();
+        context.SavingChanges += (_, _) =>
+        {
+            var staged = context.ChangeTracker.Entries<ImagePerformer>().Count(entry => entry.State == EntityState.Added);
+            if (staged > 0)
+                stagedLinksPerSave.Add(staged);
+        };
+
+        var controller = CreateController(
+            context,
+            scope.PrincipalAccessor,
+            new StubFaceSuggester([new FaceSuggestionDto(performer.Id, performer.Name, null, 0.91f, "best-match", [])]));
+
+        var result = await controller.BatchLinkTopSuggestion(new FaceBatchLinkTopSuggestionDto([.. faces.Select(face => face.Id)]), ct);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var outcome = Assert.IsType<FaceBatchOperationResultDto>(ok.Value);
+        Assert.Equal(faces.Select(face => face.Id), outcome.Succeeded);
+        Assert.Empty(outcome.Failed);
+        Assert.Equal([2 * hostsPerFace, hostsPerFace], stagedLinksPerSave);
+
+        // Only the last chunk's links remain tracked; the earlier chunk was saved and released.
+        Assert.Equal(hostsPerFace, context.ChangeTracker.Entries<ImagePerformer>().Count());
+
+        context.ChangeTracker.Clear();
+        Assert.All(await context.Faces.AsNoTracking().ToListAsync(ct), face => Assert.Equal(performer.Id, face.PerformerId));
+        Assert.Equal(images.Length, await context.Set<ImagePerformer>().CountAsync(item => item.PerformerId == performer.Id, ct));
+        Assert.Equal(images.Length, await context.ExtensionData.CountAsync(item => item.Key.StartsWith("performer-assignment:"), ct));
+    }
+
     private static FacesController CreateController(CoveContext context, CurrentPrincipalAccessor principalAccessor, params IFaceSuggester[] suggesters)
     {
         var embeddingService = new EmbeddingService(context, []);
