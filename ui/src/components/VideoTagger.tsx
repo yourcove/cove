@@ -2571,6 +2571,7 @@ function TaggerResultRow({
     tagActions,
     tagMatchInfo,
     onLinkTag,
+    onCollectionModeChange,
     performerChoices,
     currentPerformerChoiceKeys,
     performerActions,

@@ -54,7 +54,21 @@ export interface DiffField {
   modesOnly?: boolean;
   /** Items already on the kept side cannot be dropped one by one, only through the "Only incoming" preset. */
   lockKeptItems?: boolean;
+  /**
+   * New incoming items (see `itemIsNew`) join the Combine and Only incoming presets only once chosen,
+   * so a preset never creates anything the person did not pick.
+   */
+  newItemsOnlyWhenChosen?: boolean;
+  /** The preset the owner is in, to highlight when several presets select the same items. */
+  activeMode?: DiffListMode;
+  /**
+   * Called for a preset that selects exactly what is already selected, which a selection change cannot
+   * express; without it such a click does nothing.
+   */
+  onModeSelect?: (mode: DiffListMode) => void;
 }
+
+export type DiffListMode = "combined" | "target" | "source";
 
 export type ScalarStatus = "identical" | "filled" | "conflict" | "keptOnly" | "unavailable";
 export type ListItemState = "both" | "kept" | "added" | "new" | "excluded" | "available";
@@ -527,11 +541,14 @@ function ListRow({
         inTarget: false,
       })),
   ];
-  const modes = [
+  const isNewIncoming = (item: (typeof shown)[number]) => !item.inTarget && Boolean(field.itemIsNew?.(item.result));
+  const inPresets = (item: (typeof items)[number]) =>
+    !field.newItemsOnlyWhenChosen || !isNewIncoming(item) || selected.includes(item.id);
+  const modes: { key: DiffListMode; label: string; ids: string[] }[] = [
     {
       key: "combined",
       label: "Combine",
-      ids: items.filter((item) => item.inSource || item.inTarget).map((item) => item.id),
+      ids: items.filter((item) => item.inTarget || (item.inSource && inPresets(item))).map((item) => item.id),
     },
     {
       key: "target",
@@ -541,12 +558,26 @@ function ListRow({
     {
       key: "source",
       label: `Only ${sourceLabel}`,
-      ids: items.filter((item) => item.inSource).map((item) => item.id),
+      ids: items.filter((item) => item.inSource && inPresets(item)).map((item) => item.id),
     },
   ];
+  const matchesSelection = (ids: string[]) =>
+    selected.length === ids.length && ids.every((id) => selected.includes(id));
+  // Two presets can select the same items (nothing incoming to add, say); only one of them is the mode.
+  const matching = modes.filter((mode) => matchesSelection(mode.ids));
+  const activeMode = (matching.find((mode) => mode.key === field.activeMode) ?? matching[0])?.key;
+  const sameIds = (left: string[], right: string[]) =>
+    left.length === right.length && left.every((id) => right.includes(id));
+  // A preset whose items another preset shares cannot be told apart by the selection it makes, so the
+  // owner hears which one was meant, after the selection so that its mode is the one that stands.
+  const selectPreset = (mode: (typeof modes)[number]) => {
+    const unchanged = matchesSelection(mode.ids);
+    if (!(field.onModeSelect && unchanged)) onChange(mode.ids);
+    const shared = modes.some((other) => other.key !== mode.key && sameIds(other.ids, mode.ids));
+    if (field.onModeSelect && (unchanged || shared)) field.onModeSelect(mode.key);
+  };
   const kept = shown.filter((item) => item.inTarget && selected.includes(item.id)).length;
   const added = shown.filter((item) => !item.inTarget && selected.includes(item.id)).length;
-  const isNewIncoming = (item: (typeof shown)[number]) => !item.inTarget && Boolean(field.itemIsNew?.(item.result));
   const notInLibrary = shown.filter((item) => !selected.includes(item.id) && isNewIncoming(item)).length;
   const leftOut = shown.filter((item) => !selected.includes(item.id)).length - notInLibrary;
   const addedNew = shown.filter((item) => selected.includes(item.id) && isNewIncoming(item)).length;
@@ -655,14 +686,14 @@ function ListRow({
           className="inline-flex overflow-hidden rounded-lg border border-border"
         >
           {modes.map((mode) => {
-            const active = selected.length === mode.ids.length && mode.ids.every((id) => selected.includes(id));
+            const active = mode.key === activeMode;
             return (
               <button
                 key={mode.key}
                 type="button"
                 aria-label={`Use ${mode.key} ${field.label}`}
                 aria-pressed={active}
-                onClick={() => onChange(mode.ids)}
+                onClick={() => selectPreset(mode)}
                 className={`px-2.5 py-1 text-[11px] font-semibold ${active ? "bg-accent/15 text-accent" : "text-secondary hover:text-foreground"}`}
               >
                 {active && <Check className="mr-1 inline h-3 w-3" />}

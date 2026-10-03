@@ -16,7 +16,7 @@ import {
 import { metadataServerLabel } from "./MetadataServerLinks";
 import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
-import { type DiffField, type DiffRecord, type DiffSelection } from "./MetadataDiff";
+import { type DiffField, type DiffListMode, type DiffRecord, type DiffSelection } from "./MetadataDiff";
 
 /**
  * Adapts the video tagger's decision state (per-field strategies, collection modes, per-item
@@ -73,7 +73,15 @@ export interface TaggerReviewInput {
    * Without it the review offers no way to link a scraped tag that matched nothing.
    */
   onLinkTag?: (scrapedName: string, tag: EntityReferenceOption) => Promise<void>;
+  /**
+   * Sets a collection's mode directly, for a preset that selects exactly what is already selected
+   * (nothing incoming to add, say): the selection cannot say which of the equal presets was meant.
+   */
+  onCollectionModeChange?: (field: string, mode: CollectionMode) => void;
 }
+
+const PRESET_OF_MODE: Record<CollectionMode, DiffListMode> = { merge: "combined", skip: "target", replace: "source" };
+const MODE_OF_PRESET: Record<DiffListMode, CollectionMode> = { combined: "merge", target: "skip", source: "replace" };
 
 export interface TaggerReviewHandlers {
   onFieldStrategyChange?: (field: string, strategy: TaggerFieldStrategy) => void;
@@ -175,9 +183,19 @@ export function modeForSelection(
   previous: CollectionMode,
 ): CollectionMode {
   const combined = [...new Set([...current, ...incoming])];
-  if (sameSet(selected, combined)) return "merge";
-  if (sameSet(selected, current)) return "skip";
-  if (sameSet(selected, incoming)) return "replace";
+  const matching = (
+    [
+      ["merge", combined],
+      ["skip", current],
+      ["replace", incoming],
+    ] as const
+  )
+    .filter(([, ids]) => sameSet(selected, ids))
+    .map(([mode]) => mode);
+  // Presets that select the same items cannot be told apart by the selection, so the mode stays as it
+  // is when it is one of them; an explicit click on another one arrives through `onModeSelect`.
+  if (matching.includes(previous)) return previous;
+  if (matching.length > 0) return matching[0];
   return previous === "skip" ? "merge" : previous;
 }
 
@@ -632,6 +650,14 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     itemIsNew,
     modesOnly: modesOnly || mode === "skip",
     lockKeptItems: true,
+    // A preset is a mode, not a way to create every new item at once.
+    newItemsOnlyWhenChosen: true,
+    activeMode: PRESET_OF_MODE[mode],
+    onModeSelect: input.onCollectionModeChange
+      ? (preset) => {
+          if (MODE_OF_PRESET[preset] !== mode) input.onCollectionModeChange?.(key, MODE_OF_PRESET[preset]);
+        }
+      : undefined,
   });
   if (result.urls.length > 0) {
     const urls = urlItems(input);
@@ -739,6 +765,12 @@ export function applyTaggerSelectionChange(
     if (!Array.isArray(rawSelected) || sameSet(rawSelected, (previous[key] as string[] | undefined) ?? [])) return;
     const currentIds = current.map((entry) => entry.id);
     const incomingIds = incoming.map((entry) => entry.id);
+    // The presets offer a new item only once it has been chosen (the list row does the same), so they
+    // are recognised by those ids; every incoming id can still be toggled one by one.
+    const chosenBefore = new Set((previous[key] as string[] | undefined) ?? []);
+    const presetIncomingIds = incoming
+      .filter((entry) => !entry.isNew || currentIds.includes(entry.id) || chosenBefore.has(entry.id))
+      .map((entry) => entry.id);
     const sideIds = rawSelected.filter((id) => libraryIdOf(id) == null);
     // A preset names the whole sides; anything else that drops a current item is a hand removal,
     // which does not touch the collection mode.
@@ -746,15 +778,17 @@ export function applyTaggerSelectionChange(
     // so it reads as that preset.
     const isPreset =
       sameSet(sideIds, currentIds) ||
-      sameSet(sideIds, incomingIds) ||
-      sameSet(sideIds, [...new Set([...currentIds, ...incomingIds])]);
+      sameSet(sideIds, presetIncomingIds) ||
+      sameSet(sideIds, [...new Set([...currentIds, ...presetIncomingIds])]);
     if (key !== "urls") {
       const added = rawSelected.map(libraryIdOf).filter((id): id is number => id != null);
-      const removed = isPreset
-        ? []
-        : current
-            .filter((entry) => entry.localId != null && !sideIds.includes(entry.id))
-            .map((entry) => entry.localId!);
+      // "Only <source>" drops the current items anyway, so taking one off there is not a hand removal.
+      const removed =
+        isPreset || (input.collectionModes[key] ?? "merge") === "replace"
+          ? []
+          : current
+              .filter((entry) => entry.localId != null && !sideIds.includes(entry.id))
+              .map((entry) => entry.localId!);
       const nextEdits = { added: [...new Set(added)], removed: [...new Set(removed)] };
       const same = (left: number[], right: number[]) => sameSet(left.map(String), right.map(String));
       if (!same(nextEdits.added, edits?.added ?? []) || !same(nextEdits.removed, edits?.removed ?? []))
@@ -774,7 +808,7 @@ export function applyTaggerSelectionChange(
     // One incoming chip flipped is a per-item choice even when the result happens to look like a
     // preset (dropping the last incoming item leaves exactly the current side).
     const singleChip = Boolean(onToggle) && changed.length === 1 && !currentChanged && previousMode !== "skip";
-    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, incomingIds, previousMode);
+    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, presetIncomingIds, previousMode);
     if (mode !== previousMode) handlers.onCollectionModeChange?.(key, mode);
     // Switched off, or just switched back on: the incoming side is taken as a whole and exclusions
     // stay as they were.

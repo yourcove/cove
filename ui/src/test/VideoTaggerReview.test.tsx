@@ -6,11 +6,12 @@ import {
   applyTaggerSelectionChange,
   buildTaggerReview,
   isHandEdited,
+  modeForSelection,
   selectorChange,
   type ReviewItem,
   type TaggerReviewInput,
 } from "../components/VideoTaggerReview";
-import { defaultDiffSelection, scalarStatus, summarizeDiff } from "../components/MetadataDiff";
+import { MetadataDiff, defaultDiffSelection, scalarStatus, summarizeDiff } from "../components/MetadataDiff";
 
 vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cover/${id}` } }));
 // The library pickers search through the API; here the link panel's picker just offers one tag.
@@ -691,5 +692,219 @@ describe("VideoTaggerReview items the library does not have", () => {
     expect(screen.getByText("Not in your library").parentElement!).toHaveTextContent("Newcomer");
     expect(screen.getByRole("button", { name: "Create and add Performers: Newcomer" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Link / })).not.toBeInTheDocument();
+  });
+});
+
+describe("VideoTaggerReview presets with new items left out", () => {
+  // "Brand new tag" is not in the library and nobody chose it; the other two scraped tags exist.
+  const leftOut = (overrides: Partial<TaggerReviewInput> = {}) =>
+    input({
+      tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "exclude" },
+      onCollectionModeChange: vi.fn(),
+      ...overrides,
+    });
+  const allNew = (overrides: Partial<TaggerReviewInput> = {}) =>
+    leftOut({
+      result: {
+        ...result,
+        tagNames: ["Brand new tag"],
+        tagCandidates: [{ remoteId: "t3", name: "Brand new tag", existsLocally: false }],
+      } as MetadataServerVideoMatch,
+      existingTagNames: [],
+      tagActions: { "brand new tag": "exclude" },
+      ...overrides,
+    });
+  const renderTagsRow = (reviewInput: TaggerReviewInput) => {
+    const review = buildTaggerReview(reviewInput);
+    const tagsOnly = review.fields.filter((field) => field.key === "tags");
+    const onChange = vi.fn();
+    render(
+      <MetadataDiff
+        fields={tagsOnly}
+        source={review.source}
+        target={review.target}
+        value={review.selection}
+        onChange={onChange}
+      />,
+    );
+    return { review, onChange };
+  };
+  const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+  it("reads the default selection as Combine although a new item is left out", () => {
+    renderTagsRow(leftOut());
+    expect(pressed("Use combined Tags")).toBe("true");
+    expect(pressed("Use target Tags")).toBe("false");
+    expect(pressed("Use source Tags")).toBe("false");
+  });
+
+  it("never selects an unchosen new item through a preset", async () => {
+    const reviewInput = leftOut({
+      tagActions: { "existing tag": "exclude", "library tag": "include", "brand new tag": "exclude" },
+    });
+    const { onChange } = renderTagsRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
+    expect([...onChange.mock.calls[0][0].tags].sort()).toEqual(["existing tag", "library tag", "old tag"]);
+    await userEvent.click(screen.getByRole("button", { name: "Use source Tags" }));
+    expect([...onChange.mock.calls[1][0].tags].sort()).toEqual(["existing tag", "library tag"]);
+  });
+
+  it("maps a preset click back to its mode without toggling an unchosen new item", () => {
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn() };
+    const reviewInput = leftOut();
+    const review = buildTaggerReview(reviewInput);
+    applyTaggerSelectionChange(
+      reviewInput,
+      review.selection,
+      { ...review.selection, tags: ["existing tag", "library tag"] },
+      handlers,
+    );
+    expect(handlers.onCollectionModeChange).toHaveBeenCalledWith("tags", "replace");
+    expect(handlers.onToggleTag).not.toHaveBeenCalled();
+  });
+
+  it("keeps a chosen new item in the presets", () => {
+    renderTagsRow(
+      leftOut({ tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "create" } }),
+    );
+    expect(pressed("Use combined Tags")).toBe("true");
+  });
+
+  it("highlights the tagger's mode when presets coincide and switches it on click", async () => {
+    // Every scraped tag is new and unchosen, so Combine and Only current select the same items.
+    const reviewInput = allNew();
+    renderTagsRow(reviewInput);
+    expect(pressed("Use combined Tags")).toBe("true");
+    expect(pressed("Use target Tags")).toBe("false");
+    await userEvent.click(screen.getByRole("button", { name: "Use target Tags" }));
+    expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("tags", "skip");
+  });
+
+  it("highlights Only current while the tagger skips the collection", () => {
+    renderTagsRow(allNew({ collectionModes: { tags: "skip" } }));
+    expect(pressed("Use target Tags")).toBe("true");
+    expect(pressed("Use combined Tags")).toBe("false");
+  });
+
+  it("leaves the mode alone when the active preset is clicked again", async () => {
+    const reviewInput = leftOut();
+    const { onChange } = renderTagsRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
+    expect(reviewInput.onCollectionModeChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("switches to Only current in one click when it shares its items with Combine", async () => {
+    // Every scraped tag is new and unchosen, and the current tag was taken off by hand.
+    const reviewInput = allNew({ tagEdits: { added: [], removed: [1] } });
+    const { onChange } = renderTagsRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Use target Tags" }));
+    expect(onChange.mock.calls[0][0].tags).toEqual(["old tag"]);
+    expect(reviewInput.onCollectionModeChange).toHaveBeenLastCalledWith("tags", "skip");
+  });
+
+  it("adds the last new item as a choice, not as a preset", () => {
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn(), onRelationshipEditsChange: vi.fn() };
+    for (const mode of ["merge", "replace"] as const) {
+      const reviewInput = leftOut({ collectionModes: { tags: mode } });
+      const review = buildTaggerReview(reviewInput);
+      applyTaggerSelectionChange(
+        reviewInput,
+        review.selection,
+        { ...review.selection, tags: [...(review.selection.tags as string[]), "brand new tag"] },
+        handlers,
+      );
+      expect(handlers.onToggleTag).toHaveBeenLastCalledWith(["Brand new tag"]);
+    }
+    expect(handlers.onCollectionModeChange).not.toHaveBeenCalled();
+    expect(handlers.onRelationshipEditsChange).not.toHaveBeenCalled();
+  });
+
+  it("counts a performer already on the video as current, not as new, in the presets", () => {
+    const handlers = {
+      onCollectionModeChange: vi.fn(),
+      onTogglePerformer: vi.fn(),
+      onRelationshipEditsChange: vi.fn(),
+    };
+    // "Known Performer" is on the video and scraped, though the library lookup has not yet said it
+    // exists; "Local Only" is on the video alone. The known one was taken off by hand.
+    const reviewInput = leftOut({
+      video: { ...video, performers: [...video.performers, { id: 10, name: "Local Only" }] } as Video,
+      performerChoices: [
+        {
+          key: "remote-performer:p-known",
+          label: "Known Performer",
+          candidate: { remoteId: "p-known", name: "Known Performer", existsLocally: false },
+        },
+      ],
+      currentPerformerChoiceKeys: ["remote-performer:p-known"],
+      performerActions: { "remote-performer:p-known": "include" },
+      performerEdits: { added: [], removed: [9] },
+    });
+    const review = buildTaggerReview(reviewInput);
+    expect(review.selection.performers).toEqual(["local:10"]);
+    // Only StashDB: the scraped performer alone.
+    applyTaggerSelectionChange(
+      reviewInput,
+      review.selection,
+      { ...review.selection, performers: ["remote-performer:p-known"] },
+      handlers,
+    );
+    expect(handlers.onCollectionModeChange).toHaveBeenCalledWith("performers", "replace");
+    expect(handlers.onRelationshipEditsChange).toHaveBeenCalledWith("performers", { added: [], removed: [] });
+  });
+  it("stays in Only current when that preset is clicked after a tag was taken off by hand", () => {
+    // Every scraped tag is new and unchosen, so Combine and Only current select the same items. The row
+    // skips tags and the current tag was taken off by hand; "Only current" puts it back.
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn(), onRelationshipEditsChange: vi.fn() };
+    const reviewInput = allNew({ collectionModes: { tags: "skip" }, tagEdits: { added: [], removed: [1] } });
+    const review = buildTaggerReview(reviewInput);
+    expect(review.selection.tags).toEqual([]);
+    applyTaggerSelectionChange(reviewInput, review.selection, { ...review.selection, tags: ["old tag"] }, handlers);
+    expect(handlers.onCollectionModeChange).not.toHaveBeenCalledWith("tags", "merge");
+    expect(handlers.onRelationshipEditsChange).toHaveBeenCalledWith("tags", { added: [], removed: [] });
+  });
+
+  it("keeps the current mode when the selection matches several presets", () => {
+    // Combine and Only current select the same ids when nothing incoming is eligible.
+    expect(modeForSelection(["a"], ["a"], [], "skip")).toBe("skip");
+    expect(modeForSelection(["a"], ["a"], [], "merge")).toBe("merge");
+    expect(modeForSelection(["a"], ["a"], [], "replace")).toBe("merge");
+    expect(modeForSelection(["a", "b"], ["a"], ["b"], "skip")).toBe("merge");
+  });
+
+  it("switches to Combine on a real click after a hand removal while the presets coincide", async () => {
+    // The click runs the selection change and then the explicit preset, as the row does.
+    const onCollectionModeChange = vi.fn();
+    const reviewInput = allNew({
+      collectionModes: { tags: "skip" },
+      tagEdits: { added: [], removed: [1] },
+      onCollectionModeChange,
+    });
+    const review = buildTaggerReview(reviewInput);
+    render(
+      <MetadataDiff
+        fields={review.fields.filter((field) => field.key === "tags")}
+        source={review.source}
+        target={review.target}
+        value={review.selection}
+        onChange={(next) =>
+          applyTaggerSelectionChange(reviewInput, review.selection, next, {
+            onCollectionModeChange,
+            onToggleTag: vi.fn(),
+            onRelationshipEditsChange: vi.fn(),
+          })
+        }
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
+    expect(onCollectionModeChange).toHaveBeenLastCalledWith("tags", "merge");
+  });
+
+  it("still switches Only current to Combine when Combine is clicked and the presets coincide", async () => {
+    const reviewInput = allNew({ collectionModes: { tags: "skip" } });
+    renderTagsRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
+    expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("tags", "merge");
   });
 });
