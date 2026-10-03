@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
 import type { MetadataServerVideoMatch, Video } from "../api/types";
 import {
   applyTaggerSelectionChange,
@@ -242,7 +243,6 @@ describe("VideoTaggerReview", () => {
       ],
       currentPerformerChoiceKeys: ["remote-performer:Known Performer"],
       performerActions: { "remote-performer:known performer": "include" },
-      performerMatchInfo: { "remote-performer:known performer": "Known Performer (alias)" },
       collectionModes: { tags: "skip", performers: "merge" },
     });
     const review = buildTaggerReview(byName);
@@ -265,6 +265,127 @@ describe("VideoTaggerReview", () => {
     );
     expect(handlers.onCollectionModeChange).toHaveBeenCalledWith("tags", "merge");
     expect(handlers.onToggleTag).not.toHaveBeenCalled();
+  });
+});
+
+describe("VideoTaggerReview alias matches", () => {
+  // A scraper returned "Tit Tease", which the library knows as an alias of "Tit Worship", and also
+  // "Tit Worship" itself: both names land on one library tag.
+  const aliased = (overrides: Partial<TaggerReviewInput> = {}) =>
+    input({
+      result: {
+        ...result,
+        tagNames: ["Tit Tease", "Tit Worship", "Brand new tag"],
+        tagCandidates: [
+          { remoteId: "Tit Tease", name: "Tit Tease", existsLocally: true },
+          { remoteId: "Tit Worship", name: "Tit Worship", existsLocally: true },
+          { remoteId: "Brand new tag", name: "Brand new tag", existsLocally: false },
+        ],
+      } as MetadataServerVideoMatch,
+      existingTagNames: ["Tit Tease", "Tit Worship"],
+      tagMatchInfo: { "tit tease": "Tit Worship", "tit worship": "Tit Worship" },
+      tagActions: { "tit tease": "include", "tit worship": "include", "brand new tag": "create" },
+      ...overrides,
+    });
+  const incomingTags = (review: ReturnType<typeof buildTaggerReview>) => review.source.values.tags as ReviewItem[];
+
+  it("labels an alias match with the library tag and merges the names that land on it", () => {
+    const review = buildTaggerReview(aliased());
+    expect(incomingTags(review).map((tag) => [tag.label, tag.scrapedAs ?? []])).toEqual([
+      ["Brand new tag", []],
+      ["Tit Worship", ["Tit Tease"]],
+    ]);
+    const summary = summarizeDiff(review.fields, review.source, review.target, review.selection);
+    expect(summary.changes.map((change) => change.text)).toContain("2 tags added");
+  });
+
+  it("lines an alias match up with the library tag the video already has", () => {
+    const review = buildTaggerReview(
+      aliased({
+        video: { ...video, tags: [...video.tags, { id: 2, name: "Tit Worship" }] } as Video,
+        currentTagNames: ["Old tag", "Tit Worship"],
+        tagActions: { "tit tease": "include", "tit worship": "include", "brand new tag": "create" },
+      }),
+    );
+    expect([...(review.selection.tags as string[])].sort()).toEqual(["brand new tag", "old tag", "tit worship"]);
+    expect((review.target.values.tags as ReviewItem[]).find((tag) => tag.id === "tit worship")?.localId).toBe(2);
+    const summary = summarizeDiff(review.fields, review.source, review.target, review.selection);
+    expect(summary.changes.map((change) => change.text)).toContain("1 tag added");
+  });
+
+  it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {
+    const review = buildTaggerReview(
+      aliased({
+        result: {
+          ...result,
+          tagNames: ["Tit Tease", "tit worship", "TIT WORSHIP"],
+          tagCandidates: [],
+        } as MetadataServerVideoMatch,
+      }),
+    );
+    const tags = review.fields.find((field) => field.key === "tags")!;
+    const [merged] = incomingTags(review);
+    expect(incomingTags(review)).toHaveLength(1);
+    expect(merged.scrapedAs).toEqual(["Tit Tease"]);
+    const { container } = render(<>{tags.renderItem!(merged)}</>);
+    expect(container.textContent).toContain("Tit Worship");
+    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Scraped as “Tit Tease”");
+    const caseOnly = { ...merged, scrapedAs: undefined };
+    expect(render(<>{tags.renderItem!(caseOnly)}</>).container.querySelector("[title]")).toBeNull();
+  });
+
+  it("toggles two spellings of one scraped name once", () => {
+    const handlers = { onToggleTag: vi.fn() };
+    const twice = input({
+      result: { ...result, tagNames: ["Foo", "foo"], tagCandidates: [] } as MetadataServerVideoMatch,
+      tagActions: { foo: "exclude" },
+    });
+    const review = buildTaggerReview(twice);
+    applyTaggerSelectionChange(
+      twice,
+      review.selection,
+      { ...review.selection, tags: [...(review.selection.tags as string[]), "foo"] },
+      handlers,
+    );
+    expect(handlers.onToggleTag).toHaveBeenCalledWith(["Foo"]);
+  });
+
+  it("toggles every scraped name behind a merged chip, only the ones whose state changes", () => {
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn() };
+    const both = aliased();
+    const review = buildTaggerReview(both);
+    applyTaggerSelectionChange(
+      both,
+      review.selection,
+      { ...review.selection, tags: ["old tag", "brand new tag"] },
+      handlers,
+    );
+    expect(handlers.onToggleTag.mock.calls[0][0].sort()).toEqual(["Tit Tease", "Tit Worship"]);
+
+    const partly = aliased({
+      tagActions: { "tit tease": "exclude", "tit worship": "include", "brand new tag": "create" },
+    });
+    const partlyReview = buildTaggerReview(partly);
+    expect(partlyReview.selection.tags).toContain("tit worship");
+    applyTaggerSelectionChange(
+      partly,
+      partlyReview.selection,
+      { ...partlyReview.selection, tags: ["old tag", "brand new tag"] },
+      handlers,
+    );
+    expect(handlers.onToggleTag).toHaveBeenLastCalledWith(["Tit Worship"]);
+
+    const none = aliased({
+      tagActions: { "tit tease": "exclude", "tit worship": "exclude", "brand new tag": "create" },
+    });
+    const noneReview = buildTaggerReview(none);
+    applyTaggerSelectionChange(
+      none,
+      noneReview.selection,
+      { ...noneReview.selection, tags: [...(noneReview.selection.tags as string[]), "tit worship"] },
+      handlers,
+    );
+    expect(handlers.onToggleTag.mock.lastCall![0].sort()).toEqual(["Tit Tease", "Tit Worship"]);
   });
 });
 

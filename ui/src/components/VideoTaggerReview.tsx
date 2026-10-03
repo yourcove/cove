@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Link2, Plus, X } from "lucide-react";
 import type {
   MetadataServer,
   MetadataServerEntityCandidate,
@@ -61,7 +61,6 @@ export interface TaggerReviewInput {
   performerChoices: TaggerPerformerChoice[];
   currentPerformerChoiceKeys: string[];
   performerActions: ScrapeRelationActionMap;
-  performerMatchInfo?: Record<string, string>;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
 }
@@ -81,8 +80,8 @@ export interface ReviewItem {
   id: string;
   label: string;
   isNew: boolean;
-  /** "matched to X" when the scraped name resolved to a differently named existing entity. */
-  hint?: string;
+  /** The scraped names behind this item that differ from its label, which is the library entity's. */
+  scrapedAs?: string[];
   /** The library entity behind this item, when known: the selector edits it by this id. */
   localId?: number;
   /** On the current side (a matched scraped item is on both). */
@@ -116,30 +115,30 @@ const normalize = (value?: string | null) => (value ?? "").trim();
 const byLabel = <T extends { label: string }>(items: T[]) =>
   [...items].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: "base" }));
 
-const item = (id: string, label: string, isNew = false, hint?: string, localId?: number): ReviewItem => ({
+const item = (id: string, label: string, isNew = false, scrapedAs?: string[], localId?: number): ReviewItem => ({
   id,
   label,
   isNew,
-  hint,
+  scrapedAs: scrapedAs?.length ? scrapedAs : undefined,
   localId,
 });
 const itemKey = (value: unknown) => (value as ReviewItem).id;
 const itemLabel = (value: unknown) => (value as ReviewItem).label;
 const itemIsNew = (value: unknown) => (value as ReviewItem).isNew;
+const scrapedAsTitle = (entry: ReviewItem) =>
+  entry.scrapedAs ? `Scraped as ${entry.scrapedAs.map((name) => `“${name}”`).join(", ")}` : undefined;
+// The library name leads, since that is the tag the video gets; the scraped spelling is a hover away.
 const renderItem = (value: unknown) => {
   const entry = value as ReviewItem;
-  return entry.hint ? (
-    <span className="inline-flex items-center gap-1">
+  return entry.scrapedAs ? (
+    <span className="inline-flex items-center gap-1" title={scrapedAsTitle(entry)}>
       {entry.label}
-      <span className="text-muted">· matched to {entry.hint}</span>
+      <Link2 className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+      <span className="sr-only">({scrapedAsTitle(entry)})</span>
     </span>
   ) : (
     entry.label
   );
-};
-const matchHint = (info: Record<string, string> | undefined, id: string, label: string) => {
-  const matched = info?.[id];
-  return matched && relationKey(matched) !== relationKey(label) ? matched : undefined;
 };
 
 /** The ids a collection mode selects, given what each side has. */
@@ -189,21 +188,39 @@ function tagItems(input: TaggerReviewInput) {
   const currentIds = new Set(current.map((tag) => tag.id));
   const existing = new Set(input.existingTagNames.map(relationKey));
   const candidates = new Map(input.result.tagCandidates.map((candidate) => [relationKey(candidate.name), candidate]));
+  // A scraped name that resolved through an alias is shown as the library tag it lands on, so the
+  // names landing on one tag are one item, and one landing on a current tag is that current item.
+  const groups = new Map<string, { label: string; names: string[] }>();
+  for (const name of input.result.tagNames) {
+    const label = input.tagMatchInfo?.[relationKey(name)] ?? name;
+    const id = relationKey(label);
+    const group = groups.get(id);
+    // Two spellings of one name are one tag; toggling both would flip it twice.
+    if (group?.names.some((known) => relationKey(known) === relationKey(name))) continue;
+    if (group) group.names.push(name);
+    else groups.set(id, { label, names: [name] });
+  }
   const incoming = byLabel(
-    input.result.tagNames.map((name) => {
-      const id = relationKey(name);
-      const candidate = candidates.get(id);
+    [...groups].map(([id, { label, names }]) => {
+      const localId = names.map((name) => candidates.get(relationKey(name))?.localId).find((value) => value != null);
       return item(
         id,
-        name,
-        !currentIds.has(id) && !existing.has(id),
-        matchHint(input.tagMatchInfo, id, name),
-        candidate?.localId ?? localIds.get(id),
+        label,
+        !currentIds.has(id) && !names.some((name) => existing.has(relationKey(name))),
+        names.filter((name) => relationKey(name) !== id),
+        localId ?? localIds.get(id),
       );
     }),
   );
-  const included = incoming.filter((tag) => input.tagActions[tag.id] !== "exclude").map((tag) => tag.id);
-  return { current, incoming, included, names: new Map(incoming.map((tag) => [tag.id, tag.label])) };
+  const nameIncluded = (name: string) => input.tagActions[relationKey(name)] !== "exclude";
+  const included = [...groups].filter(([, group]) => group.names.some(nameIncluded)).map(([id]) => id);
+  // Flipping an item flips only the names behind it that are not already on its new side.
+  const namesToToggle = (id: string) => {
+    const names = groups.get(id)?.names ?? [];
+    const wasIncluded = names.some(nameIncluded);
+    return names.filter((name) => nameIncluded(name) === wasIncluded);
+  };
+  return { current, incoming, included, namesToToggle };
 }
 
 const performerIdentity = (performer: { name: string; disambiguation?: string | null }) =>
@@ -219,7 +236,7 @@ function performerItems(input: TaggerReviewInput) {
       relationKey(choice.key),
       choice.label,
       !choice.candidate.existsLocally,
-      matchHint(input.performerMatchInfo, relationKey(choice.key), choice.label),
+      undefined,
       choice.candidate.localId ?? byIdentity.get(relationKey(performerIdentity(choice.candidate))),
     ),
     choiceKey: choice.key,
@@ -603,8 +620,7 @@ export function applyTaggerSelectionChange(
     "tags",
     tags.current,
     tags.incoming,
-    (ids) =>
-      handlers.onToggleTag?.(ids.map((id) => tags.names.get(id)).filter((name): name is string => Boolean(name))),
+    (ids) => handlers.onToggleTag?.(ids.flatMap(tags.namesToToggle)),
     input.tagEdits,
   );
   const performers = performerItems(input);

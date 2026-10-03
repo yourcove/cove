@@ -1698,7 +1698,6 @@ function TaggerVideoRow({
     [resolvedRelations],
   );
   const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
-  const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
   const allowedGenderKeys = useMemo(
     () => buildAllowedGenderKeys(taggerConfig.performerGenders),
     [taggerConfig.performerGenders],
@@ -2178,7 +2177,6 @@ function TaggerVideoRow({
               video={video}
               results={enrichedResults ?? state.results}
               tagMatchInfo={tagMatchInfo}
-              performerMatchInfo={performerMatchInfo}
               selectedIndex={state.selectedIndex ?? 0}
               onSelect={(i) =>
                 onUpdateState(
@@ -2297,7 +2295,6 @@ interface TaggerResultsProps {
   video: Video;
   results: UnifiedVideoMatch[];
   tagMatchInfo?: Record<string, string>;
-  performerMatchInfo?: Record<string, string>;
   selectedIndex: number;
   onSelect: (index: number) => void;
   onSave: () => void;
@@ -2329,7 +2326,6 @@ function TaggerResults({
   video,
   results,
   tagMatchInfo,
-  performerMatchInfo,
   selectedIndex,
   onSelect,
   onSave,
@@ -2362,7 +2358,6 @@ function TaggerResults({
       video={video}
       result={result}
       tagMatchInfo={tagMatchInfo}
-      performerMatchInfo={performerMatchInfo}
       isSelected={i === current}
       showSelector={results.length > 1}
       onClick={() => onSelect(i)}
@@ -2412,7 +2407,6 @@ function TaggerResultRow({
   video,
   result,
   tagMatchInfo,
-  performerMatchInfo,
   isSelected,
   showSelector,
   onClick,
@@ -2439,7 +2433,6 @@ function TaggerResultRow({
   video: Video;
   result: MetadataServerVideoMatch;
   tagMatchInfo?: Record<string, string>;
-  performerMatchInfo?: Record<string, string>;
   isSelected: boolean;
   showSelector: boolean;
   onClick: () => void;
@@ -2518,7 +2511,6 @@ function TaggerResultRow({
     performerChoices,
     currentPerformerChoiceKeys,
     performerActions,
-    performerMatchInfo,
     tagEdits,
     performerEdits,
   };
