@@ -807,7 +807,7 @@ function ExtensionDashboardWidgetHost({
   widget: DashboardWidget;
   onNavigate: (route: any) => void;
 }) {
-  const { manifest, resolveComponent, getExtensionRevision } = useExtensions();
+  const { manifest, extensionsSettling, resolveComponent, getExtensionRevision } = useExtensions();
   const { hasPermission } = useAuth();
   const safeConfiguration = useMemo(() => cloneJsonConfiguration(widget.configuration), [widget.configuration]);
 
@@ -821,7 +821,18 @@ function ExtensionDashboardWidgetHost({
     canAccessExtensionContribution(definition, hasPermission)
       ? resolveComponent(definition.extensionId, definition.componentName)
       : undefined;
-  if (!definition || !Component) return <UnavailableWidget widget={widget} />;
+  if (!definition || !Component) {
+    // Extension modules can still be importing after the dashboard renders; only call a widget
+    // unavailable once they have settled.
+    if (extensionsSettling) {
+      return (
+        <div role="status" aria-busy="true" className="min-h-24 rounded-lg bg-card motion-safe:animate-pulse">
+          <span className="sr-only">Loading widget</span>
+        </div>
+      );
+    }
+    return <UnavailableWidget widget={widget} />;
+  }
 
   return (
     <div

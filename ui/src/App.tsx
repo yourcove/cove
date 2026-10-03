@@ -55,6 +55,42 @@ function normalizeRoute(route: Route): Route {
   return route;
 }
 
+// Every page AppRoutes renders itself, so a route can be told apart from an extension's before the
+// manifest arrives. Keep in step with the "Built-in pages" block at the end of AppRoutes.
+const BUILT_IN_PAGES = new Set<string>([
+  "home",
+  "dashboard",
+  "manual",
+  "videos",
+  "video",
+  "audios",
+  "audio",
+  "texts",
+  "text",
+  "video-span",
+  "segments",
+  "segment",
+  "faces",
+  "face",
+  "performers",
+  "performer",
+  "studios",
+  "studio",
+  "tags",
+  "tag",
+  "galleries",
+  "gallery",
+  "groups",
+  "group",
+  "compilation",
+  "images",
+  "image",
+  "settings",
+  "stats",
+  "duplicates",
+  "videoparser",
+]);
+
 const BUILTIN_ROUTE_PERMISSIONS: Partial<Record<Route["page"], string>> = {
   videos: "videos.read",
   video: "videos.read",
@@ -571,12 +607,22 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
 
 export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
   const { routes } = useRouteRegistry();
-  const { getPageOverride, resolveComponent, manifest } = useExtensions();
+  const { getPageOverride, resolveComponent, manifest, isPageAwaitingExtensions } = useExtensions();
   const { hasPermission } = useAuth();
 
   const requiredPermission = BUILTIN_ROUTE_PERMISSIONS[route.page];
   if (requiredPermission && !hasPermission(requiredPermission)) {
     return <AccessDeniedPage navigate={navigate} />;
+  }
+
+  // The shell renders before extension modules finish importing; hold a page an extension provides
+  // or overrides rather than flash the built-in page or nothing in its place.
+  if (isPageAwaitingExtensions(route.page, BUILT_IN_PAGES.has(route.page))) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+      </div>
+    );
   }
 
   // 1. Check for page overrides (extension replaces a built-in page)

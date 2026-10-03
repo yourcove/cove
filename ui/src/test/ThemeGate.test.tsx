@@ -1,8 +1,8 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ loaded: false }));
-vi.mock("../extensions/ExtensionLoader", () => ({ useExtensions: () => ({ loaded: state.loaded }) }));
+const state = vi.hoisted(() => ({ themeReady: false }));
+vi.mock("../extensions/ExtensionLoader", () => ({ useExtensions: () => ({ themeReady: state.themeReady }) }));
 
 async function renderGate() {
   // The gate reads the painted state once, at module scope, so set the DOM up before importing.
@@ -23,7 +23,7 @@ function paintBootedLook() {
 
 describe("ThemeGate", () => {
   beforeEach(() => {
-    state.loaded = false;
+    state.themeReady = false;
     vi.useRealTimers();
   });
 
@@ -40,7 +40,7 @@ describe("ThemeGate", () => {
   });
 
   it("releases the app once the extension manifest settles", async () => {
-    state.loaded = true;
+    state.themeReady = true;
     await renderGate();
 
     expect(screen.getByTestId("app")).toBeInTheDocument();
@@ -54,14 +54,13 @@ describe("ThemeGate", () => {
     expect(screen.getByTestId("app")).toBeInTheDocument();
   });
 
-  // The gate latches: `loaded` goes false again on every refetch, and re-closing would unmount the
-  // app below and lose player and queue state.
+  // The gate latches: re-closing it would unmount the app below and lose player and queue state.
   it("stays open once the theme has settled", async () => {
-    state.loaded = true;
+    state.themeReady = true;
     await renderGate();
     expect(screen.getByTestId("app")).toBeInTheDocument();
 
-    state.loaded = false;
+    state.themeReady = false;
     await act(async () => {
       window.dispatchEvent(new Event("resize"));
     });

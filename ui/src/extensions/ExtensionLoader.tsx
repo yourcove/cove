@@ -99,12 +99,54 @@ function createRuntimeOwnerId() {
   return globalThis.crypto?.randomUUID?.() ?? `cove-extension-runtime-${++runtimeOwnerSequence}`;
 }
 
+// Bundles import all-or-nothing before any registers, so one that hangs would hold every
+// extension page and widget. Past this, they fall back to what they show without extensions.
+const EXTENSION_SETTLE_TIMEOUT_MS = 4000;
+
+// Built-in pages extensions overrode on the last load, so a returning user's next load can hold
+// them before the manifest says so, rather than render (and fetch for) the page being replaced.
+const PAGE_OVERRIDE_CACHE_KEY = "cove-extension-page-overrides";
+
+function readCachedOverriddenPages(userId: string | null): Set<string> {
+  try {
+    const cached = JSON.parse(localStorage.getItem(PAGE_OVERRIDE_CACHE_KEY) ?? "null") as {
+      u?: unknown;
+      pages?: unknown;
+    } | null;
+    if (!cached || cached.u !== userId || !Array.isArray(cached.pages)) return new Set();
+    return new Set(cached.pages.filter((page): page is string => typeof page === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCachedOverriddenPages(userId: string | null, pages: string[]) {
+  try {
+    if (pages.length === 0) localStorage.removeItem(PAGE_OVERRIDE_CACHE_KEY);
+    else localStorage.setItem(PAGE_OVERRIDE_CACHE_KEY, JSON.stringify({ u: userId, pages }));
+  } catch {
+    // Storage is an optimisation here; without it the override is just not known until the manifest.
+  }
+}
+
 // ============================================================================
 // Extension context — everything the UI needs from the extension system
 // ============================================================================
 interface ExtensionState {
   manifest: ExtensionManifest | null;
   loaded: boolean;
+  /**
+   * True once the theme is known: the manifest has been fetched, or loading settled without one.
+   * Extension modules may still be importing, so contributions can keep arriving after this.
+   */
+  themeReady: boolean;
+  /**
+   * True while extension modules are still importing, until they settle or a timeout gives up on
+   * them. Contributions that need a module should hold rather than report themselves unavailable.
+   */
+  extensionsSettling: boolean;
+  /** True while a page this route resolves to may still be contributed by an extension module. */
+  isPageAwaitingExtensions: (page: string, isBuiltInPage: boolean) => boolean;
   error?: string;
   loadFailures: ExtensionRuntimeFailure[];
   retryFailedExtensions: () => Promise<void>;
@@ -159,6 +201,9 @@ interface ExtensionState {
 const ExtensionContext = createContext<ExtensionState>({
   manifest: null,
   loaded: false,
+  themeReady: false,
+  extensionsSettling: false,
+  isPageAwaitingExtensions: () => false,
   loadFailures: [],
   retryFailedExtensions: async () => {},
   refreshManifest: async () => null,
@@ -372,6 +417,15 @@ export function ExtensionLoaderProvider({
   );
   const [manifest, setManifest] = useState<ExtensionManifest | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // The fetched manifest before its browser bundles finish importing. Themes are declarative, so the
+  // look can be painted from this while modules load; everything else waits for `manifest`.
+  const [fetchedManifest, setFetchedManifest] = useState<ExtensionManifest | null>(null);
+  const themeManifest = manifest ?? fetchedManifest;
+  const hasThemeManifest = themeManifest !== null;
+  const [extensionsOverdue, setExtensionsOverdue] = useState(false);
+  if (loaded && extensionsOverdue) setExtensionsOverdue(false);
+  const extensionsSettling = !loaded && !extensionsOverdue;
+  const [cachedOverriddenPages] = useState(() => readCachedOverriddenPages(user?.id ?? null));
   const [error, setError] = useState<string | undefined>();
   const [loadFailures, setLoadFailures] = useState<ExtensionRuntimeFailure[]>([]);
   const sourceManifest = useRef<ExtensionManifest | null>(null);
@@ -437,19 +491,20 @@ export function ExtensionLoaderProvider({
     () => userThemePreferences?.customThemeColors ?? readStoredThemeColors(),
   );
   const availableThemes = useMemo(() => {
-    const manifestThemes = manifest?.themes ?? [];
+    const manifestThemes = themeManifest?.themes ?? [];
     return manifestThemes.some((theme) => theme.id === FALLBACK_DEFAULT_THEME.id)
       ? manifestThemes
       : [FALLBACK_DEFAULT_THEME, ...manifestThemes];
-  }, [manifest]);
-  const selectedTheme = useMemo(
-    () =>
-      activeThemeId && activeThemeId !== "custom"
-        ? (availableThemes.find((theme) => theme.id === activeThemeId) ??
-          (activeThemeId === FALLBACK_DEFAULT_THEME.id ? FALLBACK_DEFAULT_THEME : null))
-        : null,
-    [activeThemeId, availableThemes],
-  );
+  }, [themeManifest]);
+  const resolvedSelectedTheme =
+    activeThemeId && activeThemeId !== "custom"
+      ? (availableThemes.find((theme) => theme.id === activeThemeId) ??
+        (activeThemeId === FALLBACK_DEFAULT_THEME.id ? FALLBACK_DEFAULT_THEME : null))
+      : null;
+  // The fetched and the reconciled manifest are different objects describing the same theme. Key on
+  // its content so swapping one for the other does not tear down and re-add the theme's stylesheet.
+  const selectedThemeJson = JSON.stringify(resolvedSelectedTheme);
+  const selectedTheme = useMemo(() => JSON.parse(selectedThemeJson) as ExtensionThemeDef | null, [selectedThemeJson]);
   const hasUserComponentStyleOverride = useMemo(
     () =>
       hasServerBackedUiPreferences
@@ -638,6 +693,7 @@ export function ExtensionLoaderProvider({
           legacyBundleActive.current = false;
           removeExtensionBundleStyles(runtimeOwnerId);
           setManifest(null);
+          setFetchedManifest(null);
           sourceManifest.current = null;
           setLoadFailures([]);
           setError(undefined);
@@ -660,10 +716,13 @@ export function ExtensionLoaderProvider({
       try {
         const nextManifest = await extensions.getManifest();
         if (cancelled) return;
-        await applyManifest(nextManifest, requestGeneration);
-        if (!cancelled) setLoaded(true);
+        if (requestGeneration === manifestRequestGeneration.current) setFetchedManifest(nextManifest);
+        const applied = await applyManifest(nextManifest, requestGeneration);
+        // A refresh that overtook this load owns `loaded`; settling here would report a runtime
+        // with no manifest as loaded until that refresh lands.
+        if (!cancelled && (applied || requestGeneration === manifestRequestGeneration.current)) setLoaded(true);
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && requestGeneration === manifestRequestGeneration.current) {
           setError(err instanceof Error ? err.message : "Failed to load extensions");
           setLoaded(true);
         }
@@ -674,6 +733,19 @@ export function ExtensionLoaderProvider({
       cancelled = true;
     };
   }, [applyManifest, runtimeOwnerId, runtimeReconciler, troubleshootingMode]);
+
+  useEffect(() => {
+    if (loaded) return;
+    const timer = window.setTimeout(() => setExtensionsOverdue(true), EXTENSION_SETTLE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [loaded]);
+
+  useEffect(() => {
+    if (!manifest || troubleshootingMode) return;
+    writeCachedOverriddenPages(user?.id ?? null, [
+      ...new Set((manifest.pageOverrides ?? []).map((override) => override.targetPage)),
+    ]);
+  }, [manifest, troubleshootingMode, user?.id]);
 
   // Layout cleanup runs before the declarative route/slot cleanup below. On
   // provider unmount this lets lifecycle hooks finish before their registrations
@@ -792,7 +864,7 @@ export function ExtensionLoaderProvider({
     customThemeColors: Record<string, string>;
     hasUserComponentStyleOverride: boolean;
     hasUserLayoutStyleOverride: boolean;
-    manifest: ExtensionManifest | null;
+    hasThemeManifest: boolean;
     selectedTheme: typeof selectedTheme;
     troubleshootingMode: boolean;
   } | null>(null);
@@ -802,7 +874,7 @@ export function ExtensionLoaderProvider({
     prevThemeInputs.customThemeColors !== customThemeColors ||
     prevThemeInputs.hasUserComponentStyleOverride !== hasUserComponentStyleOverride ||
     prevThemeInputs.hasUserLayoutStyleOverride !== hasUserLayoutStyleOverride ||
-    prevThemeInputs.manifest !== manifest ||
+    prevThemeInputs.hasThemeManifest !== hasThemeManifest ||
     prevThemeInputs.selectedTheme !== selectedTheme ||
     prevThemeInputs.troubleshootingMode !== troubleshootingMode
   ) {
@@ -811,11 +883,11 @@ export function ExtensionLoaderProvider({
       customThemeColors,
       hasUserComponentStyleOverride,
       hasUserLayoutStyleOverride,
-      manifest,
+      hasThemeManifest,
       selectedTheme,
       troubleshootingMode,
     });
-    if (manifest && !troubleshootingMode && activeThemeId && activeThemeId !== "custom" && selectedTheme) {
+    if (hasThemeManifest && !troubleshootingMode && activeThemeId && activeThemeId !== "custom" && selectedTheme) {
       if (!hasUserComponentStyleOverride) {
         setActiveComponentStylesState(parseStyleSet(selectedTheme.componentStyle ?? "default"));
       }
@@ -827,12 +899,22 @@ export function ExtensionLoaderProvider({
 
   // Apply active theme CSS variables
   useEffect(() => {
-    if (!manifest || troubleshootingMode) return;
+    if (!hasThemeManifest || troubleshootingMode) return;
 
     const existingStyle = document.getElementById("cove-theme-override");
     if (existingStyle) existingStyle.remove();
+    // The boot script may already have linked this theme's stylesheet; keep that link rather than
+    // re-adding it, which would leave a frame without the theme's CSS.
+    const targetCssUrl =
+      activeThemeId && activeThemeId !== "custom" && selectedTheme?.cssUrl
+        ? new URL(selectedTheme.cssUrl, document.baseURI).href
+        : undefined;
     const existingLink = document.getElementById("cove-theme-css");
-    if (existingLink) existingLink.remove();
+    if (existingLink && (!(existingLink instanceof HTMLLinkElement) || existingLink.href !== targetCssUrl)) {
+      existingLink.remove();
+    } else {
+      existingLink?.removeAttribute("data-cove-boot");
+    }
 
     // Handle custom theme
     if (activeThemeId === "custom") {
@@ -881,7 +963,7 @@ export function ExtensionLoaderProvider({
       document.head.appendChild(style);
     }
 
-    if (theme.cssUrl) {
+    if (theme.cssUrl && !document.getElementById("cove-theme-css")) {
       const link = document.createElement("link");
       link.id = "cove-theme-css";
       link.rel = "stylesheet";
@@ -915,7 +997,7 @@ export function ExtensionLoaderProvider({
     customThemeColors,
     hasUserComponentStyleOverride,
     hasUserLayoutStyleOverride,
-    manifest,
+    hasThemeManifest,
     selectedTheme,
     troubleshootingMode,
   ]);
@@ -1029,6 +1111,21 @@ export function ExtensionLoaderProvider({
     [hasPermission, manifest],
   );
 
+  const themeReady = loaded || fetchedManifest !== null;
+  const isPageAwaitingExtensions = useCallback(
+    (page: string, isBuiltInPage: boolean) => {
+      if (!extensionsSettling) return false;
+      // Before the manifest arrives only a built-in page is known to exist, and only one that was not
+      // overridden last time is known to stay as it is.
+      if (!fetchedManifest) return !isBuiltInPage || cachedOverriddenPages.has(page);
+      return (
+        (fetchedManifest.pages ?? []).some((p) => p.route === page) ||
+        (fetchedManifest.pageOverrides ?? []).some((o) => o.targetPage === page)
+      );
+    },
+    [cachedOverriddenPages, extensionsSettling, fetchedManifest],
+  );
+
   const getPageOverride = useCallback(
     (targetPage: string) => {
       const overrides = manifest?.pageOverrides.filter((o) => o.targetPage === targetPage) ?? [];
@@ -1122,12 +1219,15 @@ export function ExtensionLoaderProvider({
     const requestGeneration = ++manifestRequestGeneration.current;
     try {
       const nextManifest = await extensions.getManifest();
+      if (requestGeneration === manifestRequestGeneration.current) setFetchedManifest(nextManifest);
       const appliedManifest = await applyManifest(nextManifest, requestGeneration);
       if (appliedManifest) setLoaded(true);
       return appliedManifest;
     } catch (err) {
       console.warn("[ExtensionLoader] Failed to refresh manifest:", err);
       setError(err instanceof Error ? err.message : "Failed to refresh extensions");
+      // If this refresh overtook the initial load, nothing else will settle the runtime.
+      if (requestGeneration === manifestRequestGeneration.current) setLoaded(true);
       return null;
     }
   }, [applyManifest, troubleshootingMode]);
@@ -1152,6 +1252,9 @@ export function ExtensionLoaderProvider({
         value={{
           manifest,
           loaded,
+          themeReady,
+          extensionsSettling,
+          isPageAwaitingExtensions,
           refreshManifest,
           error,
           loadFailures,

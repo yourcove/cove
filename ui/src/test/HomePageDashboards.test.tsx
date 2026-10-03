@@ -26,6 +26,8 @@ const { state, mocks } = vi.hoisted(() => ({
       defaultPresentation?: "flow" | "canvas";
     }>,
     extensionComponents: {} as Record<string, (props: any) => React.ReactNode>,
+    extensionsLoaded: true,
+    pagesAwaitingExtensions: [] as string[],
     savedFilters: [] as Array<{
       id: number;
       name: string;
@@ -121,6 +123,9 @@ vi.mock("../utils/userUiPreferences", () => ({
 vi.mock("../extensions/ExtensionLoader", () => ({
   useExtensions: () => ({
     manifest: { dashboardWidgets: state.dashboardDefinitions, pages: [] },
+    loaded: state.extensionsLoaded,
+    extensionsSettling: !state.extensionsLoaded,
+    isPageAwaitingExtensions: (page: string) => state.pagesAwaitingExtensions.includes(page),
     resolveComponent: (_extensionId: string, componentName: string) => state.extensionComponents[componentName],
     getExtensionRevision: () => 0,
     getPageOverride: () => undefined,
@@ -171,6 +176,8 @@ describe("HomePage dashboards", () => {
     state.userId = "7";
     state.dashboardDefinitions = [];
     state.extensionComponents = {};
+    state.extensionsLoaded = true;
+    state.pagesAwaitingExtensions = [];
     state.savedFilters = [];
     state.dashboards = [summary(1, "Home", true)];
     state.active = dashboard(1, "Home", true);
@@ -881,6 +888,27 @@ describe("HomePage dashboards", () => {
     expect(screen.getByText(/Configuration has been preserved/)).toBeInTheDocument();
   });
 
+  // The dashboard can render before extension modules finish importing; their widgets are pending,
+  // not unavailable.
+  it("holds a placeholder for an extension widget while extension modules are still loading", async () => {
+    state.extensionsLoaded = false;
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "pulse-1",
+        owner: "example.extension",
+        widgetKey: "pulse",
+        label: "Library Pulse",
+        configuration: {},
+      },
+    ]);
+
+    renderHome();
+
+    await screen.findByRole("button", { name: /Customize/ });
+    expect(screen.getByText("Loading widget").closest('[role="status"][aria-busy="true"]')).not.toBeNull();
+    expect(screen.queryByText(/Configuration has been preserved/)).toBeNull();
+  });
+
   it("does not duplicate a single-instance extension widget", async () => {
     state.dashboardDefinitions = [
       {
@@ -1400,6 +1428,22 @@ describe("HomePage dashboards", () => {
         widgets: [expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })],
       }),
     );
+  });
+
+  // An extension that overrides a built-in page must not have the built-in page flash in first.
+  it("holds a page an extension is still loading instead of rendering the built-in page", async () => {
+    state.pagesAwaitingExtensions = ["home"];
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouteRegistryProvider>
+          <AppRoutes route={{ page: "home" }} navigate={vi.fn()} />
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Customize/ })).toBeNull();
+    expect(mocks.list).not.toHaveBeenCalled();
   });
 
   it("creates another personal dashboard and opens it for editing", async () => {
