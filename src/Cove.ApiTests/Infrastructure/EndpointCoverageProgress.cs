@@ -4,7 +4,7 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 531;
+    public const int ExpectedMappedEndpoints = 532;
 
     public const int ExpectedTemporarilyUnmappedEndpoints = 9;
 

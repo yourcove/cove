@@ -65,6 +65,8 @@ const { state, mocks } = vi.hoisted(() => ({
     bootstrap: vi.fn(),
     list: vi.fn(),
     get: vi.fn(),
+    view: vi.fn(),
+    viewSavedFilters: [] as unknown[],
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -100,6 +102,7 @@ vi.mock("../api/client", () => ({
     bootstrap: mocks.bootstrap,
     list: mocks.list,
     get: mocks.get,
+    view: mocks.view,
     create: mocks.create,
     update: mocks.update,
     duplicate: vi.fn(),
@@ -189,6 +192,20 @@ describe("HomePage dashboards", () => {
       return state.active;
     });
     mocks.list.mockImplementation(async () => state.dashboards);
+    // The view endpoint answers what list + get answered, so tests can keep steering those.
+    mocks.viewSavedFilters = [];
+    mocks.view.mockImplementation(async (id?: number) => {
+      const list = (await mocks.list()) as Array<{ id: number; isDefault: boolean }>;
+      const fallback = list.find((item) => item.isDefault) ?? list[0];
+      const requested = id == null ? fallback : list.find((item) => item.id === id);
+      const shown = requested ?? fallback;
+      return {
+        dashboards: list,
+        dashboard: shown ? await mocks.get(shown.id) : null,
+        requestedFound: requested != null,
+        savedFilters: mocks.viewSavedFilters,
+      };
+    });
     mocks.get.mockImplementation(async (id: number) => {
       if (state.active?.id === id) return state.active;
       throw new Error("Dashboard not found");
@@ -438,6 +455,52 @@ describe("HomePage dashboards", () => {
 
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.groupGet).toHaveBeenCalledTimes(2));
+  });
+
+  it("starts a saved-filter row from the filter the dashboard view carried, without fetching it again", async () => {
+    mocks.viewSavedFilters = [
+      { id: 5, name: "Embedded filter", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+    ];
+    mocks.videosFind.mockResolvedValue({
+      items: [{ id: 101, title: "Embedded video", files: [], tags: [], performers: [] }],
+      totalCount: 1,
+    });
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    // As in the app, whose queries stay fresh for 30 seconds.
+    renderHome(
+      vi.fn(),
+      undefined,
+      new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
+    );
+
+    expect(await screen.findByText("Embedded video")).toBeInTheDocument();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+    expect(mocks.savedFilterGet).not.toHaveBeenCalled();
+  });
+
+  it("still fetches a saved filter the dashboard view left out", async () => {
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    renderHome();
+
+    await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledWith(5));
   });
 
   it("shows and retries a failed built-in collection widget", async () => {

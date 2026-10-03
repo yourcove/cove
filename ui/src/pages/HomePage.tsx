@@ -100,6 +100,7 @@ import {
 } from "./segments/derivedQueryCriterion";
 import { readMultiIdCriterionDepth, readMultiIdCriterionIds } from "./segments/segmentCriteriaDefinitions";
 import { isApiNotFoundError } from "../utils/queryLoadState";
+import { dashboardPageQueryKey, loadDashboardPage, savedFilterQueryKey } from "./dashboardPageQuery";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -429,6 +430,22 @@ function cardShapeForMode(mode: FilterMode): RecommendationCardShape {
   }
 }
 
+/**
+ * The layout an account without a dashboard is bootstrapped from: the home-page rows it stored before
+ * dashboards existed, with Continue Watching resolved only when that layout uses it.
+ */
+export async function buildLegacyDashboardWidgets(): Promise<DashboardWidget[]> {
+  const continueWatching = storedContentNeedsContinueWatching()
+    ? await resolveBuiltInGroup(CONTINUE_WATCHING_SOURCE_KEY)
+    : null;
+  return loadContent(continueWatching?.id ?? null).map((content) =>
+    contentToWidget(
+      content,
+      content.type === "group" && content.groupId === continueWatching?.id ? continueWatching.name : undefined,
+    ),
+  );
+}
+
 // ─── Home Page Component ─────────────────────────────────────────────────────
 
 interface Props {
@@ -442,55 +459,8 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   const [editingDashboard, setEditingDashboard] = useState<{ id: number; selectName: boolean } | null>(null);
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard-page", principalKey, dashboardId ?? "default"],
-    queryFn: async () => {
-      const buildLegacyWidgets = async () => {
-        const continueWatching = storedContentNeedsContinueWatching()
-          ? await resolveBuiltInGroup(CONTINUE_WATCHING_SOURCE_KEY)
-          : null;
-        return loadContent(continueWatching?.id ?? null).map((content) =>
-          contentToWidget(
-            content,
-            content.type === "group" && content.groupId === continueWatching?.id ? continueWatching.name : undefined,
-          ),
-        );
-      };
-      try {
-        // Only a first-time bootstrap needs the locally stored layout, so the group lookup it
-        // depends on is skipped once the account has a dashboard.
-        let list = await dashboards.list();
-        if (list.length === 0) {
-          await dashboards.bootstrap(await buildLegacyWidgets());
-          list = await dashboards.list();
-        }
-        const requested =
-          dashboardId == null
-            ? (list.find((item) => item.isDefault) ?? list[0])
-            : list.find((item) => item.id === dashboardId);
-        const fallback = list.find((item) => item.isDefault) ?? list[0];
-        if (!fallback) throw new Error("No dashboard is available.");
-        return {
-          list,
-          dashboard: await dashboards.get((requested ?? fallback).id),
-          missingRequested: dashboardId != null && !requested,
-          readOnly: false,
-        };
-      } catch (error) {
-        // Anonymous and share-link principals have no personal storage. Preserve their existing
-        // home experience as a local, read-only standard dashboard.
-        if (!(error instanceof Error) || !error.message.includes("API Error 401")) throw error;
-        const standard: Dashboard = {
-          id: 0,
-          name: "Standard",
-          isDefault: true,
-          version: 1,
-          createdAt: "",
-          updatedAt: "",
-          widgets: await buildLegacyWidgets(),
-        };
-        return { list: [standard], dashboard: standard, missingRequested: dashboardId != null, readOnly: true };
-      }
-    },
+    queryKey: dashboardPageQueryKey(principalKey, dashboardId),
+    queryFn: () => loadDashboardPage(queryClient, principalKey, dashboardId, buildLegacyDashboardWidgets),
   });
 
   useEffect(() => {
@@ -2164,7 +2134,7 @@ function SavedFilterRecommendationRow({
       ? normalizedFallbackLabel
       : `Saved filter #${savedFilterId}`;
   const filterQuery = useQuery({
-    queryKey: ["saved-filter", principalKey, savedFilterId],
+    queryKey: savedFilterQueryKey(principalKey, savedFilterId),
     queryFn: () => savedFilters.get(savedFilterId),
   });
   const filter = filterQuery.data;
