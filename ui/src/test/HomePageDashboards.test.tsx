@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AppRoutes } from "../App";
 import { getCarouselPageDestinations, getWidgetRevealScrollDelta, HomePage } from "../pages/HomePage";
+import { prefetchDashboardPage } from "../pages/dashboardPageQuery";
 import { navigateToUrl } from "../router/location";
 import type { Route } from "../router/location";
 import { RouteRegistryProvider } from "../router/RouteRegistry";
@@ -485,6 +486,67 @@ describe("HomePage dashboards", () => {
     expect(await screen.findByText("Embedded video")).toBeInTheDocument();
     expect(mocks.view).toHaveBeenCalledTimes(1);
     expect(mocks.savedFilterGet).not.toHaveBeenCalled();
+  });
+
+  it("joins a dashboard prefetch that sign-in started instead of loading the dashboard again", async () => {
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const viewImplementation = mocks.view.getMockImplementation()!;
+    mocks.view.mockImplementation(async (id?: number) => {
+      await answered;
+      return viewImplementation(id);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    renderHome(vi.fn(), undefined, client);
+    answer();
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+  });
+
+  it("never creates a dashboard from a prefetch, and creates it once the page renders", async () => {
+    state.dashboards = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    await waitFor(() => expect(client.getQueryState(["dashboard-page", "user:7", "default"])?.status).toBe("error"));
+    expect(mocks.bootstrap).not.toHaveBeenCalled();
+    expect(mocks.view).toHaveBeenCalledTimes(1);
+
+    renderHome(vi.fn(), undefined, client);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.bootstrap).toHaveBeenCalledOnce();
+  });
+
+  it("creates the first dashboard when the page joins a prefetch still in flight", async () => {
+    state.dashboards = [];
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const viewImplementation = mocks.view.getMockImplementation()!;
+    mocks.view.mockImplementation(async (id?: number) => {
+      await answered;
+      return viewImplementation(id);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+
+    prefetchDashboardPage(client, "user:7");
+    renderHome(vi.fn(), undefined, client);
+    await waitFor(() =>
+      expect(
+        client
+          .getQueryCache()
+          .find({ queryKey: ["dashboard-page", "user:7", "default"] })
+          ?.getObserversCount(),
+      ).toBe(1),
+    );
+    answer();
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(mocks.bootstrap).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/created when the page that shows it renders/)).not.toBeInTheDocument();
   });
 
   it("still fetches a saved filter the dashboard view left out", async () => {

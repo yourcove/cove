@@ -100,7 +100,12 @@ import {
 } from "./segments/derivedQueryCriterion";
 import { readMultiIdCriterionDepth, readMultiIdCriterionIds } from "./segments/segmentCriteriaDefinitions";
 import { isApiNotFoundError } from "../utils/queryLoadState";
-import { dashboardPageQueryKey, loadDashboardPage, savedFilterQueryKey } from "./dashboardPageQuery";
+import {
+  dashboardPageQueryKey,
+  dashboardPrincipalKey,
+  loadDashboardPage,
+  savedFilterQueryKey,
+} from "./dashboardPageQuery";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -457,7 +462,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [editingDashboard, setEditingDashboard] = useState<{ id: number; selectName: boolean } | null>(null);
-  const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
+  const principalKey = dashboardPrincipalKey(user);
   const dashboardQuery = useQuery({
     queryKey: dashboardPageQueryKey(principalKey, dashboardId),
     queryFn: () => loadDashboardPage(queryClient, principalKey, dashboardId, buildLegacyDashboardWidgets),
@@ -1006,7 +1011,7 @@ function DashboardEditor({
     JSON.stringify({ name: draft.name, widgets: draft.widgets }) !==
     JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
   const busy = saving || operation !== null;
-  const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
+  const principalKey = dashboardPrincipalKey(user);
   const { data: allSavedFilters } = useQuery({
     queryKey: ["saved-filters", "all", principalKey],
     queryFn: () => savedFilters.list(),
