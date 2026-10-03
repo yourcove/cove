@@ -3,11 +3,12 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
 
-public sealed class FieldProvenanceService(CoveContext db) : IFieldProvenanceService
+public sealed class FieldProvenanceService(CoveContext db) : IFieldProvenanceService, IFieldProvenanceBatchRecorder
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -48,9 +49,69 @@ public sealed class FieldProvenanceService(CoveContext db) : IFieldProvenanceSer
             && candidate.ModelKey == normalizedModelKey,
             cancellationToken);
 
+        AddOrUpdate(provenance, hostType, hostId, normalizedFieldKey, valueJson, normalizedSourceKey, normalizedSourceRunId, normalizedModelKey, confidence);
+    }
+
+    public async Task RecordForHostsAsync(
+        string fieldKey,
+        IReadOnlyList<FieldProvenanceHostValue> entries,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fieldKey))
+            return;
+
+        var normalizedFieldKey = fieldKey.Trim().ToLowerInvariant();
+        var known = new Dictionary<(AffinityHostType HostType, int HostId, string SourceKey, string SourceRunId, string ModelKey), FieldProvenance>();
+
+        // One query per host type loads every existing row the batch can touch; rows already tracked in this
+        // unit of work win, exactly as the Local-first lookup in RecordAsync.
+        foreach (var group in entries.Where(entry => entry.HostId > 0).GroupBy(entry => entry.HostType))
+        {
+            var hostType = group.Key;
+            var hostIds = group.Select(entry => entry.HostId).Distinct().ToArray();
+            var existing = await db.FieldProvenance
+                .Where(candidate => candidate.HostType == hostType
+                    && hostIds.Contains(candidate.HostId)
+                    && candidate.FieldKey == normalizedFieldKey)
+                .ToListAsync(cancellationToken);
+            foreach (var row in existing)
+                known[(row.HostType, row.HostId, row.SourceKey, row.SourceRunId, row.ModelKey)] = row;
+        }
+
+        foreach (var entry in db.ChangeTracker.Entries<FieldProvenance>())
+        {
+            var row = entry.Entity;
+            if (entry.State is not (EntityState.Deleted or EntityState.Detached) && row.FieldKey == normalizedFieldKey)
+                known[(row.HostType, row.HostId, row.SourceKey, row.SourceRunId, row.ModelKey)] = row;
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry.HostId <= 0)
+                continue;
+
+            var normalizedSourceKey = NormalizeSourceKey(entry.SourceKey);
+            var normalizedSourceRunId = NormalizeOptional(entry.SourceRunId);
+            var key = (entry.HostType, entry.HostId, normalizedSourceKey, normalizedSourceRunId, string.Empty);
+            known.TryGetValue(key, out var provenance);
+            known[key] = AddOrUpdate(provenance, entry.HostType, entry.HostId, normalizedFieldKey, SerializeValue(entry.Value), normalizedSourceKey, normalizedSourceRunId, string.Empty, entry.Confidence);
+        }
+    }
+
+    private FieldProvenance AddOrUpdate(
+        FieldProvenance? provenance,
+        AffinityHostType hostType,
+        int hostId,
+        string normalizedFieldKey,
+        string? valueJson,
+        string normalizedSourceKey,
+        string normalizedSourceRunId,
+        string normalizedModelKey,
+        float? confidence)
+    {
         if (provenance == null)
         {
-            db.FieldProvenance.Add(new FieldProvenance
+            provenance = new FieldProvenance
             {
                 HostType = hostType,
                 HostId = hostId,
@@ -60,13 +121,15 @@ public sealed class FieldProvenanceService(CoveContext db) : IFieldProvenanceSer
                 SourceRunId = normalizedSourceRunId,
                 ModelKey = normalizedModelKey,
                 Confidence = confidence,
-            });
-            return;
+            };
+            db.FieldProvenance.Add(provenance);
+            return provenance;
         }
 
         provenance.ValueJson = valueJson;
         if (confidence.HasValue && (!provenance.Confidence.HasValue || confidence.Value > provenance.Confidence.Value))
             provenance.Confidence = confidence.Value;
+        return provenance;
     }
 
     public async Task RecordManyAsync(

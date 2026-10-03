@@ -354,6 +354,7 @@ try
     builder.Services.AddScoped<VideoMergeService>();
     builder.Services.AddSingleton<VideoAlignmentExtractor>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
+    builder.Services.AddScoped<IFieldProvenanceBatchRecorder, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();
     builder.Services.AddSingleton<CustomFieldJsonIndexJobService>();
