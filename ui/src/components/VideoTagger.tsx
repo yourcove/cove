@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { videos, scrapeAttempts, system } from "../api/client";
+import { videos, scrapeAttempts, system, tags } from "../api/client";
 import type {
   ApplyVideoScrapeAttemptRequest,
   Video,
@@ -181,6 +181,10 @@ const VIDEO_METADATA_SEARCH_STRATEGIES: TaggerRunAllOption[] = [
 function isVideoMetadataSearchStrategy(value?: string): value is VideoMetadataSearchStrategy {
   return VIDEO_METADATA_SEARCH_STRATEGIES.some((option) => option.value === value);
 }
+
+type SearchStateUpdate =
+  | Partial<VideoSearchState>
+  | ((state: VideoSearchState | undefined) => Partial<VideoSearchState>);
 
 interface VideoSearchState {
   loading: boolean;
@@ -625,6 +629,13 @@ function buildVideoRelationActionMap(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
+  /**
+   * Whether the library has not yet said which scraped names it has (a scraper row whose lookup is
+   * pending or failed). An apply request then sends a name nobody left out as "include", which the
+   * server links when the library has it and skips when it does not; leaving it out would silently
+   * drop tags the library already has. Once the lookup has answered, the review is the authority.
+   */
+  lookupPending = false,
 ): ScrapeRelationActionMap {
   const current = new Set(currentNames.map(relationKey));
   const existing = new Set(existingNames.map(relationKey));
@@ -638,7 +649,7 @@ function buildVideoRelationActionMap(
     if (excluded.has(key)) actions[key] = "exclude";
     else if (forced.has(key)) actions[key] = "create";
     else if (current.has(key) || existing.has(key)) actions[key] = "include";
-    else actions[key] = createMissing ? "create" : "exclude";
+    else actions[key] = createMissing ? "create" : lookupPending ? "include" : "exclude";
   }
 
   return actions;
@@ -651,10 +662,19 @@ function buildVideoRelationSelections(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
+  lookupPending: boolean,
 ): ScrapeCollectionItemSelection[] {
   return buildRelationSelectionPayload(
     names,
-    buildVideoRelationActionMap(names, currentNames, existingNames, excludedNames, forceCreateNames, createMissing),
+    buildVideoRelationActionMap(
+      names,
+      currentNames,
+      existingNames,
+      excludedNames,
+      forceCreateNames,
+      createMissing,
+      lookupPending,
+    ),
   );
 }
 
@@ -663,6 +683,7 @@ function buildScraperVideoApplyRequest(
   video: Video,
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
+  lookupPending: boolean,
 ): ApplyVideoScrapeAttemptRequest {
   const fieldStrategies = buildVideoFieldStrategies(video, result, state, taggerConfig);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
@@ -685,6 +706,7 @@ function buildScraperVideoApplyRequest(
     state?.excludedPerformers,
     state?.forceIncludedPerformers,
     !taggerConfig.onlyExistingPerformers,
+    lookupPending,
   );
   return {
     replaceFields,
@@ -706,6 +728,7 @@ function buildScraperVideoApplyRequest(
             state?.excludedTags,
             state?.forceIncludedTags,
             !taggerConfig.onlyExistingTags,
+            lookupPending,
           )
         : undefined,
     performerSelections:
@@ -811,8 +834,8 @@ export function VideoTagger({
     setTags: true,
     setPerformers: true,
     setStudio: true,
-    onlyExistingTags: false,
-    onlyExistingPerformers: false,
+    onlyExistingTags: true,
+    onlyExistingPerformers: true,
     onlyExistingStudio: false,
     markOrganized: false,
     bulkMatchStrategy: "remote-id-and-fingerprint-text",
@@ -881,10 +904,10 @@ export function VideoTagger({
   const [scraperInputKinds, setScraperInputKinds] = useState<Record<number, InputKind>>({});
   const selectedSource = resolveSource(taggerConfig.selectedEndpoint, taggerSources);
 
-  const updateSearchState = useCallback((videoId: number, update: Partial<VideoSearchState>) => {
+  const updateSearchState = useCallback((videoId: number, update: SearchStateUpdate) => {
     setSearchStates((prev) => ({
       ...prev,
-      [videoId]: { ...prev[videoId], ...update },
+      [videoId]: { ...prev[videoId], ...(typeof update === "function" ? update(prev[videoId]) : update) },
     }));
   }, []);
 
@@ -1408,7 +1431,7 @@ export function VideoTagger({
               </label>
             )}
             <p className="text-[10px] text-muted mt-0.5 ml-5">
-              Attach performers to video. Uncheck "Create missing" to only use performers that already exist.
+              Attach performers to video. Without "Create missing", a new performer is added only when you choose it.
             </p>
           </div>
 
@@ -1464,7 +1487,7 @@ export function VideoTagger({
               </label>
             )}
             <p className="text-[10px] text-muted mt-0.5 ml-5">
-              Attach tags to video. Uncheck "Create missing" to only set tags that already exist.
+              Attach tags to video. Without "Create missing", a new tag is added only when you choose it.
             </p>
           </div>
 
@@ -1615,7 +1638,8 @@ interface TaggerVideoRowProps {
   onSearch: () => void;
   onSearchFingerprints: () => void;
   onRefreshFromRemote: (endpoint: string, remoteId: string) => void | Promise<void>;
-  onUpdateState: (update: Partial<VideoSearchState>) => void;
+  /** A function of the latest state is for updates made after an await, when the row may have moved on. */
+  onUpdateState: (update: SearchStateUpdate) => void;
   source?: TaggerSource;
   metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
@@ -1671,22 +1695,30 @@ function TaggerVideoRow({
   const queryClient = useQueryClient();
   // Resolve which scraper-returned tag/performer names already exist locally, using the same backend
   // matcher the apply path uses (exact name + blank disambiguation for performers). Metadata-server results already carry
-  // correct existsLocally from their own search, so only scraper candidates are enriched below.
-  const scraperResultNames = useMemo(() => {
+  // correct existsLocally from their own search, so only scraper candidates are enriched below — except
+  // a metadata-server tag the search found no match for, which is asked again: an alias linked since
+  // the search matches it now, the same way the apply path will resolve it.
+  const relationNamesToResolve = useMemo(() => {
     const tags = new Set<string>();
     const performers = new Set<string>();
     for (const r of state?.results ?? []) {
-      if (r.sourceKind !== "scraper") continue;
+      if (r.sourceKind !== "scraper") {
+        r.tagCandidates.filter((c) => !c.existsLocally).forEach((c) => tags.add(c.name));
+        continue;
+      }
       r.tagNames.forEach((name) => tags.add(name));
       r.performerNames.forEach((name) => performers.add(name));
     }
     return { tags: [...tags], performers: [...performers] };
   }, [state?.results]);
   const { data: resolvedRelations } = useQuery({
-    queryKey: ["tagger-resolve-relations", scraperResultNames],
+    queryKey: ["tagger-resolve-relations", relationNamesToResolve],
     queryFn: () =>
-      scrapeAttempts.resolveRelations({ tags: scraperResultNames.tags, performers: scraperResultNames.performers }),
-    enabled: scraperResultNames.tags.length > 0 || scraperResultNames.performers.length > 0,
+      scrapeAttempts.resolveRelations({
+        tags: relationNamesToResolve.tags,
+        performers: relationNamesToResolve.performers,
+      }),
+    enabled: relationNamesToResolve.tags.length > 0 || relationNamesToResolve.performers.length > 0,
     staleTime: 30_000,
   });
   const existingTagKeys = useMemo(
@@ -1710,7 +1742,12 @@ function TaggerVideoRow({
         ? // Only a metadata server states a performer's gender, so only its matches can be filtered by
           // one. Dropping the excluded performers here keeps the preview, its counts and the apply
           // request agreed on one list, and re-runs when the setting changes without a new search.
-          filterMatchPerformersByGender(r, allowedGenderKeys)
+          {
+            ...filterMatchPerformersByGender(r, allowedGenderKeys),
+            tagCandidates: r.tagCandidates.map((c) =>
+              c.existsLocally || !existingTagKeys.has(relationKey(c.name)) ? c : { ...c, existsLocally: true },
+            ),
+          }
         : {
             ...r,
             tagCandidates: r.tagCandidates.map((c) => ({
@@ -1771,7 +1808,8 @@ function TaggerVideoRow({
         if (!selectedResult.scrapeAttemptId) throw new TaggerPreconditionError("No scraper attempt selected");
         return scrapeAttempts.apply(
           selectedResult.scrapeAttemptId,
-          buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig),
+          // Until the library lookup answers, the review cannot tell which scraped names exist.
+          buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig, resolvedRelations === undefined),
         );
       }
 
@@ -1851,6 +1889,9 @@ function TaggerVideoRow({
           saved: true,
           warning: importWarnings && importWarnings.length > 0 ? importWarnings.join(" ") : undefined,
         });
+        // A tag or performer this apply created is in the library now, so other rows offering the same
+        // name ask again instead of calling it new.
+        void queryClient.invalidateQueries({ queryKey: ["tagger-resolve-relations"] });
         await invalidateVideoMetadataQueries(queryClient, video.id);
       } catch {
         // The import itself succeeded, so the row stays saved and a stale list is the lesser problem.
@@ -2249,6 +2290,22 @@ function TaggerVideoRow({
                 }
                 onUpdateState({ forceIncludedTags: forceIncluded, excludedTags: excluded });
               }}
+              onLinkTag={async (scrapedName, tag) => {
+                const detail = await tags.get(tag.id);
+                if (!detail.aliases.some((alias) => relationKey(alias) === relationKey(scrapedName)))
+                  await tags.update(tag.id, { aliases: [...detail.aliases, scrapedName] });
+                // Linking is a choice to use the tag, whatever was decided about the name as a new one.
+                const forget = (names?: Set<string>) =>
+                  new Set([...(names ?? [])].filter((name) => relationKey(name) !== relationKey(scrapedName)));
+                onUpdateState((latest) => ({
+                  excludedTags: forget(latest?.excludedTags),
+                  forceIncludedTags: forget(latest?.forceIncludedTags),
+                }));
+                void queryClient.invalidateQueries({ queryKey: ["tags"] });
+                void queryClient.invalidateQueries({ queryKey: ["tag", tag.id] });
+                // Every row asks again, so the same name scraped for another video matches too.
+                await queryClient.invalidateQueries({ queryKey: ["tagger-resolve-relations"] });
+              }}
               onToggleStudio={() => {
                 const willSkipByDefault =
                   taggerConfig.onlyExistingStudio &&
@@ -2313,6 +2370,7 @@ interface TaggerResultsProps {
   onCollectionModeChange: (field: string, mode: CollectionMode) => void;
   onTogglePerformer: (names: string | string[]) => void;
   onToggleTag: (names: string | string[]) => void;
+  onLinkTag?: TaggerReviewInput["onLinkTag"];
   onToggleStudio: () => void;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
@@ -2344,6 +2402,7 @@ function TaggerResults({
   onCollectionModeChange,
   onTogglePerformer,
   onToggleTag,
+  onLinkTag,
   onToggleStudio,
   tagEdits,
   performerEdits,
@@ -2377,6 +2436,7 @@ function TaggerResults({
       onCollectionModeChange={i === current ? onCollectionModeChange : undefined}
       onTogglePerformer={i === current ? onTogglePerformer : undefined}
       onToggleTag={i === current ? onToggleTag : undefined}
+      onLinkTag={i === current ? onLinkTag : undefined}
       onToggleStudio={i === current ? onToggleStudio : undefined}
       tagEdits={tagEdits}
       performerEdits={performerEdits}
@@ -2424,6 +2484,7 @@ function TaggerResultRow({
   onCollectionModeChange,
   onTogglePerformer,
   onToggleTag,
+  onLinkTag,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,
@@ -2452,6 +2513,7 @@ function TaggerResultRow({
   onCollectionModeChange?: (field: string, mode: CollectionMode) => void;
   onTogglePerformer?: (names: string | string[]) => void;
   onToggleTag?: (names: string | string[]) => void;
+  onLinkTag?: TaggerReviewInput["onLinkTag"];
   onToggleStudio?: () => void;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
@@ -2508,6 +2570,7 @@ function TaggerResultRow({
     existingTagNames,
     tagActions,
     tagMatchInfo,
+    onLinkTag,
     performerChoices,
     currentPerformerChoiceKeys,
     performerActions,

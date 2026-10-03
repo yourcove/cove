@@ -76,7 +76,7 @@ describe("MetadataDiffSummary", () => {
     ).toHaveAttribute("data-state", "new");
     expect(within(tags as HTMLElement).queryByText("Outdoors")).not.toBeInTheDocument();
     expect(within(tags as HTMLElement).getByText("and 1 already present")).toBeInTheDocument();
-    expect(within(tags as HTMLElement).getByText("2 added")).toBeInTheDocument();
+    expect(within(tags as HTMLElement).getByText("2 added (1 new)")).toBeInTheDocument();
 
     const unchanged = screen.getByText("Unchanged").closest("[data-tone]")!;
     expect(within(unchanged as HTMLElement).getByText("Title · Date")).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe("MetadataDiffSummary", () => {
         .getByText("Outdoors")
         .closest("[data-state]"),
     ).toHaveAttribute("data-state", "removed");
-    expect(within(tags as HTMLElement).getByText("1 added · 1 removed · 1 left out")).toBeInTheDocument();
+    expect(within(tags as HTMLElement).getByText("1 added · 1 removed · 1 not in your library")).toBeInTheDocument();
   });
 
   it("offers the way back on a landed value and a Keep empty choice when a fill is declined", async () => {
@@ -175,7 +175,13 @@ describe("MetadataDiffSummary", () => {
     );
     const tags = screen.getByText("Tags").closest("[data-tone]")!;
     expect(tags).toHaveAttribute("data-tone", "same");
-    expect(within(tags as HTMLElement).getByText("2 left out")).toBeInTheDocument();
+    // A new item nobody chose to create was never on its way in, so it is listed apart rather than as left out.
+    expect(within(tags as HTMLElement).getByText("1 left out · 1 not in your library")).toBeInTheDocument();
+    expect(
+      within(tags as HTMLElement)
+        .getByText("Wet Look")
+        .closest("[data-state]"),
+    ).toHaveAttribute("data-state", "not-in-library");
     expect(
       within(tags as HTMLElement)
         .getByText("Poolside")

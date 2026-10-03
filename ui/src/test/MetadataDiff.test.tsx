@@ -144,7 +144,7 @@ describe("MetadataDiff", () => {
     render(<ApplyHarness />);
     const tags = screen.getByRole("group", { name: "Tags" });
     expect(tags.querySelector('[data-state="new"]')).toHaveTextContent("Brand new");
-    expect(within(tags).getByText(/1 amber item does not exist in your library yet/)).toBeInTheDocument();
+    expect(within(tags).getByText(/1 added \(1 new\)/)).toBeInTheDocument();
     expect(within(tags).queryByRole("button", { name: "Remove Tags: existing" })).not.toBeInTheDocument();
     expect(within(tags).getByRole("button", { name: "Remove Tags: brand new" })).toBeInTheDocument();
     expect(within(tags).getByRole("button", { name: "Use source Tags" })).toHaveTextContent("Only StashDB");
@@ -153,7 +153,7 @@ describe("MetadataDiff", () => {
     expect(within(urls).queryByRole("button", { name: /Remove URLs/ })).not.toBeInTheDocument();
     expect(within(urls).getByRole("button", { name: "Use combined URLs" })).toBeInTheDocument();
     const summary = summarizeDiff(applyFields, incoming, current, defaultDiffSelection(applyFields, incoming, current));
-    expect(summary.changes.map((change) => change.text)).toEqual(["1 tag added", "1 url added"]);
+    expect(summary.changes.map((change) => change.text)).toEqual(["1 tag added (1 new)", "1 url added"]);
   });
 
   it("summarises what the selection will do", () => {

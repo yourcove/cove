@@ -48,19 +48,27 @@ export function MetadataDiffSummary({
       const added = items.filter((item) => !item.inTarget && chosen.has(item.id));
       const extra = selected.filter((id) => !known.has(id));
       const removed = items.filter((item) => item.inTarget && !chosen.has(item.id));
-      const leftOut = items.filter((item) => !item.inTarget && !chosen.has(item.id));
+      const isNew = (item: (typeof items)[number]) => field.itemIsNew?.(item.result) ?? false;
+      // An item the library lacks that nobody chose to create was never on its way in, so it is not
+      // "left out"; it is listed apart, the way the review row lists it.
+      const notAdded = items.filter((item) => !item.inTarget && !chosen.has(item.id));
+      const leftOut = notAdded.filter((item) => !isNew(item));
+      const notInLibrary = notAdded.filter(isNew);
       const present = items.filter((item) => item.inTarget && chosen.has(item.id)).length;
       const changes = added.length + extra.length + removed.length;
-      if (!changes && !leftOut.length) {
+      if (!changes && !notAdded.length) {
         unchanged.push(field.label);
         continue;
       }
       const renderItem = field.renderItem ?? field.render ?? renderDiffValue;
-      const isNew = (item: (typeof items)[number]) => field.itemIsNew?.(item.result) ?? false;
+      const created = added.filter(isNew).length;
       const counts = [
-        added.length + extra.length ? `${added.length + extra.length} added` : null,
+        added.length + extra.length
+          ? `${added.length + extra.length} added${created ? ` (${created} new)` : ""}`
+          : null,
         removed.length ? `${removed.length} removed` : null,
         leftOut.length ? `${leftOut.length} left out` : null,
+        notInLibrary.length ? `${notInLibrary.length} not in your library` : null,
       ].filter(Boolean);
       rows.push(
         <SummaryRow key={field.key} tone={changes ? "ok" : "same"} label={field.label} how={counts.join(" · ")}>
@@ -78,6 +86,11 @@ export function MetadataDiffSummary({
             ))}
             {leftOut.map((item) => (
               <Chip key={item.id} state="left-out">
+                {renderItem(item.result)}
+              </Chip>
+            ))}
+            {notInLibrary.map((item) => (
+              <Chip key={item.id} state="not-in-library">
                 {renderItem(item.result)}
               </Chip>
             ))}
@@ -222,7 +235,7 @@ function SummaryRow({
   );
 }
 
-type ChipState = "added" | "new" | "library" | "removed" | "left-out";
+type ChipState = "added" | "new" | "library" | "removed" | "left-out" | "not-in-library";
 
 function Chip({ state, children }: { state: ChipState; children: ReactNode }) {
   const className: Record<ChipState, string> = {
@@ -231,6 +244,7 @@ function Chip({ state, children }: { state: ChipState; children: ReactNode }) {
     library: "border-green-400/50 text-green-300",
     removed: "border-dashed border-border text-muted line-through",
     "left-out": "border-dashed border-border text-muted line-through",
+    "not-in-library": "border-border text-muted",
   };
   const added = state === "added" || state === "new" || state === "library";
   return (
@@ -241,7 +255,9 @@ function Chip({ state, children }: { state: ChipState; children: ReactNode }) {
           ? "Not in your library yet; will be created"
           : state === "left-out"
             ? "Left out of this update"
-            : undefined
+            : state === "not-in-library"
+              ? "Not in your library; not added"
+              : undefined
       }
       className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-px text-[11px] ${className[state]}`}
     >

@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef, useState } from "react";
 import { Link2, Plus, X } from "lucide-react";
 import type {
   MetadataServer,
@@ -7,7 +8,11 @@ import type {
   VideoCoverComparison,
 } from "../api/types";
 import { videos } from "../api/client";
-import { EntityReferenceMultiSelector, type EntityReferenceOption } from "./EntityReferenceSelector";
+import {
+  EntityReferenceMultiSelector,
+  EntityReferenceSelector,
+  type EntityReferenceOption,
+} from "./EntityReferenceSelector";
 import { metadataServerLabel } from "./MetadataServerLinks";
 import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
@@ -63,6 +68,11 @@ export interface TaggerReviewInput {
   performerActions: ScrapeRelationActionMap;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
+  /**
+   * Remembers a scraped tag name as an alias of a library tag, so it matches that tag from now on.
+   * Without it the review offers no way to link a scraped tag that matched nothing.
+   */
+  onLinkTag?: (scrapedName: string, tag: EntityReferenceOption) => Promise<void>;
 }
 
 export interface TaggerReviewHandlers {
@@ -127,14 +137,13 @@ const itemLabel = (value: unknown) => (value as ReviewItem).label;
 const itemIsNew = (value: unknown) => (value as ReviewItem).isNew;
 const scrapedAsTitle = (entry: ReviewItem) =>
   entry.scrapedAs ? `Scraped as ${entry.scrapedAs.map((name) => `“${name}”`).join(", ")}` : undefined;
-// The library name leads, since that is the tag the video gets; the scraped spelling is a hover away.
+// The library name is the tag the video gets; the scraped spelling stays out of the way, on hover.
 const renderItem = (value: unknown) => {
   const entry = value as ReviewItem;
   return entry.scrapedAs ? (
-    <span className="inline-flex items-center gap-1" title={scrapedAsTitle(entry)}>
+    <span title={scrapedAsTitle(entry)}>
       {entry.label}
-      <Link2 className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
-      <span className="sr-only">({scrapedAsTitle(entry)})</span>
+      <span className="sr-only"> ({scrapedAsTitle(entry)})</span>
     </span>
   ) : (
     entry.label
@@ -319,9 +328,10 @@ export function selectorChange(items: ReviewItem[], selected: string[], ids: num
 
 /**
  * The relationship row as the video's edit form shows it: the app's selector with chips, x buttons
- * and search-to-add for the current items and anything added through search, and a chip strip for
- * the scraped items (green when they exist in the library, amber when they would be created, struck
- * through when left out). While the collection is switched off the scraped strip is hidden.
+ * and search-to-add for the current items and anything added through search, and chip strips for
+ * the scraped items: those the library has (green, struck through when left out), and apart from
+ * them those it does not (amber when they will be created, plain with + and, for tags, a link action
+ * when not). While the collection is switched off the scraped strips are hidden.
  */
 function RelationshipEditor({
   entityType,
@@ -332,6 +342,7 @@ function RelationshipEditor({
   onChange,
   disabled,
   incomingHidden,
+  onLinkTag,
 }: {
   entityType: "tag" | "performer";
   label: string;
@@ -341,6 +352,7 @@ function RelationshipEditor({
   onChange: (selected: string[]) => void;
   disabled: boolean;
   incomingHidden: boolean;
+  onLinkTag?: TaggerReviewInput["onLinkTag"];
 }) {
   const chosen = new Set(selected);
   const current = items.filter((entry) => entry.inTarget && entry.localId != null);
@@ -356,43 +368,100 @@ function RelationshipEditor({
   );
   const lockedIds = current.filter((entry) => entry.locked).map((entry) => entry.localId!);
   const scraped = incomingHidden ? [] : items.filter((entry) => !entry.inTarget);
+  // What the library already knows comes first; what it does not is kept apart, so a new item is
+  // always a visible decision whether or not the tagger creates missing items by default.
+  const matched = scraped.filter((entry) => !entry.isNew);
+  const unknown = scraped.filter((entry) => entry.isNew);
+  const [linking, setLinking] = useState<ReviewItem | null>(null);
+  const linkIdPrefix = useId();
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Focus goes back to the chip's link button; once a remembered alias has moved the chip out of the
+  // strip there is no such button, and the tag search is the natural next step.
+  const closeLink = (entry: ReviewItem) => {
+    setLinking(null);
+    requestAnimationFrame(() =>
+      (document.getElementById(`${linkIdPrefix}-link-${entry.id}`) ?? rowRef.current?.querySelector("input"))?.focus(),
+    );
+  };
   const toggle = (entry: ReviewItem) =>
     onChange(chosen.has(entry.id) ? selected.filter((id) => id !== entry.id) : [...selected, entry.id]);
+  const chip = (entry: ReviewItem) => {
+    const included = chosen.has(entry.id);
+    const state = !included ? (entry.isNew ? "available" : "excluded") : entry.isNew ? "new" : "added";
+    const chipClass = {
+      new: "border-amber-400/50 bg-card text-amber-300",
+      added: "border-green-400/50 bg-card text-green-300",
+      available: "border-border bg-transparent text-muted",
+      excluded: "border-dashed border-border bg-transparent text-muted line-through",
+    }[state];
+    return (
+      <span
+        key={entry.id}
+        data-state={state}
+        title={state === "new" ? "Not in your library yet; will be created" : undefined}
+        className={`inline-flex max-w-full items-center gap-1.5 rounded border py-0.5 pl-2 pr-1 text-xs ${chipClass}`}
+      >
+        {included ? <Plus className="h-3 w-3 shrink-0" /> : null}
+        <span className="min-w-0 truncate">{renderItem(entry)}</span>
+        {state === "new" ? <span className="sr-only"> (new, will be created)</span> : null}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => toggle(entry)}
+          aria-label={`${included ? "Remove" : entry.isNew ? "Create and add" : "Add"} ${label}: ${entry.label}`}
+          title={!included && entry.isNew ? `Create “${entry.label}” and add it` : undefined}
+          className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
+        >
+          {included ? <X className="h-2.5 w-2.5" /> : <Plus className="h-2.5 w-2.5" />}
+        </button>
+        {entry.isNew && onLinkTag ? (
+          <button
+            type="button"
+            id={`${linkIdPrefix}-link-${entry.id}`}
+            disabled={disabled}
+            onClick={() => setLinking(entry)}
+            aria-label={`Link ${label}: ${entry.label} to a library tag`}
+            title={`Use a tag you already have for “${entry.label}”`}
+            className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
+          >
+            <Link2 className="h-2.5 w-2.5" />
+          </button>
+        ) : null}
+      </span>
+    );
+  };
   return (
-    <div className="flex flex-col gap-2">
-      {scraped.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {scraped.map((entry) => {
-            const included = chosen.has(entry.id);
-            const state = !included ? "excluded" : entry.isNew ? "new" : "added";
-            const chipClass =
-              state === "new"
-                ? "border-amber-400/50 bg-card text-amber-300"
-                : state === "added"
-                  ? "border-green-400/50 bg-card text-green-300"
-                  : "border-dashed border-border bg-transparent text-muted line-through";
-            return (
-              <span
-                key={entry.id}
-                data-state={state}
-                title={entry.isNew ? "Not in your library yet; will be created" : undefined}
-                className={`inline-flex max-w-full items-center gap-1.5 rounded border py-0.5 pl-2 pr-1 text-xs ${chipClass}`}
-              >
-                {included ? <Plus className="h-3 w-3 shrink-0" /> : null}
-                <span className="min-w-0 truncate">{renderItem(entry)}</span>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => toggle(entry)}
-                  aria-label={`${included ? "Remove" : "Add"} ${label}: ${entry.label}`}
-                  className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
-                >
-                  {included ? <X className="h-2.5 w-2.5" /> : <Plus className="h-2.5 w-2.5" />}
-                </button>
-              </span>
-            );
-          })}
+    <div ref={rowRef} className="flex flex-col gap-2">
+      {matched.length ? <div className="flex flex-wrap gap-1.5">{matched.map(chip)}</div> : null}
+      {unknown.length ? (
+        <div role="group" aria-labelledby={`${linkIdPrefix}-heading`} className="flex flex-col gap-1">
+          <span id={`${linkIdPrefix}-heading`} className="text-[11px] text-muted">
+            Not in your library
+          </span>
+          <div className="flex flex-wrap gap-1.5">{unknown.map(chip)}</div>
         </div>
+      ) : null}
+      {linking && onLinkTag && unknown.some((entry) => entry.id === linking.id) ? (
+        <TagLinkPanel
+          scrapedName={linking.label}
+          disabled={disabled}
+          onCancel={() => closeLink(linking)}
+          onLink={async (tag, rememberAlias) => {
+            if (rememberAlias) await onLinkTag(linking.label, tag);
+            // Just this video: the scraped name stays out and the library tag goes in, the way the
+            // search below adds one, so a tag already on either side is selected rather than repeated.
+            else
+              onChange(
+                selectorChange(
+                  items,
+                  selected.filter((id) => id !== linking.id),
+                  [...values, tag.id],
+                  incomingHidden,
+                ),
+              );
+            closeLink(linking);
+          }}
+        />
       ) : null}
       <EntityReferenceMultiSelector
         entityType={entityType}
@@ -403,6 +472,105 @@ function RelationshipEditor({
         seedOptions={seedOptions}
         disabled={disabled}
       />
+    </div>
+  );
+}
+
+/**
+ * Links a scraped tag that matched nothing to a tag the library already has. Remembering the scraped
+ * name as an alias changes the library tag, not just this video, so it takes effect at once and every
+ * later scrape matches it; without that, the library tag is added to this video alone.
+ */
+function TagLinkPanel({
+  scrapedName,
+  disabled,
+  onLink,
+  onCancel,
+}: {
+  scrapedName: string;
+  disabled: boolean;
+  onLink: (tag: EntityReferenceOption, rememberAlias: boolean) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const inputId = useId();
+  const [tag, setTag] = useState<EntityReferenceOption | null>(null);
+  const [rememberAlias, setRememberAlias] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => document.getElementById(inputId)?.focus(), [inputId]);
+  const link = async () => {
+    if (!tag) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onLink(tag, rememberAlias);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cove couldn’t save the alias. Please try again.");
+      setBusy(false);
+    }
+  };
+  return (
+    <div
+      role="group"
+      aria-label={`Link “${scrapedName}”`}
+      // The tag search handles Escape itself while its results are open.
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy) onCancel();
+      }}
+      className="flex flex-col gap-2 rounded border border-border p-2"
+    >
+      <label htmlFor={inputId} className="text-xs text-foreground">
+        Use a tag you already have for “{scrapedName}”
+      </label>
+      <EntityReferenceSelector
+        entityType="tag"
+        value={tag?.id}
+        onChange={(_, option) => setTag(option ?? null)}
+        inputId={inputId}
+        placeholder="Search tags..."
+        allowCreate={false}
+        creatable={false}
+        disabled={disabled || busy}
+      />
+      <label className="flex items-center gap-2 text-xs text-foreground">
+        <input
+          type="checkbox"
+          checked={rememberAlias}
+          onChange={(event) => setRememberAlias(event.target.checked)}
+          disabled={disabled || busy}
+          aria-describedby={rememberAlias ? `${inputId}-note` : undefined}
+          className="rounded border-border"
+        />
+        Remember “{scrapedName}” as an alias{tag ? ` of ${tag.label}` : ""}
+      </label>
+      {rememberAlias ? (
+        <p id={`${inputId}-note`} className="text-[11px] text-muted">
+          The alias is saved to the tag right away, even if you don’t apply.
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-[11px] text-red-400">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={link}
+          disabled={!tag || disabled || busy}
+          className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
+        >
+          {busy ? "Linking…" : "Link"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded border border-border px-2 py-1 text-xs text-foreground"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -502,6 +670,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
         onChange={onChange}
         disabled={disabled}
         incomingHidden={mode === "skip"}
+        onLinkTag={entityType === "tag" ? input.onLinkTag : undefined}
       />
     );
     fields.push(field);

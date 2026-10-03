@@ -57,7 +57,7 @@ export interface DiffField {
 }
 
 export type ScalarStatus = "identical" | "filled" | "conflict" | "keptOnly" | "unavailable";
-export type ListItemState = "both" | "kept" | "added" | "new" | "excluded";
+export type ListItemState = "both" | "kept" | "added" | "new" | "excluded" | "available";
 
 export const isEmptyValue = (value: unknown) =>
   value == null || value === "" || (Array.isArray(value) && value.length === 0);
@@ -155,9 +155,17 @@ export function summarizeDiff(fields: DiffField[], source: DiffRecord, target: D
         items.filter((item) => !item.inTarget && selected.has(item.id)).length +
         [...selected].filter((id) => !known.has(id)).length;
       const removed = items.filter((item) => item.inTarget && !selected.has(item.id)).length;
-      const leftOut = items.filter((item) => !item.inTarget && !selected.has(item.id)).length;
+      // An item the library lacks that nobody chose to create was never on its way in, so it is not
+      // counted as left out.
+      const leftOut = items.filter(
+        (item) => !item.inTarget && !selected.has(item.id) && !field.itemIsNew?.(item.result),
+      ).length;
+      const created = items.filter(
+        (item) => !item.inTarget && selected.has(item.id) && field.itemIsNew?.(item.result),
+      ).length;
       if (added) {
-        changes.push({ kind: "listAdded", text: `${plural(added, field.label)} added` });
+        const text = `${plural(added, field.label)} added${created ? ` (${created} new)` : ""}`;
+        changes.push({ kind: "listAdded", text });
         changeCount++;
       }
       if (removed) {
@@ -538,12 +546,15 @@ function ListRow({
   ];
   const kept = shown.filter((item) => item.inTarget && selected.includes(item.id)).length;
   const added = shown.filter((item) => !item.inTarget && selected.includes(item.id)).length;
-  const leftOut = shown.filter((item) => !selected.includes(item.id)).length;
+  const isNewIncoming = (item: (typeof shown)[number]) => !item.inTarget && Boolean(field.itemIsNew?.(item.result));
+  const notInLibrary = shown.filter((item) => !selected.includes(item.id) && isNewIncoming(item)).length;
+  const leftOut = shown.filter((item) => !selected.includes(item.id)).length - notInLibrary;
+  const addedNew = shown.filter((item) => selected.includes(item.id) && isNewIncoming(item)).length;
   const counts = [
     kept ? `${kept} kept` : null,
     added ? (
       <span key="added" className="text-green-400">
-        {added} added
+        {added} added{addedNew ? ` (${addedNew} new)` : ""}
       </span>
     ) : null,
     leftOut ? (
@@ -551,10 +562,17 @@ function ListRow({
         {leftOut} left out
       </span>
     ) : null,
+    notInLibrary ? (
+      <span key="unknown" className="text-muted">
+        {notInLibrary} not in your library
+      </span>
+    ) : null,
   ].filter(Boolean);
   const stateOf = (item: (typeof items)[number]): ListItemState =>
     !selected.includes(item.id)
-      ? "excluded"
+      ? isNewIncoming(item)
+        ? "available"
+        : "excluded"
       : item.inTarget && item.inSource
         ? "both"
         : item.inTarget
@@ -569,8 +587,9 @@ function ListRow({
     added: "border-green-400/50 bg-card text-green-300",
     new: "border-amber-400/50 bg-card text-amber-300",
     excluded: "border-dashed border-border bg-transparent text-muted line-through",
+    // Not in the library and not chosen: never on its way in, so not struck through as left out.
+    available: "border-border bg-transparent text-muted",
   };
-  const created = shown.filter((item) => stateOf(item) === "new").length;
   return (
     <fieldset
       disabled={disabled}
@@ -597,7 +616,7 @@ function ListRow({
           <div className="flex flex-wrap gap-1.5">
             {shown.map((item) => {
               const state = stateOf(item);
-              const included = state !== "excluded";
+              const included = state !== "excluded" && state !== "available";
               const toggle = () => {
                 if (!disabled) onChange(included ? selected.filter((id) => id !== item.id) : [...selected, item.id]);
               };
@@ -627,12 +646,6 @@ function ListRow({
             })}
           </div>
         )}
-        {created ? (
-          <span className="text-[11px] text-amber-300">
-            {created === 1 ? "1 amber item does" : `${created} amber items do`} not exist in your library yet and will
-            be created.
-          </span>
-        ) : null}
         {field.renderListEditor?.(selected, onChange, disabled)}
       </div>
       <div className="flex items-start md:justify-end">

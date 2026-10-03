@@ -12,13 +12,18 @@ const mocks = vi.hoisted(() => ({
   listScrapers: vi.fn(),
   createScrapeAttempt: vi.fn(),
   resolveRelations: vi.fn(),
+  applyScrapeAttempt: vi.fn(),
   videoObjectFit: "cover" as "cover" | "contain",
 }));
 
 vi.mock("../api/client", () => ({
   entityImages: { videoCoverUrl: vi.fn(() => "/video-cover.jpg") },
   system: { listScrapers: mocks.listScrapers },
-  scrapeAttempts: { create: mocks.createScrapeAttempt, resolveRelations: mocks.resolveRelations },
+  scrapeAttempts: {
+    create: mocks.createScrapeAttempt,
+    resolveRelations: mocks.resolveRelations,
+    apply: mocks.applyScrapeAttempt,
+  },
   videos: {
     previewUrl: vi.fn(() => "/video-preview.mp4"),
     screenshotUrl: vi.fn(() => "/video-cover.jpg"),
@@ -98,6 +103,7 @@ describe("VideoTagger", () => {
     mocks.listScrapers.mockReset();
     mocks.createScrapeAttempt.mockReset();
     mocks.resolveRelations.mockReset();
+    mocks.applyScrapeAttempt.mockReset();
     mocks.videoObjectFit = "cover";
     mocks.importFromMetadataServer.mockResolvedValue({});
     mocks.searchMetadataServer.mockResolvedValue([]);
@@ -1390,14 +1396,114 @@ describe("VideoTagger", () => {
     await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
 
     await waitFor(() => expect(mocks.createScrapeAttempt).toHaveBeenCalledOnce());
-    // The compact review lists every scraped tag and performer as an added chip, deduplicated by name,
-    // and the studio as a field that fills the empty current one.
-    expect((await screen.findByText("Countdown")).closest("[data-state]")).toHaveAttribute("data-state", "new");
-    expect(screen.getByText("Edging").closest("[data-state]")).toHaveAttribute("data-state", "new");
+    // The compact review lists every scraped tag and performer as a chip, deduplicated by name; one the
+    // library does not have is not added, since the tagger creates missing items only when asked to; and
+    // the studio as a field that fills the empty current one.
+    expect((await screen.findByText("Countdown")).closest("[data-state]")).toHaveAttribute(
+      "data-state",
+      "not-in-library",
+    );
+    expect(screen.getByText("Edging").closest("[data-state]")).toHaveAttribute("data-state", "not-in-library");
     expect(screen.queryByText("countdown")).not.toBeInTheDocument();
-    expect(screen.getByText("Scraped Performer").closest("[data-state]")).toHaveAttribute("data-state", "new");
+    expect(screen.getByText("Scraped Performer").closest("[data-state]")).toHaveAttribute(
+      "data-state",
+      "not-in-library",
+    );
     const studio = screen.getByText("Studio").closest("[data-tone]")!;
     expect(studio).toHaveAttribute("data-tone", "ok");
     expect(within(studio as HTMLElement).getByText("Scraped Studio")).toBeInTheDocument();
+  });
+
+  // Scrapes a video with a URL scraper that returns two tags and a performer, then applies the row.
+  async function scrapeAndApply() {
+    mocks.listScrapers.mockResolvedValue([
+      {
+        id: "pack/site:video",
+        name: "Site Scraper",
+        entityType: "video",
+        supportedScrapes: ["url"],
+        urls: ["site.example/watch/"],
+        sourcePath: "",
+      },
+    ]);
+    mocks.createScrapeAttempt.mockResolvedValue({
+      id: "attempt-1",
+      scraperId: "pack/site:video",
+      entityType: "video",
+      entityId: 123,
+      inputKind: "url",
+      status: "Success",
+      error: null,
+      candidateResultsJson: null,
+      resultJson: JSON.stringify({
+        Title: "Scraped title",
+        Tags: [{ Name: "Countdown" }, { Name: "Edging" }],
+        Performers: [{ Name: "Scraped Performer" }],
+      }),
+    });
+    mocks.applyScrapeAttempt.mockResolvedValue({ id: "attempt-1", status: "Applied" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: ["https://site.example/watch/1"],
+      remoteIds: [],
+    } as any;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("option", { name: "Site Scraper (Scraper)" });
+    await userEvent.selectOptions(screen.getByRole("combobox"), "scraper:pack/site:video");
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    const countdown = (await screen.findByText("Countdown")).closest("[data-state]");
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+    await waitFor(() => expect(mocks.applyScrapeAttempt).toHaveBeenCalledOnce());
+    return { countdown, request: mocks.applyScrapeAttempt.mock.calls[0][1] };
+  }
+
+  it("lets the server link scraped names that already exist when the library lookup has not answered", async () => {
+    // The lookup that says which names the library has never answers, as on a slow or failed request.
+    mocks.resolveRelations.mockReturnValue(new Promise(() => {}));
+    const { request } = await scrapeAndApply();
+    // Nothing is created, yet nothing is left out either: the server links what the library has.
+    expect(request.createMissingTags).toBe(false);
+    expect(request.tagSelections).toEqual([
+      { name: "Countdown", action: "include" },
+      { name: "Edging", action: "include" },
+    ]);
+    expect(request.performerSelections).toEqual([{ name: "Scraped Performer", action: "include" }]);
+  });
+
+  it("keeps a saved choice to create missing tags and performers", async () => {
+    localStorage.setItem(
+      "cove-tagger-config",
+      JSON.stringify({ onlyExistingTags: false, onlyExistingPerformers: false }),
+    );
+    const { countdown, request } = await scrapeAndApply();
+    expect(countdown).toHaveAttribute("data-state", "new");
+    expect(request.createMissingTags).toBe(true);
+    expect(request.tagSelections).toEqual([
+      { name: "Countdown", action: "create" },
+      { name: "Edging", action: "create" },
+    ]);
+    expect(request.performerSelections).toEqual([{ name: "Scraped Performer", action: "create" }]);
+  });
+
+  it("leaves out a new name once the library lookup has answered that it does not have it", async () => {
+    // The default lookup answers that the library has none of the scraped names.
+    const { request } = await scrapeAndApply();
+    expect(request.tagSelections).toEqual([
+      { name: "Countdown", action: "exclude" },
+      { name: "Edging", action: "exclude" },
+    ]);
+    expect(request.performerSelections).toEqual([{ name: "Scraped Performer", action: "exclude" }]);
   });
 });

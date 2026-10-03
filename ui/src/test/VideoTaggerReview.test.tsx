@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { MetadataServerVideoMatch, Video } from "../api/types";
 import {
   applyTaggerSelectionChange,
@@ -12,6 +13,19 @@ import {
 import { defaultDiffSelection, scalarStatus, summarizeDiff } from "../components/MetadataDiff";
 
 vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cover/${id}` } }));
+// The library pickers search through the API; here the link panel's picker just offers one tag.
+vi.mock("../components/EntityReferenceSelector", () => ({
+  EntityReferenceMultiSelector: () => null,
+  EntityReferenceSelector: ({
+    onChange,
+  }: {
+    onChange: (id: number, option: { id: number; label: string }) => void;
+  }) => (
+    <button type="button" onClick={() => onChange(7, { id: 7, label: "Edging" })}>
+      Pick Edging
+    </button>
+  ),
+}));
 
 const video: Video = {
   id: 5,
@@ -296,7 +310,7 @@ describe("VideoTaggerReview alias matches", () => {
       ["Tit Worship", ["Tit Tease"]],
     ]);
     const summary = summarizeDiff(review.fields, review.source, review.target, review.selection);
-    expect(summary.changes.map((change) => change.text)).toContain("2 tags added");
+    expect(summary.changes.map((change) => change.text)).toContain("2 tags added (1 new)");
   });
 
   it("lines an alias match up with the library tag the video already has", () => {
@@ -310,7 +324,7 @@ describe("VideoTaggerReview alias matches", () => {
     expect([...(review.selection.tags as string[])].sort()).toEqual(["brand new tag", "old tag", "tit worship"]);
     expect((review.target.values.tags as ReviewItem[]).find((tag) => tag.id === "tit worship")?.localId).toBe(2);
     const summary = summarizeDiff(review.fields, review.source, review.target, review.selection);
-    expect(summary.changes.map((change) => change.text)).toContain("1 tag added");
+    expect(summary.changes.map((change) => change.text)).toContain("1 tag added (1 new)");
   });
 
   it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {
@@ -585,5 +599,97 @@ describe("VideoTaggerReview cover comparison", () => {
   it("keeps two genuinely different covers a choice", () => {
     const review = buildTaggerReview(input({ coverComparison: { verdict: "differs", distance: 27 } }));
     expect(scalarStatus(coverField(review), review.source, review.target)).toBe("conflict");
+  });
+});
+
+describe("VideoTaggerReview items the library does not have", () => {
+  // "Brand new tag" is not in the library and the tagger does not create missing tags by default.
+  const leftOut = (overrides: Partial<TaggerReviewInput> = {}) =>
+    input({
+      tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "exclude" },
+      onLinkTag: vi.fn(async () => {}),
+      ...overrides,
+    });
+  const renderRow = (reviewInput: TaggerReviewInput, key: "tags" | "performers" = "tags") => {
+    const review = buildTaggerReview(reviewInput);
+    const onChange = vi.fn();
+    const selected = review.selection[key] as string[];
+    render(<>{review.fields.find((field) => field.key === key)!.renderList!(selected, onChange, false)}</>);
+    return { onChange, selected };
+  };
+
+  it("keeps new items apart from matched ones, each with a way to add or link it", () => {
+    renderRow(leftOut());
+    const strip = screen.getByText("Not in your library").parentElement!;
+    expect(strip).toHaveTextContent("Brand new tag");
+    expect(strip).not.toHaveTextContent("Existing tag");
+    expect(screen.getByText("Brand new tag").closest("[data-state]")).toHaveAttribute("data-state", "available");
+    expect(screen.getByRole("button", { name: "Create and add Tags: Brand new tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" })).toBeInTheDocument();
+  });
+
+  it("marks a new item that will be created when the tagger creates missing items", () => {
+    renderRow(
+      leftOut({ tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "create" } }),
+    );
+    expect(screen.getByText("Brand new tag").closest("[data-state]")).toHaveAttribute("data-state", "new");
+    expect(screen.getByRole("button", { name: "Remove Tags: Brand new tag" })).toBeInTheDocument();
+  });
+
+  it("remembers the scraped name as an alias of the linked tag", async () => {
+    const reviewInput = leftOut();
+    const { onChange } = renderRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pick Edging" }));
+    expect(screen.getByLabelText("Remember “Brand new tag” as an alias of Edging")).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(reviewInput.onLinkTag).toHaveBeenCalledWith("Brand new tag", { id: 7, label: "Edging" });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+  });
+
+  it("adds the linked tag to this video alone when the alias is not remembered", async () => {
+    const reviewInput = leftOut({
+      tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "create" },
+    });
+    const { onChange, selected } = renderRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pick Edging" }));
+    await userEvent.click(screen.getByLabelText(/Remember “Brand new tag” as an alias/));
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(reviewInput.onLinkTag).not.toHaveBeenCalled();
+    expect([...onChange.mock.calls[0][0]].sort()).toEqual(
+      [...selected.filter((id) => id !== "brand new tag"), "library:7"].sort(),
+    );
+  });
+
+  it("keeps the panel open with the reason when the alias cannot be saved", async () => {
+    const reviewInput = leftOut({ onLinkTag: vi.fn(async () => Promise.reject(new Error("Alias taken"))) });
+    renderRow(reviewInput);
+    await userEvent.click(screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pick Edging" }));
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Alias taken");
+    expect(screen.getByRole("button", { name: "Link" })).toBeEnabled();
+  });
+
+  it("closes the link panel on Escape and hands focus back to the link button", async () => {
+    renderRow(leftOut());
+    const linkButton = screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" });
+    await userEvent.click(linkButton);
+    await userEvent.click(screen.getByLabelText(/Remember “Brand new tag” as an alias/));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: "Link “Brand new tag”" })).not.toBeInTheDocument();
+    await waitFor(() => expect(linkButton).toHaveFocus());
+  });
+
+  it("offers no link for performers, which never match by alias", () => {
+    renderRow(
+      leftOut({ performerActions: { "remote-performer:p-known": "include", "remote-performer:p-new": "exclude" } }),
+      "performers",
+    );
+    expect(screen.getByText("Not in your library").parentElement!).toHaveTextContent("Newcomer");
+    expect(screen.getByRole("button", { name: "Create and add Performers: Newcomer" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Link / })).not.toBeInTheDocument();
   });
 });
