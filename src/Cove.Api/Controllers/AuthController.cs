@@ -21,14 +21,16 @@ public class AuthController : ControllerBase
     private readonly IAuditService _audit;
     private readonly ICurrentPrincipalAccessor _principalAccessor;
     private readonly CoveConfiguration _config;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(ITokenService tokens, IUserService users, IAuditService audit, ICurrentPrincipalAccessor principalAccessor, CoveConfiguration config)
+    public AuthController(ITokenService tokens, IUserService users, IAuditService audit, ICurrentPrincipalAccessor principalAccessor, CoveConfiguration config, ILogger<AuthController> logger)
     {
         _tokens = tokens;
         _users = users;
         _audit = audit;
         _principalAccessor = principalAccessor;
         _config = config;
+        _logger = logger;
     }
 
     [HttpGet("bootstrap-status")]
@@ -182,7 +184,54 @@ public class AuthController : ControllerBase
             refreshExpires = pair.RefreshExpires,
             user = pair.User,
             username = pair.User.Username,
+            me = await MePayloadForIssuedTokenAsync(pair.AccessToken, ip, ua, ct),
         });
+    }
+
+    /// <summary>
+    /// The <c>/me</c> payload the client would get next with the token just issued, so sign-in does
+    /// not need that extra round trip. Null whenever an extension may assert the request's identity:
+    /// an authoritative assertion replaces the token's principal per request, and an enabled middleware
+    /// extension can submit one on any later request even if it left this one alone, so only
+    /// <c>/me</c> can say who the session really is. Also null when building it fails: the session is
+    /// already issued, and the client then asks <c>/me</c> as it always did.
+    /// </summary>
+    private Task<object?> MePayloadForIssuedTokenAsync(string accessToken, string? ip, string? ua, CancellationToken ct)
+        => MePayloadForIssuedTokenAsync(
+            ExtensionsMayAssertIdentity(HttpContext),
+            () => _tokens.ResolveAsync("Bearer " + accessToken, ip, ua, ct),
+            principal => BuildMePayloadAsync(principal, ct),
+            _logger);
+
+    internal static async Task<object?> MePayloadForIssuedTokenAsync(
+        bool extensionsMayAssertIdentity,
+        Func<Task<CovePrincipal?>> resolveIssuedToken,
+        Func<CovePrincipal, Task<object>> buildMePayload,
+        ILogger logger)
+    {
+        if (extensionsMayAssertIdentity)
+            return null;
+
+        try
+        {
+            var principal = await resolveIssuedToken();
+            return principal is null ? null : await buildMePayload(principal);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Signed in without the current-user payload; the client will request /me");
+            return null;
+        }
+    }
+
+    internal static bool ExtensionsMayAssertIdentity(HttpContext context)
+    {
+        if (context.TryGetExtensionIdentityAssertion(out _))
+            return true;
+        // Mirrors the live chain ExtensionManager.InvokeMiddlewareChainAsync runs for every request.
+        var extensions = context.RequestServices.GetService<ExtensionManager>();
+        return extensions is not null
+            && extensions.Extensions.OfType<IMiddlewareExtension>().Any(extension => extensions.IsEnabled(extension.Id));
     }
 
     [HttpGet("external/providers")]
@@ -369,6 +418,11 @@ public class AuthController : ControllerBase
         if (p is null || p.Kind == PrincipalKind.Anonymous)
             return Unauthorized(new { code = "UNAUTHORIZED" });
 
+        return Ok(await BuildMePayloadAsync(p, ct));
+    }
+
+    private async Task<object> BuildMePayloadAsync(CovePrincipal p, CancellationToken ct)
+    {
         UserUiPreferencesDto? uiPreferences = null;
         var userId = p.UserId?.ToString(CultureInfo.InvariantCulture)
             ?? p.TokenId?.ToString("N", CultureInfo.InvariantCulture)
@@ -390,7 +444,7 @@ public class AuthController : ControllerBase
             }
         }
 
-        return Ok(new
+        return new
         {
             user = new
             {
@@ -404,7 +458,7 @@ public class AuthController : ControllerBase
             },
             permissions = p.Permissions.ToArray(),
             readGrantedEntityKinds = p.ReadGrantedEntityKinds.ToArray(),
-        });
+        };
     }
 
     [HttpPut("me/ui-preferences")]

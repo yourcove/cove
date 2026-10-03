@@ -138,6 +138,20 @@ public sealed class AuthSessionApiTests(
     }
 
     [Fact]
+    public async Task GivenMember_WhenSigningIn_ThenTheResponseCarriesTheSameCurrentUserAsMe()
+    {
+        var owner = AsUser();
+
+        using var session = await owner.CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password, TestContext.Current.CancellationToken);
+        var me = await session.Client.GetCurrentUserAsync(TestContext.Current.CancellationToken);
+
+        session.Me.Should().NotBeNull();
+        JsonSerializer.Serialize(session.Me!.Value).Should().Be(JsonSerializer.Serialize(me));
+        me.GetProperty("user").GetProperty("username").GetString().Should().Be(ApiTestUsers.Eva);
+        me.GetProperty("permissions").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     [CoversEndpoint("PUT", "/api/auth/me/ui-preferences")]
     [CoversEndpoint("POST", "/api/auth/change-password")]
     public async Task GivenMember_WhenPreferencesAndPasswordAreChanged_ThenPreferencesPersistAndOnlyThatMembersOldSessionsAreRevoked()
