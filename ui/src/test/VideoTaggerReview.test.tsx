@@ -9,6 +9,7 @@ import {
   modeForSelection,
   selectorChange,
   type ReviewItem,
+  type TaggerRelationshipEdits,
   type TaggerReviewInput,
 } from "../components/VideoTaggerReview";
 import { MetadataDiff, defaultDiffSelection, scalarStatus, summarizeDiff } from "../components/MetadataDiff";
@@ -907,6 +908,58 @@ describe("VideoTaggerReview presets with new items left out", () => {
     renderTagsRow(reviewInput);
     await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
     expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("tags", "merge");
+  });
+});
+
+describe("VideoTaggerReview Only <source> with a current tag that was also scraped", () => {
+  // "Old tag" is on the video and the scrape returns it too, beside one other tag the library has.
+  const scrapedToo = (edits?: TaggerRelationshipEdits) =>
+    input({
+      result: {
+        ...result,
+        tagNames: ["Old tag", "Existing tag"],
+        tagCandidates: [
+          { remoteId: "t0", name: "Old tag", existsLocally: true, localId: 1 },
+          { remoteId: "t1", name: "Existing tag", existsLocally: true },
+        ],
+      } as MetadataServerVideoMatch,
+      existingTagNames: ["Old tag", "Existing tag"],
+      tagActions: { "old tag": "include", "existing tag": "include" },
+      collectionModes: { urls: "merge", tags: "replace", performers: "merge", studio: "replace" },
+      tagEdits: edits,
+    });
+
+  it("takes the tag off when its ✕ is clicked", () => {
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn(), onRelationshipEditsChange: vi.fn() };
+    const reviewInput = scrapedToo();
+    const review = buildTaggerReview(reviewInput);
+    expect([...(review.selection.tags as string[])].sort()).toEqual(["existing tag", "old tag"]);
+    applyTaggerSelectionChange(
+      reviewInput,
+      review.selection,
+      { ...review.selection, tags: ["existing tag"] },
+      handlers,
+    );
+    expect(handlers.onRelationshipEditsChange).toHaveBeenCalledWith("tags", { added: [], removed: [1] });
+    expect(handlers.onCollectionModeChange).not.toHaveBeenCalled();
+    // Once recorded, the review shows it off.
+    expect(buildTaggerReview(scrapedToo({ added: [], removed: [1] })).selection.tags).toEqual(["existing tag"]);
+  });
+
+  it("does not record a current-only tag as removed, since Only <source> drops it anyway", () => {
+    const handlers = { onCollectionModeChange: vi.fn(), onToggleTag: vi.fn(), onRelationshipEditsChange: vi.fn() };
+    // "Kept only" is on the video but not scraped; flipping one scraped chip must not mark it removed.
+    const base = scrapedToo();
+    const reviewInput = {
+      ...base,
+      video: { ...base.video, tags: [...base.video.tags, { id: 2, name: "Kept only" }] } as Video,
+      currentTagNames: ["Old tag", "Kept only"],
+    };
+    const review = buildTaggerReview(reviewInput);
+    expect([...(review.selection.tags as string[])].sort()).toEqual(["existing tag", "old tag"]);
+    applyTaggerSelectionChange(reviewInput, review.selection, { ...review.selection, tags: ["old tag"] }, handlers);
+    expect(handlers.onToggleTag).toHaveBeenCalledWith(["Existing tag"]);
+    expect(handlers.onRelationshipEditsChange).not.toHaveBeenCalled();
   });
 });
 

@@ -818,13 +818,15 @@ export function applyTaggerSelectionChange(
       sameSet(sideIds, [...new Set([...currentIds, ...presetIncomingIds])]);
     if (key !== "urls") {
       const added = rawSelected.map(libraryIdOf).filter((id): id is number => id != null);
-      // "Only <source>" drops the current items anyway, so taking one off there is not a hand removal.
-      const removed =
-        isPreset || (input.collectionModes[key] ?? "merge") === "replace"
-          ? []
-          : current
-              .filter((entry) => entry.localId != null && !sideIds.includes(entry.id))
-              .map((entry) => entry.localId!);
+      // "Only <source>" drops the current items it was not given anyway, so taking one of those off
+      // there is not a hand removal; one the scrape also returned would stay, so it is.
+      const replacing = (input.collectionModes[key] ?? "merge") === "replace";
+      const removed = isPreset
+        ? []
+        : current
+            .filter((entry) => entry.localId != null && !sideIds.includes(entry.id))
+            .filter((entry) => !replacing || incomingIds.includes(entry.id))
+            .map((entry) => entry.localId!);
       const nextEdits = { added: [...new Set(added)], removed: [...new Set(removed)] };
       const same = (left: number[], right: number[]) => sameSet(left.map(String), right.map(String));
       if (!same(nextEdits.added, edits?.added ?? []) || !same(nextEdits.removed, edits?.removed ?? []))
