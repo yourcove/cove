@@ -33,6 +33,11 @@ export interface PerformerReviewInput {
   urls: { current: string[]; incoming: string[] };
   aliases: { current: string[]; incoming: string[] };
   tags: { current: string[]; incoming: string[]; existing: string[]; actions: ScrapeRelationActionMap };
+  /**
+   * Whether the tagger creates missing tags by default. When it does not, a new tag that is not chosen
+   * is only offered ("not in your library"); when it does, one not chosen was left out on purpose.
+   */
+  createMissingTags?: boolean;
 }
 
 export interface PerformerReviewHandlers {
@@ -134,7 +139,10 @@ export function buildPerformerReview(input: PerformerReviewInput) {
   if (input.tags.incoming.length > 0) {
     const tags = tagItems(input);
     const mode = input.collectionModes.tags ?? "merge";
-    fields.push(listField("tags", "Tags", mode, false));
+    fields.push({
+      ...listField("tags", "Tags", mode, false),
+      unchosenNewItemsOffered: input.createMissingTags === false,
+    });
     sourceValues.tags = tags.incoming;
     targetValues.tags = tags.current;
     selection.tags = idsForMode(

@@ -72,6 +72,12 @@ export interface TaggerReviewInput {
   onCreateStudio?: () => void;
   showTags: boolean;
   showPerformers: boolean;
+  /**
+   * The tagger creates missing tags or performers by default, so a new one that is not chosen was taken
+   * out on purpose (left out) rather than only offered. Off when absent, as for a new tagger config.
+   */
+  createMissingTags?: boolean;
+  createMissingPerformers?: boolean;
   currentTagNames: string[];
   existingTagNames: string[];
   tagActions: ScrapeRelationActionMap;
@@ -722,6 +728,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     const mode = input.collectionModes[key] ?? "merge";
     const field = listField(key, label, mode);
     field.lockKeptItems = false;
+    field.unchosenNewItemsOffered = !(key === "tags" ? input.createMissingTags : input.createMissingPerformers);
     field.renderList = (selected, onChange, disabled) => (
       <RelationshipEditor
         entityType={entityType}

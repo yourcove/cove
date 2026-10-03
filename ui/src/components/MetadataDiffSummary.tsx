@@ -5,6 +5,7 @@ import {
   renderDiffValue,
   scalarStatus,
   CreateSourceButton,
+  isOfferedItem,
   sourceAwaitsCreate,
   type DiffField,
   type DiffRecord,
@@ -51,11 +52,12 @@ export function MetadataDiffSummary({
       const extra = selected.filter((id) => !known.has(id));
       const removed = items.filter((item) => item.inTarget && !chosen.has(item.id));
       const isNew = (item: (typeof items)[number]) => field.itemIsNew?.(item.result) ?? false;
-      // An item the library lacks that nobody chose to create was never on its way in, so it is not
-      // "left out"; it is listed apart, the way the review row lists it.
+      // In a field whose new items start unchosen, one nobody chose to create was never on its way in, so
+      // it is not "left out"; it is listed apart, the way the review row lists it.
       const notAdded = items.filter((item) => !item.inTarget && !chosen.has(item.id));
-      const leftOut = notAdded.filter((item) => !isNew(item));
-      const notInLibrary = notAdded.filter(isNew);
+      const isOffered = (item: (typeof items)[number]) => isOfferedItem(field, item.result);
+      const leftOut = notAdded.filter((item) => !isOffered(item));
+      const notInLibrary = notAdded.filter(isOffered);
       const present = items.filter((item) => item.inTarget && chosen.has(item.id)).length;
       const changes = added.length + extra.length + removed.length;
       if (!changes && !notAdded.length) {

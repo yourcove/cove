@@ -2608,6 +2608,8 @@ function TaggerResultRow({
     onCreateStudio,
     showTags: taggerConfig.setTags,
     showPerformers: taggerConfig.setPerformers,
+    createMissingTags: !taggerConfig.onlyExistingTags,
+    createMissingPerformers: !taggerConfig.onlyExistingPerformers,
     currentTagNames,
     existingTagNames,
     tagActions,

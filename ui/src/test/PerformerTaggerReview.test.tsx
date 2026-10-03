@@ -1,4 +1,7 @@
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { MetadataDiff, summarizeDiff } from "../components/MetadataDiff";
+import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
 import {
   applyPerformerSelectionChange,
   buildPerformerReview,
@@ -113,5 +116,72 @@ describe("PerformerTaggerReview", () => {
       calls,
     );
     expect(calls.onTagActionsChange).toHaveBeenLastCalledWith({ tattoos: "include", "new tag": "create" });
+  });
+
+  // The performer tagger creates missing tags by default, so a new tag that is not selected was taken
+  // out on purpose: it is left out, not merely "not in your library".
+  describe("a new tag the person unticked", () => {
+    const unticked = () => {
+      const review = buildPerformerReview(
+        input({ tags: { ...input().tags, actions: { blonde: "include", tattoos: "include", "new tag": "exclude" } } }),
+      );
+      return { ...review, fields: review.fields.filter((field) => field.key === "tags") };
+    };
+
+    it("is summarised as left out", () => {
+      const review = unticked();
+      const text = summarizeDiff(review.fields, review.source, review.target, review.selection).changes;
+      expect(text.map((change) => change.text).join(" | ")).toMatch(/1 tag left out/);
+    });
+
+    it("is a left-out chip in the compact summary", () => {
+      const review = unticked();
+      render(
+        <MetadataDiffSummary
+          fields={review.fields}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("New Tag").closest("[data-state]")).toHaveAttribute("data-state", "left-out");
+    });
+
+    it("is only offered when the tagger does not create missing tags", () => {
+      const review = buildPerformerReview(
+        input({
+          createMissingTags: false,
+          tags: { ...input().tags, actions: { blonde: "include", tattoos: "include", "new tag": "exclude" } },
+        }),
+      );
+      const fields = review.fields.filter((field) => field.key === "tags");
+      const text = summarizeDiff(fields, review.source, review.target, review.selection).changes;
+      expect(text.map((change) => change.text).join(" | ")).not.toMatch(/left out/);
+      render(
+        <MetadataDiffSummary
+          fields={fields}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("New Tag").closest("[data-state]")).toHaveAttribute("data-state", "not-in-library");
+    });
+
+    it("is an excluded chip in the full rows", () => {
+      const review = unticked();
+      render(
+        <MetadataDiff
+          fields={review.fields}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("New Tag").closest("[data-state]")).toHaveAttribute("data-state", "excluded");
+    });
   });
 });

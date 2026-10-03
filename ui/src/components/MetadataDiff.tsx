@@ -59,6 +59,12 @@ export interface DiffField {
    * so a preset never creates anything the person did not pick.
    */
   newItemsOnlyWhenChosen?: boolean;
+  /**
+   * New incoming items start out unchosen (the owner does not create missing items by default), so one
+   * that is not selected is only offered: shown and counted as "not in your library", not as left out.
+   * Without it, a new item that is not selected was taken out on purpose and reads as left out.
+   */
+  unchosenNewItemsOffered?: boolean;
   /** The preset the owner is in, to highlight when several presets select the same items. */
   activeMode?: DiffListMode;
   /**
@@ -77,6 +83,10 @@ export interface DiffField {
 
 /** The incoming side of a scalar can only be reached through its create action. */
 export const sourceAwaitsCreate = (field: DiffField) => Boolean(field.sourceIsNew && field.onCreateSource);
+
+/** An incoming item that is only offered while unchosen (see `unchosenNewItemsOffered`). */
+export const isOfferedItem = (field: DiffField, value: unknown) =>
+  Boolean(field.unchosenNewItemsOffered && field.itemIsNew?.(value));
 
 export type DiffListMode = "combined" | "target" | "source";
 
@@ -182,7 +192,7 @@ export function summarizeDiff(fields: DiffField[], source: DiffRecord, target: D
       // An item the library lacks that nobody chose to create was never on its way in, so it is not
       // counted as left out.
       const leftOut = items.filter(
-        (item) => !item.inTarget && !selected.has(item.id) && !field.itemIsNew?.(item.result),
+        (item) => !item.inTarget && !selected.has(item.id) && !isOfferedItem(field, item.result),
       ).length;
       const created = items.filter(
         (item) => !item.inTarget && selected.has(item.id) && field.itemIsNew?.(item.result),
@@ -599,6 +609,7 @@ function ListRow({
       })),
   ];
   const isNewIncoming = (item: (typeof shown)[number]) => !item.inTarget && Boolean(field.itemIsNew?.(item.result));
+  const isOffered = (item: (typeof shown)[number]) => !item.inTarget && isOfferedItem(field, item.result);
   const inPresets = (item: (typeof items)[number]) =>
     !field.newItemsOnlyWhenChosen || !isNewIncoming(item) || selected.includes(item.id);
   const modes: { key: DiffListMode; label: string; ids: string[] }[] = [
@@ -635,7 +646,7 @@ function ListRow({
   };
   const kept = shown.filter((item) => item.inTarget && selected.includes(item.id)).length;
   const added = shown.filter((item) => !item.inTarget && selected.includes(item.id)).length;
-  const notInLibrary = shown.filter((item) => !selected.includes(item.id) && isNewIncoming(item)).length;
+  const notInLibrary = shown.filter((item) => !selected.includes(item.id) && isOffered(item)).length;
   const leftOut = shown.filter((item) => !selected.includes(item.id)).length - notInLibrary;
   const addedNew = shown.filter((item) => selected.includes(item.id) && isNewIncoming(item)).length;
   const counts = [
@@ -658,7 +669,7 @@ function ListRow({
   ].filter(Boolean);
   const stateOf = (item: (typeof items)[number]): ListItemState =>
     !selected.includes(item.id)
-      ? isNewIncoming(item)
+      ? isOffered(item)
         ? "available"
         : "excluded"
       : item.inTarget && item.inSource

@@ -903,6 +903,21 @@ describe("VideoTaggerReview presets with new items left out", () => {
     expect(onCollectionModeChange).toHaveBeenLastCalledWith("tags", "merge");
   });
 
+  it("calls an unchosen new tag left out when the tagger creates missing tags by default", () => {
+    const review = buildTaggerReview(leftOut({ createMissingTags: true }));
+    const tags = review.fields.filter((field) => field.key === "tags");
+    const text = summarizeDiff(tags, review.source, review.target, review.selection).changes.map((c) => c.text);
+    expect(text.join(" | ")).toMatch(/1 tag left out/);
+    const offered = buildTaggerReview(leftOut());
+    const offeredText = summarizeDiff(
+      offered.fields.filter((field) => field.key === "tags"),
+      offered.source,
+      offered.target,
+      offered.selection,
+    ).changes.map((c) => c.text);
+    expect(offeredText.join(" | ")).not.toMatch(/left out/);
+  });
+
   it("still switches Only current to Combine when Combine is clicked and the presets coincide", async () => {
     const reviewInput = allNew({ collectionModes: { tags: "skip" } });
     renderTagsRow(reviewInput);

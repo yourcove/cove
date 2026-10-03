@@ -16,6 +16,8 @@ const fields: DiffField[] = [
     itemKey: (value) => (value as { id: string }).id,
     renderItem: (value) => (value as { id: string; label: string }).label,
     itemIsNew: (value) => Boolean((value as { isNew?: boolean }).isNew),
+    // As the video tagger sets it: a new tag starts out unchosen, so one not selected is only offered.
+    unchosenNewItemsOffered: true,
   },
 ];
 const source: DiffRecord = {

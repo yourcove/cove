@@ -1021,6 +1021,7 @@ function PerformerResultRow({
   collectionModes,
   tagActions,
   existingTagNames,
+  createMissingTags,
   imageIndex,
   onImageIndexChange,
   onFieldStrategyChange,
@@ -1083,6 +1084,7 @@ function PerformerResultRow({
       existing: existingTagNames,
       actions: tagActions,
     },
+    createMissingTags,
   };
   const review = isSelected ? buildPerformerReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;
