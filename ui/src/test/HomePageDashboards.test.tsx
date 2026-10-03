@@ -909,6 +909,154 @@ describe("HomePage dashboards", () => {
     expect(screen.queryByText(/Configuration has been preserved/)).toBeNull();
   });
 
+  it("shows the dashboard's shape instead of a spinner while its layout loads", async () => {
+    mocks.list.mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderHome();
+
+    expect(container.querySelector("[data-dashboard-skeleton]")).not.toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading dashboard");
+    expect(container.querySelectorAll("[data-row-skeleton]").length).toBeGreaterThan(0);
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("holds a row skeleton while a saved filter loads instead of collapsing the widget", async () => {
+    mocks.savedFilterGet.mockImplementation(() => new Promise(() => {}));
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved filter",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    const { container } = renderHome();
+
+    await screen.findByRole("button", { name: /Customize/ });
+    expect(container.querySelector("[data-row-skeleton]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-card-skeleton]").length).toBeGreaterThan(0);
+  });
+
+  it("sizes skeleton cards like the cards that replace them", async () => {
+    let resolveItems!: (value: unknown) => void;
+    const performersFind = vi.mocked((await import("../api/client")).performers.find);
+    performersFind.mockImplementationOnce(
+      () =>
+        new Promise<any>((resolve) => {
+          resolveItems = resolve;
+        }),
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "performers",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Performers",
+        configuration: { source: "premade", mode: "performers", sortBy: "name", direction: "asc", header: "People" },
+      },
+    ]);
+
+    const { container } = renderHome();
+
+    await screen.findByRole("heading", { name: "People" });
+    const skeleton = container.querySelector("[data-card-skeleton]")!;
+    expect(skeleton).not.toBeNull();
+    const skeletonMedia = skeleton.firstElementChild!;
+    const skeletonBody = skeletonMedia.nextElementSibling!;
+
+    await act(async () => resolveItems({ items: [{ id: 8, name: "Avery", imagePath: "/p/8.jpg" }], totalCount: 1 }));
+    const card = await screen.findByRole("link", { name: /Avery/ });
+    const cardMedia = card.firstElementChild!;
+    const cardBody = cardMedia.nextElementSibling!;
+
+    const sizing = (element: Element) =>
+      [...element.classList].filter((name) => /^(w-\[|aspect-|min-h-)/.test(name)).sort();
+    expect(sizing(skeleton)).toEqual(["w-[160px]"]);
+    expect(sizing(card)).toEqual(sizing(skeleton));
+    expect(sizing(skeletonMedia)).toEqual(["aspect-[2/3]"]);
+    expect(sizing(cardMedia)).toEqual(sizing(skeletonMedia));
+    expect(sizing(cardBody)).toEqual(sizing(skeletonBody));
+    expect(sizing(cardBody)).toHaveLength(1);
+  });
+
+  it("shows a card's no-image placeholder when its image fails to load", async () => {
+    vi.mocked((await import("../api/client")).performers.find).mockResolvedValueOnce({
+      items: [{ id: 8, name: "Avery", imagePath: "/p/8.jpg" }],
+      totalCount: 1,
+    } as any);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "performers",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Performers",
+        configuration: { source: "premade", mode: "performers", sortBy: "name", direction: "asc", header: "People" },
+      },
+    ]);
+
+    renderHome();
+
+    const card = await screen.findByRole("link", { name: /Avery/ });
+    const image = card.querySelector("img")!;
+    expect(image).not.toBeNull();
+    fireEvent.error(image);
+    expect(card.querySelector("img")).toBeNull();
+    expect(card.querySelector("svg.lucide-user")).not.toBeNull();
+  });
+
+  it("fetches the first visible cards' images eagerly and fades them in once loaded", async () => {
+    const videoItems = Array.from({ length: 8 }, (_, index) => ({
+      id: index + 1,
+      title: `Clip ${index + 1}`,
+      files: [],
+      tags: [],
+      performers: [],
+    }));
+    mocks.videosFind.mockImplementation(async () => ({ items: videoItems, totalCount: videoItems.length }));
+    const premade = (instanceId: string, header: string) => ({
+      instanceId,
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: header,
+      configuration: { source: "premade", mode: "videos", sortBy: "created_at", direction: "desc", header },
+    });
+    // An extension widget on top is not a row of images and must not take one of the eager slots.
+    const extensionWidget = {
+      instanceId: "ext",
+      owner: "example.extension",
+      widgetKey: "pulse",
+      label: "Library Pulse",
+      configuration: {},
+    };
+    state.active = dashboard(1, "Home", true, [
+      extensionWidget,
+      premade("a", "First"),
+      premade("b", "Second"),
+      premade("c", "Third"),
+    ]);
+
+    renderHome();
+
+    const rowImages = async (header: string) => {
+      const row = (await screen.findByRole("heading", { name: header })).closest(".recommendation-row")!;
+      await within(row as HTMLElement).findAllByRole("link", { name: /Clip/ });
+      return [...row.querySelectorAll("img")];
+    };
+    const first = await rowImages("First");
+    expect(first.map((image) => image.getAttribute("loading"))).toEqual([
+      ...Array(6).fill("eager"),
+      ...Array(2).fill("lazy"),
+    ]);
+    expect((await rowImages("Second"))[0]).toHaveAttribute("loading", "eager");
+    expect((await rowImages("Third")).every((image) => image.getAttribute("loading") === "lazy")).toBe(true);
+
+    expect(first[0]).toHaveClass("opacity-0");
+    fireEvent.load(first[0]);
+    expect(first[0]).toHaveClass("opacity-100");
+  });
+
   it("does not duplicate a single-instance extension widget", async () => {
     state.dashboardDefinitions = [
       {

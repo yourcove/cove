@@ -46,6 +46,7 @@ import { StartupGate } from "./components/StartupGate";
 import { getApiValidationFailureDetail } from "./utils/requestFailure";
 import { ExtensionKeyboardActions } from "./extensions/ExtensionKeyboardActions";
 import { ThemeGate } from "./components/ThemeGate";
+import { DashboardSkeleton } from "./components/DashboardSkeleton";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -570,9 +571,14 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
         <ErrorBoundary>
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
-              </div>
+              // The dashboard's own loading skeleton, so its page chunk arriving changes nothing on screen.
+              route.page === "home" || route.page === "dashboard" ? (
+                <DashboardSkeleton />
+              ) : (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+                </div>
+              )
             }
           >
             <AppRoutes route={route} navigate={navigate} />

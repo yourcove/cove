@@ -66,6 +66,15 @@ import { readAuthenticatedUserHomePageContent } from "../utils/userUiPreferences
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { VideoCoverImage } from "../components/VideoCoverImage";
+import { FadeInImage } from "../components/FadeInImage";
+import {
+  DashboardSkeleton,
+  RECOMMENDATION_CARD_SHAPES,
+  RECOMMENDATION_CARD_STATS_ROW,
+  RecommendationRowSkeleton,
+  recommendationCardSkeletons,
+  type RecommendationCardShape,
+} from "../components/DashboardSkeleton";
 import { SortableList } from "../components/SortableList";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { useAuth } from "../auth/AuthContext";
@@ -383,6 +392,43 @@ function widgetToContent(widget: DashboardWidget): FrontPageContent | null {
   };
 }
 
+// ─── Card Loading ────────────────────────────────────────────────────────────
+
+// The first rows are on screen at load, so their first cards fetch images immediately instead of
+// waiting for the lazy-loading heuristics; everything further along stays lazy.
+const EAGER_IMAGE_WIDGET_COUNT = 2;
+const EAGER_IMAGE_CARD_COUNT = 6;
+
+type CardImageLoading = "eager" | "lazy";
+
+function cardImageLoading(imagePriority: boolean, index: number): CardImageLoading {
+  return imagePriority && index < EAGER_IMAGE_CARD_COUNT ? "eager" : "lazy";
+}
+
+function cardShapeForMode(mode: FilterMode): RecommendationCardShape {
+  switch (mode) {
+    case "performers":
+      return RECOMMENDATION_CARD_SHAPES.performer;
+    case "studios":
+      return RECOMMENDATION_CARD_SHAPES.studio;
+    case "tags":
+      return RECOMMENDATION_CARD_SHAPES.tag;
+    case "galleries":
+      return RECOMMENDATION_CARD_SHAPES.gallery;
+    case "groups":
+      return RECOMMENDATION_CARD_SHAPES.group;
+    case "audios":
+      return RECOMMENDATION_CARD_SHAPES.audio;
+    case "texts":
+      return RECOMMENDATION_CARD_SHAPES.text;
+    case "segments":
+    case "rawsegments":
+      return RECOMMENDATION_CARD_SHAPES.segment;
+    default:
+      return RECOMMENDATION_CARD_SHAPES.video;
+  }
+}
+
 // ─── Home Page Component ─────────────────────────────────────────────────────
 
 interface Props {
@@ -471,13 +517,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
     await queryClient.invalidateQueries({ queryKey: ["dashboard-page"] });
   }, [queryClient]);
 
-  if (dashboardQuery.isLoading) {
-    return (
-      <div className="flex min-h-[35vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
-      </div>
-    );
-  }
+  if (dashboardQuery.isLoading) return <DashboardSkeleton />;
   if (dashboardQuery.error || !dashboardQuery.data) {
     return <DashboardLoadError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />;
   }
@@ -531,6 +571,13 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
     }
     await refresh();
   };
+  // Only recommendation rows take eager images; an extension widget at the top must not use up a slot.
+  const eagerImageWidgetIds = new Set(
+    dashboard.widgets
+      .filter((widget) => widgetToContent(widget) !== null)
+      .slice(0, EAGER_IMAGE_WIDGET_COUNT)
+      .map((widget) => widget.instanceId),
+  );
   return (
     <div className={presentation === "canvas" ? "space-y-3" : "space-y-5"} data-dashboard-presentation={presentation}>
       <DashboardHeader
@@ -549,6 +596,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
         {dashboard.widgets.map((widget) => (
           <DashboardWidgetHost
             key={widget.instanceId}
+            imagePriority={eagerImageWidgetIds.has(widget.instanceId)}
             dashboardId={dashboard.id}
             principalKey={principalKey}
             widget={widget}
@@ -771,6 +819,7 @@ function DashboardWidgetHost({
   onNavigate,
   onRemove,
   editing = false,
+  imagePriority = false,
 }: {
   dashboardId: number;
   principalKey: string;
@@ -778,6 +827,7 @@ function DashboardWidgetHost({
   onNavigate: (route: any) => void;
   onRemove?: () => Promise<void>;
   editing?: boolean;
+  imagePriority?: boolean;
 }) {
   const content = widgetToContent(widget);
   if (content) {
@@ -790,6 +840,7 @@ function DashboardWidgetHost({
           onNavigate={onNavigate}
           onRemove={onRemove}
           editing={editing}
+          imagePriority={imagePriority}
         />
       </div>
     );
@@ -1890,10 +1941,12 @@ function GroupItemRecommendationCard({
   item,
   badge,
   onNavigate,
+  imageLoading,
 }: {
   item: GroupItem;
   badge?: string;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   // The route deliberately omits seekTo when the item has no position: continue-watching videos
   // resume from the engagement resumeTime, and seekTo: 0 would force playback back to the start.
@@ -1905,44 +1958,49 @@ function GroupItemRecommendationCard({
   const imageId = hostType === "image" ? host.id : 0;
   const title = item.title || item.videoTitle || item.imageTitle || item.childGroupName || "Untitled";
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+  const placeholder = (
+    <div className="flex h-full w-full items-center justify-center text-accent">
+      {hostType === "audio" ? (
+        <Headphones className="h-10 w-10" />
+      ) : hostType === "text" ? (
+        <FileText className="h-10 w-10" />
+      ) : (
+        <Layers className="h-10 w-10" />
+      )}
+    </div>
+  );
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[220px] cursor-pointer overflow-hidden rounded border border-border bg-card transition-colors hover:border-accent/50"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.groupItem.width} cursor-pointer overflow-hidden rounded border border-border bg-card transition-colors hover:border-accent/50`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-black">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.groupItem.media} bg-surface`}>
         {videoId > 0 ? (
           <VideoCoverImage
             src={`/api/stream/video/${videoId}/screenshot`}
             alt={title}
             className="h-full w-full object-cover"
             fallbackClassName="video-recommendation-cover-fallback"
-            loading="lazy"
+            loading={imageLoading}
+            fadeIn
           />
         ) : imageId > 0 ? (
-          <img
+          <FadeInImage
             src={images.thumbnailUrl(imageId, 480)}
             alt={title}
             className="h-full w-full object-cover"
-            loading="lazy"
+            loading={imageLoading}
+            fallback={placeholder}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-accent">
-            {hostType === "audio" ? (
-              <Headphones className="h-10 w-10" />
-            ) : hostType === "text" ? (
-              <FileText className="h-10 w-10" />
-            ) : (
-              <Layers className="h-10 w-10" />
-            )}
-          </div>
+          placeholder
         )}
         {badge ? (
           <div className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{badge}</div>
         ) : null}
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.groupItem.body}`}>
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
       </div>
     </a>
@@ -1958,6 +2016,7 @@ function RecommendationRow({
   onNavigate,
   onRemove,
   editing = false,
+  imagePriority = false,
 }: {
   principalKey: string;
   content: FrontPageContent;
@@ -1965,6 +2024,7 @@ function RecommendationRow({
   onNavigate: (r: any) => void;
   onRemove?: () => Promise<void>;
   editing?: boolean;
+  imagePriority?: boolean;
 }) {
   if (content.type === "saved") {
     return (
@@ -1975,6 +2035,7 @@ function RecommendationRow({
         onNavigate={onNavigate}
         onRemove={onRemove}
         editing={editing}
+        imagePriority={imagePriority}
       />
     );
   }
@@ -1987,15 +2048,24 @@ function RecommendationRow({
         onNavigate={onNavigate}
         onRemove={onRemove}
         editing={editing}
+        imagePriority={imagePriority}
       />
     );
   }
-  return <CustomFilterRecommendationRow filter={content} onNavigate={onNavigate} />;
+  return <CustomFilterRecommendationRow filter={content} onNavigate={onNavigate} imagePriority={imagePriority} />;
 }
 
 // ─── Custom Filter Row ──────────────────────────────────────────────────────
 
-function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomFilter; onNavigate: (r: any) => void }) {
+function CustomFilterRecommendationRow({
+  filter,
+  onNavigate,
+  imagePriority,
+}: {
+  filter: CustomFilter;
+  onNavigate: (r: any) => void;
+  imagePriority: boolean;
+}) {
   const findFilter = useMemo(
     () => withSeededRandomSort({}, { perPage: 25, sort: filter.sortBy, direction: filter.direction }),
     [filter],
@@ -2052,15 +2122,17 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
       viewAllObjectFilter={{}}
       onNavigate={onNavigate}
       loading={isLoading}
+      cardShape={cardShapeForMode(filter.mode)}
       count={items.length}
     >
-      {items.map((item: any) => (
+      {items.map((item: any, index: number) => (
         <EntityCard
           key={item.id}
           item={item}
           engagement={engagementById.get(item.id)}
           mode={filter.mode}
           onNavigate={onNavigate}
+          imageLoading={cardImageLoading(imagePriority, index)}
         />
       ))}
     </RecommendationRowShell>
@@ -2076,6 +2148,7 @@ function SavedFilterRecommendationRow({
   onNavigate,
   onRemove,
   editing = false,
+  imagePriority = false,
 }: {
   principalKey: string;
   savedFilterId: number;
@@ -2083,6 +2156,7 @@ function SavedFilterRecommendationRow({
   onNavigate: (r: any) => void;
   onRemove?: () => Promise<void>;
   editing?: boolean;
+  imagePriority?: boolean;
 }) {
   const normalizedFallbackLabel = fallbackLabel?.trim();
   const errorLabel =
@@ -2276,7 +2350,9 @@ function SavedFilterRecommendationRow({
         }}
       />
     );
-  if (!filter || !mode) return null;
+  // The filter's entity type is unknown until it loads; most dashboard rows are videos.
+  if (!filter) return <RecommendationRowSkeleton />;
+  if (!mode) return null;
   if (itemQuery.isSuccess && items.length === 0) {
     if (!editing) return null;
     return (
@@ -2305,15 +2381,17 @@ function SavedFilterRecommendationRow({
       viewAllSegmentsView={mode === "rawsegments" ? "raw" : undefined}
       onNavigate={onNavigate}
       loading={isLoading}
+      cardShape={cardShapeForMode(mode)}
       count={items.length}
     >
-      {items.map((item: any) => (
+      {items.map((item: any, index: number) => (
         <EntityCard
           key={item.id}
           item={item}
           engagement={engagementById.get(item.id)}
           mode={mode!}
           onNavigate={onNavigate}
+          imageLoading={cardImageLoading(imagePriority, index)}
         />
       ))}
     </RecommendationRowShell>
@@ -2329,6 +2407,7 @@ function GroupRecommendationRow({
   onNavigate,
   onRemove,
   editing = false,
+  imagePriority = false,
 }: {
   principalKey: string;
   source: GroupRow;
@@ -2336,6 +2415,7 @@ function GroupRecommendationRow({
   onNavigate: (r: any) => void;
   onRemove?: () => Promise<void>;
   editing?: boolean;
+  imagePriority?: boolean;
 }) {
   const { hasPermission } = useAuth();
   const errorLabel = fallbackLabel?.trim() || `Group #${source.groupId}`;
@@ -2379,7 +2459,7 @@ function GroupRecommendationRow({
         }}
       />
     );
-  if (!group) return null;
+  if (!group) return <RecommendationRowSkeleton shape={RECOMMENDATION_CARD_SHAPES.groupItem} />;
   const items = (itemQuery.data?.items ?? []).filter((item) => {
     const host = resolveGroupFeedHost(item);
     return !!host && canReadEntity(host.resource, hasPermission);
@@ -2401,14 +2481,16 @@ function GroupRecommendationRow({
       viewAllId={groupId}
       onNavigate={onNavigate}
       loading={itemQuery.isLoading}
+      cardShape={RECOMMENDATION_CARD_SHAPES.groupItem}
       count={items.length}
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         <GroupItemRecommendationCard
           key={`${item.kind}:${item.id}:${item.orderIndex}`}
           item={item}
           badge={group.querySourceKey === CONTINUE_WATCHING_SOURCE_KEY ? "Resume" : undefined}
           onNavigate={onNavigate}
+          imageLoading={cardImageLoading(imagePriority, index)}
         />
       ))}
     </RecommendationRowShell>
@@ -2428,6 +2510,7 @@ function RecommendationRowShell({
   viewAllSegmentsView,
   onNavigate,
   loading,
+  cardShape,
   count,
   children,
 }: {
@@ -2441,6 +2524,7 @@ function RecommendationRowShell({
   viewAllSegmentsView?: "raw";
   onNavigate: (r: any) => void;
   loading: boolean;
+  cardShape: RecommendationCardShape;
   count: number;
   children: React.ReactNode;
 }) {
@@ -2529,12 +2613,9 @@ function RecommendationRowShell({
           ref={scrollRef}
           className="flex gap-2 overflow-x-auto scrollbar-hide scroll-smooth px-1"
           style={{ scrollSnapType: "x mandatory" }}
+          aria-busy={loading || undefined}
         >
-          {loading
-            ? Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-shrink-0 w-[200px] aspect-video bg-card rounded animate-pulse" />
-              ))
-            : children}
+          {loading ? recommendationCardSkeletons(cardShape) : children}
         </div>
 
         {/* Right arrow */}
@@ -2591,29 +2672,32 @@ function EntityCard({
   engagement,
   mode,
   onNavigate,
+  imageLoading,
 }: {
   item: any;
   engagement?: EntityEngagement;
   mode: FilterMode;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
+  const props = { engagement, onNavigate, imageLoading };
   switch (mode) {
     case "videos":
-      return <VideoRecommendationCard video={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <VideoRecommendationCard video={item} {...props} />;
     case "performers":
-      return <PerformerRecommendationCard performer={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <PerformerRecommendationCard performer={item} {...props} />;
     case "studios":
-      return <StudioRecommendationCard studio={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <StudioRecommendationCard studio={item} {...props} />;
     case "tags":
-      return <TagRecommendationCard tag={item} onNavigate={onNavigate} />;
+      return <TagRecommendationCard tag={item} onNavigate={onNavigate} imageLoading={imageLoading} />;
     case "galleries":
-      return <GalleryRecommendationCard gallery={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <GalleryRecommendationCard gallery={item} {...props} />;
     case "groups":
-      return <GroupRecommendationCard group={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <GroupRecommendationCard group={item} {...props} />;
     case "audios":
-      return <AudioRecommendationCard audio={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <AudioRecommendationCard audio={item} {...props} />;
     case "texts":
-      return <TextRecommendationCard text={item} engagement={engagement} onNavigate={onNavigate} />;
+      return <TextRecommendationCard text={item} {...props} />;
     case "segments":
       return <DerivedSegmentRecommendationCard item={item} onNavigate={onNavigate} />;
     case "rawsegments":
@@ -2627,10 +2711,12 @@ function AudioRecommendationCard({
   audio,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   audio: Audio;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const title = audio.title?.trim() || audio.files?.[0]?.basename || "Untitled audio";
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "audio", id: audio.id }, () =>
@@ -2639,18 +2725,24 @@ function AudioRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      className={`flex ${RECOMMENDATION_CARD_SHAPES.audio.width} flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative flex aspect-video items-center justify-center bg-surface">
+      <div className={`relative flex ${RECOMMENDATION_CARD_SHAPES.audio.media} items-center justify-center bg-surface`}>
         {audio.imagePath ? (
-          <img src={audio.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" />
+          <FadeInImage
+            src={audio.imagePath}
+            alt={title}
+            className="h-full w-full object-cover"
+            loading={imageLoading}
+            fallback={<Headphones className="h-10 w-10 text-muted" />}
+          />
         ) : (
           <Headphones className="h-10 w-10 text-muted" />
         )}
         <RatingBanner rating={engagement?.rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.audio.body}`}>
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
         {audio.date ? <p className="text-xs text-muted">{audio.date}</p> : null}
       </div>
@@ -2662,10 +2754,12 @@ function TextRecommendationCard({
   text,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   text: TextDocument;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const title = text.title?.trim() || text.files?.[0]?.basename || "Untitled text";
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "text", id: text.id }, () =>
@@ -2674,18 +2768,24 @@ function TextRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      className={`flex ${RECOMMENDATION_CARD_SHAPES.text.width} flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative flex aspect-video items-center justify-center bg-surface">
+      <div className={`relative flex ${RECOMMENDATION_CARD_SHAPES.text.media} items-center justify-center bg-surface`}>
         {text.imagePath ? (
-          <img src={text.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" />
+          <FadeInImage
+            src={text.imagePath}
+            alt={title}
+            className="h-full w-full object-cover"
+            loading={imageLoading}
+            fallback={<FileText className="h-10 w-10 text-muted" />}
+          />
         ) : (
           <FileText className="h-10 w-10 text-muted" />
         )}
         <RatingBanner rating={engagement?.rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.text.body}`}>
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
         {text.date ? <p className="text-xs text-muted">{text.date}</p> : null}
       </div>
@@ -2713,10 +2813,10 @@ function DerivedSegmentRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      className={`flex ${RECOMMENDATION_CARD_SHAPES.segment.width} flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="aspect-video bg-black">
+      <div className={`${RECOMMENDATION_CARD_SHAPES.segment.media} bg-black`}>
         <SegmentVideoPreview
           hostId={item.videoId}
           segmentId={primarySegmentId}
@@ -2727,7 +2827,7 @@ function DerivedSegmentRecommendationCard({
           imgClassName="h-full w-full object-cover"
         />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.segment.body}`}>
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
         <p className="text-xs text-muted">{formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}</p>
       </div>
@@ -2750,10 +2850,10 @@ function RawSegmentRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      className={`flex ${RECOMMENDATION_CARD_SHAPES.segment.width} flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-black">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.segment.media} bg-black`}>
         <SegmentVideoPreview
           hostId={item.hostId}
           segmentId={item.id}
@@ -2765,7 +2865,7 @@ function RawSegmentRecommendationCard({
         />
         <RatingBanner rating={engagement?.rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.segment.body}`}>
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
         <p className="text-xs text-muted">{formatSegmentCardEyebrow(item.startSec, item.endSec)}</p>
       </div>
@@ -2779,10 +2879,12 @@ function VideoRecommendationCard({
   video,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   video: Video;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const file = video.files[0];
   const duration = file?.duration ?? 0;
@@ -2797,16 +2899,17 @@ function VideoRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.video.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-black">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.video.media} bg-surface`}>
         <VideoCoverImage
           src={screenshotUrl}
           alt={screenshotAlt}
           className="h-full w-full object-cover"
           fallbackClassName="video-recommendation-cover-fallback"
-          loading="lazy"
+          loading={imageLoading}
+          fadeIn
         />
         {/* Resolution + duration overlay */}
         <div className="absolute bottom-0 right-0 flex items-center gap-0.5 p-1 text-xs text-white">
@@ -2815,14 +2918,14 @@ function VideoRecommendationCard({
         </div>
         <RatingBanner rating={rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.video.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">
           {video.title || file?.basename || "Untitled"}
         </p>
         {video.date && <p className="text-xs text-muted">{video.date}</p>}
       </div>
       {/* Bottom stats */}
-      <div className="flex items-center gap-2 px-2 pb-1.5 text-xs text-muted">
+      <div className={`flex items-center gap-2 px-2 pb-1.5 text-xs text-muted ${RECOMMENDATION_CARD_STATS_ROW}`}>
         {video.tags.length > 0 && (
           <span className="flex items-center gap-0.5">
             <TagIcon className="w-2.5 h-2.5" />
@@ -2846,33 +2949,44 @@ function PerformerRecommendationCard({
   performer,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   performer: Performer;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () =>
     onNavigate({ page: "performer", id: performer.id }),
   );
   const rating = engagement?.rating;
+  const performerPlaceholder = (
+    <div className="w-full h-full flex items-center justify-center">
+      <User className="w-10 h-10 text-muted" />
+    </div>
+  );
 
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.performer.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-[2/3] bg-surface">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.performer.media} bg-surface`}>
         {performer.imagePath ? (
-          <img src={performer.imagePath} alt={performer.name} className="w-full h-full object-cover" loading="lazy" />
+          <FadeInImage
+            src={performer.imagePath}
+            alt={performer.name}
+            className="w-full h-full object-cover"
+            loading={imageLoading}
+            fallback={performerPlaceholder}
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <User className="w-10 h-10 text-muted" />
-          </div>
+          performerPlaceholder
         )}
         <RatingBanner rating={rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.performer.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{performer.name}</p>
         {performer.disambiguation && <p className="text-xs text-muted truncate">{performer.disambiguation}</p>}
       </div>
@@ -2886,10 +3000,12 @@ function StudioRecommendationCard({
   studio,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   studio: Studio;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "studio", id: studio.id }, () =>
     onNavigate({ page: "studio", id: studio.id }),
@@ -2899,18 +3015,26 @@ function StudioRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.studio.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-surface flex items-center justify-center p-4">
+      <div
+        className={`relative ${RECOMMENDATION_CARD_SHAPES.studio.media} bg-surface flex items-center justify-center p-4`}
+      >
         {studio.imagePath ? (
-          <img src={studio.imagePath} alt={studio.name} className="h-full w-full object-contain" loading="lazy" />
+          <FadeInImage
+            src={studio.imagePath}
+            alt={studio.name}
+            className="h-full w-full object-contain"
+            loading={imageLoading}
+            fallback={<Building2 className="w-10 h-10 text-muted" />}
+          />
         ) : (
           <Building2 className="w-10 h-10 text-muted" />
         )}
         <RatingBanner rating={rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.studio.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{studio.name}</p>
       </div>
     </a>
@@ -2919,7 +3043,15 @@ function StudioRecommendationCard({
 
 // ─── Tag Card ───────────────────────────────────────────────────────────────
 
-function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: any) => void }) {
+function TagRecommendationCard({
+  tag,
+  onNavigate,
+  imageLoading,
+}: {
+  tag: Tag;
+  onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
+}) {
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: tag.id }, () =>
     onNavigate({ page: "tag", id: tag.id }),
   );
@@ -2927,17 +3059,23 @@ function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: 
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.tag.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-surface flex items-center justify-center">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.tag.media} bg-surface flex items-center justify-center`}>
         {tag.imagePath ? (
-          <img src={tag.imagePath} alt={tag.name} className="max-w-full max-h-full object-contain" loading="lazy" />
+          <FadeInImage
+            src={tag.imagePath}
+            alt={tag.name}
+            className="max-w-full max-h-full object-contain"
+            loading={imageLoading}
+            fallback={<TagIcon className="w-8 h-8 text-muted" />}
+          />
         ) : (
           <TagIcon className="w-8 h-8 text-muted" />
         )}
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.tag.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{tag.name}</p>
       </div>
     </a>
@@ -2950,10 +3088,12 @@ function GalleryRecommendationCard({
   gallery,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   gallery: Gallery;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "gallery", id: gallery.id }, () =>
     onNavigate({ page: "gallery", id: gallery.id }),
@@ -2963,23 +3103,26 @@ function GalleryRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.gallery.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-video bg-surface flex items-center justify-center">
+      <div
+        className={`relative ${RECOMMENDATION_CARD_SHAPES.gallery.media} bg-surface flex items-center justify-center`}
+      >
         {gallery.coverPath ? (
-          <img
+          <FadeInImage
             src={`/api/galleries/${gallery.id}/cover`}
             alt={gallery.title || ""}
             className="w-full h-full object-cover"
-            loading="lazy"
+            loading={imageLoading}
+            fallback={<Images className="w-8 h-8 text-muted" />}
           />
         ) : (
           <Images className="w-8 h-8 text-muted" />
         )}
         <RatingBanner rating={rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.gallery.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">
           {getGalleryDisplayTitle(gallery)}
         </p>
@@ -2995,10 +3138,12 @@ function GroupRecommendationCard({
   group,
   engagement,
   onNavigate,
+  imageLoading,
 }: {
   group: Group;
   engagement?: EntityEngagement;
   onNavigate: (r: any) => void;
+  imageLoading: CardImageLoading;
 }) {
   const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "group", id: group.id }, () =>
     onNavigate({ page: "group", id: group.id }),
@@ -3008,18 +3153,24 @@ function GroupRecommendationCard({
   return (
     <a
       {...linkProps}
-      className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
+      className={`flex-shrink-0 ${RECOMMENDATION_CARD_SHAPES.group.width} cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors`}
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="relative aspect-[2/3] bg-surface flex items-center justify-center">
+      <div className={`relative ${RECOMMENDATION_CARD_SHAPES.group.media} bg-surface flex items-center justify-center`}>
         {group.frontImagePath ? (
-          <img src={group.frontImagePath} alt={group.name} className="w-full h-full object-cover" loading="lazy" />
+          <FadeInImage
+            src={group.frontImagePath}
+            alt={group.name}
+            className="w-full h-full object-cover"
+            loading={imageLoading}
+            fallback={<Clapperboard className="w-8 h-8 text-muted" />}
+          />
         ) : (
           <Clapperboard className="w-8 h-8 text-muted" />
         )}
         <RatingBanner rating={rating} />
       </div>
-      <div className="px-2 py-1.5">
+      <div className={`px-2 py-1.5 ${RECOMMENDATION_CARD_SHAPES.group.body}`}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{group.name}</p>
         {group.date && <p className="text-xs text-muted">{group.date}</p>}
       </div>
