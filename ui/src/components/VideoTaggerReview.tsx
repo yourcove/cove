@@ -16,7 +16,13 @@ import {
 import { metadataServerLabel } from "./MetadataServerLinks";
 import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
-import { type DiffField, type DiffListMode, type DiffRecord, type DiffSelection } from "./MetadataDiff";
+import {
+  renderDiffValue,
+  type DiffField,
+  type DiffListMode,
+  type DiffRecord,
+  type DiffSelection,
+} from "./MetadataDiff";
 
 /**
  * Adapts the video tagger's decision state (per-field strategies, collection modes, per-item
@@ -56,6 +62,14 @@ export interface TaggerReviewInput {
   coverComparison?: VideoCoverComparison;
   collectionModes: Record<string, CollectionMode>;
   showStudio: boolean;
+  /** The scraped studio is not in the library. False while that is not known yet. */
+  studioIsNew?: boolean;
+  /** A new studio is created when chosen: the tagger creates missing studios, or the person chose to. */
+  createStudio?: boolean;
+  /** The library studio the scraped one resolved to, when its name differs (an alias, say). */
+  studioMatchName?: string;
+  /** Chooses to create a new studio and use it. */
+  onCreateStudio?: () => void;
   showTags: boolean;
   showPerformers: boolean;
   currentTagNames: string[];
@@ -634,10 +648,32 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     selection.image = input.imageReplace ? "source" : "target";
   }
   if (result.studioName && input.showStudio) {
-    fields.push({ key: "studio", label: "Studio" });
-    sourceValues.studio = result.studioName;
+    const scrapedStudio = result.studioName;
+    const matchName = input.studioMatchName;
+    // A new studio that will not be created is not set by the server, so the row cannot say it is.
+    const awaitsCreate = Boolean(input.studioIsNew && !input.createStudio);
+    fields.push({
+      key: "studio",
+      label: "Studio",
+      sourceIsNew: input.studioIsNew,
+      onCreateSource: awaitsCreate ? input.onCreateStudio : undefined,
+      // The studio the video gets is the library's; the scraped spelling stays on hover.
+      render:
+        matchName && relationKey(matchName) !== relationKey(scrapedStudio)
+          ? (value) =>
+              value === matchName ? (
+                <span title={`Scraped as “${scrapedStudio}”`}>
+                  {matchName}
+                  <span className="sr-only"> (scraped as “{scrapedStudio}”)</span>
+                </span>
+              ) : (
+                renderDiffValue(value)
+              )
+          : undefined,
+    });
+    sourceValues.studio = matchName ?? scrapedStudio;
     targetValues.studio = video.studioName ?? null;
-    selection.studio = input.collectionModes.studio === "replace" ? "source" : "target";
+    selection.studio = input.collectionModes.studio === "replace" && !awaitsCreate ? "source" : "target";
   }
   // With a collection switched off, its chips are not the way back in: the presets are.
   const listField = (key: string, label: string, mode: CollectionMode, modesOnly = false): DiffField => ({

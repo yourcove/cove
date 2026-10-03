@@ -398,6 +398,35 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ResolveRelationsAsync_ResolvesStudiosByNameAndAlias()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        db.Studios.Add(new Studio { Name = "Known Studio" });
+        db.Studios.Add(new Studio { Name = "Canonical Studio", Aliases = [new StudioAlias { Alias = "Studio Nickname" }] });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ResolveRelationsAsync(
+            new ResolveScrapeRelationsRequestDto { Studios = ["known studio", "Studio Nickname", "Unseen Studio"] },
+            CancellationToken.None);
+
+        Assert.Equal(
+            [("Studio Nickname", "Canonical Studio"), ("known studio", "Known Studio")],
+            result.Studios.Select(match => (match.Input, match.MatchedName)).OrderBy(match => match.Item1, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
     public async Task ApplyAttemptAsync_NameOnlyPerformerCreatesTheNullDisambiguationIdentity()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";

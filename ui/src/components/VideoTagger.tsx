@@ -195,10 +195,10 @@ interface VideoSearchState {
   saved?: boolean;
   excludedPerformers?: Set<string>;
   excludedTags?: Set<string>;
-  skipStudio?: boolean;
   forceIncludedPerformers?: Set<string>;
   forceIncludedTags?: Set<string>;
-  forceIncludeStudio?: boolean;
+  // The key of the scraped studio the person chose to create with "+ Create".
+  createdStudio?: string;
   fieldStrategies?: Record<string, VideoFieldStrategy>;
   collectionModes?: Record<string, CollectionMode>;
   // Hand edits made in the review beside the scrape, as the edit form would make them.
@@ -580,15 +580,28 @@ function coverComparisonNote(comparison?: VideoCoverComparison) {
 
 function buildDefaultVideoCollectionModes(
   result: UnifiedVideoMatch,
-  state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
 ): Record<string, CollectionMode> {
   return {
     urls: result.urls.length > 0 ? "merge" : "skip",
     tags: taggerConfig.setTags && result.tagNames.length > 0 ? "merge" : "skip",
     performers: taggerConfig.setPerformers && result.performerNames.length > 0 ? "merge" : "skip",
-    studio: taggerConfig.setStudio && !state?.skipStudio && result.studioName ? "replace" : "skip",
+    studio: taggerConfig.setStudio && result.studioName ? "replace" : "skip",
   };
+}
+
+/** The person chose "+ Create" for this result's studio; a later search naming another studio has not. */
+function isStudioChosenForCreate(result: Pick<UnifiedVideoMatch, "studioName">, createdStudio: string | undefined) {
+  return Boolean(result.studioName) && createdStudio === relationKey(result.studioName ?? "");
+}
+
+/** A new studio is created when set: the tagger creates missing studios, or the person chose this one. */
+function willCreateStudio(
+  result: Pick<UnifiedVideoMatch, "studioName">,
+  createdStudio: string | undefined,
+  taggerConfig: TaggerConfig,
+) {
+  return !taggerConfig.onlyExistingStudio || isStudioChosenForCreate(result, createdStudio);
 }
 
 function getVideoCollectionModes(
@@ -596,7 +609,14 @@ function getVideoCollectionModes(
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
 ) {
-  return { ...buildDefaultVideoCollectionModes(result, state, taggerConfig), ...state?.collectionModes };
+  const modes = { ...buildDefaultVideoCollectionModes(result, taggerConfig), ...state?.collectionModes };
+  // A studio the library lacks that nobody chose to create would not be set, so the studio is not
+  // touched at all: the review, both apply requests and the attempt's record all read this one mode.
+  const studioAwaitsCreate =
+    result.studioCandidate != null &&
+    !result.studioCandidate.existsLocally &&
+    !willCreateStudio(result, state?.createdStudio, taggerConfig);
+  return studioAwaitsCreate ? { ...modes, studio: "skip" as const } : modes;
 }
 
 function collectionModeToFieldStrategy(mode: CollectionMode): VideoFieldStrategy {
@@ -713,7 +733,8 @@ function buildScraperVideoApplyRequest(
     collectionModes,
     createMissingTags: !taggerConfig.onlyExistingTags,
     createMissingPerformers: !taggerConfig.onlyExistingPerformers,
-    createMissingStudio: !taggerConfig.onlyExistingStudio,
+    // A studio the person chose to create is created even when missing ones are not by default.
+    createMissingStudio: willCreateStudio(result, state?.createdStudio, taggerConfig),
     markOrganized: taggerConfig.markOrganized,
     // The tagger always fills in a created performer's details from the scrape; it used to read this off
     // an unrelated, invisible "create parent tags" flag that nothing else consulted.
@@ -836,7 +857,7 @@ export function VideoTagger({
     setStudio: true,
     onlyExistingTags: true,
     onlyExistingPerformers: true,
-    onlyExistingStudio: false,
+    onlyExistingStudio: true,
     markOrganized: false,
     bulkMatchStrategy: "remote-id-and-fingerprint-text",
     queryMode: "auto",
@@ -1458,7 +1479,7 @@ export function VideoTagger({
               </label>
             )}
             <p className="text-[10px] text-muted mt-0.5 ml-5">
-              Set the video studio. Uncheck "Create missing" to only use studios that already exist.
+              Set the video studio. Without "Create missing", a new studio is created only when you choose it.
             </p>
           </div>
 
@@ -1701,6 +1722,7 @@ function TaggerVideoRow({
   const relationNamesToResolve = useMemo(() => {
     const tags = new Set<string>();
     const performers = new Set<string>();
+    const studios = new Set<string>();
     for (const r of state?.results ?? []) {
       if (r.sourceKind !== "scraper") {
         r.tagCandidates.filter((c) => !c.existsLocally).forEach((c) => tags.add(c.name));
@@ -1708,17 +1730,17 @@ function TaggerVideoRow({
       }
       r.tagNames.forEach((name) => tags.add(name));
       r.performerNames.forEach((name) => performers.add(name));
+      if (r.studioName) studios.add(r.studioName);
     }
-    return { tags: [...tags], performers: [...performers] };
+    return { tags: [...tags], performers: [...performers], studios: [...studios] };
   }, [state?.results]);
   const { data: resolvedRelations } = useQuery({
     queryKey: ["tagger-resolve-relations", relationNamesToResolve],
-    queryFn: () =>
-      scrapeAttempts.resolveRelations({
-        tags: relationNamesToResolve.tags,
-        performers: relationNamesToResolve.performers,
-      }),
-    enabled: relationNamesToResolve.tags.length > 0 || relationNamesToResolve.performers.length > 0,
+    queryFn: () => scrapeAttempts.resolveRelations(relationNamesToResolve),
+    enabled:
+      relationNamesToResolve.tags.length > 0 ||
+      relationNamesToResolve.performers.length > 0 ||
+      relationNamesToResolve.studios.length > 0,
     staleTime: 30_000,
   });
   const existingTagKeys = useMemo(
@@ -1730,6 +1752,11 @@ function TaggerVideoRow({
     [resolvedRelations],
   );
   const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
+  // Absent until the lookup has answered for studios, so a scraped studio is never called new on a guess.
+  const studioMatchInfo = useMemo(
+    () => (resolvedRelations?.studios ? buildMatchInfo(resolvedRelations.studios) : undefined),
+    [resolvedRelations],
+  );
   const allowedGenderKeys = useMemo(
     () => buildAllowedGenderKeys(taggerConfig.performerGenders),
     [taggerConfig.performerGenders],
@@ -1758,9 +1785,17 @@ function TaggerVideoRow({
               ...c,
               existsLocally: existingPerformerKeys.has(relationKey(c.name)),
             })),
+            // Until the lookup answers, whether the library has the studio is unknown, not "no".
+            studioCandidate:
+              r.studioCandidate && studioMatchInfo
+                ? {
+                    ...r.studioCandidate,
+                    existsLocally: Object.hasOwn(studioMatchInfo, relationKey(r.studioCandidate.name)),
+                  }
+                : undefined,
           },
     );
-  }, [state?.results, existingTagKeys, existingPerformerKeys, allowedGenderKeys]);
+  }, [state?.results, existingTagKeys, existingPerformerKeys, studioMatchInfo, allowedGenderKeys]);
   const selectedResult = enrichedResults?.[state?.selectedIndex ?? 0];
   const coverComparison = useCoverComparison(video, selectedResult?.imageUrl);
   const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () =>
@@ -1838,7 +1873,7 @@ function TaggerVideoRow({
             .map((t) => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
         : undefined;
       const studioOverride =
-        state?.forceIncludeStudio && selectedResult.studioCandidate
+        selectedResult.studioCandidate && isStudioChosenForCreate(selectedResult, state?.createdStudio)
           ? {
               remoteId: selectedResult.studioCandidate.remoteId,
               name: selectedResult.studioCandidate.name,
@@ -2218,6 +2253,7 @@ function TaggerVideoRow({
               video={video}
               results={enrichedResults ?? state.results}
               tagMatchInfo={tagMatchInfo}
+              studioMatchInfo={studioMatchInfo}
               selectedIndex={state.selectedIndex ?? 0}
               onSelect={(i) =>
                 onUpdateState(
@@ -2229,10 +2265,9 @@ function TaggerVideoRow({
                         collectionModes: undefined,
                         excludedPerformers: undefined,
                         excludedTags: undefined,
-                        skipStudio: undefined,
                         forceIncludedPerformers: undefined,
                         forceIncludedTags: undefined,
-                        forceIncludeStudio: undefined,
+                        createdStudio: undefined,
                         tagEdits: undefined,
                         performerEdits: undefined,
                       },
@@ -2244,10 +2279,9 @@ function TaggerVideoRow({
               localDuration={file?.duration}
               excludedPerformers={state.excludedPerformers ?? new Set()}
               excludedTags={state.excludedTags ?? new Set()}
-              skipStudio={state.skipStudio ?? false}
               forceIncludedPerformers={state.forceIncludedPerformers ?? new Set()}
               forceIncludedTags={state.forceIncludedTags ?? new Set()}
-              forceIncludeStudio={state.forceIncludeStudio ?? false}
+              createdStudio={state.createdStudio}
               fieldStrategies={selectedResult ? getVideoFieldStrategies(video, selectedResult, state) : {}}
               collectionModes={selectedResult ? getVideoCollectionModes(selectedResult, state, taggerConfig) : {}}
               onFieldStrategyChange={(field, strategy) => {
@@ -2259,7 +2293,9 @@ function TaggerVideoRow({
               onCollectionModeChange={(field, mode) => {
                 if (!selectedResult) return;
                 onUpdateState({
-                  collectionModes: { ...getVideoCollectionModes(selectedResult, state, taggerConfig), [field]: mode },
+                  // Only the field the person changed: the others keep following their defaults, including a
+                  // studio skipped only while it waits for Create.
+                  collectionModes: { ...state.collectionModes, [field]: mode },
                 });
               }}
               onTogglePerformer={(names) => {
@@ -2306,16 +2342,15 @@ function TaggerVideoRow({
                 // Every row asks again, so the same name scraped for another video matches too.
                 await queryClient.invalidateQueries({ queryKey: ["tagger-resolve-relations"] });
               }}
-              onToggleStudio={() => {
-                const willSkipByDefault =
-                  taggerConfig.onlyExistingStudio &&
-                  selectedResult?.studioCandidate &&
-                  !selectedResult.studioCandidate.existsLocally;
-                if (willSkipByDefault) {
-                  onUpdateState({ forceIncludeStudio: !state.forceIncludeStudio });
-                } else {
-                  onUpdateState({ skipStudio: !state.skipStudio });
-                }
+              onCreateStudio={() => {
+                if (!selectedResult) return;
+                onUpdateState({
+                  createdStudio: relationKey(selectedResult.studioName ?? ""),
+                  collectionModes: {
+                    ...state.collectionModes,
+                    studio: "replace",
+                  },
+                });
               }}
               tagEdits={state.tagEdits}
               performerEdits={state.performerEdits}
@@ -2352,6 +2387,7 @@ interface TaggerResultsProps {
   video: Video;
   results: UnifiedVideoMatch[];
   tagMatchInfo?: Record<string, string>;
+  studioMatchInfo?: Record<string, string>;
   selectedIndex: number;
   onSelect: (index: number) => void;
   onSave: () => void;
@@ -2360,10 +2396,9 @@ interface TaggerResultsProps {
   localDuration?: number;
   excludedPerformers: Set<string>;
   excludedTags: Set<string>;
-  skipStudio: boolean;
   forceIncludedPerformers: Set<string>;
   forceIncludedTags: Set<string>;
-  forceIncludeStudio: boolean;
+  createdStudio?: string;
   fieldStrategies: Record<string, VideoFieldStrategy>;
   collectionModes: Record<string, CollectionMode>;
   onFieldStrategyChange: (field: string, strategy: VideoFieldStrategy) => void;
@@ -2371,7 +2406,7 @@ interface TaggerResultsProps {
   onTogglePerformer: (names: string | string[]) => void;
   onToggleTag: (names: string | string[]) => void;
   onLinkTag?: TaggerReviewInput["onLinkTag"];
-  onToggleStudio: () => void;
+  onCreateStudio: () => void;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
   onRelationshipEditsChange: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
@@ -2384,6 +2419,7 @@ function TaggerResults({
   video,
   results,
   tagMatchInfo,
+  studioMatchInfo,
   selectedIndex,
   onSelect,
   onSave,
@@ -2392,10 +2428,9 @@ function TaggerResults({
   localDuration,
   excludedPerformers,
   excludedTags,
-  skipStudio,
   forceIncludedPerformers,
   forceIncludedTags,
-  forceIncludeStudio,
+  createdStudio,
   fieldStrategies,
   collectionModes,
   onFieldStrategyChange,
@@ -2403,7 +2438,7 @@ function TaggerResults({
   onTogglePerformer,
   onToggleTag,
   onLinkTag,
-  onToggleStudio,
+  onCreateStudio,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,
@@ -2417,6 +2452,7 @@ function TaggerResults({
       video={video}
       result={result}
       tagMatchInfo={tagMatchInfo}
+      studioMatchInfo={studioMatchInfo}
       isSelected={i === current}
       showSelector={results.length > 1}
       onClick={() => onSelect(i)}
@@ -2426,10 +2462,9 @@ function TaggerResults({
       localDuration={localDuration}
       excludedPerformers={excludedPerformers}
       excludedTags={excludedTags}
-      skipStudio={skipStudio}
       forceIncludedPerformers={forceIncludedPerformers}
       forceIncludedTags={forceIncludedTags}
-      forceIncludeStudio={forceIncludeStudio}
+      createdStudio={createdStudio}
       fieldStrategies={fieldStrategies}
       collectionModes={collectionModes}
       onFieldStrategyChange={i === current ? onFieldStrategyChange : undefined}
@@ -2437,7 +2472,7 @@ function TaggerResults({
       onTogglePerformer={i === current ? onTogglePerformer : undefined}
       onToggleTag={i === current ? onToggleTag : undefined}
       onLinkTag={i === current ? onLinkTag : undefined}
-      onToggleStudio={i === current ? onToggleStudio : undefined}
+      onCreateStudio={i === current ? onCreateStudio : undefined}
       tagEdits={tagEdits}
       performerEdits={performerEdits}
       onRelationshipEditsChange={i === current ? onRelationshipEditsChange : undefined}
@@ -2467,6 +2502,7 @@ function TaggerResultRow({
   video,
   result,
   tagMatchInfo,
+  studioMatchInfo,
   isSelected,
   showSelector,
   onClick,
@@ -2478,6 +2514,7 @@ function TaggerResultRow({
   excludedTags,
   forceIncludedPerformers,
   forceIncludedTags,
+  createdStudio,
   fieldStrategies,
   collectionModes,
   onFieldStrategyChange,
@@ -2485,6 +2522,7 @@ function TaggerResultRow({
   onTogglePerformer,
   onToggleTag,
   onLinkTag,
+  onCreateStudio,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,
@@ -2494,6 +2532,7 @@ function TaggerResultRow({
   video: Video;
   result: MetadataServerVideoMatch;
   tagMatchInfo?: Record<string, string>;
+  studioMatchInfo?: Record<string, string>;
   isSelected: boolean;
   showSelector: boolean;
   onClick: () => void;
@@ -2503,10 +2542,9 @@ function TaggerResultRow({
   localDuration?: number;
   excludedPerformers: Set<string>;
   excludedTags: Set<string>;
-  skipStudio: boolean;
   forceIncludedPerformers: Set<string>;
   forceIncludedTags: Set<string>;
-  forceIncludeStudio: boolean;
+  createdStudio?: string;
   fieldStrategies: Record<string, VideoFieldStrategy>;
   collectionModes: Record<string, CollectionMode>;
   onFieldStrategyChange?: (field: string, strategy: VideoFieldStrategy) => void;
@@ -2514,7 +2552,7 @@ function TaggerResultRow({
   onTogglePerformer?: (names: string | string[]) => void;
   onToggleTag?: (names: string | string[]) => void;
   onLinkTag?: TaggerReviewInput["onLinkTag"];
-  onToggleStudio?: () => void;
+  onCreateStudio?: () => void;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
   onRelationshipEditsChange?: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
@@ -2564,6 +2602,10 @@ function TaggerResultRow({
     coverComparison,
     collectionModes,
     showStudio: taggerConfig.setStudio,
+    studioIsNew: result.studioCandidate != null && !result.studioCandidate.existsLocally,
+    createStudio: willCreateStudio(result, createdStudio, taggerConfig),
+    studioMatchName: result.studioName ? studioMatchInfo?.[relationKey(result.studioName)] : undefined,
+    onCreateStudio,
     showTags: taggerConfig.setTags,
     showPerformers: taggerConfig.setPerformers,
     currentTagNames,

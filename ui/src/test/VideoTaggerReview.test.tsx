@@ -12,6 +12,7 @@ import {
   type TaggerReviewInput,
 } from "../components/VideoTaggerReview";
 import { MetadataDiff, defaultDiffSelection, scalarStatus, summarizeDiff } from "../components/MetadataDiff";
+import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
 
 vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cover/${id}` } }));
 // The library pickers search through the API; here the link panel's picker just offers one tag.
@@ -906,5 +907,62 @@ describe("VideoTaggerReview presets with new items left out", () => {
     renderTagsRow(reviewInput);
     await userEvent.click(screen.getByRole("button", { name: "Use combined Tags" }));
     expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("tags", "merge");
+  });
+});
+
+describe("VideoTaggerReview studio", () => {
+  const renderStudio = (reviewInput: TaggerReviewInput, full = false) => {
+    const review = buildTaggerReview(reviewInput);
+    const props = {
+      fields: review.fields.filter((field) => field.key === "studio"),
+      source: review.source,
+      target: review.target,
+      value: review.selection,
+      onChange: vi.fn(),
+    };
+    render(full ? <MetadataDiff {...props} /> : <MetadataDiffSummary {...props} />);
+    return review;
+  };
+
+  it("is not offered as a fill, and is created only through its Create action", async () => {
+    const onCreateStudio = vi.fn();
+    const review = renderStudio(input({ studioIsNew: true, createStudio: false, onCreateStudio }));
+    // The mode still says "replace", but nothing would be set: the review must not claim otherwise.
+    expect(review.selection.studio).toBe("target");
+    expect(screen.getByText("not in your library")).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Use StashDB" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/fills empty/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Studio: create “Studio X” and use it" }));
+    expect(onCreateStudio).toHaveBeenCalledOnce();
+  });
+
+  it("cannot be picked as the incoming side in the full rows either", async () => {
+    const onCreateStudio = vi.fn();
+    renderStudio(input({ studioIsNew: true, createStudio: false, onCreateStudio }), true);
+    expect(screen.getByRole("radio", { name: "Studio from source" })).toBeDisabled();
+    expect(screen.queryByText("Filled from StashDB")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Studio: create “Studio X” and use it" }));
+    expect(onCreateStudio).toHaveBeenCalledOnce();
+  });
+
+  it("says it will be created once it is chosen", () => {
+    const review = renderStudio(input({ studioIsNew: true, createStudio: true }));
+    expect(review.selection.studio).toBe("source");
+    expect(screen.getByText("fills empty · new, will be created")).toBeInTheDocument();
+  });
+
+  it("leaves a studio the library has as a plain fill", () => {
+    const review = renderStudio(input({ studioIsNew: false, createStudio: false }));
+    expect(review.selection.studio).toBe("source");
+    expect(screen.getByText("fills empty")).toBeInTheDocument();
+  });
+
+  it("shows a studio matched under another name by its library name, with the scraped one on hover", () => {
+    const review = buildTaggerReview(input({ studioMatchName: "Studio X Productions" }));
+    const studio = review.fields.find((field) => field.key === "studio")!;
+    expect(review.source.values.studio).toBe("Studio X Productions");
+    const { container } = render(<>{studio.render!(review.source.values.studio)}</>);
+    expect(container).toHaveTextContent("Studio X Productions");
+    expect(container.querySelector("[title]")).toHaveAttribute("title", "Scraped as “Studio X”");
   });
 });

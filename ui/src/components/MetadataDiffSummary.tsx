@@ -4,6 +4,8 @@ import {
   diffListItems,
   renderDiffValue,
   scalarStatus,
+  CreateSourceButton,
+  sourceAwaitsCreate,
   type DiffField,
   type DiffRecord,
   type DiffSelection,
@@ -115,6 +117,26 @@ export function MetadataDiffSummary({
     const render = field.render ?? renderDiffValue;
     const provenance = target.provenance?.[field.key];
     const keepLabel = status === "conflict" || status === "keptOnly" ? `Keep ${kept}` : "Keep empty";
+    // An incoming value the library lacks is only offered, the way a new list item is: it takes the
+    // explicit create action to land.
+    if (sourceAwaitsCreate(field)) {
+      rows.push(
+        <SummaryRow
+          key={field.key}
+          tone="warn"
+          label={field.label}
+          how={[provenance, status === "conflict" ? `not in your library · keeping ${kept}` : "not in your library"]
+            .filter(Boolean)
+            .join(" · ")}
+          action={<CreateSourceButton field={field} value={source.values[field.key]} disabled={disabled} />}
+        >
+          <span className="text-muted">
+            <ScalarValue value={source.values[field.key]} render={render} />
+          </span>
+        </SummaryRow>,
+      );
+      continue;
+    }
     if (chosen === "source") {
       // The incoming value lands; the way back is one click, so a mis-click never needs the full rows.
       rows.push(
@@ -122,7 +144,10 @@ export function MetadataDiffSummary({
           key={field.key}
           tone="ok"
           label={field.label}
-          how={status === "filled" ? "fills empty" : status === "conflict" ? `replaces ${kept}` : "cleared"}
+          how={
+            (status === "filled" ? "fills empty" : status === "conflict" ? `replaces ${kept}` : "cleared") +
+            (field.sourceIsNew ? " · new, will be created" : "")
+          }
           action={
             <button
               type="button"

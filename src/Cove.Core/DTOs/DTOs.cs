@@ -1953,6 +1953,7 @@ public record ResolveScrapeRelationsRequestDto
 {
     public List<string> Performers { get; init; } = [];
     public List<string> Tags { get; init; } = [];
+    public List<string> Studios { get; init; } = [];
 }
 
 // One entry per requested name that matched an existing entity. MatchedName is the existing
@@ -1963,6 +1964,7 @@ public record ResolveScrapeRelationsResultDto
 {
     public List<ScrapeRelationMatchDto> Performers { get; init; } = [];
     public List<ScrapeRelationMatchDto> Tags { get; init; } = [];
+    public List<ScrapeRelationMatchDto> Studios { get; init; } = [];
 }
 
 public record PerformerScrapeUrlRequestDto(string? Url, bool CreateMissingTags = true);

@@ -108,7 +108,7 @@ describe("VideoTagger", () => {
     mocks.importFromMetadataServer.mockResolvedValue({});
     mocks.searchMetadataServer.mockResolvedValue([]);
     mocks.listScrapers.mockResolvedValue([]);
-    mocks.resolveRelations.mockResolvedValue({ tags: [], performers: [] });
+    mocks.resolveRelations.mockResolvedValue({ tags: [], performers: [], studios: [] });
     mocks.findMetadataServerByIds.mockResolvedValue([
       {
         id: "first-video-id",
@@ -234,6 +234,50 @@ describe("VideoTagger", () => {
         videoId: "first-video-id",
       }),
     );
+  });
+
+  it.each([
+    { create: false, setStudio: false, studioOverride: undefined },
+    {
+      create: true,
+      setStudio: true,
+      studioOverride: { remoteId: "remote-studio", name: "Remote Studio", action: "create" },
+    },
+  ])("imports a provider studio the library lacks only once chosen (Create: $create)", async (expected) => {
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      {
+        ...matchFor(123),
+        id: "first-video-id",
+        studioName: "Remote Studio",
+        studioCandidate: { remoteId: "remote-studio", name: "Remote Studio", existsLocally: false },
+      },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    const create = await screen.findByRole("button", { name: "Studio: create “Remote Studio” and use it" });
+    if (expected.create) await userEvent.click(create);
+    await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+
+    await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+    const request = mocks.importFromMetadataServer.mock.calls[0][1];
+    expect(request.setStudio).toBe(expected.setStudio);
+    expect(request.onlyExistingStudio).toBe(true);
+    expect(request.studioOverride).toEqual(expected.studioOverride);
   });
 
   it("shows skipped related tag claims as a partial-success warning", async () => {
@@ -1409,9 +1453,121 @@ describe("VideoTagger", () => {
       "data-state",
       "not-in-library",
     );
+    // The studio is new too, so it is offered for creation rather than presented as a fill.
     const studio = screen.getByText("Studio").closest("[data-tone]")!;
-    expect(studio).toHaveAttribute("data-tone", "ok");
     expect(within(studio as HTMLElement).getByText("Scraped Studio")).toBeInTheDocument();
+    expect(within(studio as HTMLElement).getByText("not in your library")).toBeInTheDocument();
+    expect(mocks.resolveRelations).toHaveBeenCalledWith(expect.objectContaining({ studios: ["Scraped Studio"] }));
+  });
+
+  // Scrapes a video whose result names a studio, leaving the review open for the test to act on.
+  async function scrapeWithStudio(studioName = "Scraped Studio") {
+    mocks.listScrapers.mockResolvedValue([
+      {
+        id: "pack/site:video",
+        name: "Site Scraper",
+        entityType: "video",
+        supportedScrapes: ["url"],
+        urls: ["site.example/watch/"],
+        sourcePath: "",
+      },
+    ]);
+    mocks.createScrapeAttempt.mockResolvedValue({
+      id: "attempt-1",
+      scraperId: "pack/site:video",
+      entityType: "video",
+      entityId: 123,
+      inputKind: "url",
+      status: "Success",
+      error: null,
+      candidateResultsJson: null,
+      resultJson: JSON.stringify({ Title: "Scraped title", Studio: studioName }),
+    });
+    mocks.applyScrapeAttempt.mockResolvedValue({ id: "attempt-1", status: "Applied" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: ["https://site.example/watch/1"],
+      remoteIds: [],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("option", { name: "Site Scraper (Scraper)" });
+    await userEvent.selectOptions(screen.getByRole("combobox"), "scraper:pack/site:video");
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+  }
+
+  const applyRow = async () => {
+    await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+    await waitFor(() => expect(mocks.applyScrapeAttempt).toHaveBeenCalledOnce());
+    return mocks.applyScrapeAttempt.mock.calls[0][1];
+  };
+
+  it("does not create a studio the library lacks unless the person chooses Create", async () => {
+    await scrapeWithStudio();
+    expect(await screen.findByText("not in your library")).toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.createMissingStudio).toBe(false);
+    // The studio is left alone rather than "replaced" with nothing, so the attempt records no studio.
+    expect(request.collectionModes.studio).toBe("skip");
+  });
+
+  it("does not carry a Create choice over to another studio a new search returns", async () => {
+    await scrapeWithStudio();
+    await userEvent.click(await screen.findByRole("button", { name: "Studio: create “Scraped Studio” and use it" }));
+    mocks.createScrapeAttempt.mockResolvedValue({
+      ...(await mocks.createScrapeAttempt.mock.results[0].value),
+      id: "attempt-2",
+      resultJson: JSON.stringify({ Title: "Scraped title", Studio: "Other Studio" }),
+    });
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    expect(await screen.findByRole("button", { name: "Studio: create “Other Studio” and use it" })).toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.createMissingStudio).toBe(false);
+  });
+
+  it("reviews a studio whose name is also an object member", async () => {
+    await scrapeWithStudio("constructor");
+    expect(await screen.findByRole("button", { name: "Studio: create “constructor” and use it" })).toBeInTheDocument();
+  });
+
+  it("creates a studio the library lacks once the person chooses Create", async () => {
+    await scrapeWithStudio();
+    await userEvent.click(await screen.findByRole("button", { name: "Studio: create “Scraped Studio” and use it" }));
+    expect(await screen.findByText("fills empty · new, will be created")).toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.createMissingStudio).toBe(true);
+    expect(request.collectionModes.studio).toBe("replace");
+  });
+
+  it("shows a scraped studio the library has under its library name", async () => {
+    mocks.resolveRelations.mockResolvedValue({
+      tags: [],
+      performers: [],
+      studios: [{ input: "Scraped Studio", matchedName: "Library Studio" }],
+    });
+    await scrapeWithStudio();
+    const studio = (await screen.findByText("Library Studio")).closest("[data-tone]")!;
+    expect(studio).toHaveAttribute("data-tone", "ok");
+    expect(within(studio as HTMLElement).queryByText("not in your library")).not.toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.createMissingStudio).toBe(false);
+  });
+
+  it("keeps a saved choice to create missing studios", async () => {
+    localStorage.setItem("cove-tagger-config", JSON.stringify({ onlyExistingStudio: false }));
+    await scrapeWithStudio();
+    expect(await screen.findByText("fills empty · new, will be created")).toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.createMissingStudio).toBe(true);
   });
 
   // Scrapes a video with a URL scraper that returns two tags and a performer, then applies the row.

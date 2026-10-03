@@ -10,7 +10,8 @@ export function relationKey(name: string) {
 // relationKey(scraped name) -> the existing entity's primary name. Differs from the scraped name when
 // the match was via an alias; surfaced as the ScrapeRelationChoices tooltip so a match is never a mystery.
 export function buildMatchInfo(matches?: { input: string; matchedName: string }[]): Record<string, string> {
-  const info: Record<string, string> = {};
+  // No prototype, so a scraped name such as "constructor" never reads an inherited member.
+  const info: Record<string, string> = Object.create(null);
   for (const match of matches ?? []) {
     info[relationKey(match.input)] = match.matchedName;
   }

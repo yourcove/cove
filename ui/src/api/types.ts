@@ -2631,6 +2631,7 @@ export type ApplyScrapeAttemptRequest = ApplyVideoScrapeAttemptRequest;
 export interface ResolveScrapeRelationsRequest {
   performers: string[];
   tags: string[];
+  studios?: string[];
 }
 
 // One entry per requested name that matched an existing entity. matchedName is the existing
@@ -2643,6 +2644,8 @@ export interface ScrapeRelationMatch {
 export interface ResolveScrapeRelationsResult {
   performers: ScrapeRelationMatch[];
   tags: ScrapeRelationMatch[];
+  // Absent from a server that predates studio lookups.
+  studios?: ScrapeRelationMatch[];
 }
 
 export interface DownloaderDescriptor {

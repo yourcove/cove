@@ -1726,17 +1726,19 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
     }
 
     // Read-only companion to the apply path: reports which scraped names already resolve to an
-    // existing performer/tag using the same RelationNameResolver, so the dialog can show an
+    // existing performer/tag/studio using the same RelationNameResolver, so the dialog can show an
     // accurate "matches existing" vs "will create" state instead of guessing client-side.
     public async Task<ResolveScrapeRelationsResultDto> ResolveRelationsAsync(ResolveScrapeRelationsRequestDto request, CancellationToken ct = default)
     {
         var performerMatches = await RelationNameResolver.ResolvePerformersAsync(db, request.Performers, ct);
         var tagMatches = await RelationNameResolver.ResolveTagsAsync(db, request.Tags, ct);
+        var studioMatches = await RelationNameResolver.ResolveStudiosAsync(db, request.Studios, ct);
 
         return new ResolveScrapeRelationsResultDto
         {
             Performers = performerMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
             Tags = tagMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
+            Studios = studioMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
         };
     }
 

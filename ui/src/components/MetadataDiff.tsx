@@ -66,7 +66,17 @@ export interface DiffField {
    * express; without it such a click does nothing.
    */
   onModeSelect?: (mode: DiffListMode) => void;
+  /** A scalar whose incoming value names something the library does not have yet (a studio), created when chosen. */
+  sourceIsNew?: boolean;
+  /**
+   * With `sourceIsNew`, the owner creates the value only when asked: the incoming side cannot be chosen
+   * as it is, and this asks, as the "+" on a new list item does.
+   */
+  onCreateSource?: () => void;
 }
+
+/** The incoming side of a scalar can only be reached through its create action. */
+export const sourceAwaitsCreate = (field: DiffField) => Boolean(field.sourceIsNew && field.onCreateSource);
 
 export type DiffListMode = "combined" | "target" | "source";
 
@@ -427,9 +437,10 @@ function ScalarRow({
   onChange: (side: DiffSide) => void;
 }) {
   const render = field.render ?? renderDiffValue;
+  const awaitsCreate = sourceAwaitsCreate(field);
   const option = (side: DiffSide, record: DiffRecord) => {
     const available = Object.hasOwn(record.values, field.key);
-    const interactive = available && !disabled && !field.readOnly;
+    const interactive = available && !disabled && !field.readOnly && !(side === "source" && awaitsCreate);
     const provenance = record.provenance?.[field.key];
     return (
       <label className={optionClass(chosen === side, interactive)}>
@@ -460,6 +471,14 @@ function ScalarRow({
       </label>
     );
   };
+  // Nothing lands while the incoming value waits to be created, whatever the plain comparison says.
+  const pill = awaitsCreate ? (
+    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-muted">
+      Not in your library
+    </span>
+  ) : (
+    <StatusPill status={status} chosen={chosen} incoming={sentenceLabel(source)} kept={sentenceLabel(target)} />
+  );
   return (
     <fieldset
       disabled={disabled}
@@ -468,16 +487,54 @@ function ScalarRow({
       <legend className="sr-only">{field.label}</legend>
       <div className="flex items-center justify-between gap-2 md:block md:pt-2.5">
         <span className="text-sm font-semibold">{field.label}</span>
-        <span className="md:hidden">
-          <StatusPill status={status} chosen={chosen} incoming={sentenceLabel(source)} kept={sentenceLabel(target)} />
-        </span>
+        <span className="md:hidden">{pill}</span>
       </div>
-      {option("source", source)}
+      {field.sourceIsNew ? (
+        <div className="flex min-w-0 flex-col gap-1.5">
+          {option("source", source)}
+          {awaitsCreate ? (
+            <span className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+              Not in your library
+              <CreateSourceButton field={field} value={source.values[field.key]} disabled={disabled} />
+            </span>
+          ) : chosen === "source" ? (
+            <span className="text-[11px] text-amber-300">Not in your library yet; will be created</span>
+          ) : (
+            <span className="text-[11px] text-muted">Not in your library</span>
+          )}
+        </div>
+      ) : (
+        option("source", source)
+      )}
       {option("target", target)}
-      <div className="hidden items-start justify-end md:flex md:pt-2.5">
-        <StatusPill status={status} chosen={chosen} incoming={sentenceLabel(source)} kept={sentenceLabel(target)} />
-      </div>
+      <div className="hidden items-start justify-end md:flex md:pt-2.5">{pill}</div>
     </fieldset>
+  );
+}
+
+/** The explicit way to an incoming value the library does not have yet (see `onCreateSource`). */
+export function CreateSourceButton({
+  field,
+  value,
+  disabled,
+}: {
+  field: DiffField;
+  value: unknown;
+  disabled: boolean;
+}) {
+  const name = String(value ?? "");
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={field.onCreateSource}
+      aria-label={`${field.label}: create “${name}” and use it`}
+      title={`Create “${name}” and use it`}
+      className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground hover:border-accent/60 disabled:opacity-60"
+    >
+      <Plus className="h-3 w-3" />
+      Create
+    </button>
   );
 }
 
