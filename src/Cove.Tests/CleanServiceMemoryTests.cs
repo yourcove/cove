@@ -2,6 +2,7 @@ using System.Collections;
 using System.Data.Common;
 using Cove.Api.Services;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,7 @@ public sealed class CleanServiceMemoryTests
                 .UseSqlite($"Data Source={Path.Combine(directory, "library.db")};Pooling=False").AddInterceptors(guard).Options;
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
+            AddDeletionServices(services);
             await using var provider = services.BuildServiceProvider();
             await using (var db = new CoveContext(options))
             {
@@ -69,6 +71,7 @@ public sealed class CleanServiceMemoryTests
                 .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").AddInterceptors(guard).Options;
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
+            AddDeletionServices(services);
             await using var provider = services.BuildServiceProvider();
             var selected = Path.Combine(root, "selected");
             int clipId;
@@ -116,6 +119,82 @@ public sealed class CleanServiceMemoryTests
             Assert.True(await verify.Videos.AnyAsync(video => video.Id == clipId, TestContext.Current.CancellationToken));
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task CleanRemovesOrphansThroughTheUserDeletionPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-clean-deps-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var options = new DbContextOptionsBuilder<CoveContext>()
+                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").Options;
+            var eventBus = new EventBus();
+            var thumbnails = new DeletionSafetyTests.RecordingThumbnailService();
+            var services = new ServiceCollection();
+            services.AddScoped(_ => new CoveContext(options));
+            AddDeletionServices(services, eventBus, thumbnails);
+            await using var provider = services.BuildServiceProvider();
+            var deletedEventIds = new List<int>();
+            using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+            {
+                if (evt.Type == EventType.VideoDeleted)
+                    deletedEventIds.Add(evt.EntityId);
+            });
+            int orphanId, liveId, clipId;
+            await using (var db = new CoveContext(options))
+            {
+                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+                await File.WriteAllBytesAsync(Path.Combine(root, "live.mp4"), [1], TestContext.Current.CancellationToken);
+                var folder = new Folder { Path = root };
+                var orphan = new Video { Title = "orphan", Files = [new VideoFile { ParentFolder = folder, Basename = "gone.mp4" }] };
+                var clip = new Video { Title = "orphan clip", ParentVideo = orphan };
+                var live = new Video { Title = "live", Files = [new VideoFile { ParentFolder = folder, Basename = "live.mp4" }] };
+                var tag = new Tag { Name = "tag" };
+                var definition = new CustomFieldDefinition { Key = "clean_fixture", Label = "Clean fixture", EntityTypes = [CustomFieldEntityTypes.Video] };
+                db.AddRange(orphan, clip, live, tag, definition);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                (orphanId, liveId, clipId) = (orphan.Id, live.Id, clip.Id);
+                foreach (var hostId in new[] { orphanId, clipId, liveId })
+                {
+                    db.AddRange(
+                        new TagApplication { HostType = AffinityHostType.Video, HostId = hostId, TagId = tag.Id, SourceKey = "test" },
+                        new Segment { HostType = SegmentHostType.Video, HostId = hostId, StartSec = 1, SourceKey = "test" },
+                        new CustomFieldValue { DefinitionId = definition.Id, EntityType = CustomFieldEntityTypes.Video, EntityId = hostId, TextValue = "x" });
+                }
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            var jobs = new CapturingJobs(new InspectionGuard(), TestContext.Current.CancellationToken);
+            new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance).StartClean();
+            await jobs.Completion;
+
+            await using var verify = new CoveContext(options);
+            Assert.Equal([liveId], await verify.Videos.Select(video => video.Id).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal([liveId], await verify.TagApplications.Select(item => item.HostId).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal([liveId], await verify.Segments.Select(item => item.HostId).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal([liveId], await verify.CustomFieldValues.Select(item => item.EntityId).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(new[] { orphanId, clipId }.Order(), deletedEventIds.Order());
+            Assert.Equal(new[] { orphanId, clipId }.Order(), thumbnails.DeletedVideoIds.Order());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void AddDeletionServices(IServiceCollection services, IEventBus? eventBus = null,
+        IThumbnailService? thumbnails = null)
+    {
+        services.AddScoped<CustomFieldService>();
+        services.AddScoped<IThumbnailService>(_ => thumbnails ?? new DeletionSafetyTests.RecordingThumbnailService());
+        services.AddScoped<IBlobService>(provider => new DeletionSafetyTests.ReferenceAwareBlobService(provider.GetRequiredService<CoveContext>()));
+        services.AddScoped<ImageDeletionService>(provider => new ImageDeletionService(provider.GetRequiredService<CoveContext>(),
+            provider.GetRequiredService<CustomFieldService>(), provider.GetRequiredService<IThumbnailService>(),
+            blobService: provider.GetRequiredService<IBlobService>()));
+        services.AddSingleton(eventBus ?? new EventBus());
+        services.AddScoped(provider => new BulkEntityDeletionService(provider.GetRequiredService<CoveContext>(),
+            provider.GetRequiredService<CustomFieldService>(), provider.GetRequiredService<ImageDeletionService>(),
+            provider.GetRequiredService<IThumbnailService>(), provider.GetRequiredService<IBlobService>(),
+            provider.GetRequiredService<IEventBus>()));
     }
 
     private sealed class CapturingJobs(InspectionGuard guard, CancellationToken ct) : IJobService

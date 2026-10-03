@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -21,6 +22,14 @@ namespace Cove.Api.Services;
 /// Unlike the per-frame path, a frame that cannot be decoded yields a null slot rather than
 /// failing the whole request, so callers can decide their own tolerance (a sprite can survive a
 /// few unreadable frames; a pHash cannot).
+///
+/// Callers that only need a representative picture near each timestamp (sprites) can ask for
+/// keyframe seeks. An exact seek decodes every frame from the preceding keyframe up to the
+/// timestamp and discards all but the last; on 8K VR with 0.5-4s GOPs that is 15-125 full-size
+/// frames thrown away per thumbnail, and it made sprite generation CPU-bound (~600 CPU-seconds per
+/// video). A keyframe seek decodes one frame: measured on 8 VR sources over a network share, sprites
+/// went from 47s to 30s per video at 1/15 of the CPU. The frame shown is the keyframe at or before
+/// the timestamp instead of the exact frame. pHash must never use this - its frames define the hash.
 /// </summary>
 internal static class VideoFrameBatchExtractor
 {
@@ -42,6 +51,12 @@ internal static class VideoFrameBatchExtractor
     /// </summary>
     /// <param name="scaleWidth">Target width; height follows the aspect ratio. Values &lt;= 0 keep the native size.</param>
     /// <param name="preFilter">An ffmpeg video filter applied before the scale, such as a VR reprojection. Null for none.</param>
+    /// <param name="keyframeSeek">
+    /// Return the keyframe at or before each timestamp instead of the exact frame (see the class
+    /// remarks). Frames that come back missing, or identical to another timestamp's frame - two
+    /// requests that landed on the same keyframe because keyframes are sparse relative to the
+    /// spacing, or a source whose container marks almost none - are re-extracted with exact seeks.
+    /// </param>
     public static async Task<Image<Rgba32>?[]?> ExtractAsync(
         string ffmpegPath,
         string videoPath,
@@ -51,7 +66,8 @@ internal static class VideoFrameBatchExtractor
         ILogger logger,
         CancellationToken ct,
         int batchSize = DefaultBatchSize,
-        string? preFilter = null)
+        string? preFilter = null,
+        bool keyframeSeek = false)
     {
         if (timestamps.Count == 0)
             return null;
@@ -63,15 +79,100 @@ internal static class VideoFrameBatchExtractor
         Directory.CreateDirectory(tmpDir);
 
         var frames = new Image<Rgba32>?[timestamps.Count];
-        var decoded = 0;
+        var fingerprints = new string?[timestamps.Count];
 
         try
         {
-            foreach (var batch in PlanBatches(videoPath, tmpDir, timestamps.Count, scaleWidth, batchSize, preFilter))
+            var pass = new ExtractionPass(ffmpegPath, videoPath, timestamps, scaleWidth, preFilter, batchSize, limiter, logger, frames, fingerprints);
+            await pass.RunAsync(Enumerable.Range(0, timestamps.Count).ToArray(), keyframeSeek, Path.Combine(tmpDir, "first"), ct);
+
+            if (keyframeSeek)
+            {
+                var reseek = IndicesNeedingExactSeek(fingerprints);
+                if (reseek.Count > 0)
+                {
+                    logger.LogInformation(
+                        "Keyframe seeks for {Path} left {Count}/{Requested} frames missing or on a shared keyframe; re-extracting those at exact timestamps",
+                        videoPath, reseek.Count, timestamps.Count);
+                    foreach (var index in reseek)
+                    {
+                        frames[index]?.Dispose();
+                        frames[index] = null;
+                        fingerprints[index] = null;
+                    }
+                    await pass.RunAsync(reseek, keyframeSeek: false, Path.Combine(tmpDir, "exact"), ct);
+                }
+            }
+
+            logger.LogTrace(
+                "Batched frame extraction for {Path}: {Decoded}/{Requested} frames at scaleWidth={ScaleWidth}",
+                videoPath, frames.Count(frame => frame != null), timestamps.Count, scaleWidth);
+
+            return frames;
+        }
+        catch (OperationCanceledException)
+        {
+            DisposeFrames(frames);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            DisposeFrames(frames);
+            logger.LogDebug(ex, "Batched frame extraction failed for {Path}", videoPath);
+            return null;
+        }
+        finally
+        {
+            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Slots a keyframe pass did not settle: those with no frame, and every slot whose frame is
+    /// byte-identical to another slot's. Encoding is deterministic, so identical output from two
+    /// different timestamps means both seeks resolved to the same keyframe. (Genuinely identical
+    /// footage - two black frames - is caught too; re-extracting it exactly costs little.)
+    /// </summary>
+    internal static IReadOnlyList<int> IndicesNeedingExactSeek(IReadOnlyList<string?> fingerprints)
+    {
+        var counts = fingerprints
+            .Where(fingerprint => fingerprint != null)
+            .GroupBy(fingerprint => fingerprint!)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var result = new List<int>();
+        for (var index = 0; index < fingerprints.Count; index++)
+        {
+            var fingerprint = fingerprints[index];
+            if (fingerprint == null || counts[fingerprint] > 1)
+                result.Add(index);
+        }
+        return result;
+    }
+
+    /// <summary>One request's shared state; each <see cref="RunAsync"/> fills the slots it is given.</summary>
+    private sealed class ExtractionPass(
+        string ffmpegPath,
+        string videoPath,
+        IReadOnlyList<double> timestamps,
+        int scaleWidth,
+        string? preFilter,
+        int batchSize,
+        FfmpegConcurrencyLimiter limiter,
+        ILogger logger,
+        Image<Rgba32>?[] frames,
+        string?[] fingerprints)
+    {
+        public async Task RunAsync(IReadOnlyList<int> indices, bool keyframeSeek, string dir, CancellationToken ct)
+        {
+            Directory.CreateDirectory(dir);
+            // Batches address frames by position within this pass; indices maps a position back to its slot.
+            var subset = indices.Select(index => timestamps[index]).ToArray();
+
+            foreach (var batch in PlanBatches(videoPath, dir, subset.Length, scaleWidth, batchSize, preFilter, keyframeSeek))
             {
                 ct.ThrowIfCancellationRequested();
 
-                var args = BuildBatchArguments(videoPath, tmpDir, timestamps, batch.Start, batch.Count, scaleWidth, preFilter);
+                var args = BuildBatchArguments(videoPath, dir, subset, batch.Start, batch.Count, scaleWidth, preFilter, keyframeSeek);
                 var timeout = BaseBatchTimeout + PerFrameTimeout * batch.Count;
 
                 // Held only for the decode itself. Loading the extracted frames afterwards is
@@ -98,15 +199,17 @@ internal static class VideoFrameBatchExtractor
                 // per-frame outcome is read from the filesystem rather than inferred from the exit code.
                 for (var offset = 0; offset < batch.Count; offset++)
                 {
-                    var index = batch.Start + offset;
-                    var framePath = FramePath(tmpDir, index);
+                    var position = batch.Start + offset;
+                    var index = indices[position];
+                    var framePath = FramePath(dir, position);
                     if (!File.Exists(framePath) || new FileInfo(framePath).Length == 0)
                         continue;
 
                     try
                     {
-                        frames[index] = await Image.LoadAsync<Rgba32>(framePath, ct);
-                        decoded++;
+                        var bytes = await File.ReadAllBytesAsync(framePath, ct);
+                        frames[index] = Image.Load<Rgba32>(bytes);
+                        fingerprints[index] = Convert.ToHexString(SHA256.HashData(bytes));
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -114,27 +217,6 @@ internal static class VideoFrameBatchExtractor
                     }
                 }
             }
-
-            logger.LogTrace(
-                "Batched frame extraction for {Path}: {Decoded}/{Requested} frames at scaleWidth={ScaleWidth}",
-                videoPath, decoded, timestamps.Count, scaleWidth);
-
-            return frames;
-        }
-        catch (OperationCanceledException)
-        {
-            DisposeFrames(frames);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DisposeFrames(frames);
-            logger.LogDebug(ex, "Batched frame extraction failed for {Path}", videoPath);
-            return null;
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort */ }
         }
     }
 
@@ -142,13 +224,15 @@ internal static class VideoFrameBatchExtractor
 
     /// <summary>Splits the timestamps into batches that each fit inside the command-line limit.</summary>
     internal static IEnumerable<BatchPlan> PlanBatches(
-        string videoPath, string tmpDir, int timestampCount, int scaleWidth, int batchSize, string? preFilter = null)
+        string videoPath, string tmpDir, int timestampCount, int scaleWidth, int batchSize, string? preFilter = null,
+        bool keyframeSeek = false)
     {
         var requested = Math.Max(1, batchSize);
 
         // Worst-case characters one input/output pair contributes, measured against the longest
         // frame index so the estimate never under-counts.
-        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth) + (preFilter?.Length + 1 ?? 0);
+        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth) + (preFilter?.Length + 1 ?? 0)
+            + (keyframeSeek ? KeyframeSeekArguments.Sum(argument => argument.Length + 1) : 0);
         var affordable = Math.Max(1, MaxCommandLineLength / Math.Max(1, perFrame));
         var effective = Math.Min(requested, affordable);
 
@@ -165,6 +249,10 @@ internal static class VideoFrameBatchExtractor
         return inputLength + outputLength;
     }
 
+    // Decode only keyframes, and keep the first one the seek reaches instead of decoding on to the
+    // exact timestamp. Both are needed: -skip_frame alone would wait for the next keyframe.
+    private static readonly string[] KeyframeSeekArguments = ["-skip_frame", "nokey", "-noaccurate_seek"];
+
     private static string FramePath(string tmpDir, int index)
         => Path.Combine(tmpDir, $"frame_{index:D4}.jpg");
 
@@ -180,7 +268,8 @@ internal static class VideoFrameBatchExtractor
         int start,
         int count,
         int scaleWidth,
-        string? preFilter = null)
+        string? preFilter = null,
+        bool keyframeSeek = false)
     {
         var args = new List<string> { "-v", "error", "-y" };
 
@@ -190,6 +279,8 @@ internal static class VideoFrameBatchExtractor
             // decoding from the start. The invariant culture is mandatory - a comma decimal
             // separator makes ffmpeg reject the option outright.
             var seconds = Math.Max(0, timestamps[start + offset]);
+            if (keyframeSeek)
+                args.AddRange(KeyframeSeekArguments);
             args.AddRange(["-threads", "1", "-ss", seconds.ToString("F3", CultureInfo.InvariantCulture), "-i", videoPath]);
         }
 

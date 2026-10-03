@@ -47,6 +47,23 @@ internal sealed class CleanPlan : IAsyncDisposable
         transaction.Commit();
     }
 
+    internal async Task RemoveAsync(string kind, IEnumerable<int> ids, CancellationToken ct)
+    {
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM targets WHERE kind=$kind AND id=$id";
+        command.Parameters.AddWithValue("$kind", kind);
+        var parameter = command.Parameters.Add("$id", SqliteType.Integer);
+        foreach (var id in ids)
+        {
+            ct.ThrowIfCancellationRequested();
+            parameter.Value = id;
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        transaction.Commit();
+    }
+
     internal async Task<int> CountAsync(string kind, CancellationToken ct)
     {
         using var command = connection.CreateCommand();

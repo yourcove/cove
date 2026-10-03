@@ -22,9 +22,8 @@ namespace Cove.Api.Controllers;
 [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, RouteValueName = "videoId")]
 public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor extractor, IFingerprintService fingerprintService,
     ICurrentPrincipalAccessor principalAccessor, IAuditService audit, IThumbnailService thumbnailService,
-    IAuthorizationService authorizationService, EntityHostDependencyService hostDependencies, CustomFieldService customFields,
     ISegmentSpanCacheInvalidator segmentSpanCacheInvalidator, IEventBus eventBus, VideoGeneratedAssetCoordinator generatedAssetCoordinator,
-    ILogger<VideoAlignmentsController> logger) : ControllerBase
+    VideoTimelineDependencyService timeline, ILogger<VideoAlignmentsController> logger) : ControllerBase
 {
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> FingerprintLocks = new();
 
@@ -46,8 +45,8 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
         {
             var initialTarget = await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == request.TargetFileId && f.VideoId == videoId, ct);
             if (initialTarget is null) return BadRequest("The replacement must be a file attached to this video.");
-            var dependenciesWithoutTimeline = await LoadDependencies(videoId, ct);
-            if (!await CanReadDependencies(dependenciesWithoutTimeline, ct)) return Forbid();
+            var dependenciesWithoutTimeline = await timeline.LoadAsync(videoId, principalAccessor.Current?.Has(Permissions.SegmentsRead) == true, ct);
+            if (!await timeline.CanReadAsync(principalAccessor.Current, dependenciesWithoutTimeline, ct)) return Forbid();
             return Ok(new { sourceFileId = (int?)null, targetFileId = initialTarget.Id, sourceDuration = (double?)null, targetDuration = initialTarget.Duration,
                 equivalent = false, canAlign = false, dependencyCounts = dependenciesWithoutTimeline.GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count()), dependencyCount = dependenciesWithoutTimeline.Count });
         }
@@ -57,8 +56,8 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
         var sourceHash = await EnsurePhash(source, ct);
         var targetHash = await EnsurePhash(target, ct);
         var equivalent = VideoFileEquivalence.AreEquivalent(source.Duration, sourceHash, target.Duration, targetHash);
-        var dependencies = await LoadDependencies(videoId, ct);
-        if (!await CanReadDependencies(dependencies, ct)) return Forbid();
+        var dependencies = await timeline.LoadAsync(videoId, principalAccessor.Current?.Has(Permissions.SegmentsRead) == true, ct);
+        if (!await timeline.CanReadAsync(principalAccessor.Current, dependencies, ct)) return Forbid();
         return Ok(new { sourceFileId = source.Id, targetFileId = target.Id, sourceDuration = source.Duration, targetDuration = target.Duration,
             equivalent, canAlign = FileAvailable(FilesystemPaths.ToNativePath(source.Path)) && FileAvailable(FilesystemPaths.ToNativePath(target.Path)),
             dependencyCounts = dependencies.GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count()), dependencyCount = dependencies.Count });
@@ -108,8 +107,8 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
         if (pair is null) return BadRequest("The selected files no longer belong to this video.");
         var error = VideoAlignment.Validate(request.Anchors, pair.Value.Source.Duration, pair.Value.Target.Duration);
         if (error is not null) return BadRequest(error);
-        var dependencies = await LoadDependencies(videoId, ct);
-        if (!await CanReadDependencies(dependencies, ct)) return Forbid();
+        var dependencies = await timeline.LoadAsync(videoId, principalAccessor.Current?.Has(Permissions.SegmentsRead) == true, ct);
+        if (!await timeline.CanReadAsync(principalAccessor.Current, dependencies, ct)) return Forbid();
         var mappedDependencies = dependencies.Select(d => new MappedDependency(d, MapDependency(d, request.Anchors))).ToList();
         var selectedComparisons = mappedDependencies
             .Where(item => item.Mapped is not null && item.Dependency.Kind == "segment").Take(5)
@@ -154,10 +153,10 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
                 var target = await db.VideoFiles.SingleOrDefaultAsync(f => f.Id == request.FileId && f.VideoId == videoId, ct);
                 if (target is null) { result = Conflict("The replacement file is no longer attached to this video."); return; }
                 if (video.PrimaryFileId == target.Id) { result = Ok(new { video.PrimaryFileId }); return; }
-                var dependencies = await LoadDependencies(videoId, ct);
+                var dependencies = await timeline.LoadAsync(videoId, principalAccessor.Current?.Has(Permissions.SegmentsRead) == true, ct);
                 affectedTimelineVideoIds = dependencies.Select(item => item.TimelineHostId).Where(id => id.HasValue).Select(id => id!.Value).Append(videoId).ToHashSet();
-                if (!await HasDependencyPermissions(videoId, dependencies, request.Resolution, request.DeleteDependencies, ct)) { result = Forbid(); return; }
                 var deletes = (request.DeleteDependencies ?? []).Select(d => $"{d.Kind}:{d.Id}").ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (!await timeline.MayChangeAsync(principalAccessor.Current, videoId, dependencies, moves: request.Resolution == "align", deletesAll: request.Resolution == "delete", deletes, ct)) { result = Forbid(); return; }
                 var mapped = new Dictionary<string, AlignedRange>();
                 if (request.Resolution == "align")
                 {
@@ -184,8 +183,8 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
                     { result = Conflict("Timed dependencies require alignment or removal before changing the primary file."); return; }
                     keepGeneratedAssets = equivalent;
                 }
-                await ApplyDependencies(dependencies, mapped, deletes, ct);
-                await InvalidateTimelineDerivedData(videoId, dependencies, ct);
+                await timeline.ApplyAsync(principalAccessor.Current, dependencies, mapped, deletes, ct);
+                await timeline.InvalidateDerivedDataAsync(videoId, dependencies, ct);
                 var previousId = video.PrimaryFileId;
                 video.PrimaryFileId = target.Id;
                 video.UpdatedAt = DateTime.UtcNow;
@@ -231,119 +230,6 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
             logger.LogError(ex, "Failed to set primary file for video {VideoId}", videoId);
             return Problem("The primary file change could not be applied.");
         }
-    }
-
-    private async Task<bool> HasDependencyPermissions(int videoId, List<TimedDependency> dependencies, string resolution, List<VideoTimedDependencyRef>? requestedDeletes, CancellationToken ct)
-    {
-        var principal = principalAccessor.Current;
-        var deleteKeys = (requestedDeletes ?? []).Select(item => $"{item.Kind}:{item.Id}").ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var deletesAll = resolution == "delete";
-        var changesSegments = resolution == "align" && dependencies.Any(item => item.Kind is "segment" or "detection");
-        var deletesSegments = dependencies.Any(item => (item.Kind is "segment" or "detection") && (deletesAll || deleteKeys.Contains($"{item.Kind}:{item.Id}")));
-        var changesGroupRanges = resolution == "align" && dependencies.Any(item => item.Kind == "group range");
-        var deletesGroupRanges = dependencies.Any(item => item.Kind == "group range" && (deletesAll || deleteKeys.Contains($"{item.Kind}:{item.Id}")));
-        var deletesClips = dependencies.Any(item => item.Kind == "clip" && (deletesAll || deleteKeys.Contains($"{item.Kind}:{item.Id}")));
-        var timelineHostIds = dependencies.Where(item => item.Kind is "segment" or "detection").Select(item => item.TimelineHostId ?? videoId).Distinct();
-        foreach (var hostId in timelineHostIds)
-        {
-            var hostEntity = EntityRef.Of(EntityKinds.Video, hostId);
-            if (changesSegments && !(await authorizationService.AuthorizeAsync(principal, Permissions.SegmentsWrite, hostEntity, ct)).Allowed) return false;
-            if (deletesSegments && !(await authorizationService.AuthorizeAsync(principal, Permissions.SegmentsDelete, hostEntity, ct)).Allowed) return false;
-        }
-        if (changesGroupRanges && principal?.Has(Permissions.GroupsWrite) != true) return false;
-        if (deletesGroupRanges && principal?.Has(Permissions.GroupsDelete) != true) return false;
-        if (deletesClips && principal?.Has(Permissions.VideosDelete) != true) return false;
-        foreach (var dependency in dependencies.Where(item => item.Kind == "clip"))
-        {
-            var deleting = deletesAll || deleteKeys.Contains($"{dependency.Kind}:{dependency.Id}");
-            if (resolution != "align" && !deleting) continue;
-            var permission = deleting ? Permissions.VideosDelete : Permissions.VideosWrite;
-            if (!(await authorizationService.AuthorizeAsync(principal, permission, EntityRef.Of(EntityKinds.Video, dependency.Id), ct)).Allowed) return false;
-        }
-        foreach (var dependency in dependencies.Where(item => item.Kind == "group range" && item.RelatedEntityId.HasValue))
-        {
-            var deleting = deletesAll || deleteKeys.Contains($"{dependency.Kind}:{dependency.Id}");
-            if (resolution != "align" && !deleting) continue;
-            var permission = deleting ? Permissions.GroupsDelete : Permissions.GroupsWrite;
-            if (!(await authorizationService.AuthorizeAsync(principal, permission, EntityRef.Of(EntityKinds.Group, dependency.RelatedEntityId!.Value), ct)).Allowed) return false;
-        }
-        return true;
-    }
-
-    private async Task ApplyDependencies(List<TimedDependency> dependencies, Dictionary<string, AlignedRange> mapped, HashSet<string> deletes, CancellationToken ct)
-    {
-        foreach (var dependency in dependencies)
-        {
-            var key = $"{dependency.Kind}:{dependency.Id}";
-            if (dependency.Kind == "segment") { var e = await db.Segments.IgnoreQueryFilters().SingleAsync(x => x.Id == dependency.Id, ct); if (deletes.Contains(key)) { await hostDependencies.StageDeleteAsync(AffinityHostType.Segment, e.Id, ct); db.Embeddings.RemoveRange(await db.Embeddings.IgnoreQueryFilters().Where(x => x.HostType == EmbeddingHostType.Segment && x.HostId == e.Id).ToListAsync(ct)); db.Segments.Remove(e); } else if (mapped.TryGetValue(key, out var r)) { e.StartSec = r.StartSec; e.EndSec = dependency.EndSec.HasValue ? r.EndSec : null; RemoveKeyframes(e); } }
-            else if (dependency.Kind == "clip") { var e = await db.Videos.IgnoreQueryFilters().SingleAsync(x => x.Id == dependency.Id, ct); if (deletes.Contains(key)) await StageClipDeletion(e.Id, ct); else if (mapped.TryGetValue(key, out var r)) { e.ClipStartSec = r.StartSec; e.ClipEndSec = r.EndSec; } }
-            else if (dependency.Kind == "detection") { var e = await db.Detections.IgnoreQueryFilters().SingleAsync(x => x.Id == dependency.Id, ct); if (deletes.Contains(key)) db.Detections.Remove(e); else if (mapped.TryGetValue(key, out var r)) e.ObservedAtSec = r.StartSec; }
-            else if (dependency.Kind == "group range") { var e = await db.GroupItems.IgnoreQueryFilters().SingleAsync(x => x.Id == dependency.Id, ct); if (deletes.Contains(key)) db.GroupItems.Remove(e); else if (mapped.TryGetValue(key, out var r)) { var mappedOffset = dependency.RelativeClipId.HasValue && mapped.TryGetValue($"clip:{dependency.RelativeClipId.Value}", out var clipRange) ? clipRange.StartSec : 0; e.StartSec = r.StartSec - mappedOffset; e.EndSec = r.EndSec - mappedOffset; } }
-        }
-    }
-
-    private async Task StageClipDeletion(int clipId, CancellationToken ct)
-    {
-        var scopeIds = await VideoHierarchyQueries.ExpandAndLockDeletionScopeAsync(db, [clipId], ct);
-        foreach (var id in scopeIds)
-            if (!(await authorizationService.AuthorizeAsync(principalAccessor.Current, Permissions.VideosDelete, EntityRef.Of(EntityKinds.Video, id), ct)).Allowed)
-                throw new UnauthorizedAccessException("The clip deletion scope is not authorized.");
-        var videos = await db.Videos.IgnoreQueryFilters().Include(v => v.Files).Where(v => scopeIds.Contains(v.Id)).ToListAsync(ct);
-        // Flushes dependency changes staged so far too; the caller's serializable transaction keeps it atomic.
-        await VideoHierarchyQueries.ReleasePrimaryFilesBeforeDeletionAsync(db, videos, ct);
-        foreach (var video in videos)
-        {
-            await hostDependencies.StageDeleteAsync(AffinityHostType.Video, video.Id, ct);
-            await customFields.StageDeleteValuesForEntityAsync(CustomFieldEntityTypes.Video, video.Id, ct);
-        }
-        db.VideoFiles.RemoveRange(videos.SelectMany(v => v.Files));
-        db.Videos.RemoveRange(videos);
-    }
-
-    private async Task InvalidateTimelineDerivedData(int videoId, List<TimedDependency> dependencies, CancellationToken ct)
-    {
-        var segmentIds = dependencies.Where(d => d.Kind == "segment").Select(d => d.Id).ToArray();
-        var videoIds = dependencies.Select(d => d.TimelineHostId).Where(id => id.HasValue).Select(id => id!.Value).Append(videoId).Distinct().ToArray();
-        var embeddings = await db.Embeddings.IgnoreQueryFilters().Where(e =>
-            (e.HostType == EmbeddingHostType.Video && videoIds.Contains(e.HostId))
-            || (e.HostType == EmbeddingHostType.Segment && segmentIds.Contains(e.HostId))).ToListAsync(ct);
-        db.Embeddings.RemoveRange(embeddings);
-    }
-
-    private static void RemoveKeyframes(Segment segment)
-    {
-        if (segment.Payload is null) return;
-        var node = JsonNode.Parse(segment.Payload.RootElement.GetRawText()) as JsonObject;
-        if (node is null) return;
-        var changed = node.Remove("keyframes");
-        changed |= node.Remove("bestBbox");
-        changed |= node.Remove("bestTimeSec");
-        changed |= node.Remove("bestScore");
-        if (changed) segment.Payload = System.Text.Json.JsonDocument.Parse(node.ToJsonString());
-    }
-
-    private async Task<List<TimedDependency>> LoadDependencies(int videoId, CancellationToken ct)
-    {
-        var result = new List<TimedDependency>();
-        var timelineVideoIds = await VideoHierarchyQueries.ExpandDeletionScopeAsync(db, [videoId], ct);
-        if (principalAccessor.Current?.Has(Permissions.SegmentsRead) == true)
-            result.AddRange(await db.Segments.IgnoreQueryFilters().AsNoTracking().Where(s => s.HostType == SegmentHostType.Video && timelineVideoIds.Contains(s.HostId)).Select(s => new TimedDependency("segment", s.Id, s.Title, s.StartSec, s.EndSec, null, s.HostId, null)).ToListAsync(ct));
-        var clips = await db.Videos.IgnoreQueryFilters().AsNoTracking().Where(v => timelineVideoIds.Contains(v.Id) && v.Id != videoId).Select(v => new { v.Id, v.Title, Start = v.ClipStartSec ?? 0, v.ClipEndSec }).ToListAsync(ct);
-        result.AddRange(clips.Select(v => new TimedDependency("clip", v.Id, v.Title, v.Start, v.ClipEndSec, v.Id, v.Id, null)));
-        result.AddRange(await db.Detections.IgnoreQueryFilters().AsNoTracking().Where(d => d.HostType == DetectionHostType.Video && timelineVideoIds.Contains(d.HostId) && d.ObservedAtSec.HasValue).Select(d => new TimedDependency("detection", d.Id, d.Class, d.ObservedAtSec!.Value, d.ObservedAtSec!.Value, null, d.HostId, null)).ToListAsync(ct));
-        var clipStarts = clips.ToDictionary(clip => clip.Id, clip => clip.Start);
-        var groupRanges = await db.GroupItems.IgnoreQueryFilters().AsNoTracking().Where(g => g.VideoId.HasValue && timelineVideoIds.Contains(g.VideoId.Value) && g.Kind == GroupItemKind.VideoRange).ToListAsync(ct);
-        result.AddRange(groupRanges.Select(g => { var relativeClipId = g.VideoId != videoId ? g.VideoId : null; var offset = relativeClipId.HasValue ? clipStarts.GetValueOrDefault(relativeClipId.Value) : 0; return new TimedDependency("group range", g.Id, null, (g.StartSec ?? 0) + offset, g.EndSec + offset, g.GroupId, g.VideoId, relativeClipId); }));
-        return result;
-    }
-
-    private async Task<bool> CanReadDependencies(List<TimedDependency> dependencies, CancellationToken ct)
-    {
-        foreach (var dependency in dependencies.Where(item => item.Kind == "clip"))
-            if (!(await authorizationService.AuthorizeAsync(principalAccessor.Current, Permissions.VideosRead, EntityRef.Of(EntityKinds.Video, dependency.Id), ct)).Allowed) return false;
-        foreach (var groupId in dependencies.Where(item => item.Kind == "group range" && item.RelatedEntityId.HasValue).Select(item => item.RelatedEntityId!.Value).Distinct())
-            if (!(await authorizationService.AuthorizeAsync(principalAccessor.Current, Permissions.GroupsRead, EntityRef.Of(EntityKinds.Group, groupId), ct)).Allowed) return false;
-        return true;
     }
 
     /// <summary>
@@ -414,11 +300,10 @@ public class VideoAlignmentsController(CoveContext db, VideoAlignmentExtractor e
     private static bool StillMatches(string path, (long Size, DateTime Modified) before)
     { var file = new FileInfo(path); return file.Exists && file.Length == before.Size && Math.Abs((file.LastWriteTimeUtc - before.Modified).TotalMilliseconds) < 1; }
     private static bool FileAvailable(string path) { try { return System.IO.File.Exists(path); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; } }
-    private static AlignedRange? MapDependency(TimedDependency dependency, IReadOnlyList<AlignmentAnchor> anchors)
+    private static AlignedRange? MapDependency(VideoTimedDependency dependency, IReadOnlyList<AlignmentAnchor> anchors)
         => VideoAlignment.MapRange(dependency.StartSec, dependency.EndSec ?? dependency.StartSec, anchors);
-    private sealed record MappedDependency(TimedDependency Dependency, AlignedRange? Mapped);
+    private sealed record MappedDependency(VideoTimedDependency Dependency, AlignedRange? Mapped);
     private sealed record AlignmentComparison(string Kind, int Id, string? Title, double SourceSec, double TargetSec, string? SourceThumbnail, string? TargetThumbnail);
-    private sealed record TimedDependency(string Kind, int Id, string? Title, double StartSec, double? EndSec, int? RelatedEntityId, int? TimelineHostId, int? RelativeClipId);
 }
 
 public record AnalyzeVideoAlignment(int SourceFileId, int TargetFileId);

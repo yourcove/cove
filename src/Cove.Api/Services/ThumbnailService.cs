@@ -1763,8 +1763,12 @@ public class ThumbnailService(
 
             // Scrub-bar frames are read on a flat screen, so a VR video contributes one eye, reprojected.
             var spriteFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), SpriteFrameSize);
+            // A scrub thumbnail only needs a picture near its timestamp, so take the keyframe at or
+            // before it rather than decoding up to the exact frame. The VTT keeps the exact cue times;
+            // a tile is at most one GOP early, which is small against the tile spacing.
             var extracted = await VideoFrameBatchExtractor.ExtractAsync(
-                ffmpegPath, filePath, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct, preFilter: spriteFilter);
+                ffmpegPath, filePath, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct,
+                preFilter: spriteFilter, keyframeSeek: true);
 
             if (extracted == null)
             {

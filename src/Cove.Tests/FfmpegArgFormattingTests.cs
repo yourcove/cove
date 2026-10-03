@@ -88,6 +88,53 @@ public class FfmpegArgFormattingTests
         Assert.Contains("-vf v360=input=he:output=flat:in_stereo=sbs:out_stereo=2d:h_fov=100:v_fov=67.67:w=160:h=90,scale=160:-2", args);
     }
 
+    /// <summary>
+    /// Keyframe seeks put both options on every input, ahead of its -ss. The default (pHash) must
+    /// stay on exact seeks: its frames define the stored hashes.
+    /// </summary>
+    [Fact]
+    public void FrameExtractArgs_KeyframeSeekIsPerInputAndOffByDefault()
+    {
+        var keyframe = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [10, 20], start: 0, count: 2, scaleWidth: 160, keyframeSeek: true));
+        var exact = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [10, 20], start: 0, count: 2, scaleWidth: 160));
+
+        Assert.Equal(2, Occurrences(keyframe, "-skip_frame nokey -noaccurate_seek -threads 1 -ss "));
+        Assert.DoesNotContain("-skip_frame", exact);
+        Assert.DoesNotContain("-noaccurate_seek", exact);
+    }
+
+    /// <summary>
+    /// After a keyframe pass, missing frames and every frame shared by two timestamps (both seeks
+    /// resolved to the same keyframe) are re-extracted exactly; distinct frames are kept.
+    /// </summary>
+    [Fact]
+    public void KeyframeReseek_SelectsMissingAndCollidingFrames()
+    {
+        string?[] fingerprints = ["a", "b", "b", null, "c", "b", "d"];
+
+        Assert.Equal([1, 2, 3, 5], VideoFrameBatchExtractor.IndicesNeedingExactSeek(fingerprints));
+        Assert.Empty(VideoFrameBatchExtractor.IndicesNeedingExactSeek(["a", "b", "c"]));
+    }
+
+    /// <summary>The keyframe options count toward the command-line budget when batches are planned.</summary>
+    [Fact]
+    public void BatchPlanner_AccountsForKeyframeSeekArguments()
+    {
+        var longPath = "/media/" + new string('x', 900) + "/clip.mp4";
+        var timestamps = Enumerable.Range(0, 81).Select(i => (double)i).ToArray();
+
+        var plans = VideoFrameBatchExtractor
+            .PlanBatches(longPath, "/tmp/frames", timestampCount: 81, scaleWidth: 160, batchSize: 24, keyframeSeek: true)
+            .ToList();
+
+        Assert.All(plans, plan => Assert.True(
+            VideoFrameBatchExtractor.BuildBatchArguments(
+                longPath, "/tmp/frames", timestamps, plan.Start, plan.Count, 160, keyframeSeek: true)
+                .Sum(argument => argument.Length + 3) < 32767));
+    }
+
     /// <summary>A non-positive scale width keeps the source resolution (used by thumbnails).</summary>
     [Fact]
     public void FrameExtractArgs_OmitScaleFilterWhenWidthIsNotPositive()

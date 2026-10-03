@@ -1,4 +1,5 @@
 import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
+import { formatCutParam, parseCutParam, type CutRange } from "../utils/videoCut";
 
 export interface Route {
   page: string;
@@ -10,6 +11,8 @@ export interface Route {
   slug?: string;
   seekTo?: number;
   videoTab?: string;
+  /** Removals to open a video's trim editor with, from the `cut` parameter. */
+  cut?: CutRange[];
   detailTab?: string;
   spanKey?: string;
   profileId?: number;
@@ -200,6 +203,9 @@ export function buildRouteUrl(route: Route): string {
   }
   if (route.seekTo != null && Number.isFinite(route.seekTo) && route.seekTo >= 0) {
     params.set("t", String(route.seekTo));
+  }
+  if (route.cut && route.cut.length > 0) {
+    params.set("cut", formatCutParam(route.cut));
   }
   if (route.profileId != null && Number.isInteger(route.profileId) && route.profileId > 0) {
     params.set("profile", String(route.profileId));
@@ -431,6 +437,11 @@ function applyRouteSearch(route: Route, search?: string): Route {
 
   if (detailTab) {
     nextRoute = { ...nextRoute, detailTab };
+  }
+
+  const cut = parseCutParam(params.get("cut"));
+  if (cut) {
+    nextRoute = { ...nextRoute, cut };
   }
 
   if (profileParam != null) {

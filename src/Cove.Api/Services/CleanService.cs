@@ -60,14 +60,20 @@ public class CleanService(
 
             // Finish all filesystem/archive inspection before changing the destination. Deleting a
             // backing archive early would otherwise change decisions for later virtual entries.
+            // Orphans go through the same deletion path as a user delete so polymorphic rows (tag
+            // applications, segments, group items, provenance), custom field values, cover blobs and
+            // generated files go with them and extensions receive the Deleted events.
+            var removal = new OrphanRemoval(videos + images + galleries + audios + texts);
+            await DeleteOrphansAsync(plan, "video", BulkDeletionEntityKind.Video, removal, progress, ct);
+            await DeleteOrphansAsync(plan, "image", BulkDeletionEntityKind.Image, removal, progress, ct);
+            await DeleteOrphansAsync(plan, "gallery", BulkDeletionEntityKind.Gallery, removal, progress, ct);
+            await DeleteOrphansAsync(plan, "audio", BulkDeletionEntityKind.Audio, removal, progress, ct);
+            await DeleteOrphansAsync(plan, "text", BulkDeletionEntityKind.Text, removal, progress, ct);
+
+            // Orphans took their own files with them; this prunes missing files of surviving entities.
             var pruned = 0;
             await foreach (var ids in plan.ReadAsync("files", ct))
                 pruned += await db.Set<BaseFileEntity>().Where(file => ids.Contains(file.Id)).ExecuteDeleteAsync(ct);
-            await DeleteParentsAsync(plan, "video", db.Videos, ids => db.VideoFiles.Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value)), ct);
-            await DeleteParentsAsync(plan, "image", db.Images, ids => db.ImageFiles.Where(file => file.ImageId.HasValue && ids.Contains(file.ImageId.Value)), ct);
-            await DeleteParentsAsync(plan, "gallery", db.Galleries, ids => db.GalleryFiles.Where(file => file.GalleryId.HasValue && ids.Contains(file.GalleryId.Value)), ct);
-            await DeleteParentsAsync(plan, "audio", db.Audios, ids => db.AudioFiles.Where(file => file.AudioId.HasValue && ids.Contains(file.AudioId.Value)), ct);
-            await DeleteParentsAsync(plan, "text", db.TextDocuments, ids => db.TextFiles.Where(file => file.TextDocumentId.HasValue && ids.Contains(file.TextDocumentId.Value)), ct);
 
             await foreach (var ids in plan.ReadAsync("refresh-audio", ct))
             {
@@ -90,13 +96,15 @@ public class CleanService(
                 + await DeleteDanglingAsync(db.AudioFiles.Where(file => file.AudioId == null), scopedPaths, ct)
                 + await DeleteDanglingAsync(db.TextFiles.Where(file => file.TextDocumentId == null), scopedPaths, ct);
             var recomputed = 0;
-            if (pruned + videos + images + galleries + audios + texts + dangling > 0)
+            if (pruned + removal.Removed + dangling > 0)
             {
                 progress.Report(1d, "Recomputing library counts");
                 recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
             }
-            logger.LogInformation("Clean completed: removed {Files} missing files, {Videos} videos, {Images} images, {Galleries} galleries, {Audios} audios, {Texts} texts, {DanglingFiles} dangling files; recomputed {Recomputed} entity counts",
-                pruned, videos, images, galleries, audios, texts, dangling, recomputed);
+            logger.LogInformation("Clean completed: removed {Removed} of {Orphans} orphaned items ({Failed} failed), {Files} missing files of surviving items, {DanglingFiles} dangling files; recomputed {Recomputed} entity counts",
+                removal.Removed, removal.Total, removal.Failed, pruned, dangling, recomputed);
+            if (removal.Failed > 0)
+                progress.SetSummary($"Removed {removal.Removed} of {removal.Total} orphaned items; {removal.Failed} could not be removed (see log)");
         }, exclusive: false);
     }
 
@@ -161,17 +169,60 @@ public class CleanService(
         }
     }
 
-    private static async Task DeleteParentsAsync<TEntity, TFile>(CleanPlan plan, string kind,
-        IQueryable<TEntity> query, Func<int[], IQueryable<TFile>> files, CancellationToken ct)
-        where TEntity : BaseEntity where TFile : BaseFileEntity
+    private sealed class OrphanRemoval(int total)
+    {
+        public int Total { get; } = total;
+        public int Removed { get; set; }
+        public int Failed { get; set; }
+        public int Processed { get; set; }
+        public BulkDeletionExecutionContext Context { get; } = new();
+    }
+
+    private async Task DeleteOrphansAsync(CleanPlan plan, string kind, BulkDeletionEntityKind entityKind,
+        OrphanRemoval removal, IJobProgress progress, CancellationToken ct)
     {
         await foreach (var ids in plan.ReadAsync(kind, ct))
         {
-            // Parent cascades use SetNull for files, so remove owned files first.
-            await files(ids).ExecuteDeleteAsync(ct);
-            await query.Where(entity => ids.Contains(entity.Id)).ExecuteDeleteAsync(ct);
+            // A fresh scope per batch keeps the change tracker bounded across large cleans.
+            using var scope = scopeFactory.CreateScope();
+            var deletion = scope.ServiceProvider.GetRequiredService<BulkEntityDeletionService>();
+            foreach (var id in ids)
+            {
+                // Cancel only between entities: each deletion runs its post-commit cleanup to completion.
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    // The files are already gone from disk, but their generated files are now useless.
+                    // False means the entity was removed concurrently since inspection.
+                    if (await deletion.DeleteAsync(entityKind, id, removal.Context, deleteFiles: false, deleteGenerated: true, CancellationToken.None))
+                        removal.Removed++;
+                }
+                catch (Exception ex)
+                {
+                    removal.Failed++;
+                    logger.LogWarning(ex, "Clean could not remove orphaned {Kind} {Id}", kind, id);
+                    // Keep the failed entity's file rows so the next clean still classifies it as an orphan
+                    // (a fileless entity is never an orphan in a path-scoped clean).
+                    using var lookupScope = scopeFactory.CreateScope();
+                    var lookupDb = lookupScope.ServiceProvider.GetRequiredService<CoveContext>();
+                    await plan.RemoveAsync("files", await OwnedFileIds(lookupDb, entityKind, id).ToListAsync(ct), ct);
+                }
+                removal.Processed++;
+                progress.Report((double)removal.Processed / Math.Max(removal.Total, 1),
+                    $"Removing orphaned items ({removal.Processed}/{removal.Total})");
+            }
         }
     }
+
+    private static IQueryable<int> OwnedFileIds(CoveContext db, BulkDeletionEntityKind kind, int id) => kind switch
+    {
+        BulkDeletionEntityKind.Video => db.VideoFiles.AsNoTracking().Where(file => file.VideoId == id).Select(file => file.Id),
+        BulkDeletionEntityKind.Image => db.ImageFiles.AsNoTracking().Where(file => file.ImageId == id).Select(file => file.Id),
+        BulkDeletionEntityKind.Gallery => db.GalleryFiles.AsNoTracking().Where(file => file.GalleryId == id).Select(file => file.Id),
+        BulkDeletionEntityKind.Audio => db.AudioFiles.AsNoTracking().Where(file => file.AudioId == id).Select(file => file.Id),
+        BulkDeletionEntityKind.Text => db.TextFiles.AsNoTracking().Where(file => file.TextDocumentId == id).Select(file => file.Id),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
 
     private static async Task<int> DeleteDanglingAsync<TFile>(IQueryable<TFile> query, IReadOnlyList<string> paths, CancellationToken ct)
         where TFile : BaseFileEntity

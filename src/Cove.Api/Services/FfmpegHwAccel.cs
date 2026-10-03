@@ -372,7 +372,7 @@ internal static class FfmpegHwAccel
     }
 
     /// <summary>
-    /// The <c>-vf</c> argument a conversion encode needs, or an empty string. It is one chain because a
+    /// The <c>-vf</c> arguments a conversion encode needs, or none. It is one chain because a
     /// second <c>-vf</c> would replace the first rather than add to it.
     ///
     /// A lower output frame rate is done here with the fps filter rather than with <c>-r</c>. Measured on
@@ -386,6 +386,16 @@ internal static class FfmpegHwAccel
     /// </summary>
     public static IReadOnlyList<string> ConversionVideoFilter(string encoder, bool tenBit, double? frameRate = null)
     {
+        var chain = ConversionVideoFilterChain(encoder, tenBit, frameRate);
+        return chain.Length == 0 ? [] : ["-vf", chain];
+    }
+
+    /// <summary>
+    /// The filters themselves, without <c>-vf</c>, for a graph that joins several parts of a video and
+    /// so needs them inside its <c>-filter_complex</c> (see <see cref="ConversionVideoFilter"/>).
+    /// </summary>
+    public static string ConversionVideoFilterChain(string encoder, bool tenBit, double? frameRate = null)
+    {
         var chain = new List<string>();
         if (frameRate is > 0)
             chain.Add("fps=" + frameRate.Value.ToString("0.###", CultureInfo.InvariantCulture));
@@ -397,7 +407,7 @@ internal static class FfmpegHwAccel
             chain.Add("hwupload");
         }
 
-        return chain.Count == 0 ? [] : ["-vf", string.Join(',', chain)];
+        return string.Join(',', chain);
     }
 
     /// <summary>Returns extra input-side arguments required by the chosen encoder (e.g. the VAAPI
