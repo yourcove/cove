@@ -1311,7 +1311,7 @@ export function recordProgressSample(history: ProgressSample[], time: number, pr
   return [...history.filter((sample) => sample.time >= cutoff), { time, progress }];
 }
 
-function SetupImportProgressCard({ job }: { job: JobInfo }) {
+export function SetupImportProgressCard({ job }: { job: JobInfo }) {
   const [now, setNow] = useState(() => Date.now());
   const [progressHistory, setProgressHistory] = useState<ProgressSample[]>([]);
   const readProgress = useEffectEvent(() => job.progress);
@@ -1322,7 +1322,9 @@ function SetupImportProgressCard({ job }: { job: JobInfo }) {
     const id = window.setInterval(() => {
       const currentTime = Date.now();
       setNow(currentTime);
-      setProgressHistory((history) => recordProgressSample(history, currentTime, readProgress()));
+      // Read before queuing the update: React runs updaters during render, where an Effect Event throws.
+      const progress = readProgress();
+      setProgressHistory((history) => recordProgressSample(history, currentTime, progress));
     }, 1000);
     return () => window.clearInterval(id);
   }, [job.status]);

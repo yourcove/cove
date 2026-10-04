@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { JobInfo } from "../api/types";
 import {
   buildSetupStepList,
   recordProgressSample,
   resolveOwnerBackStep,
   resolveOwnerNextStep,
   resolveStashSetupEntryStep,
+  SetupImportProgressCard,
 } from "../pages/SetupWizardPage";
 
 describe("Stash setup owner gate", () => {
@@ -56,5 +60,38 @@ describe("setup import progress samples", () => {
       { time: 20000, progress: 0.2 },
       { time: 40000, progress: 0.3 },
     ]);
+  });
+});
+
+describe("setup import progress card", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  const startedAt = new Date(0).toISOString();
+  const runningJob = (progress: number): JobInfo => ({
+    id: "job-1",
+    type: "stash-import",
+    description: "Import from Stash",
+    status: "running",
+    progress,
+    startedAt,
+  });
+
+  it("keeps rendering while it samples progress for a running import", () => {
+    vi.useFakeTimers({ now: 0 });
+    const { rerender } = render(createElement(SetupImportProgressCard, { job: runningJob(0.1) }));
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    rerender(createElement(SetupImportProgressCard, { job: runningJob(0.2) }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByText("Import from Stash")).toBeInTheDocument();
+    expect(screen.getByText("~16s remaining")).toBeInTheDocument();
   });
 });
