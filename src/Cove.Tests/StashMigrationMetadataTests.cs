@@ -1275,6 +1275,55 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
     }
 
     [Fact]
+    public async Task ImportScenesAsync_SetsTheStashPrimaryFileOrTheFirstImportedOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var context = CreateContext();
+        var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
+        context.Folders.Add(folder);
+        await context.SaveChangesAsync(ct);
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(ct);
+        // Scene 3's Stash primary file has no video_files row, so it is not imported.
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE scenes(id INTEGER PRIMARY KEY,title TEXT,details TEXT,date TEXT,rating INTEGER,studio_id INTEGER,organized INTEGER,code TEXT,director TEXT,resume_time REAL,play_duration REAL,created_at TEXT,updated_at TEXT);
+CREATE TABLE scenes_files(scene_id INTEGER,file_id INTEGER,[primary] INTEGER);
+CREATE TABLE groups_scenes(scene_id INTEGER,group_id INTEGER,scene_index INTEGER);
+CREATE TABLE files(id INTEGER PRIMARY KEY,basename TEXT,parent_folder_id INTEGER,size INTEGER,mod_time TEXT,created_at TEXT);
+CREATE TABLE video_files(file_id INTEGER,duration REAL,video_codec TEXT,format TEXT,audio_codec TEXT,width INTEGER,height INTEGER,frame_rate REAL,bit_rate INTEGER);
+CREATE TABLE files_fingerprints(file_id INTEGER,type TEXT,fingerprint TEXT);
+INSERT INTO scenes VALUES
+  (1,'single',NULL,NULL,NULL,NULL,0,NULL,NULL,0,0,'2024-01-01','2024-01-01'),
+  (2,'second marked primary',NULL,NULL,NULL,NULL,0,NULL,NULL,0,0,'2024-01-01','2024-01-01'),
+  (3,'primary not imported',NULL,NULL,NULL,NULL,0,NULL,NULL,0,0,'2024-01-01','2024-01-01');
+INSERT INTO files VALUES
+  (10,'single.mp4',1,1,'2024-01-01','2024-01-01'),
+  (20,'two-a.mp4',1,1,'2024-01-01','2024-01-01'),
+  (21,'two-b.mp4',1,1,'2024-01-01','2024-01-01'),
+  (30,'three-a.mp4',1,1,'2024-01-01','2024-01-01'),
+  (31,'three-b.mp4',1,1,'2024-01-01','2024-01-01');
+INSERT INTO scenes_files VALUES (1,10,1),(2,20,0),(2,21,1),(3,30,1),(3,31,0);
+INSERT INTO video_files SELECT id,120,'h264','mp4','aac',1920,1080,30,1000 FROM files WHERE id <> 30;
+");
+
+        var service = CreateService(context);
+        // The migration runs the scenes phase with change detection off.
+        context.ChangeTracker.AutoDetectChangesEnabled = false;
+        await InvokePrivateAsync(service, "ImportScenesAsync", stash, new Dictionary<string, string>(),
+            new Dictionary<int, int> { [1] = folder.Id },
+            new Dictionary<int, int>(), new Dictionary<int, int>(), new Dictionary<int, int>(), new Dictionary<int, int>(),
+            NullJobProgress.Instance, 0d, 1d, ct);
+
+        var primaries = await context.Videos
+            .Include(video => video.PrimaryFile)
+            .ToDictionaryAsync(video => video.Title!, video => video.PrimaryFile?.Basename, ct);
+        Assert.Equal("single.mp4", primaries["single"]);
+        Assert.Equal("two-b.mp4", primaries["second marked primary"]);
+        Assert.Equal("three-b.mp4", primaries["primary not imported"]);
+    }
+
+    [Fact]
     public async Task ImportScenesAsync_ImportsCaptionsForMatchingPersistedVideoFiles()
     {
         await using var context = CreateContext();
