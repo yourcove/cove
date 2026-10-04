@@ -10,6 +10,8 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- Fixed videos imported from Stash showing "No video file available": the import left every video without a primary file, so none of them could play. Imports now set it to the file Stash marked as primary. Upgrading repairs videos that were already imported. For videos with several files, the repair should also pick the file Stash marked as primary, because the import has always added that file first, and our tests matched Stash's choice. If a video plays a different file than expected, use **Set as primary** on the video's File Info tab.
+
 ## [1.5.1] - 2026-09-25
 
 Fixed extension upgrades and uninstalls that could leave extensions stuck disabled.
