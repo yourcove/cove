@@ -1407,6 +1407,8 @@ public partial class CoveContext : DbContext
         return result;
     }
 
+    // Set through the entry so the follow-up save sees the change even when the caller has turned
+    // automatic change detection off, as the Stash import does for its bulk phases.
     private void AssignInitialPrimaryFiles(IReadOnlyCollection<Video> videos)
     {
         if (videos.Count == 0) return;
@@ -1414,7 +1416,7 @@ public partial class CoveContext : DbContext
         var firstFiles = VideoFiles.Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value))
             .GroupBy(file => file.VideoId!.Value).Select(group => new { VideoId = group.Key, FileId = group.Min(file => file.Id) }).ToDictionary(item => item.VideoId, item => item.FileId);
         foreach (var video in videos.Where(video => video.PrimaryFileId == null))
-            if (firstFiles.TryGetValue(video.Id, out var fileId)) video.PrimaryFileId = fileId;
+            if (firstFiles.TryGetValue(video.Id, out var fileId)) Entry(video).Property(item => item.PrimaryFileId).CurrentValue = fileId;
     }
 
     private async Task AssignInitialPrimaryFilesAsync(IReadOnlyCollection<Video> videos, CancellationToken cancellationToken)
@@ -1424,7 +1426,7 @@ public partial class CoveContext : DbContext
         var firstFiles = await VideoFiles.Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value))
             .GroupBy(file => file.VideoId!.Value).Select(group => new { VideoId = group.Key, FileId = group.Min(file => file.Id) }).ToDictionaryAsync(item => item.VideoId, item => item.FileId, cancellationToken);
         foreach (var video in videos.Where(video => video.PrimaryFileId == null))
-            if (firstFiles.TryGetValue(video.Id, out var fileId)) video.PrimaryFileId = fileId;
+            if (firstFiles.TryGetValue(video.Id, out var fileId)) Entry(video).Property(item => item.PrimaryFileId).CurrentValue = fileId;
     }
 
     private int SaveChangesWithNameConstraintTranslation()
