@@ -704,6 +704,55 @@ describe("VideoTagger", () => {
     expect(mocks.importFromMetadataServer).toHaveBeenCalledWith(123, expect.anything());
   });
 
+  it("shares the library lookup between rows instead of sending one per row at once", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const videos = [301, 302, 303].map((id) => ({
+      id,
+      title: `Local video ${id}`,
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    })) as any;
+    mocks.searchMetadataServer.mockImplementation((videoId: number) =>
+      Promise.resolve([
+        {
+          ...matchFor(videoId),
+          tagNames: [`Tag ${videoId}`],
+          tagCandidates: [{ remoteId: `tag-${videoId}`, name: `Tag ${videoId}`, existsLocally: false }],
+        },
+      ]),
+    );
+    // The first lookup stays out until released, so any row asking meanwhile shows up as a second request.
+    let releaseFirst!: () => void;
+    mocks.resolveRelations.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseFirst = () => resolve({ tags: [], performers: [], studios: [] });
+        }),
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={videos} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+    await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.resolveRelations).toHaveBeenCalledOnce();
+
+    releaseFirst();
+    await waitFor(() => {
+      const asked = mocks.resolveRelations.mock.calls.flatMap(([request]) => request.tags);
+      expect(asked.sort()).toEqual(["Tag 301", "Tag 302", "Tag 303"]);
+    });
+    expect(mocks.resolveRelations.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
   it("reports a failed save on the row it failed for, and saves the rest of the batch", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const videos = [

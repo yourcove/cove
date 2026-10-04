@@ -8,6 +8,8 @@ import type {
   MetadataServerEntityCandidate,
   MetadataServerVideoMatch,
   MetadataServerVideoImportRequest,
+  ResolveScrapeRelationsRequest,
+  ResolveScrapeRelationsResult,
   ScrapeAttempt,
   ScraperSummary,
   ScrapeCollectionItemSelection,
@@ -15,6 +17,7 @@ import type {
 } from "../api/types";
 import { useAppConfig, useOptionalAppConfig } from "../state/AppConfigContext";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
+import { createRelationLookupBatcher } from "../utils/relationLookupBatcher";
 import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import {
@@ -921,6 +924,10 @@ export function VideoTagger({
     taggerConfig.bulkMatchStrategy,
   );
   const [searchStates, setSearchStates] = useState<Record<number, VideoSearchState>>({});
+  // Each lookup loads the whole tag library on the server, so the rows share theirs rather than asking at once.
+  const [resolveRelations] = useState(() =>
+    createRelationLookupBatcher((request) => scrapeAttempts.resolveRelations(request)),
+  );
   const [queryOverrides, setQueryOverrides] = useState<Record<number, string>>({});
   const [scraperInputKinds, setScraperInputKinds] = useState<Record<number, InputKind>>({});
   const selectedSource = resolveSource(taggerConfig.selectedEndpoint, taggerSources);
@@ -1640,6 +1647,7 @@ export function VideoTagger({
             detailMode={mode === "detail"}
             onRegisterApply={registerApply}
             onDismiss={mode === "bulk" ? () => dismissVideo(video.id) : undefined}
+            resolveRelations={resolveRelations}
           />
         ))}
       </div>
@@ -1678,6 +1686,8 @@ interface TaggerVideoRowProps {
   onRegisterApply?: (videoId: number, apply: (() => Promise<unknown>) | null) => void;
   /** Takes this row off the list for the rest of the visit. Absent when dismissing does not apply. */
   onDismiss?: () => void;
+  /** The library lookup, shared by the page's rows. */
+  resolveRelations: (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>;
 }
 
 function TaggerVideoRow({
@@ -1702,6 +1712,7 @@ function TaggerVideoRow({
   detailMode = false,
   onRegisterApply,
   onDismiss,
+  resolveRelations,
 }: TaggerVideoRowProps) {
   const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
@@ -1736,7 +1747,7 @@ function TaggerVideoRow({
   }, [state?.results]);
   const { data: resolvedRelations } = useQuery({
     queryKey: ["tagger-resolve-relations", relationNamesToResolve],
-    queryFn: () => scrapeAttempts.resolveRelations(relationNamesToResolve),
+    queryFn: () => resolveRelations(relationNamesToResolve),
     enabled:
       relationNamesToResolve.tags.length > 0 ||
       relationNamesToResolve.performers.length > 0 ||

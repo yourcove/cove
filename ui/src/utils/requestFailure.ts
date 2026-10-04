@@ -36,6 +36,11 @@ function getApiErrorDetails(message: string): { status: number; detail?: string;
   return { status };
 }
 
+/** The `code` an API error response carried, if any. */
+export function getApiErrorCode(error: unknown): string | undefined {
+  return error instanceof Error ? getApiErrorDetails(error.message)?.code : undefined;
+}
+
 export function getApiValidationFailureDetail(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? "");
   const apiError = getApiErrorDetails(message);
