@@ -19,12 +19,6 @@ public sealed class GenerateJobService(
     CoveConfiguration config,
     ILogger<GenerateJobService> logger)
 {
-    private const double SegmentPreviewDefaultDuration = 3.0;
-    private const double SegmentPreviewMaxDuration = 5.0;
-    private const double SegmentPreviewReuseOverlapRatio = 0.8;
-
-    private readonly record struct SegmentPreviewClip(double StartSec, double EndSec, string Path);
-
     private sealed record VideoWorkItem(
         Video Video,
         VideoFile File,
@@ -40,7 +34,6 @@ public sealed class GenerateJobService(
     /// <summary>Work that needs frames decoded out of the source file. MD5 does not.</summary>
     private static bool NeedsDecodableSource(GenerateOptionsDto options)
         => options.Thumbnails || options.Previews || options.Sprites || options.VrStereo
-            || options.SegmentThumbnails || options.SegmentPreviews || options.Segments
             || options.Phashes;
 
     public string Start(GenerateOptionsDto options)
@@ -109,9 +102,7 @@ public sealed class GenerateJobService(
             || options.Thumbnails
             || options.Previews
             || options.Sprites
-            || options.SegmentThumbnails
-            || options.SegmentPreviews
-            || options.Segments
+            || options.VrStereo
             || options.Phashes
             || options.Md5;
 
@@ -137,8 +128,6 @@ public sealed class GenerateJobService(
             return;
         }
 
-        var segmentThumbnails = options.SegmentThumbnails || options.SegmentPreviews || options.Segments;
-        var segmentPreviews = options.SegmentPreviews || options.Segments;
         var filterPaths = hasVideoSelection ? [] : GeneratePathFilter.Normalize(options.Paths);
         await foreach (var ids in workSet.ReadAsync(ct))
         {
@@ -150,13 +139,10 @@ public sealed class GenerateJobService(
                 unit.Complete(JobUnitOutcome.Skipped, "Selected video or source file is no longer available");
                 reporter.RecordSkipped();
             }
-            var segmentsByVideoId = segmentThumbnails ? await LoadSegmentsAsync(db, workItems, ct) : [];
             await jobService.RunBatchAsync(
                 workItems,
                 parallelism,
-                (item, unit, token) => GenerateVideoAsync(
-                    item, options, segmentThumbnails, segmentPreviews, segmentsByVideoId,
-                    new RecordingJobUnit(unit), reporter, token),
+                (item, unit, token) => GenerateVideoAsync(item, options, new RecordingJobUnit(unit), reporter, token),
                 progress,
                 unitIdFactory: (item, _) => item.Video.Id.ToString(),
                 labelFactory: item => item.Video.Title,
@@ -173,8 +159,6 @@ public sealed class GenerateJobService(
         if (options.Thumbnails) selected.Add("covers");
         if (options.Previews) selected.Add("previews");
         if (options.Sprites) selected.Add("sprites");
-        if (options.SegmentThumbnails || options.Segments) selected.Add("segment covers");
-        if (options.SegmentPreviews || options.Segments) selected.Add("segment previews");
         if (options.Phashes) selected.Add("phashes");
         if (options.Md5) selected.Add("md5");
         return selected.Count > 0 ? string.Join(", ", selected) : "nothing";
@@ -232,54 +216,16 @@ public sealed class GenerateJobService(
             || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
             || (options.Previews && (options.Overwrite || !item.HasPreview))
             || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
-            || (options.Sprites && (options.Overwrite || !item.HasSprite))
-            || options.SegmentThumbnails
-            || options.SegmentPreviews
-            || options.Segments;
+            || (options.Sprites && (options.Overwrite || !item.HasSprite));
 
         return generatedFileWork
             || (options.Phashes && (options.Overwrite || !item.HasPhash))
             || (options.Md5 && (options.Overwrite || !item.HasMd5));
     }
 
-    private static async Task<Dictionary<int, List<(double StartSec, double? EndSec)>>> LoadSegmentsAsync(
-        CoveContext db,
-        IReadOnlyCollection<VideoWorkItem> workItems,
-        CancellationToken ct)
-    {
-        if (workItems.Count == 0)
-            return [];
-
-        var videoIds = workItems.Select(item => item.Video.Id).ToList();
-        var segments = await db.Segments
-            .AsNoTracking()
-            .Where(segment => segment.HostType == SegmentHostType.Video && videoIds.Contains(segment.HostId))
-            .Select(segment => new { segment.HostId, segment.StartSec, segment.EndSec })
-            .ToListAsync(ct);
-
-        return segments
-            .GroupBy(segment => segment.HostId)
-            .ToDictionary(
-                group => group.Key,
-                group => group
-                    .GroupBy(segment => segment.StartSec)
-                    .Select(segmentGroup => (
-                        StartSec: segmentGroup.Key,
-                        EndSec: segmentGroup
-                            .Select(segment => segment.EndSec)
-                            .Where(endSec => endSec.HasValue)
-                            .OrderBy(endSec => endSec)
-                            .FirstOrDefault()))
-                    .OrderBy(segment => segment.StartSec)
-                    .ToList());
-    }
-
     private async Task GenerateVideoAsync(
         VideoWorkItem item,
         GenerateOptionsDto options,
-        bool generateSegmentThumbnails,
-        bool generateSegmentPreviews,
-        IReadOnlyDictionary<int, List<(double StartSec, double? EndSec)>> segmentsByVideoId,
         RecordingJobUnit unit,
         GenerateProgressReporter reporter,
         CancellationToken ct)
@@ -308,9 +254,6 @@ public sealed class GenerateJobService(
             }
 
             await GeneratePrimaryVideoAssetsAsync(item, options, unit, ct);
-
-            if (generateSegmentThumbnails && segmentsByVideoId.TryGetValue(item.Video.Id, out var segments))
-                await GenerateSegmentAssetsAsync(item, segments, generateSegmentPreviews, options.Overwrite, unit, ct);
 
             if (options.Phashes && (options.Overwrite || !item.HasPhash))
             {
@@ -520,161 +463,6 @@ public sealed class GenerateJobService(
                     options.Overwrite,
                     ct),
                 "Sprite generation failed");
-        }
-    }
-
-    private async Task GenerateSegmentAssetsAsync(
-        VideoWorkItem item,
-        IEnumerable<(double StartSec, double? EndSec)> segments,
-        bool generatePreviews,
-        bool overwrite,
-        IJobUnit unit,
-        CancellationToken ct)
-    {
-        var generatedClips = new List<SegmentPreviewClip>();
-        foreach (var segment in segments)
-        {
-            var screenshotSecond = Math.Max(0, segment.StartSec);
-            if (item.File.Duration > 0)
-                screenshotSecond = Math.Min(screenshotSecond, Math.Max(0, item.File.Duration - 0.1));
-
-            var thumbnailPath = thumbnailService.GetTimestampedThumbnailPath(item.Video.Id, screenshotSecond);
-            var previewPath = generatePreviews
-                ? thumbnailService.GetSegmentAnimatedPreviewPath(item.Video.Id, screenshotSecond)
-                : null;
-
-            if (overwrite || !System.IO.File.Exists(thumbnailPath))
-                await ReportGenerateResultAsync(
-                    unit,
-                    videoAssetGenerator.GenerateThumbnailFromFileAsync(
-                        item.Video.Id,
-                        item.File.Id,
-                        screenshotSecond,
-                        ct),
-                    "Segment thumbnail generation failed");
-
-            if (previewPath is not null)
-                await GenerateSegmentPreviewAsync(
-                    item,
-                    segment.EndSec,
-                    screenshotSecond,
-                    previewPath,
-                    generatedClips,
-                    overwrite,
-                    unit,
-                    ct);
-        }
-    }
-
-    private async Task GenerateSegmentPreviewAsync(
-        VideoWorkItem item,
-        double? segmentEnd,
-        double screenshotSecond,
-        string previewPath,
-        List<SegmentPreviewClip> generatedClips,
-        bool overwrite,
-        IJobUnit unit,
-        CancellationToken ct)
-    {
-        var (clipStart, clipEnd) = ResolveSegmentPreviewClip(screenshotSecond, segmentEnd, item.File.Duration);
-        if (!overwrite && System.IO.File.Exists(previewPath))
-        {
-            AddSegmentPreviewClip(generatedClips, new SegmentPreviewClip(clipStart, clipEnd, previewPath));
-            return;
-        }
-
-        var reusableClip = FindReusableSegmentPreviewClip(generatedClips, clipStart, clipEnd);
-        if (reusableClip.HasValue)
-        {
-            CopySegmentPreviewAlias(reusableClip.Value.Path, previewPath);
-            if (System.IO.File.Exists(previewPath))
-            {
-                AddSegmentPreviewClip(generatedClips, new SegmentPreviewClip(clipStart, clipEnd, previewPath));
-                return;
-            }
-        }
-
-        await ReportGenerateResultAsync(
-            unit,
-            videoAssetGenerator.GenerateSegmentPreviewFromFileAsync(
-                item.Video.Id,
-                item.File.Id,
-                screenshotSecond,
-                segmentEnd,
-                overwrite,
-                ct),
-            "Segment preview generation failed");
-        if (System.IO.File.Exists(previewPath))
-            AddSegmentPreviewClip(generatedClips, new SegmentPreviewClip(clipStart, clipEnd, previewPath));
-    }
-
-
-    private static (double StartSec, double EndSec) ResolveSegmentPreviewClip(double startSec, double? endSec, double videoDuration)
-    {
-        if (videoDuration <= 0)
-            return (Math.Max(0, startSec), Math.Max(0, startSec) + SegmentPreviewDefaultDuration);
-
-        var clampedStart = Math.Max(0, Math.Min(startSec, Math.Max(0, videoDuration - 0.1)));
-        var requestedDuration = endSec.HasValue && endSec.Value > clampedStart
-            ? endSec.Value - clampedStart
-            : SegmentPreviewDefaultDuration;
-        var previewDuration = Math.Min(SegmentPreviewMaxDuration, Math.Max(0.5, requestedDuration));
-        previewDuration = Math.Min(previewDuration, Math.Max(0.5, videoDuration - clampedStart));
-        return (clampedStart, clampedStart + previewDuration);
-    }
-
-    private static SegmentPreviewClip? FindReusableSegmentPreviewClip(
-        IEnumerable<SegmentPreviewClip> clips,
-        double startSec,
-        double endSec)
-    {
-        foreach (var clip in clips)
-        {
-            if (IsReusableSegmentPreviewClip(clip, startSec, endSec))
-                return clip;
-        }
-
-        return null;
-    }
-
-    private static bool IsReusableSegmentPreviewClip(SegmentPreviewClip clip, double startSec, double endSec)
-    {
-        var overlap = Math.Min(clip.EndSec, endSec) - Math.Max(clip.StartSec, startSec);
-        if (overlap <= 0)
-            return false;
-
-        var clipDuration = Math.Max(0.001, clip.EndSec - clip.StartSec);
-        var requestedDuration = Math.Max(0.001, endSec - startSec);
-        return overlap / Math.Min(clipDuration, requestedDuration) >= SegmentPreviewReuseOverlapRatio;
-    }
-
-    private static void AddSegmentPreviewClip(List<SegmentPreviewClip> clips, SegmentPreviewClip clip)
-    {
-        if (!clips.Any(existing => string.Equals(existing.Path, clip.Path, StringComparison.OrdinalIgnoreCase)))
-            clips.Add(clip);
-    }
-
-    private static void CopySegmentPreviewAlias(string sourcePath, string targetPath)
-    {
-        if (string.Equals(sourcePath, targetPath, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(sourcePath))
-            return;
-
-        var targetDirectory = Path.GetDirectoryName(targetPath);
-        if (!string.IsNullOrWhiteSpace(targetDirectory))
-            Directory.CreateDirectory(targetDirectory);
-
-        var tempPath = targetPath + ".tmp";
-        try
-        {
-            System.IO.File.Copy(sourcePath, tempPath, overwrite: true);
-            System.IO.File.Move(tempPath, targetPath, overwrite: true);
-        }
-        finally
-        {
-            if (System.IO.File.Exists(tempPath))
-            {
-                try { System.IO.File.Delete(tempPath); } catch { }
-            }
         }
     }
 }

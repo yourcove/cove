@@ -19,7 +19,6 @@ public sealed class StreamDeliveryApiTests(
     [Fact]
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}")]
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/screenshot")]
-    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/segment-preview")]
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/preview")]
     [CoversEndpoint("HEAD", "/api/stream/video/{videoid:int}/preview")]
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/sprite")]
@@ -31,7 +30,6 @@ public sealed class StreamDeliveryApiTests(
         var sourceBytes = "api-test-video-source"u8.ToArray();
         var previewBytes = "api-test-preview"u8.ToArray();
         var screenshotBytes = await CreateImageAsync("jpeg", 12, 8);
-        var segmentPreviewBytes = await CreateImageAsync("webp", 10, 6);
         var spriteBytes = await CreateImageAsync("jpeg", 16, 9);
         var customScreenshot = ApiTestImages.BluePixelPng();
         var vtt = $"WEBVTT\n\n00:00:00.000 --> 00:00:05.000\n{video.Id}_sprite.jpg#xywh=0,0,16,9\n";
@@ -39,7 +37,6 @@ public sealed class StreamDeliveryApiTests(
         var sourcePath = fileSystem.CreateLibraryFile($"stream-{video.Id}.mp4", sourceBytes);
         fileSystem.CreateVideoPreview(video.Id, previewBytes);
         fileSystem.CreateVideoScreenshot(video.Id, 7, screenshotBytes);
-        fileSystem.CreateVideoSegmentPreview(video.Id, 7, segmentPreviewBytes);
         fileSystem.CreateVideoSprite(video.Id, spriteBytes);
         fileSystem.CreateVideoSpriteVtt(video.Id, vtt);
         await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12, cancellationToken: TestContext.Current.CancellationToken);
@@ -70,12 +67,6 @@ public sealed class StreamDeliveryApiTests(
         (await generatedResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(screenshotBytes);
         generatedResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
         generatedResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
-
-        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/segment-preview?seconds=7", TestContext.Current.CancellationToken);
-        segmentResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await segmentResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(segmentPreviewBytes);
-        segmentResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/webp");
-        segmentResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
         using var previewRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/video/{video.Id}/preview");
         previewRequest.Headers.Range = new RangeHeaderValue(2, 5);

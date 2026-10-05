@@ -45,9 +45,6 @@ export function GenerateDialog({
     previews: false,
     sprites: false,
     vrStereo: false,
-    segments: false,
-    segmentThumbnails: false,
-    segmentPreviews: false,
     phashes: false,
     md5: false,
     imageThumbnails: isImageScoped,
@@ -67,27 +64,7 @@ export function GenerateDialog({
 
   if (!open) return null;
 
-  const toggle = (key: keyof GenerateOptions) =>
-    setOpts((o) => {
-      const nextValue = !o[key];
-      if (key === "segmentThumbnails") {
-        return {
-          ...o,
-          segmentThumbnails: nextValue,
-          segmentPreviews: nextValue ? o.segmentPreviews : false,
-          segments: false,
-        };
-      }
-      if (key === "segmentPreviews") {
-        return {
-          ...o,
-          segmentThumbnails: nextValue ? true : o.segmentThumbnails,
-          segmentPreviews: nextValue,
-          segments: false,
-        };
-      }
-      return { ...o, [key]: nextValue };
-    });
+  const toggle = (key: keyof GenerateOptions) => setOpts((o) => ({ ...o, [key]: !o[key] }));
 
   const scopedCount = videoIds?.length ?? imageIds?.length ?? audioIds?.length ?? textIds?.length ?? 0;
   const scopedNoun = isVideoScoped
@@ -137,8 +114,6 @@ export function GenerateDialog({
               ["previews", "Video Previews"],
               ["sprites", "Sprite Sheets"],
               ["vrStereo", "VR 3D Covers and Previews"],
-              ["segmentThumbnails", "Segment Thumbnails"],
-              ["segmentPreviews", "Animated Segment Previews"],
               ["phashes", "Video perceptual hashes"],
               ["md5", "MD5 Checksums"],
             ],

@@ -980,9 +980,6 @@ public class AiCoreControllerTests
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default)
-            => throw new NotSupportedException();
-
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
             => throw new NotSupportedException();
 
@@ -990,9 +987,6 @@ public class AiCoreControllerTests
             => throw new NotSupportedException();
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds)
-            => throw new NotSupportedException();
-
-        public string GetSegmentAnimatedPreviewPath(int videoId, double seconds)
             => throw new NotSupportedException();
 
         public string GetPreviewPath(int videoId)
@@ -1021,8 +1015,5 @@ public class AiCoreControllerTests
             return Task.FromResult<(Stream, string, bool)?>(
                 (new MemoryStream(screenshotBytes, writable: false), screenshotContentType, useLongCache));
         }
-
-        public Task<(Stream stream, string contentType, bool useLongCache)?> GetSegmentAnimatedPreview(int videoId, double seconds, CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 }

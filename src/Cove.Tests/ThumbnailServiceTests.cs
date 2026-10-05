@@ -100,7 +100,6 @@ public class ThumbnailServiceTests
                 [service.GetPreviewPath(1)] = [4, 5, 6],
                 [service.GetSpritePath(1)] = [7, 8, 9],
                 [service.GetSpriteVttPath(1)] = [10, 11, 12],
-                [service.GetSegmentAnimatedPreviewPath(1, 5)] = [13, 14, 15],
             };
             foreach (var (path, bytes) in assets)
             {
@@ -111,8 +110,6 @@ public class ThumbnailServiceTests
             Assert.False(await service.RegenerateVideoThumbnailAsync(1, ct: TestContext.Current.CancellationToken));
             Assert.False(await service.RegenerateVideoPreviewAsync(1, TestContext.Current.CancellationToken));
             Assert.False(await service.RegenerateVideoSpriteAsync(1, TestContext.Current.CancellationToken));
-            Assert.False(await service.GenerateSegmentPreviewFromFileAsync(1, 1, 5, null, overwrite: true, ct: TestContext.Current.CancellationToken));
-
             foreach (var (path, expectedBytes) in assets)
                 Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
         }

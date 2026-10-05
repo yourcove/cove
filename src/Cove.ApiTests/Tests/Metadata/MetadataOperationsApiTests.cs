@@ -316,6 +316,25 @@ public sealed class MetadataOperationsApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/metadata/clean-generated")]
+    public async Task GivenSegmentPreviewOfLiveVideo_WhenCleanGeneratedCompletes_ThenItIsRemoved()
+    {
+        // Arrange
+        var video = await AsUser().CreateVideoAsync($"Segment preview owner {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var liveCover = AsTestFileSystem().CreateGeneratedFile($"thumbnails/{video.Id}.jpg", [1, 2, 3]);
+        var segmentPreview = AsTestFileSystem().CreateVideoSegmentPreview(video.Id, 7, [4, 5, 6]);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanGeneratedAsync(TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        File.Exists(liveCover).Should().BeTrue();
+        File.Exists(segmentPreview).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task GivenMember_WhenCleanGeneratedStarts_ThenForbiddenIsReturnedWithoutDeletingFile()
     {
         // Arrange

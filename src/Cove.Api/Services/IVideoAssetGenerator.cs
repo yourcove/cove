@@ -48,12 +48,4 @@ public interface IVideoAssetGenerator
         int sourceFileId,
         bool overwrite,
         CancellationToken ct = default);
-
-    Task<bool> GenerateSegmentPreviewFromFileAsync(
-        int videoId,
-        int sourceFileId,
-        double startSec,
-        double? endSec,
-        bool overwrite,
-        CancellationToken ct = default);
 }

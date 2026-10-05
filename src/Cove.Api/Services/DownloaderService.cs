@@ -2341,9 +2341,6 @@ public partial class DownloaderService(
         if (paths.Count == 0)
             return null;
 
-        if (generate.Segments)
-            logger.LogInformation("Batch download generate follow-up does not currently support segment generation; skipping segment option.");
-
         using var scope = serviceScopeFactory.CreateScope();
         var scanService = scope.ServiceProvider.GetRequiredService<IScanService>();
         progress?.Report(0.98d, "Queueing follow-up generation scan...");

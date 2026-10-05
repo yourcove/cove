@@ -3070,8 +3070,6 @@ public class ScanServiceTests
             return Task.FromResult(false);
         }
 
-        public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default) => Task.CompletedTask;
-
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
         {
             Interlocked.Increment(ref _videoSpriteCallCount);
@@ -3087,8 +3085,6 @@ public class ScanServiceTests
         public string GetThumbnailPathForVideo(int videoId) => GetGeneratedPath($"{videoId}.jpg");
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds) => string.Empty;
-
-        public string GetSegmentAnimatedPreviewPath(int videoId, double seconds) => string.Empty;
 
         public string GetPreviewPath(int videoId) => GetGeneratedPath($"{videoId}.mp4");
 

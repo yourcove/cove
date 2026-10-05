@@ -40,7 +40,6 @@ public interface IThumbnailService
         await GenerateVideoPreviewAsync(videoId, ct);
         return true;
     }
-    Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default);
     /// <summary>The stereoscopic card of a VR video, from its primary file. False when it could not be made.</summary>
     Task<bool> GenerateVrCardAsync(int videoId, bool overwrite, CancellationToken ct = default) => Task.FromResult(false);
     /// <summary>The stereoscopic preview clip of a VR video, from its primary file. False when it could not be made.</summary>
@@ -55,7 +54,6 @@ public interface IThumbnailService
     }
     string GetThumbnailPathForVideo(int videoId);
     string GetTimestampedThumbnailPath(int videoId, double seconds);
-    string GetSegmentAnimatedPreviewPath(int videoId, double seconds);
     string GetPreviewPath(int videoId);
     string GetSpritePath(int videoId);
     string GetSpriteVttPath(int videoId);
@@ -84,7 +82,8 @@ public class ThumbnailService(
     private string ThumbnailDir => Path.Combine(config.GeneratedPath, "screenshots");
     private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
     private string PreviewDir => Path.Combine(config.GeneratedPath, "previews");
-    private string SegmentPreviewDir => Path.Combine(config.GeneratedPath, "segment-previews");
+    /// <summary>Animated segment previews are no longer made; this is only where older installs left them.</summary>
+    private string LegacySegmentPreviewDir => Path.Combine(config.GeneratedPath, "segment-previews");
     private string VrCardDir => Path.Combine(config.GeneratedPath, "vr-cards");
     private string VrPreviewDir => Path.Combine(config.GeneratedPath, "vr-previews");
     private string VttDir => Path.Combine(config.GeneratedPath, "vtt");
@@ -168,10 +167,6 @@ public class ThumbnailService(
     private const int VrCardEyeWidth = 800;
     private const string PreviewPreset = "fast";
     private const int PreviewCrf = 21;
-    private const double SegmentPreviewDefaultDuration = 3.0;
-    private const double SegmentPreviewMaxDuration = 5.0;
-    private const int SegmentPreviewWidth = 360;
-    private const int SegmentPreviewFps = 12;
     private const int DefaultImageThumbnailMaxDimension = 640;
     private const int MinImageThumbnailMaxDimension = 64;
     private const int MaxImageThumbnailMaxDimension = 4096;
@@ -219,7 +214,8 @@ public class ThumbnailService(
         DeleteFileIfExists(GetSpritePath(videoId));
         DeleteFileIfExists(GetSpriteVttPath(videoId));
         DeleteFilesByPattern(Path.GetDirectoryName(GetTimestampedThumbnailPath(videoId, 0))!, $"{videoId}_t*.jpg");
-        DeleteFilesByPattern(Path.GetDirectoryName(GetSegmentAnimatedPreviewPath(videoId, 0))!, $"{videoId}_t*.webp");
+        var bucket = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)))[..2];
+        DeleteFilesByPattern(Path.Combine(LegacySegmentPreviewDir, bucket), $"{videoId}_t*.webp");
         DeleteFileIfExists(GetVrCardPath(videoId));
         DeleteFileIfExists(GetVrPreviewPath(videoId));
         return Task.CompletedTask;
@@ -1199,14 +1195,6 @@ public class ThumbnailService(
         return Path.Combine(ThumbnailDir, subDir, $"{videoId}_t{secKey}.jpg");
     }
 
-    public string GetSegmentAnimatedPreviewPath(int videoId, double seconds)
-    {
-        var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
-        var subDir = hash[..2];
-        var secKey = ((int)seconds).ToString();
-        return Path.Combine(SegmentPreviewDir, subDir, $"{videoId}_t{secKey}.webp");
-    }
-
     public string GetThumbnailPathForVideo(int videoId) => GetThumbnailPath(videoId);
 
     public string GetPreviewPath(int videoId)
@@ -1225,111 +1213,6 @@ public class ThumbnailService(
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
         return Path.Combine(VttDir, hash[..2], $"{videoId}_thumbs.vtt");
-    }
-
-    public Task GenerateSegmentAnimatedPreviewAsync(
-        int videoId,
-        double startSec,
-        double? endSec,
-        CancellationToken ct)
-        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId: null, startSec, endSec, ct);
-
-    public Task<bool> GenerateSegmentPreviewFromFileAsync(
-        int videoId,
-        int sourceFileId,
-        double startSec,
-        double? endSec,
-        bool overwrite,
-        CancellationToken ct = default)
-        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId, startSec, endSec, ct, overwrite);
-
-    private async Task<bool> GenerateSegmentAnimatedPreviewCoreAsync(
-        int videoId,
-        int? sourceFileId,
-        double startSec,
-        double? endSec,
-        CancellationToken ct,
-        bool overwrite = false)
-        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateSegmentAnimatedPreviewUnlockedAsync(videoId, sourceFileId, startSec, endSec, ct, overwrite), ct);
-
-    private async Task<bool> GenerateSegmentAnimatedPreviewUnlockedAsync(
-        int videoId,
-        int? sourceFileId,
-        double startSec,
-        double? endSec,
-        CancellationToken ct,
-        bool overwrite = false)
-    {
-        var previewPath = GetSegmentAnimatedPreviewPath(videoId, startSec);
-        if (!overwrite && File.Exists(previewPath)) return true;
-
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
-        if (filePath == null || duration <= 0) return false;
-
-        var ffmpegPath = GetCachedFfmpegPath();
-        if (ffmpegPath == null)
-        {
-            logger.LogWarning("FFmpeg not found, cannot generate segment preview for video {VideoId}", videoId);
-            return false;
-        }
-
-        var clampedStart = Math.Max(0, Math.Min(startSec, Math.Max(0, duration - 0.1)));
-        var requestedDuration = endSec.HasValue && endSec.Value > clampedStart
-            ? endSec.Value - clampedStart
-            : SegmentPreviewDefaultDuration;
-        var previewDuration = Math.Min(SegmentPreviewMaxDuration, Math.Max(0.5, requestedDuration));
-        previewDuration = Math.Min(previewDuration, Math.Max(0.5, duration - clampedStart));
-
-        var previewDir = Path.GetDirectoryName(previewPath)!;
-        Directory.CreateDirectory(previewDir);
-
-        var sem = GetFfmpegSemaphore();
-        await sem.WaitAsync(ct);
-        try
-        {
-            if (!overwrite && File.Exists(previewPath)) return true;
-
-            var tempPath = previewPath + $".tmp.{Guid.NewGuid():N}.webp";
-            try
-            {
-                var decodeArgs = GetFfmpegDecodeArgs();
-                // Segment previews sit on the 2D timeline, so a VR video contributes one eye, reprojected.
-                var segmentFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), SegmentPreviewWidth);
-                var frameFilter = segmentFilter != null
-                    ? $"fps={SegmentPreviewFps},{segmentFilter}"
-                    : $"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos";
-                IReadOnlyList<string> args =
-                [
-                    .. decodeArgs, "-v", "error", "-y",
-                    "-ss", clampedStart.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath,
-                    "-t", previewDuration.ToString("F2", CultureInfo.InvariantCulture),
-                    "-vf", frameFilter, "-loop", "0", "-an", "-quality", "75", "-compression_level", "4", tempPath,
-                ];
-                await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
-
-                if (!File.Exists(tempPath))
-                    return false;
-
-                File.Move(tempPath, previewPath, overwrite: true);
-                return true;
-            }
-            finally
-            {
-                if (File.Exists(tempPath))
-                {
-                    try { File.Delete(tempPath); } catch { }
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogError(ex, "Error generating segment preview for video {VideoId} at {StartSec}", videoId, startSec);
-            return false;
-        }
-        finally
-        {
-            sem.Release();
-        }
     }
 
     /// <summary>Generate a multi-segment video preview clip (mp4) for a video.</summary>

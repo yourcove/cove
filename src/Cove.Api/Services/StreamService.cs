@@ -118,24 +118,6 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         return defaultStream == null ? null : (defaultStream, "image/jpeg", true);
     }
 
-    public async Task<(Stream stream, string contentType, bool useLongCache)?> GetSegmentAnimatedPreview(int videoId, double seconds, CancellationToken ct = default)
-    {
-        using var scope = scopeFactory?.CreateScope();
-        var db = scope?.ServiceProvider.GetService<CoveContext>();
-        var sourceVideoId = db is null ? videoId : await ResolveSourceVideoIdAsync(db, videoId, ct);
-        if (!sourceVideoId.HasValue) return null;
-
-        var previewPath = thumbnailService.GetSegmentAnimatedPreviewPath(sourceVideoId.Value, seconds);
-        if (!File.Exists(previewPath))
-            return await TryOpenSpriteFrameAsync(sourceVideoId.Value, seconds, ct);
-
-        var previewStream = FileReadRace.TryOpenRead(previewPath, bufferSize: 8192, pathWasObserved: true);
-        if (previewStream == null)
-            return await TryOpenSpriteFrameAsync(sourceVideoId.Value, seconds, ct);
-
-        return (previewStream, "image/webp", true);
-    }
-
     private static async Task<int?> ResolveSourceVideoIdAsync(CoveContext db, int videoId, CancellationToken ct)
         => (await ResolveVideoSourceAsync(db, videoId, ct))?.SourceVideoId;
 

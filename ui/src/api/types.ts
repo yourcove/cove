@@ -2704,9 +2704,6 @@ export interface DownloaderBatchGenerateOptions {
   thumbnails?: boolean;
   previews?: boolean;
   sprites?: boolean;
-  segments?: boolean;
-  segmentThumbnails?: boolean;
-  segmentPreviews?: boolean;
   phashes?: boolean;
   md5?: boolean;
   imageThumbnails?: boolean;
