@@ -82,19 +82,6 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         return File(stream, "video/mp4", enableRangeProcessing: true);
     }
 
-    [HttpGet("video/{videoId:int}/segment-preview")]
-    public async Task<IActionResult> GetSegmentPreview(int videoId, [FromQuery] double seconds, CancellationToken ct)
-    {
-        var result = await streamService.GetSegmentAnimatedPreview(videoId, seconds, ct);
-        if (result == null) return NotFound();
-
-        var (stream, contentType, useLongCache) = result.Value;
-        Response.Headers["Cache-Control"] = useLongCache
-            ? "public, max-age=86400"
-            : "no-store, no-cache, max-age=0, must-revalidate";
-        return File(stream, contentType);
-    }
-
     [HttpGet("video/{videoId:int}/preview")]
     public IActionResult GetPreview(int videoId)
     {

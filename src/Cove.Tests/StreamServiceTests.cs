@@ -101,7 +101,6 @@ public class StreamServiceTests
             var spritePath = Path.Combine(tempRoot, "42_sprite.jpg");
             var vttPath = Path.Combine(tempRoot, "42_thumbs.vtt");
             var timestampPath = Path.Combine(tempRoot, "42_t6.jpg");
-            var animatedPath = Path.Combine(tempRoot, "42_t6.webp");
 
             using (var sprite = new Image<Rgba32>(320, 90))
             {
@@ -131,15 +130,12 @@ public class StreamServiceTests
                 stashhash_sprite.jpg#xywh=160,0,160,90
                 """, TestContext.Current.CancellationToken);
 
-            var service = new StreamService(null!, new FakeThumbnailService(timestampPath, animatedPath, spritePath, vttPath), null!);
+            var service = new StreamService(null!, new FakeThumbnailService(timestampPath, spritePath, vttPath), null!);
 
             var screenshot = await service.GetVideoScreenshot(42, 6, CancellationToken.None);
-            var segmentPreview = await service.GetSegmentAnimatedPreview(42, 6, CancellationToken.None);
 
             Assert.NotNull(screenshot);
-            Assert.NotNull(segmentPreview);
             Assert.Equal("image/jpeg", screenshot.Value.contentType);
-            Assert.Equal("image/jpeg", segmentPreview.Value.contentType);
 
             await using var stream = screenshot.Value.stream;
             using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
@@ -154,7 +150,7 @@ public class StreamServiceTests
         }
     }
 
-    private sealed class FakeThumbnailService(string timestampPath, string animatedPath, string spritePath, string vttPath) : IThumbnailService
+    private sealed class FakeThumbnailService(string timestampPath, string spritePath, string vttPath) : IThumbnailService
     {
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct = default) => throw new NotImplementedException();
@@ -167,11 +163,9 @@ public class StreamServiceTests
         public Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default) => throw new NotImplementedException();
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
         public string GetThumbnailPathForVideo(int videoId) => throw new NotImplementedException();
         public string GetTimestampedThumbnailPath(int videoId, double seconds) => timestampPath;
-        public string GetSegmentAnimatedPreviewPath(int videoId, double seconds) => animatedPath;
         public string GetPreviewPath(int videoId) => throw new NotImplementedException();
         public string GetSpritePath(int videoId) => spritePath;
         public string GetSpriteVttPath(int videoId) => vttPath;

@@ -630,9 +630,6 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   previews: false,
   sprites: false,
   vrStereo: false,
-  segments: false,
-  segmentThumbnails: false,
-  segmentPreviews: false,
   phashes: false,
   md5: false,
   imageThumbnails: false,
@@ -5887,30 +5884,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
                       checked={!!genOpts.vrStereo}
                       onChange={(c) => setGenOpts({ ...genOpts, vrStereo: c })}
-                    />
-                    <CheckboxLabel
-                      label="Segment thumbnails"
-                      checked={!!genOpts.segmentThumbnails}
-                      onChange={(c) =>
-                        setGenOpts({
-                          ...genOpts,
-                          segmentThumbnails: c,
-                          segmentPreviews: c ? genOpts.segmentPreviews : false,
-                          segments: false,
-                        })
-                      }
-                    />
-                    <CheckboxLabel
-                      label="Animated segment previews"
-                      checked={!!genOpts.segmentPreviews}
-                      onChange={(c) =>
-                        setGenOpts({
-                          ...genOpts,
-                          segmentThumbnails: c ? true : genOpts.segmentThumbnails,
-                          segmentPreviews: c,
-                          segments: false,
-                        })
-                      }
                     />
                     <CheckboxLabel
                       label="Perceptual hashes (phash)"

@@ -716,8 +716,6 @@ export const videos = {
   streamUrl: (id: number, fileId?: number) => buildMediaUrl(`/stream/video/${id}`, undefined, undefined, { fileId }),
   screenshotUrl: (id: number, version?: string, seconds?: number) =>
     buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
-  segmentPreviewUrl: (id: number, seconds: number, version?: string) =>
-    buildMediaUrl(`/stream/video/${id}/segment-preview`, version, undefined, { seconds }),
   previewUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview`),
   previewStatusUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview/status`),
   captionUrl: (videoId: number, captionId: number) => buildMediaUrl(`/stream/video/${videoId}/caption/${captionId}`),
@@ -2002,9 +2000,6 @@ export interface GenerateOptions {
   sprites?: boolean;
   /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
   vrStereo?: boolean;
-  segments?: boolean;
-  segmentThumbnails?: boolean;
-  segmentPreviews?: boolean;
   phashes?: boolean;
   md5?: boolean;
   imageThumbnails?: boolean;

@@ -2503,9 +2503,6 @@ public sealed class MetadataServerServiceTests
             return Task.FromResult<(Stream stream, string contentType, bool useLongCache)?>(
                 screenshot == null ? null : (new MemoryStream(screenshot), "image/jpeg", true));
         }
-
-        public Task<(Stream stream, string contentType, bool useLongCache)?> GetSegmentAnimatedPreview(int videoId, double seconds, CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     private sealed class NullBlobService : IBlobService

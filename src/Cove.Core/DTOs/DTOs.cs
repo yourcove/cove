@@ -2515,9 +2515,6 @@ public record GenerateOptionsDto
     /// <summary>For VR videos, also make the stereoscopic (both eyes) cover and preview clip a headset shows.
     /// The ordinary cover, preview and sprites of a VR video are always one eye, for flat screens.</summary>
     public bool VrStereo { get; init; }
-    public bool Segments { get; init; }
-    public bool SegmentThumbnails { get; init; }
-    public bool SegmentPreviews { get; init; }
     public bool Phashes { get; init; }
     public bool Md5 { get; init; }
     public bool ImageThumbnails { get; init; }

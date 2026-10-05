@@ -190,11 +190,9 @@ public class StreamControllerTests
         public Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default) => throw new NotImplementedException();
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
         public string GetThumbnailPathForVideo(int videoId) => throw new NotImplementedException();
         public string GetTimestampedThumbnailPath(int videoId, double seconds) => throw new NotImplementedException();
-        public string GetSegmentAnimatedPreviewPath(int videoId, double seconds) => throw new NotImplementedException();
         public string GetPreviewPath(int videoId) => previewPath;
         public string GetSpritePath(int videoId) => throw new NotImplementedException();
         public string GetSpriteVttPath(int videoId) => throw new NotImplementedException();

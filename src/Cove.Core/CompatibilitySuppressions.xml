@@ -38,4 +38,42 @@
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:Cove.Core.DTOs.CoveConfigDto.set_FrameExtractionMode(System.String)</Target>
   </Suppression>
+
+  <!--
+    Deliberately accepted break, listed as a breaking change in CHANGELOG.md under the release that
+    follows 1.5.1. Segment thumbnails and animated segment previews are no longer generated: nothing
+    displayed the animated previews, segment cards show a sprite-sheet frame (or a cover set by hand),
+    and pre-generating an asset per segment made Generate walk the whole library. The generate options
+    and the stream service's animated-preview lookup were removed rather than left as ignored members;
+    no known extension used them. Remove these entries when CoveExtensionAbiBaselineVersion is bumped
+    past that release.
+  -->
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.Interfaces.IStreamService.GetSegmentAnimatedPreview(System.Int32,System.Double,System.Threading.CancellationToken)</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.get_Segments</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.set_Segments(System.Boolean)</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.get_SegmentThumbnails</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.set_SegmentThumbnails(System.Boolean)</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.get_SegmentPreviews</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Cove.Core.DTOs.GenerateOptionsDto.set_SegmentPreviews(System.Boolean)</Target>
+  </Suppression>
 </Suppressions>

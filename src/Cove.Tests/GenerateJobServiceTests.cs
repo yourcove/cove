@@ -579,22 +579,6 @@ public class GenerateJobServiceTests
             return Task.FromResult(false);
         }
 
-        public Task GenerateSegmentAnimatedPreviewAsync(
-            int videoId,
-            double startSec,
-            double? endSec = null,
-            CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<bool> GenerateSegmentPreviewFromFileAsync(
-            int videoId,
-            int sourceFileId,
-            double startSec,
-            double? endSec,
-            bool overwrite,
-            CancellationToken ct = default)
-            => Task.FromResult(true);
-
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
 
         public Task<bool> GenerateSpriteFromFileAsync(
@@ -608,9 +592,6 @@ public class GenerateJobServiceTests
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds)
             => Path.Combine(generatedRoot, $"{videoId}_{seconds}.jpg");
-
-        public string GetSegmentAnimatedPreviewPath(int videoId, double seconds)
-            => Path.Combine(generatedRoot, $"{videoId}_{seconds}.webp");
 
         public string GetPreviewPath(int videoId) => Path.Combine(generatedRoot, $"{videoId}.mp4");
 

@@ -103,9 +103,6 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Minimum session length for derived likes":
     "Minimum viewing-session duration before Cove derives engagement from it.",
   "Session idle timeout seconds": "Idle time after which Cove starts a new engagement session.",
-  "Segment thumbnails": "A still frame captured at the start of each segment, used as that segment's thumbnail.",
-  "Animated segment previews":
-    "A short looping clip for each segment, played on hover like video previews but scoped to the segment.",
 };
 
 export function getSettingHelpText(label: string, description?: string) {

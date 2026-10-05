@@ -666,7 +666,7 @@ public class MetadataController(
             var liveVideoIds = new HashSet<int>(await dbCtx.Videos.Select(v => v.Id).ToListAsync(ct));
             var liveImageIds = new HashSet<int>(await dbCtx.Images.Select(i => i.Id).ToListAsync(ct));
 
-            var dirs = new[] { "screenshots", "thumbnails", "previews", "sprites", "transcodes", "vtt", "segment-previews" };
+            var dirs = new[] { "screenshots", "thumbnails", "previews", "sprites", "transcodes", "vtt", RetiredSegmentPreviewDir };
             var totalCleared = 0L;
             var deleted = 0;
             var kept = 0;
@@ -689,8 +689,10 @@ public class MetadataController(
                     // are kept — deleting them is harmless (they regenerate on demand) but they can't be
                     // matched to a live entity here, so err toward keeping. Only delete when the parsed id
                     // is absent from every live entity set.
+                    // Retired asset kinds are deleted whether or not their entity still exists.
                     var id = ParseLeadingEntityId(Path.GetFileName(file));
-                    if (id is int entityId && !liveVideoIds.Contains(entityId) && !liveImageIds.Contains(entityId))
+                    var retired = dirs[i] == RetiredSegmentPreviewDir;
+                    if (retired || (id is int entityId && !liveVideoIds.Contains(entityId) && !liveImageIds.Contains(entityId)))
                     {
                         try
                         {
@@ -710,13 +712,31 @@ public class MetadataController(
                         kept++;
                     }
                 }
+
+                if (dirs[i] == RetiredSegmentPreviewDir)
+                {
+                    try
+                    {
+                        // Only the emptied bucket folders remain; a file that failed to delete above keeps it.
+                        if (!Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any())
+                            Directory.Delete(dir, recursive: true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        logger.LogWarning(ex, "Failed to remove retired generated directory {Directory}", dir);
+                    }
+                }
             }
 
-            logger.LogInformation("Cleaned generated files. Deleted {Deleted} orphaned files ({Size} bytes); kept {Kept} in-use files", deleted, totalCleared, kept);
+            logger.LogInformation("Cleaned generated files. Deleted {Deleted} orphaned or retired files ({Size} bytes); kept {Kept} in-use files", deleted, totalCleared, kept);
         }, exclusive: false);
 
         return Ok(new { jobId });
     }
+
+    // Animated segment previews are no longer generated or served, so Clean removes every one of them,
+    // not only those whose video is gone.
+    private const string RetiredSegmentPreviewDir = "segment-previews";
 
     // Parses the leading integer entity id from a generated filename, requiring the digits to be
     // followed by a '.', '_' or '-' delimiter (or end of name) so partial/hex-prefixed names like
