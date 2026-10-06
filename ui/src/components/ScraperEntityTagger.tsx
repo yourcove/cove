@@ -1,7 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { scrapeAttempts, system } from "../api/client";
-import type { ApplyVideoScrapeAttemptRequest, ScrapeAttempt, ScraperSummary } from "../api/types";
+import type {
+  ApplyVideoScrapeAttemptRequest,
+  ResolveScrapeRelationsRequest,
+  ResolveScrapeRelationsResult,
+  ScrapeAttempt,
+  ScraperSummary,
+} from "../api/types";
+import { createRelationLookupBatcher } from "../utils/relationLookupBatcher";
 import type { Route } from "../router/location";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import {
@@ -463,6 +470,10 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({
   const [showSettings, setShowSettings] = useState(false);
   const [preferences, setPreferences] = useState<ScrapeApplyPreferences>(() => loadScrapeApplyPreferences());
   const [denylist, setDenylist] = useState<string[]>(() => loadScraperDenylist());
+  // The rows' library lookups share requests, so a page of results asks the server once, not once a row.
+  const [resolveRelations] = useState(() =>
+    createRelationLookupBatcher((request) => scrapeAttempts.resolveRelations(request)),
+  );
   const abortRef = useRef<AbortController | null>(null);
   const batchItems = useMemo(
     () => (selectedIds && selectedIds.size > 0 ? items.filter((item) => selectedIds.has(item.id)) : items),
@@ -625,6 +636,7 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({
             selecting={selecting}
             onSelect={onSelect ? withOrderedToggle(onSelect, orderedItemIds) : undefined}
             onApplied={() => queryClient.invalidateQueries({ queryKey: [queryKey] })}
+            resolveRelations={resolveRelations}
           />
         ))}
       </div>
@@ -648,6 +660,7 @@ function ScraperEntityTaggerRow({
   selecting,
   onSelect,
   onApplied,
+  resolveRelations,
 }: {
   entityType: SupportedScraperEntity;
   item: ScraperEntityItem;
@@ -664,6 +677,7 @@ function ScraperEntityTaggerRow({
   selecting: boolean;
   onSelect?: (id: number, options?: MultiSelectToggleOptions) => void;
   onApplied: () => void;
+  resolveRelations: (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>;
 }) {
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const applyPlan = useMemo(
@@ -678,7 +692,7 @@ function ScraperEntityTaggerRow({
   );
   const { data: resolvedRelations } = useQuery({
     queryKey: ["scraper-tagger-resolve-relations", scrapedRelationNames],
-    queryFn: () => scrapeAttempts.resolveRelations(scrapedRelationNames),
+    queryFn: () => resolveRelations(scrapedRelationNames),
     enabled: scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0,
     staleTime: 30_000,
   });

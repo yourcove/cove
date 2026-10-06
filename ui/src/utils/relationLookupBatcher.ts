@@ -1,5 +1,4 @@
 import type { ResolveScrapeRelationsRequest, ResolveScrapeRelationsResult, ScrapeRelationMatch } from "../api/types";
-import { relationKey } from "../components/ScrapeRelationChoices";
 import { getApiErrorCode } from "./requestFailure";
 
 type ResolveRelations = (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>;
@@ -14,20 +13,21 @@ interface Waiting {
 // would call one name are both asked.
 const uniqueNames = (names: string[]) => [...new Set(names)];
 
+// The server answers each name exactly as it was sent, so a caller is given the matches for its own
+// spellings and nothing the server matched for another caller's spelling of the same name.
 const ownMatches = (matches: ScrapeRelationMatch[], names: string[]) => {
-  const keys = new Set(names.map(relationKey));
-  return matches.filter((match) => keys.has(relationKey(match.input)));
+  const own = new Set(names);
+  return matches.filter((match) => own.has(match.input));
 };
 
 /**
- * Wraps the library lookup so the tagger's rows share it. The server loads every tag and alias for each
- * request whatever its size, so lookups made together go out as one request, and lookups made while one
- * is out wait for it and then go out together; each caller gets back only the matches for its own names.
+ * Wraps the library lookup so the rows of a tagger share it: lookups made in the same tick go out as one
+ * request, and each caller gets back only the matches for its own names. Requests do not wait for one
+ * another, so a slow or hung request holds only the lookups that went out in it.
  */
 export function createRelationLookupBatcher(send: ResolveRelations): ResolveRelations {
   let waiting: Waiting[] = [];
   let scheduled = false;
-  let sending = false;
 
   const run = async (batch: Waiting[]) => {
     try {
@@ -63,14 +63,9 @@ export function createRelationLookupBatcher(send: ResolveRelations): ResolveRela
 
   const flush = () => {
     scheduled = false;
-    if (sending || waiting.length === 0) return;
     const batch = waiting;
     waiting = [];
-    sending = true;
-    void run(batch).finally(() => {
-      sending = false;
-      flush();
-    });
+    if (batch.length > 0) void run(batch);
   };
 
   return (request) =>

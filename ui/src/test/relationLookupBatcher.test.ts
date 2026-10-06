@@ -55,46 +55,50 @@ describe("createRelationLookupBatcher", () => {
     });
   });
 
-  it("asks every spelling, and (a known limitation) shares a match between spellings the browser calls one name", async () => {
-    // The server keeps a byte-order mark the browser's trim drops, so only the plain spelling matches.
-    // Each caller is still given the matches for its names as the browser keys them, which is how the row
-    // reads them, so the marked spelling is shown as matched although the server would not match it.
+  it("asks every spelling and gives each caller only the matches for its own spellings", async () => {
+    // The server keeps a byte-order mark the browser's trim drops, so only the plain spelling matches; the
+    // browser would call both one name, but the marked one must not borrow the plain one's match.
     const send = vi.fn(async (request: ResolveScrapeRelationsRequest) => ({
-      tags: request.tags.filter((name) => name === "Anal").map((name) => ({ input: name, matchedName: name })),
+      tags: request.tags
+        .filter((name) => name.trim().toLowerCase() === "anal" && !name.startsWith(BYTE_ORDER_MARK))
+        .map((name) => ({ input: name, matchedName: "Anal" })),
       performers: [],
       studios: [],
     }));
     const lookup = createRelationLookupBatcher(send);
 
-    const [withMark, plain] = await Promise.all([
+    const [withMark, plain, lower] = await Promise.all([
       lookup({ tags: [`${BYTE_ORDER_MARK}Anal`], performers: [], studios: [] }),
       lookup({ tags: ["Anal"], performers: [], studios: [] }),
+      lookup({ tags: [" anal "], performers: [], studios: [] }),
     ]);
 
-    expect(send.mock.calls[0][0].tags).toEqual([`${BYTE_ORDER_MARK}Anal`, "Anal"]);
+    expect(send.mock.calls[0][0].tags).toEqual([`${BYTE_ORDER_MARK}Anal`, "Anal", " anal "]);
+    expect(withMark.tags).toEqual([]);
     expect(plain.tags).toEqual([{ input: "Anal", matchedName: "Anal" }]);
-    expect(withMark.tags).toEqual([{ input: "Anal", matchedName: "Anal" }]);
+    expect(lower.tags).toEqual([{ input: " anal ", matchedName: "Anal" }]);
   });
 
-  it("holds lookups made while a request is out and sends them together when it answers", async () => {
-    const answers = [deferred<ResolveScrapeRelationsResult>(), deferred<ResolveScrapeRelationsResult>()];
-    const send = vi.fn((_request: ResolveScrapeRelationsRequest) => answers[send.mock.calls.length - 1].promise);
+  it("sends lookups made while a request is out without waiting for it", async () => {
+    const hung = deferred<ResolveScrapeRelationsResult>();
+    const send = vi.fn((request: ResolveScrapeRelationsRequest) =>
+      send.mock.calls.length === 1 ? hung.promise : Promise.resolve(echo(request)),
+    );
     const lookup = createRelationLookupBatcher(send);
 
     const first = lookup({ tags: ["A"], performers: [], studios: [] });
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    const second = lookup({ tags: ["B"], performers: [], studios: [] });
-    const third = lookup({ tags: ["C"], performers: [], studios: [] });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(send).toHaveBeenCalledOnce();
+    const [second, third] = await Promise.all([
+      lookup({ tags: ["B"], performers: [], studios: [] }),
+      lookup({ tags: ["C"], performers: [], studios: [] }),
+    ]);
 
-    answers[0].resolve(echo(send.mock.calls[0][0]));
-    expect((await first).tags).toEqual([{ input: "A", matchedName: "A" }]);
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[1][0].tags).toEqual(["B", "C"]);
-    answers[1].resolve(echo(send.mock.calls[1][0]));
-    expect((await second).tags).toEqual([{ input: "B", matchedName: "B" }]);
-    expect((await third).tags).toEqual([{ input: "C", matchedName: "C" }]);
+    expect(second.tags).toEqual([{ input: "B", matchedName: "B" }]);
+    expect(third.tags).toEqual([{ input: "C", matchedName: "C" }]);
+    hung.resolve(echo(send.mock.calls[0][0]));
+    expect((await first).tags).toEqual([{ input: "A", matchedName: "A" }]);
   });
 
   it("asks again for each caller on its own when a name conflict fails the shared request", async () => {
@@ -142,27 +146,6 @@ describe("createRelationLookupBatcher", () => {
       { status: "rejected", reason: failure },
     ]);
     expect(send).toHaveBeenCalledOnce();
-  });
-
-  it("sends lookups that waited behind a failed request once its callers have asked again", async () => {
-    const conflict = new Error('API Error 409: {"code":"ENTITY_NAME_CONFLICT","message":"Conflict."}');
-    const first = deferred<ResolveScrapeRelationsResult>();
-    const send = vi.fn((request: ResolveScrapeRelationsRequest) => {
-      if (send.mock.calls.length === 1) return first.promise;
-      return request.performers.includes("Shared Name") ? Promise.reject(conflict) : Promise.resolve(echo(request));
-    });
-    const lookup = createRelationLookupBatcher(send);
-
-    const fine = lookup({ tags: ["A"], performers: [], studios: [] });
-    const failing = lookup({ tags: [], performers: ["Shared Name"], studios: [] });
-    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    const waiting = lookup({ tags: ["B"], performers: [], studios: [] });
-    first.reject(conflict);
-
-    expect((await fine).tags).toEqual([{ input: "A", matchedName: "A" }]);
-    await expect(failing).rejects.toBe(conflict);
-    expect((await waiting).tags).toEqual([{ input: "B", matchedName: "B" }]);
-    expect(send.mock.calls.at(-1)?.[0].tags).toEqual(["B"]);
   });
 
   it("rejects a lone caller with the request's own error without asking again", async () => {

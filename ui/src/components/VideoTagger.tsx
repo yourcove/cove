@@ -303,8 +303,17 @@ const LOOKUP_NOT_ANSWERED = "The library check has not answered yet.";
  */
 class TaggerApplyCancelled extends Error {}
 
-/** A row's apply as Apply all drives it; the signal is the batch's, so Cancel reaches a waiting row. */
-type RowApply = (signal: AbortSignal) => Promise<unknown>;
+/**
+ * A row's apply as Apply all drives it; the signal is the batch's, so Cancel reaches a waiting row.
+ * `lookupSettled` waits, without asking again, until the row's lookup has answered or failed, so Apply
+ * all can hold a row back without giving it one of its few concurrent slots; it resolves true when the
+ * lookup failed while it waited. `apply` then sends the row; a lookup that failed while Apply all waited for it is not
+ * asked again, only one that had already failed before (see `useLookupWaiters`).
+ */
+interface RowApply {
+  lookupSettled: (signal: AbortSignal) => Promise<boolean>;
+  apply: (signal: AbortSignal, retryFailedLookup: boolean) => Promise<unknown>;
+}
 
 /**
  * Lets an apply started while the row's lookup is out wait for it. The promise resolves once the lookup
@@ -319,7 +328,9 @@ type RowApply = (signal: AbortSignal) => Promise<unknown>;
 function useLookupWaiters(state: RelationLookupState, names: unknown, retry: () => void) {
   const stateRef = useRef(state);
   const retryRef = useRef(retry);
-  const waiters = useRef(new Set<{ resolve: () => void; reject: (error: Error) => void }>());
+  const waiters = useRef(
+    new Set<{ resolve: (failedWhileWaiting: boolean) => void; reject: (error: Error) => void; settledOnly: boolean }>(),
+  );
   useLayoutEffect(() => {
     stateRef.current = state;
     retryRef.current = retry;
@@ -334,21 +345,25 @@ function useLookupWaiters(state: RelationLookupState, names: unknown, retry: () 
   useLayoutEffect(() => {
     if (state === "waiting") return;
     for (const waiter of waiters.current)
-      if (state === "ready") waiter.resolve();
+      if (state === "ready" || waiter.settledOnly) waiter.resolve(state === "failed");
       else waiter.reject(new TaggerPreconditionError(LOOKUP_FAILED));
     waiters.current.clear();
   }, [state]);
-  return useCallback(
-    (signal?: AbortSignal) =>
-      new Promise<void>((resolve, reject) => {
+  // Resolves true when the lookup failed while this waited for it, false when it answered, or had already
+  // answered or failed before.
+  const wait = useCallback(
+    (signal: AbortSignal | undefined, settledOnly: boolean, retryFailed: boolean) =>
+      new Promise<boolean>((resolve, reject) => {
         if (signal?.aborted) return reject(new TaggerApplyCancelled());
-        if (stateRef.current === "ready") return resolve();
+        if (stateRef.current === "ready" || (settledOnly && stateRef.current === "failed")) return resolve(false);
+        if (stateRef.current === "failed" && !retryFailed) return reject(new TaggerPreconditionError(LOOKUP_FAILED));
         const onAbort = () => waiter.reject(new TaggerApplyCancelled());
         const waiter = {
-          resolve: () => {
+          settledOnly,
+          resolve: (failedWhileWaiting: boolean) => {
             signal?.removeEventListener("abort", onAbort);
             waiters.current.delete(waiter);
-            resolve();
+            resolve(failedWhileWaiting);
           },
           reject: (error: Error) => {
             signal?.removeEventListener("abort", onAbort);
@@ -362,6 +377,14 @@ function useLookupWaiters(state: RelationLookupState, names: unknown, retry: () 
       }),
     [],
   );
+  return {
+    waitForLookup: useCallback((signal?: AbortSignal, retryFailed = true) => wait(signal, false, retryFailed), [wait]),
+    /**
+     * Resolves once the lookup has answered or failed, without asking a failed one again; true when it
+     * failed while this waited.
+     */
+    lookupSettled: useCallback((signal?: AbortSignal) => wait(signal, true, false), [wait]),
+  };
 }
 
 /**
@@ -849,6 +872,56 @@ function relationshipEditFields(state: VideoSearchState | undefined) {
   };
 }
 
+/** How long the lookups must stay quiet before the page says how checking went, so rows finishing one after another are one message. */
+const LOOKUP_ANNOUNCEMENT_DELAY_MS = 500;
+
+/**
+ * What the page says once its rows have stopped waiting on the library lookup: that checking finished, or
+ * that some videos could not be checked. Rows wait on the lookup together, so one page-wide message
+ * replaces each row announcing its own, said once the lookups have been quiet for a moment. Only a
+ * lookup a row waited on counts: a refetch that keeps a previous answer (after a link or an apply) held
+ * nothing up, and a lookup whose row went away was never checked. Each message gets a new id so that a
+ * repeat (a Retry that fails again) is announced again.
+ */
+export function useRelationLookupAnnouncement() {
+  const queryClient = useQueryClient();
+  const [announcement, setAnnouncement] = useState<{ id: number; text: string } | null>(null);
+  useEffect(() => {
+    const cache = queryClient.getQueryCache();
+    const waitedOn = new Set<string>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const activeLookups = () => cache.findAll({ queryKey: ["tagger-resolve-relations"], type: "active" });
+    const settle = () => {
+      timer = undefined;
+      const active = new Map(activeLookups().map((query) => [query.queryHash, query]));
+      const settled = [...waitedOn].flatMap((hash) => active.get(hash) ?? []);
+      waitedOn.clear();
+      if (settled.length === 0) return;
+      const failed = settled.some((query) => query.state.data === undefined && query.state.status === "error");
+      setAnnouncement((current) => ({
+        id: (current?.id ?? 0) + 1,
+        text: failed
+          ? "Couldn't check some videos against your library. Their rows have a Retry."
+          : "Finished checking your library.",
+      }));
+    };
+    const update = () => {
+      const waiting = activeLookups().filter(
+        (query) => query.state.data === undefined && query.state.fetchStatus !== "idle",
+      );
+      for (const query of waiting) waitedOn.add(query.queryHash);
+      clearTimeout(timer);
+      timer = waiting.length === 0 && waitedOn.size > 0 ? setTimeout(settle, LOOKUP_ANNOUNCEMENT_DELAY_MS) : undefined;
+    };
+    const unsubscribe = cache.subscribe(update);
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [queryClient]);
+  return announcement;
+}
+
 const CONCURRENCY_LIMIT = 5;
 
 interface BatchLifecycle {
@@ -862,6 +935,9 @@ interface BatchLifecycle {
  * worker drains. Cancelling only aborts that controller: a batch started while the cancelled one still
  * drains would take the ref from it, leaving the first uncancellable and both working the same rows,
  * so a start is refused outright while the ref is held.
+ *
+ * With `prepare`, every item first waits for it outside the `limit` slots, and items take a slot in the
+ * order they come out of it, so an item still waiting holds up only itself. Without it, items run in order.
  */
 async function runWithConcurrency<T>(
   batch: RefObject<AbortController | null>,
@@ -869,18 +945,35 @@ async function runWithConcurrency<T>(
   fn: (item: T, signal: AbortSignal) => Promise<void>,
   limit: number,
   lifecycle: BatchLifecycle,
+  prepare?: (item: T, signal: AbortSignal) => Promise<void>,
 ): Promise<void> {
   if (batch.current) return;
   const controller = new AbortController();
+  const { signal } = controller;
   batch.current = controller;
   lifecycle.onStart();
   try {
-    let index = 0;
+    const ready: T[] = prepare ? [] : [...items];
+    let preparing = prepare ? items.length : 0;
+    const idle: (() => void)[] = [];
+    const wakeAll = () => idle.splice(0).forEach((wake) => wake());
+    signal.addEventListener("abort", wakeAll);
+    if (prepare)
+      for (const item of items)
+        // Started from a resolved promise, so a prepare that throws at once is caught like one that rejects.
+        void Promise.resolve()
+          .then(() => prepare(item, signal))
+          .catch(() => undefined)
+          .then(() => {
+            ready.push(item);
+            preparing--;
+            wakeAll();
+          });
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (index < items.length) {
-        if (controller.signal.aborted) return;
-        const i = index++;
-        await fn(items[i], controller.signal);
+      while (!signal.aborted) {
+        if (ready.length > 0) await fn(ready.shift() as T, signal);
+        else if (preparing > 0) await new Promise<void>((wake) => idle.push(wake));
+        else return;
       }
     });
     // Settled rather than all, so one worker throwing cannot hand the toolbar back while the others still run.
@@ -996,7 +1089,7 @@ export function VideoTagger({
     taggerConfig.bulkMatchStrategy,
   );
   const [searchStates, setSearchStates] = useState<Record<number, VideoSearchState>>({});
-  // Each lookup loads the whole tag library on the server, so the rows share theirs rather than asking at once.
+  // The rows share their library lookups, so a page of results asks the server once rather than once a row.
   const [resolveRelations] = useState(() =>
     createRelationLookupBatcher((request) => scrapeAttempts.resolveRelations(request)),
   );
@@ -1321,20 +1414,25 @@ export function VideoTagger({
     const targetIds = applyAllTargets;
     const startedIds: number[] = [];
     const skippedIds: number[] = [];
+    // Rows whose wait for the lookup was dropped (a new search, the row gone): nothing is sent for them.
+    const droppedIds = new Set<number>();
+    // Rows whose lookup failed while Apply all waited for it: it was just asked, so it is not asked again.
+    const failedWhileWaitingIds = new Set<number>();
     await runWithConcurrency(
       applyBatchRef,
       targetIds,
       async (videoId, signal) => {
+        if (droppedIds.has(videoId)) return;
         // A row unmounted or saved since the click no longer has a handler; skip it rather than fail.
-        const apply = applyHandlersRef.current.get(videoId);
-        if (!apply) {
+        const row = applyHandlersRef.current.get(videoId);
+        if (!row) {
           skippedIds.push(videoId);
           return;
         }
         startedIds.push(videoId);
         // The row records its own outcome, and one row's failure must not abandon the batch. A row still
         // waiting for its library lookup when the batch is cancelled sends nothing, so it was not attempted.
-        await apply(signal).catch((error: unknown) => {
+        await row.apply(signal, !failedWhileWaitingIds.has(videoId)).catch((error: unknown) => {
           const index = startedIds.indexOf(videoId);
           if (error instanceof TaggerApplyCancelled && index >= 0) startedIds.splice(index, 1);
         });
@@ -1352,12 +1450,21 @@ export function VideoTagger({
           setApplyAllRun({ targetIds, startedIds, skippedIds, cancelled });
         },
       },
+      // A row waits for its lookup outside the slots, so rows that are ready are not queued behind it.
+      async (videoId, signal) => {
+        try {
+          if (await applyHandlersRef.current.get(videoId)?.lookupSettled(signal)) failedWhileWaitingIds.add(videoId);
+        } catch (error) {
+          if (error instanceof TaggerApplyCancelled && !signal.aborted) droppedIds.add(videoId);
+        }
+      },
     );
   }, [applyAllTargets]);
   const cancelApplyAll = useCallback(() => {
     applyBatchRef.current?.abort();
   }, []);
   const applyAllOutcome = summariseApplyAllRun(applyAllRun, searchStates);
+  const lookupAnnouncement = useRelationLookupAnnouncement();
 
   if (taggerSources.length === 0) {
     return (
@@ -1691,6 +1798,11 @@ export function VideoTagger({
         </div>
       )}
 
+      {/* Mounted empty before anything is said, so screen readers announce what it later says. */}
+      <div role="status" className="sr-only">
+        {lookupAnnouncement ? <span key={lookupAnnouncement.id}>{lookupAnnouncement.text}</span> : null}
+      </div>
+
       {/* Video list */}
       <div
         ref={videoListRef}
@@ -1829,12 +1941,19 @@ function TaggerVideoRow({
     data: resolvedRelations,
     isError: lookupErrored,
     isFetching: lookupFetching,
+    errorUpdateCount: lookupErrorCount,
     refetch: retryLookup,
   } = useQuery({
     queryKey: ["tagger-resolve-relations", relationNamesToResolve],
     queryFn: () => resolveRelations(relationNamesToResolve),
     enabled: lookupNeeded,
     staleTime: 30_000,
+    // Offline, a paused lookup would read as still checking with nothing to do about it; failing shows
+    // the Retry, and the lookup asks again by itself once the browser is back online.
+    networkMode: "always",
+    // A failed lookup has no answer to keep, so a refetch on window focus would put the row back to
+    // checking, and the page would announce the same failure again, every time the window is focused.
+    refetchOnWindowFocus: false,
   });
   // The tags, performers and studio wait for the lookup's first answer for these names (a new search
   // asks again); a refetch after a link or an apply keeps the answer it replaces, so it does not hold
@@ -1846,7 +1965,14 @@ function TaggerVideoRow({
       : lookupErrored && !lookupFetching
         ? "failed"
         : "waiting";
-  const waitForLookup = useLookupWaiters(relationLookup, relationNamesToResolve, () => void retryLookup());
+  // A failed lookup being asked again. The query reads as pending again while it is, so its error count is
+  // what says it failed; the row keeps the failure, and its Retry, on screen until the answer.
+  const lookupRetrying = lookupNeeded && resolvedRelations === undefined && lookupErrorCount > 0 && lookupFetching;
+  const { waitForLookup, lookupSettled } = useLookupWaiters(
+    relationLookup,
+    relationNamesToResolve,
+    () => void retryLookup(),
+  );
   const existingTagKeys = useMemo(
     () => new Set((resolvedRelations?.tags ?? []).map((m) => relationKey(m.input))),
     [resolvedRelations],
@@ -2018,9 +2144,13 @@ function TaggerVideoRow({
   useLayoutEffect(() => {
     sendApplyRef.current = sendApply;
   });
-  const importMut = useMutation<Video | ScrapeAttempt, Error, AbortSignal | void>({
-    mutationFn: async (signal) => {
-      await waitForLookup(signal ?? undefined);
+  const importMut = useMutation<
+    Video | ScrapeAttempt,
+    Error,
+    { signal: AbortSignal; retryFailedLookup: boolean } | void
+  >({
+    mutationFn: async (batch) => {
+      await waitForLookup(batch?.signal, batch?.retryFailedLookup ?? true);
       return sendApplyRef.current();
     },
     // The row and the Apply all summary both report this failure with the server's own wording, so
@@ -2064,9 +2194,14 @@ function TaggerVideoRow({
   const canApply = Boolean(selectedResult) && !state?.saved;
   useEffect(() => {
     if (!onRegisterApply) return;
-    onRegisterApply(video.id, canApply ? (signal) => applyImport(signal) : null);
+    onRegisterApply(
+      video.id,
+      canApply
+        ? { lookupSettled, apply: (signal, retryFailedLookup) => applyImport({ signal, retryFailedLookup }) }
+        : null,
+    );
     return () => onRegisterApply(video.id, null);
-  }, [applyImport, onRegisterApply, video.id, canApply]);
+  }, [applyImport, lookupSettled, onRegisterApply, video.id, canApply]);
 
   const submitEndpoint = source?.kind === "metadata-server" ? source.endpoint : undefined;
   const normalizedSubmitEndpoint = normalizeEndpoint(submitEndpoint);
@@ -2478,6 +2613,7 @@ function TaggerVideoRow({
               taggerConfig={taggerConfig}
               coverComparison={coverComparison}
               relationLookup={relationLookup}
+              lookupRetrying={lookupRetrying}
               // One failed request fails every row that shared it, so Retry asks again for all of them.
               onRetryLookup={() =>
                 void queryClient.refetchQueries({
@@ -2540,6 +2676,7 @@ interface TaggerResultsProps {
   taggerConfig: TaggerConfig;
   /** Whether the library lookup the tags, performers and studio depend on has answered. */
   relationLookup: RelationLookupState;
+  lookupRetrying: boolean;
   onRetryLookup: () => void;
   /** Pixel verdict on the selected result's cover; absent until it has been asked for and answered. */
   coverComparison?: VideoCoverComparison;
@@ -2575,6 +2712,7 @@ function TaggerResults({
   taggerConfig,
   coverComparison,
   relationLookup,
+  lookupRetrying,
   onRetryLookup,
 }: TaggerResultsProps) {
   const current = results[selectedIndex] ? selectedIndex : 0;
@@ -2611,6 +2749,7 @@ function TaggerResults({
       taggerConfig={taggerConfig}
       coverComparison={i === current ? coverComparison : undefined}
       relationLookup={relationLookup}
+      lookupRetrying={lookupRetrying}
       onRetryLookup={onRetryLookup}
     />
   );
@@ -2663,6 +2802,7 @@ function TaggerResultRow({
   taggerConfig,
   coverComparison,
   relationLookup,
+  lookupRetrying,
   onRetryLookup,
 }: {
   video: Video;
@@ -2695,12 +2835,22 @@ function TaggerResultRow({
   taggerConfig: TaggerConfig;
   coverComparison?: VideoCoverComparison;
   relationLookup: RelationLookupState;
+  lookupRetrying: boolean;
   onRetryLookup: () => void;
 }) {
   const metadataServers = useOptionalAppConfig()?.config?.scraping?.metadataServers;
   // Accept-all is the common case, so the review opens as a list of facts; the full side-by-side
   // rows are one click away for per-item chips and hand edits.
   const [adjusting, setAdjusting] = useState(false);
+  // When the failure line goes while its Retry has focus, focus moves on to Apply rather than dropping to
+  // the page with the button that had it.
+  const applyButtonRef = useRef<HTMLButtonElement>(null);
+  const focusApply = useRef(false);
+  useEffect(() => {
+    if (!focusApply.current) return;
+    focusApply.current = false;
+    applyButtonRef.current?.focus();
+  });
   const durationDiff =
     localDuration != null && result.duration != null ? Math.abs(localDuration - result.duration) : undefined;
   const durationMatch = durationDiff != null && durationDiff < 5;
@@ -2922,15 +3072,14 @@ function TaggerResultRow({
           )}
           {/* Summary reads left to right; the actions that act on it are grouped at the right edge. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-surface/60 px-3 py-2">
-            {/* A status, not an alert: rows share one lookup, so one failure fails every row on the page. */}
-            {onSave && relationLookup === "failed" ? (
-              <span role="status" className="flex w-full flex-wrap items-center gap-x-2 text-[11px] text-red-400">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Couldn't check which of these are in your library.
-                <button type="button" onClick={onRetryLookup} className="text-accent hover:underline">
-                  Retry
-                </button>
-              </span>
+            {onSave && (relationLookup === "failed" || lookupRetrying) ? (
+              <LookupFailureLine
+                retrying={lookupRetrying}
+                onRetry={onRetryLookup}
+                onFocusedRemoval={() => {
+                  focusApply.current = true;
+                }}
+              />
             ) : null}
             {summary ? (
               <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
@@ -2948,6 +3097,7 @@ function TaggerResultRow({
               </button>
               {onSave && (
                 <button
+                  ref={applyButtonRef}
                   onClick={onSave}
                   disabled={saving || relationLookup !== "ready"}
                   className="flex items-center gap-1.5 rounded px-4 py-1.5 text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
@@ -2969,6 +3119,52 @@ function TaggerResultRow({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A row's failed library lookup and its Retry. Not a live region: the page announces how its checks went
+ * once, rather than every row at once. While the lookup is asked again the line stays, its Retry focusable
+ * but marked unavailable, so keyboard focus is kept; when the line goes while Retry has focus,
+ * `onFocusedRemoval` lets the row move focus on.
+ */
+function LookupFailureLine({
+  retrying,
+  onRetry,
+  onFocusedRemoval,
+}: {
+  retrying: boolean;
+  onRetry: () => void;
+  onFocusedRemoval: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const onFocusedRemovalRef = useRef(onFocusedRemoval);
+  useLayoutEffect(() => {
+    onFocusedRemovalRef.current = onFocusedRemoval;
+  });
+  // A layout cleanup runs before the button leaves the document, so it can still tell whether it has focus.
+  useLayoutEffect(() => {
+    const button = buttonRef.current;
+    return () => {
+      if (button && document.activeElement === button) onFocusedRemovalRef.current();
+    };
+  }, []);
+  return (
+    <span className="flex w-full flex-wrap items-center gap-x-2 text-[11px] text-red-400">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {retrying ? "Checking your library again…" : "Couldn't check which of these are in your library."}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-disabled={retrying || undefined}
+        onClick={() => {
+          if (!retrying) onRetry();
+        }}
+        className="text-accent hover:underline aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:no-underline"
+      >
+        Retry
+      </button>
+    </span>
   );
 }
 

@@ -1728,6 +1728,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
     // Read-only companion to the apply path: reports which scraped names already resolve to an
     // existing performer/tag/studio using the same RelationNameResolver, so the dialog can show an
     // accurate "matches existing" vs "will create" state instead of guessing client-side.
+    //
+    // Each match's input is a requested name exactly as it was sent, once for every spelling that
+    // resolves, so a client that asks for several callers at once can hand each one its own names back
+    // without normalizing them the way the server does.
     public async Task<ResolveScrapeRelationsResultDto> ResolveRelationsAsync(ResolveScrapeRelationsRequestDto request, CancellationToken ct = default)
     {
         var performerMatches = await RelationNameResolver.ResolvePerformersAsync(db, request.Performers, ct);
@@ -1736,10 +1740,28 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         return new ResolveScrapeRelationsResultDto
         {
-            Performers = performerMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
-            Tags = tagMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
-            Studios = studioMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
+            Performers = EchoMatches(request.Performers, performerMatches, EntityNameRules.NormalizeCanonicalName, performer => performer.Name),
+            Tags = EchoMatches(request.Tags, tagMatches, name => name, tag => tag.Name),
+            Studios = EchoMatches(request.Studios, studioMatches, EntityNameRules.NormalizeCanonicalName, studio => studio.Name),
         };
+    }
+
+    /// <summary>
+    /// One match per distinct requested name that resolved, keyed by that name as sent. The resolver's
+    /// dictionaries are keyed by their normalized lookup name; <paramref name="lookupName"/> maps a sent
+    /// name to it (the tag dictionary's own comparer normalizes).
+    /// </summary>
+    private static List<ScrapeRelationMatchDto> EchoMatches<TEntity>(
+        IEnumerable<string> requested,
+        IReadOnlyDictionary<string, TEntity> matches,
+        Func<string, string> lookupName,
+        Func<TEntity, string> matchedName)
+    {
+        var result = new List<ScrapeRelationMatchDto>();
+        foreach (var name in requested.Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.Ordinal))
+            if (matches.TryGetValue(lookupName(name), out var match))
+                result.Add(new ScrapeRelationMatchDto(name, matchedName(match)));
+        return result;
     }
 
     private async Task<HashSet<int>> ApplyPerformersAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, CancellationToken ct)

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1794,15 +1794,65 @@ describe("VideoTagger", () => {
       mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
       await scrape(fullResult);
 
-      const failure = (await screen.findByText("Couldn't check which of these are in your library.")).closest(
-        "[role=status]",
-      ) as HTMLElement;
-      expect(failure).not.toBeNull();
+      const failure = await screen.findByText("Couldn't check which of these are in your library.");
       expect(screen.getByRole("button", { name: /^Apply/ })).toBeDisabled();
+      // The page says it once, from a region that was there before it had anything to say.
+      await waitFor(() =>
+        expect(
+          screen.getByText(/Couldn't check some videos against your library/).closest("[role=status]"),
+        ).not.toBeNull(),
+      );
 
-      await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
-      expect(await screen.findByRole("button", { name: /^Apply/ })).toBeEnabled();
+      const answer = heldLookup();
+      const retry = within(failure).getByRole("button", { name: "Retry" });
+      await userEvent.click(retry);
+      // Asked again: the line and its button stay, so keyboard focus is not dropped.
+      expect(await screen.findByText("Checking your library again…")).toBeInTheDocument();
+      expect(retry).toHaveFocus();
+      expect(retry).toHaveAttribute("aria-disabled", "true");
+
+      answer.answer(noMatches);
+      const apply = await screen.findByRole("button", { name: /^Apply/ });
+      await waitFor(() => expect(apply).toBeEnabled());
       expect(screen.queryByText("Couldn't check which of these are in your library.")).not.toBeInTheDocument();
+      await waitFor(() => expect(apply).toHaveFocus());
+      expect((await screen.findByText("Finished checking your library.")).closest("[role=status]")).not.toBeNull();
+    });
+
+    it("leaves focus on a Retry that fails again, and does not move it when the lookup later answers", async () => {
+      mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
+      const queryClient = await scrape(fullResult);
+      const failure = await screen.findByText("Couldn't check which of these are in your library.");
+      const retry = within(failure).getByRole("button", { name: "Retry" });
+
+      mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed again"));
+      await userEvent.click(retry);
+      await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(retry).not.toHaveAttribute("aria-disabled"));
+      expect(retry).toHaveFocus();
+
+      // The answer arrives some other way (another row's Retry, a reconnect) while focus is elsewhere.
+      retry.blur();
+      mocks.resolveRelations.mockResolvedValueOnce(noMatches);
+      await queryClient.refetchQueries({ queryKey: ["tagger-resolve-relations"] });
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+      expect(screen.getByRole("button", { name: /^Apply/ })).not.toHaveFocus();
+    });
+
+    it("fails a retry made offline rather than leaving it checking, so Retry is offered again", async () => {
+      mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
+      await scrape(fullResult);
+      const failure = await screen.findByText("Couldn't check which of these are in your library.");
+      onlineManager.setOnline(false);
+      try {
+        mocks.resolveRelations.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+        await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
+        expect(await screen.findByText("Couldn't check which of these are in your library.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Retry" })).not.toHaveAttribute("aria-disabled");
+      } finally {
+        onlineManager.setOnline(true);
+      }
     });
 
     it("calls no scraped item new or matched in the full rows while it waits, and keeps them disabled", async () => {
@@ -1878,6 +1928,41 @@ describe("VideoTagger", () => {
         lookup.answer({ ...noMatches, tags: [{ input: "Unmatched", matchedName: "Library Tag" }] });
         await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
         expect(mocks.importFromMetadataServer.mock.calls[0][1].excludedTagNames).toBeUndefined();
+      });
+
+      it("applies a ready row while more rows than it has slots still wait for their lookups", async () => {
+        // Videos 1 to 5 each have a tag to ask the library about, and their lookups never answer; video 6
+        // needs no lookup. Waiting rows must not hold the five slots the ready one needs.
+        mocks.searchMetadataServer.mockImplementation(async (videoId: number) => [
+          videoId === 6
+            ? matchFor(videoId)
+            : {
+                ...matchFor(videoId),
+                tagNames: [`Unmatched ${videoId}`],
+                tagCandidates: [{ remoteId: `tag-${videoId}`, name: `Unmatched ${videoId}`, existsLocally: false }],
+              },
+        ]);
+        mocks.resolveRelations.mockImplementation(() => new Promise(() => {}));
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const videos = [1, 2, 3, 4, 5, 6].map((id) => ({
+          id,
+          title: `Local video ${id}`,
+          files: [],
+          performers: [],
+          tags: [],
+          urls: [],
+          remoteIds: [],
+        }));
+        render(
+          <QueryClientProvider client={queryClient}>
+            <VideoTagger videos={videos as any} />
+          </QueryClientProvider>,
+        );
+        await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+        await userEvent.click(await screen.findByRole("button", { name: "Apply all (6)" }));
+
+        await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+        expect(mocks.importFromMetadataServer.mock.calls[0][0]).toBe(6);
       });
 
       it("counts a row whose lookup failed as failed, with the reason", async () => {

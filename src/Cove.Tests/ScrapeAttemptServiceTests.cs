@@ -518,6 +518,43 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ResolveRelationsAsync_EchoesEveryRequestedSpellingAsSent()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        db.Tags.Add(new Tag { Name = "Blonde" });
+        db.Performers.Add(new Performer { Name = "Jane Doe" });
+        db.Studios.Add(new Studio { Name = "Palladium" });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        // Several callers asked at once, each with its own spelling; each must find its own back.
+        var result = await service.ResolveRelationsAsync(
+            new ResolveScrapeRelationsRequestDto
+            {
+                Performers = [" Jane Doe", "JANE DOE", "Jane Doe", "Someone else"],
+                Tags = ["Blonde", " blonde ", "\uFEFFBlonde", "BLONDE", "Blonde", "Brand new"],
+                Studios = ["palladium ", "Palladium"],
+            },
+            CancellationToken.None);
+
+        Assert.Equal([" Jane Doe", "JANE DOE", "Jane Doe"], result.Performers.Select(match => match.Input));
+        Assert.All(result.Performers, match => Assert.Equal("Jane Doe", match.MatchedName));
+        Assert.Equal(["Blonde", " blonde ", "BLONDE"], result.Tags.Select(match => match.Input));
+        Assert.All(result.Tags, match => Assert.Equal("Blonde", match.MatchedName));
+        Assert.Equal(["palladium ", "Palladium"], result.Studios.Select(match => match.Input));
+    }
+
+    [Fact]
     public async Task ResolveRelationsAsync_MatchesTagByAliasCaseInsensitively()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
