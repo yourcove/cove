@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MetadataDiff, summarizeDiff } from "../components/MetadataDiff";
 import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
@@ -182,6 +183,124 @@ describe("PerformerTaggerReview", () => {
         />,
       );
       expect(screen.getByText("New Tag").closest("[data-state]")).toHaveAttribute("data-state", "excluded");
+    });
+  });
+
+  // With "Create missing tags" off, a new tag starts unchosen; the presets are modes, not a way to
+  // create every new tag at once.
+  describe("presets with a new tag left out", () => {
+    const leftOut = (overrides: Partial<PerformerReviewInput> = {}) =>
+      input({
+        createMissingTags: false,
+        onCollectionModeChange: vi.fn(),
+        tags: {
+          current: ["Blonde", "Curvy"],
+          incoming: ["blonde", "Tattoos", "New Tag"],
+          existing: ["Blonde", "Curvy", "Tattoos"],
+          actions: { blonde: "include", tattoos: "include", "new tag": "exclude" },
+        },
+        ...overrides,
+      });
+    const renderTagsRow = (reviewInput: PerformerReviewInput) => {
+      const review = buildPerformerReview(reviewInput);
+      const onChange = vi.fn();
+      render(
+        <MetadataDiff
+          fields={review.fields.filter((field) => field.key === "tags")}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={onChange}
+        />,
+      );
+      return { review, onChange };
+    };
+    const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+    it("reads the default selection as Combine", () => {
+      renderTagsRow(leftOut());
+      expect(pressed("Use combined Tags")).toBe("true");
+      expect(pressed("Use source Tags")).toBe("false");
+    });
+
+    it("never selects the unchosen new tag through a preset", async () => {
+      const { onChange } = renderTagsRow(leftOut());
+      await userEvent.click(screen.getByRole("button", { name: "Use source Tags" }));
+      expect([...onChange.mock.calls[0][0].tags].sort()).toEqual(["blonde", "tattoos"]);
+    });
+
+    it("maps Only <source> back to its mode without creating the new tag", () => {
+      const reviewInput = leftOut();
+      const review = buildPerformerReview(reviewInput);
+      const calls = handlers();
+      applyPerformerSelectionChange(
+        reviewInput,
+        review.selection,
+        { ...review.selection, tags: ["blonde", "tattoos"] },
+        calls,
+      );
+      expect(calls.onCollectionModeChange).toHaveBeenCalledWith("tags", "replace");
+      expect(calls.onTagActionsChange).not.toHaveBeenCalled();
+    });
+
+    it("highlights the tagger's mode when presets coincide and switches it on click", async () => {
+      // The only scraped tag is new and unchosen, so Combine and Only current select the same tags.
+      const reviewInput = leftOut({
+        tags: { current: ["Blonde"], incoming: ["New Tag"], existing: ["Blonde"], actions: { "new tag": "exclude" } },
+      });
+      renderTagsRow(reviewInput);
+      expect(pressed("Use combined Tags")).toBe("true");
+      expect(pressed("Use target Tags")).toBe("false");
+      await userEvent.click(screen.getByRole("button", { name: "Use target Tags" }));
+      expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("tags", "skip");
+    });
+
+    // The selection the review is rebuilt from after each change, as the tagger's state would give it.
+    const renderLive = (reviewInput: PerformerReviewInput) => {
+      const review = buildPerformerReview(reviewInput);
+      const calls = { ...handlers(), onCollectionModeChange: reviewInput.onCollectionModeChange! };
+      render(
+        <MetadataDiff
+          fields={review.fields.filter((field) => field.key === "tags")}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={(next) => applyPerformerSelectionChange(reviewInput, review.selection, next, calls)}
+        />,
+      );
+      return calls;
+    };
+
+    it("switches to Only current in one click although that reads as unchoosing the one new tag", async () => {
+      const reviewInput = leftOut({
+        tags: { current: ["Blonde"], incoming: ["New Tag"], existing: ["Blonde"], actions: { "new tag": "create" } },
+      });
+      renderLive(reviewInput);
+      await userEvent.click(screen.getByRole("button", { name: "Use target Tags" }));
+      expect(reviewInput.onCollectionModeChange).toHaveBeenLastCalledWith("tags", "skip");
+    });
+
+    it("takes the excluded tags back in through the customised mode's button", async () => {
+      const reviewInput = leftOut({
+        collectionModes: { urls: "merge", aliases: "merge", tags: "replace" },
+        tags: { ...leftOut().tags, actions: { blonde: "include", tattoos: "exclude", "new tag": "exclude" } },
+      });
+      const calls = renderLive(reviewInput);
+      await userEvent.click(screen.getByRole("button", { name: "Use source Tags" }));
+      expect(calls.onTagActionsChange).toHaveBeenCalledWith({ tattoos: "include" });
+      const modes = vi.mocked(reviewInput.onCollectionModeChange!).mock.calls.map(([, mode]) => mode);
+      expect(modes.every((mode) => mode === "replace")).toBe(true);
+    });
+
+    it("keeps the mode pressed when the selection is customised", () => {
+      renderTagsRow(
+        leftOut({
+          collectionModes: { urls: "merge", aliases: "merge", tags: "replace" },
+          tags: { ...leftOut().tags, actions: { blonde: "include", tattoos: "exclude", "new tag": "exclude" } },
+        }),
+      );
+      expect(pressed("Use source Tags")).toBe("true");
+      expect(pressed("Use combined Tags")).toBe("false");
     });
   });
 });

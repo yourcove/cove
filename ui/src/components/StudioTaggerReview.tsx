@@ -1,4 +1,4 @@
-import { idsForMode, modeForSelection, sameSet } from "./VideoTaggerReview";
+import { collectionPresetHooks, idsForMode, modeForSelection, sameSet } from "./VideoTaggerReview";
 import type { CollectionMode } from "./videoScrapeUtils";
 import { type DiffField, type DiffRecord, type DiffSelection } from "./MetadataDiff";
 
@@ -31,6 +31,11 @@ export interface StudioReviewInput {
   incomingImageUrl?: string;
   urls: { current: string[]; incoming: string[] };
   aliases: { current: string[]; incoming: string[] };
+  /**
+   * Sets a collection's mode directly, for a preset that selects exactly what another one does: the
+   * selection cannot say which of them was meant.
+   */
+  onCollectionModeChange?: (field: string, mode: CollectionMode) => void;
 }
 
 export interface StudioReviewHandlers {
@@ -96,6 +101,7 @@ export function buildStudioReview(input: StudioReviewInput) {
       // A studio list offers the presets only: there is no per-item action behind a chip.
       modesOnly: true,
       lockKeptItems: true,
+      ...collectionPresetHooks(key, mode, input.onCollectionModeChange),
     });
     sourceValues[key] = incoming;
     targetValues[key] = current;

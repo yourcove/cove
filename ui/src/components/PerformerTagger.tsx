@@ -1085,6 +1085,7 @@ function PerformerResultRow({
       actions: tagActions,
     },
     createMissingTags,
+    onCollectionModeChange,
   };
   const review = isSelected ? buildPerformerReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;

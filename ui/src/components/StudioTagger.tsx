@@ -578,6 +578,7 @@ function StudioResultRow({
     incomingImageUrl: result.imageUrl || undefined,
     urls: { current: studio.urls ?? [], incoming: result.urls },
     aliases: { current: studio.aliases ?? [], incoming: result.aliases },
+    onCollectionModeChange,
   };
   const review = isSelected ? buildStudioReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;

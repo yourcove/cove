@@ -108,6 +108,40 @@ export interface TaggerReviewInput {
 const PRESET_OF_MODE: Record<CollectionMode, DiffListMode> = { merge: "combined", skip: "target", replace: "source" };
 const MODE_OF_PRESET: Record<DiffListMode, CollectionMode> = { combined: "merge", target: "skip", source: "replace" };
 
+/**
+ * The list row's hooks for a tagger collection: the tagger's mode is the preset to highlight, and a
+ * click on a preset the selection cannot express (it selects what another one does) sets the mode.
+ */
+export function collectionPresetHooks(
+  key: string,
+  mode: CollectionMode,
+  onCollectionModeChange?: (field: string, mode: CollectionMode) => void,
+): Pick<DiffField, "activeMode" | "onModeSelect"> {
+  return {
+    activeMode: PRESET_OF_MODE[mode],
+    onModeSelect: onCollectionModeChange
+      ? (preset) => {
+          if (MODE_OF_PRESET[preset] !== mode) onCollectionModeChange(key, MODE_OF_PRESET[preset]);
+        }
+      : undefined,
+  };
+}
+
+/**
+ * The incoming ids the presets select when new items join them only once chosen (see
+ * `newItemsOnlyWhenChosen`): items the library has, and new ones in the previous selection.
+ */
+export function presetIncomingIds(
+  incoming: { id: string; isNew: boolean }[],
+  currentIds: string[],
+  chosenBefore: Iterable<string>,
+) {
+  const chosen = new Set(chosenBefore);
+  return incoming
+    .filter((entry) => !entry.isNew || currentIds.includes(entry.id) || chosen.has(entry.id))
+    .map((entry) => entry.id);
+}
+
 export interface TaggerReviewHandlers {
   onFieldStrategyChange?: (field: string, strategy: TaggerFieldStrategy) => void;
   onCollectionModeChange?: (field: string, mode: CollectionMode) => void;
@@ -710,12 +744,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     lockKeptItems: true,
     // A preset is a mode, not a way to create every new item at once.
     newItemsOnlyWhenChosen: true,
-    activeMode: PRESET_OF_MODE[mode],
-    onModeSelect: input.onCollectionModeChange
-      ? (preset) => {
-          if (MODE_OF_PRESET[preset] !== mode) input.onCollectionModeChange?.(key, MODE_OF_PRESET[preset]);
-        }
-      : undefined,
+    ...collectionPresetHooks(key, mode, input.onCollectionModeChange),
   });
   if (result.urls.length > 0) {
     const urls = urlItems(input);
@@ -828,10 +857,7 @@ export function applyTaggerSelectionChange(
     const incomingIds = incoming.map((entry) => entry.id);
     // The presets offer a new item only once it has been chosen (the list row does the same), so they
     // are recognised by those ids; every incoming id can still be toggled one by one.
-    const chosenBefore = new Set((previous[key] as string[] | undefined) ?? []);
-    const presetIncomingIds = incoming
-      .filter((entry) => !entry.isNew || currentIds.includes(entry.id) || chosenBefore.has(entry.id))
-      .map((entry) => entry.id);
+    const presetIds = presetIncomingIds(incoming, currentIds, (previous[key] as string[] | undefined) ?? []);
     const sideIds = rawSelected.filter((id) => libraryIdOf(id) == null);
     // A preset names the whole sides; anything else that drops a current item is a hand removal,
     // which does not touch the collection mode.
@@ -839,8 +865,8 @@ export function applyTaggerSelectionChange(
     // so it reads as that preset.
     const isPreset =
       sameSet(sideIds, currentIds) ||
-      sameSet(sideIds, presetIncomingIds) ||
-      sameSet(sideIds, [...new Set([...currentIds, ...presetIncomingIds])]);
+      sameSet(sideIds, presetIds) ||
+      sameSet(sideIds, [...new Set([...currentIds, ...presetIds])]);
     if (key !== "urls") {
       const added = rawSelected.map(libraryIdOf).filter((id): id is number => id != null);
       // "Only <source>" drops the current items it was not given anyway, so taking one of those off
@@ -871,7 +897,7 @@ export function applyTaggerSelectionChange(
     // One incoming chip flipped is a per-item choice even when the result happens to look like a
     // preset (dropping the last incoming item leaves exactly the current side).
     const singleChip = Boolean(onToggle) && changed.length === 1 && !currentChanged && previousMode !== "skip";
-    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, presetIncomingIds, previousMode);
+    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, presetIds, previousMode);
     if (mode !== previousMode) handlers.onCollectionModeChange?.(key, mode);
     // Switched off, or just switched back on: the incoming side is taken as a whole and exclusions
     // stay as they were.

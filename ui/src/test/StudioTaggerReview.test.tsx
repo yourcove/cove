@@ -1,4 +1,7 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { MetadataDiff } from "../components/MetadataDiff";
 import {
   applyStudioSelectionChange,
   buildStudioReview,
@@ -135,5 +138,29 @@ describe("StudioTaggerReview", () => {
 
     expect(calls.onFieldStrategyChange).not.toHaveBeenCalled();
     expect(calls.onCollectionModeChange).not.toHaveBeenCalled();
+  });
+
+  it("highlights the tagger's mode when presets coincide and switches it on click", async () => {
+    // The source has only a URL the studio already has, so Combine and Only current select the same URLs.
+    const reviewInput = input({
+      collectionModes: { urls: "skip", aliases: "merge" },
+      onCollectionModeChange: vi.fn(),
+      urls: { current: ["https://a.example", "https://c.example"], incoming: ["https://a.example"] },
+    });
+    const review = buildStudioReview(reviewInput);
+    render(
+      <MetadataDiff
+        fields={review.fields.filter((field) => field.key === "urls")}
+        source={review.source}
+        target={review.target}
+        value={review.selection}
+        onChange={vi.fn()}
+      />,
+    );
+    const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed");
+    expect(pressed("Use target URLs")).toBe("true");
+    expect(pressed("Use combined URLs")).toBe("false");
+    await userEvent.click(screen.getByRole("button", { name: "Use combined URLs" }));
+    expect(reviewInput.onCollectionModeChange).toHaveBeenCalledWith("urls", "merge");
   });
 });

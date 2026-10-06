@@ -156,6 +156,66 @@ describe("MetadataDiff", () => {
     expect(summary.changes.map((change) => change.text)).toEqual(["1 tag added (1 new)", "1 url added"]);
   });
 
+  describe("a list changed item by item", () => {
+    const tagField = (overrides: Partial<DiffField> = {}): DiffField => ({
+      key: "tags",
+      label: "Tags",
+      kind: "list",
+      itemKey: (item) => String(item).toLowerCase(),
+      ...overrides,
+    });
+    // "Shared" and "New" come in and "shared" and "Existing" are kept; "shared" alone matches no preset.
+    const renderCustomised = (field: DiffField) =>
+      render(
+        <MetadataDiff
+          fields={[field]}
+          source={source}
+          target={target}
+          value={{ tags: ["shared"] }}
+          onChange={() => {}}
+        />,
+      );
+    const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+    it("presses the owner's mode, saying that clicking it undoes the changes", () => {
+      renderCustomised(tagField({ activeMode: "source" }));
+      expect(pressed("Use source Tags")).toBe("true");
+      expect(pressed("Use combined Tags")).toBe("false");
+      expect(screen.getByRole("button", { name: "Use source Tags" })).toHaveAttribute(
+        "title",
+        "Only scraped, with your changes. Click to undo them.",
+      );
+    });
+
+    it("presses the owner's mode even when the changes happen to equal another preset", () => {
+      // Every incoming item taken off one by one leaves exactly the kept side, which is "Only current",
+      // but the owner is still combining.
+      render(
+        <MetadataDiff
+          fields={[tagField({ activeMode: "combined" })]}
+          source={source}
+          target={target}
+          value={{ tags: ["shared", "existing"] }}
+          onChange={() => {}}
+        />,
+      );
+      expect(pressed("Use combined Tags")).toBe("true");
+      expect(pressed("Use target Tags")).toBe("false");
+      expect(screen.getByRole("button", { name: "Use combined Tags" })).toHaveAttribute(
+        "title",
+        "Combine, with your changes. Click to undo them.",
+      );
+    });
+
+    it("presses nothing for an owner without a mode", () => {
+      renderCustomised(tagField());
+      for (const name of ["Use combined Tags", "Use target Tags", "Use source Tags"]) {
+        expect(pressed(name)).toBe("false");
+        expect(screen.getByRole("button", { name })).not.toHaveAttribute("title");
+      }
+    });
+  });
+
   it("holds a waiting field, leaves the others usable, and keeps it out of the summary", () => {
     const waiting = fields.map((field) =>
       field.key === "tags" || field.key === "description" ? { ...field, waiting: "Checking…" } : field,

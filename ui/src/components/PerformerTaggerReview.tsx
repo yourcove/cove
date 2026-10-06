@@ -1,6 +1,6 @@
 import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
-import { idsForMode, modeForSelection, sameSet } from "./VideoTaggerReview";
+import { collectionPresetHooks, idsForMode, modeForSelection, presetIncomingIds, sameSet } from "./VideoTaggerReview";
 import { type DiffField, type DiffRecord, type DiffSelection } from "./MetadataDiff";
 
 /**
@@ -38,6 +38,11 @@ export interface PerformerReviewInput {
    * is only offered ("not in your library"); when it does, one not chosen was left out on purpose.
    */
   createMissingTags?: boolean;
+  /**
+   * Sets a collection's mode directly, for a preset that selects exactly what another one does: the
+   * selection cannot say which of them was meant.
+   */
+  onCollectionModeChange?: (field: string, mode: CollectionMode) => void;
 }
 
 export interface PerformerReviewHandlers {
@@ -118,6 +123,7 @@ export function buildPerformerReview(input: PerformerReviewInput) {
     itemIsNew,
     modesOnly: modesOnly || mode === "skip",
     lockKeptItems: true,
+    ...collectionPresetHooks(key, mode, input.onCollectionModeChange),
   });
   const plainList = (key: "urls" | "aliases", label: string) => {
     const side = input[key];
@@ -141,6 +147,8 @@ export function buildPerformerReview(input: PerformerReviewInput) {
     const mode = input.collectionModes.tags ?? "merge";
     fields.push({
       ...listField("tags", "Tags", mode, false),
+      // A preset is a mode, not a way to create every new tag at once.
+      newItemsOnlyWhenChosen: true,
       unchosenNewItemsOffered: input.createMissingTags === false,
     });
     sourceValues.tags = tags.incoming;
@@ -182,6 +190,7 @@ export function applyPerformerSelectionChange(
     currentIds: string[],
     incomingIds: string[],
     onToggle?: (changed: string[], chosen: Set<string>) => void,
+    presetIds = incomingIds,
   ) => {
     const selected = next[key];
     const before = (previous[key] as string[] | undefined) ?? [];
@@ -195,7 +204,7 @@ export function applyPerformerSelectionChange(
     // One incoming chip flipped is a per-item choice even when the result happens to look like a
     // preset (dropping the last incoming item leaves exactly the current side).
     const singleChip = Boolean(onToggle) && changed.length === 1 && !currentChanged && previousMode !== "skip";
-    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, incomingIds, previousMode);
+    const mode = singleChip ? previousMode : modeForSelection(chosen, currentIds, presetIds, previousMode);
     if (mode !== previousMode) handlers.onCollectionModeChange(key, mode);
     // Switched off, or just switched back on: the incoming side is taken as a whole and exclusions
     // stay as they were.
@@ -217,5 +226,11 @@ export function applyPerformerSelectionChange(
           changed.map((id) => [id, chosen.has(id) ? (tags.existing.has(id) ? "include" : "create") : "exclude"]),
         ),
       ),
+    // The presets offer a new tag only once it has been chosen (the list row does the same).
+    presetIncomingIds(
+      tags.incoming,
+      tags.current.map((tag) => tag.id),
+      (previous.tags as string[] | undefined) ?? [],
+    ),
   );
 }

@@ -65,11 +65,15 @@ export interface DiffField {
    * Without it, a new item that is not selected was taken out on purpose and reads as left out.
    */
   unchosenNewItemsOffered?: boolean;
-  /** The preset the owner is in, to highlight when several presets select the same items. */
+  /**
+   * The preset the owner is in, to highlight when several presets select the same items, and when the
+   * selection has been changed item by item so that none of them matches it.
+   */
   activeMode?: DiffListMode;
   /**
-   * Called for a preset that selects exactly what is already selected, which a selection change cannot
-   * express; without it such a click does nothing.
+   * Called for every preset click, after its selection change, so the owner's mode is the one clicked
+   * even when the selection cannot say so (it is already selected, another preset selects the same
+   * items, or it reads as one item flipped). Without it a click on what is already selected does nothing.
    */
   onModeSelect?: (mode: DiffListMode) => void;
   /** A scalar whose incoming value names something the library does not have yet (a studio), created when chosen. */
@@ -641,18 +645,21 @@ function ListRow({
   ];
   const matchesSelection = (ids: string[]) =>
     selected.length === ids.length && ids.every((id) => selected.includes(id));
-  // Two presets can select the same items (nothing incoming to add, say); only one of them is the mode.
+  // An owner that states its mode has that preset pressed, whatever the selection looks like: two presets
+  // can select the same items (nothing incoming to add, say), and items changed one by one can match no
+  // preset or happen to match another one (every incoming item taken off leaves exactly the kept side).
+  // When the selection differs from the mode's own, the mode is "customised". Without a stated mode, the
+  // matching preset is pressed.
   const matching = modes.filter((mode) => matchesSelection(mode.ids));
-  const activeMode = (matching.find((mode) => mode.key === field.activeMode) ?? matching[0])?.key;
-  const sameIds = (left: string[], right: string[]) =>
-    left.length === right.length && left.every((id) => right.includes(id));
-  // A preset whose items another preset shares cannot be told apart by the selection it makes, so the
-  // owner hears which one was meant, after the selection so that its mode is the one that stands.
+  const ownerMode = modes.find((mode) => mode.key === field.activeMode);
+  const customised = ownerMode ? !matchesSelection(ownerMode.ids) : matching.length === 0;
+  const activeMode = ownerMode ? ownerMode.key : matching[0]?.key;
+  // The selection a preset makes cannot always say which preset was meant: another one can select the
+  // same items, or the change can read as a single chip flipped. An owner that tracks its mode hears the
+  // click itself, after the selection so that its mode is the one that stands.
   const selectPreset = (mode: (typeof modes)[number]) => {
-    const unchanged = matchesSelection(mode.ids);
-    if (!(field.onModeSelect && unchanged)) onChange(mode.ids);
-    const shared = modes.some((other) => other.key !== mode.key && sameIds(other.ids, mode.ids));
-    if (field.onModeSelect && (unchanged || shared)) field.onModeSelect(mode.key);
+    if (!(field.onModeSelect && matchesSelection(mode.ids))) onChange(mode.ids);
+    field.onModeSelect?.(mode.key);
   };
   const kept = shown.filter((item) => item.inTarget && selected.includes(item.id)).length;
   const added = shown.filter((item) => !item.inTarget && selected.includes(item.id)).length;
@@ -776,6 +783,7 @@ function ListRow({
                 type="button"
                 aria-label={`Use ${mode.key} ${field.label}`}
                 aria-pressed={active}
+                title={active && customised ? `${mode.label}, with your changes. Click to undo them.` : undefined}
                 onClick={() => selectPreset(mode)}
                 className={`px-2.5 py-1 text-[11px] font-semibold ${active ? "bg-accent/15 text-accent" : "text-secondary hover:text-foreground"}`}
               >
