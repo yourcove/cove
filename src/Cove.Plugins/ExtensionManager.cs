@@ -1252,7 +1252,7 @@ public class ExtensionManager : IExtensionContributionRuntime
             try
             {
                 TryUpdateInstallation(extensionId, install => install.Enabled = false);
-                await PersistInstallationStateAsync(extensionId, ct);
+                await PersistInstallationStateAsync(extensionId, ct, keepSavedEnabled: true);
             }
             finally
             {
@@ -1316,7 +1316,7 @@ public class ExtensionManager : IExtensionContributionRuntime
             {
                 await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
                 DisableExtensionForStartupFailure(ext.Id, ex, "InitializeAsync");
-                await PersistInstallationStateAsync(ext.Id, ct);
+                await PersistInstallationStateAsync(ext.Id, ct, keepSavedEnabled: true);
             }
             finally
             {
@@ -1490,7 +1490,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         if (IsOverlayExtension(ext.Id) && !BuildExtensionProviderCore(ext.Id))
         {
             await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
-            await PersistInstallationStateAsync(ext.Id, ct);
+            await PersistInstallationStateAsync(ext.Id, ct, keepSavedEnabled: true);
             return false;
         }
         using var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext));
@@ -1536,7 +1536,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         {
             await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
             DisableExtensionForStartupFailure(ext.Id, ex, "hot-initialize");
-            await PersistInstallationStateAsync(ext.Id, ct);
+            await PersistInstallationStateAsync(ext.Id, ct, keepSavedEnabled: true);
             return false;
         }
     }
@@ -1616,7 +1616,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         {
             await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
             DisableExtensionForStartupFailure(ext.Id, ex, "on-demand initialize");
-            await PersistInstallationStateAsync(ext.Id, ct);
+            await PersistInstallationStateAsync(ext.Id, ct, keepSavedEnabled: true);
             return false;
         }
     }
@@ -2950,7 +2950,11 @@ public class ExtensionManager : IExtensionContributionRuntime
         }
     }
 
-    private async Task SaveInstallationAsync(IServiceProvider services, string extensionId, CancellationToken ct)
+    /// <param name="keepSavedEnabled">
+    /// Set after a startup failure. The extension stays disabled in this process, but the saved enabled value
+    /// keeps the user's last choice (enabled for a new record), so a later start retries it once fixed.
+    /// </param>
+    private async Task SaveInstallationAsync(IServiceProvider services, string extensionId, CancellationToken ct, bool keepSavedEnabled = false)
     {
         try
         {
@@ -2961,20 +2965,22 @@ public class ExtensionManager : IExtensionContributionRuntime
             var install = GetInstallation(extensionId);
             if (install == null) return;
 
+            // Raw literals carry no trailing newline, so the fragment supplies the line breaks around it.
+            var enabledUpdate = keepSavedEnabled ? "\n" : "\n    enabled = EXCLUDED.enabled,\n";
             await db.Database.ExecuteSqlRawAsync("""
                 INSERT INTO extension_installations (extension_id, version, enabled, installed_at, updated_at, manifest_json, source, categories)
                 VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7})
                 ON CONFLICT (extension_id) DO UPDATE SET
                     version = EXCLUDED.version,
-                    enabled = EXCLUDED.enabled,
+                """ + enabledUpdate + """
                     updated_at = EXCLUDED.updated_at,
                     manifest_json = EXCLUDED.manifest_json,
                     source = EXCLUDED.source,
                     categories = EXCLUDED.categories
                 """,
-                install.ExtensionId, install.Version, install.Enabled,
-                EnsureUtc(install.InstalledAt), DateTime.UtcNow, (object?)install.ManifestJson ?? DBNull.Value,
-                install.Source, (object?)install.Categories ?? DBNull.Value);
+                install.ExtensionId, install.Version, keepSavedEnabled || install.Enabled,
+                EnsureUtc(install.InstalledAt), DateTime.UtcNow, install.ManifestJson,
+                install.Source, install.Categories);
         }
         catch (Exception ex)
         {
@@ -2982,11 +2988,11 @@ public class ExtensionManager : IExtensionContributionRuntime
         }
     }
 
-    private async Task PersistInstallationStateAsync(string extensionId, CancellationToken ct)
+    private async Task PersistInstallationStateAsync(string extensionId, CancellationToken ct, bool keepSavedEnabled = false)
     {
         if (_scopeFactory == null) return;
         using var scope = _scopeFactory.CreateScope();
-        await SaveInstallationAsync(scope.ServiceProvider, extensionId, ct);
+        await SaveInstallationAsync(scope.ServiceProvider, extensionId, ct, keepSavedEnabled);
     }
 
     private void DisableExtensionForStartupFailure(string extensionId, Exception ex, string phase)

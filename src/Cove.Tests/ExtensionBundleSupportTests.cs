@@ -1764,6 +1764,80 @@ public class ExtensionBundleSupportTests
         }
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task InitializeAllAsync_persists_the_record_of_an_extension_that_failed_to_load_without_overwriting_its_saved_enabled_choice(
+        bool? savedEnabled,
+        bool expectedSavedEnabled)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-failed-load-persist-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+        Directory.CreateDirectory(dataDir);
+        await WriteUnloadableExtensionAsync(Path.Combine(extensionsDir, "broken.extension"), "broken.extension", dependencies: null);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var services = new ServiceCollection();
+        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
+        services.AddScoped<DbContext>(provider => provider.GetRequiredService<CoveContext>());
+        await using var provider = services.BuildServiceProvider();
+
+        if (savedEnabled is bool enabled)
+        {
+            // A row saved before this start, carrying the user's last enable or disable choice.
+            await using var seed = connection.CreateCommand();
+            seed.CommandText = $"""
+                CREATE TABLE extension_installations (
+                    extension_id VARCHAR(256) PRIMARY KEY,
+                    version VARCHAR(64) NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    manifest_json TEXT,
+                    source VARCHAR(64) NOT NULL DEFAULT 'local',
+                    categories TEXT
+                );
+                INSERT INTO extension_installations (extension_id, version, enabled, source)
+                VALUES ('broken.extension', '1.0.0', {(enabled ? 1 : 0)}, 'registry');
+                """;
+            await seed.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+            manager.DiscoverExtensions(extensionsDir);
+
+            await manager.InitializeAllAsync(provider, TestContext.Current.CancellationToken);
+
+            // Disabled while this process runs, but a later start, perhaps with the DLL fixed, honours the saved choice.
+            Assert.False(manager.IsEnabled("broken.extension"));
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT enabled, manifest_json IS NULL, categories IS NULL FROM extension_installations WHERE extension_id = 'broken.extension'";
+            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken), "The failed extension's installation record was not persisted.");
+            Assert.Equal(expectedSavedEnabled, reader.GetBoolean(0));
+            // The startup-failure record has no manifest JSON or categories, so both columns are written as NULL.
+            Assert.True(reader.GetBoolean(1));
+            Assert.True(reader.GetBoolean(2));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     /// <summary>Writes a runtime extension whose entry DLL is not a valid assembly, so discovery records a load failure.</summary>
     private static async Task WriteUnloadableExtensionAsync(string directory, string id, Dictionary<string, string>? dependencies)
     {
