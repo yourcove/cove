@@ -93,6 +93,65 @@ public sealed class RelationNameResolverTests
         Assert.Empty(matches);
     }
 
+    [Fact]
+    public async Task ResolveTagsAsync_MatchesNamesAndAliasesByTheirNamespaceKey()
+    {
+        await using var db = CreateContext();
+        var worship = new Tag { Name = "Tit Worship", Aliases = [new TagAlias { Alias = "Tit Tease" }] };
+        var blonde = new Tag { Name = "Blonde" };
+        db.Tags.AddRange(worship, blonde);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var matches = await RelationNameResolver.ResolveTagsAsync(
+            db,
+            [" tit tease ", "BLONDE", "Brand new"],
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Equal(worship.Id, matches["tit tease"].Id);
+        Assert.Equal(blonde.Id, matches["blonde"].Id);
+        Assert.Contains(matches["tit tease"].Aliases, alias => alias.Alias == "Tit Tease");
+    }
+
+    [Fact]
+    public async Task ResolveTagsAsync_LoadsOnlyTheMatchedTags()
+    {
+        await using var db = CreateContext();
+        var wanted = new Tag { Name = "Wanted" };
+        var aliased = new Tag { Name = "Aliased", Aliases = [new TagAlias { Alias = "Other name" }] };
+        db.Tags.AddRange(wanted, aliased);
+        for (var index = 0; index < 50; index++)
+            db.Tags.Add(new Tag { Name = $"Unrelated {index}", Aliases = [new TagAlias { Alias = $"Unrelated alias {index}" }] });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+
+        var matches = await RelationNameResolver.ResolveTagsAsync(
+            db,
+            ["wanted", "other name"],
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([wanted.Id, aliased.Id], matches.Values.Select(tag => tag.Id).Order().ToArray());
+        Assert.Equal(
+            [wanted.Id, aliased.Id],
+            db.ChangeTracker.Entries<Tag>().Select(entry => entry.Entity.Id).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task ResolvePerformerAsync_FindsTheExactIdentityByItsStoredKey()
+    {
+        await using var db = CreateContext();
+        var plain = new Performer { Name = "Jane Doe" };
+        var disambiguated = new Performer { Name = "Jane Doe", Disambiguation = "Other person" };
+        db.Performers.AddRange(plain, disambiguated);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var exact = await RelationNameResolver.ResolvePerformerAsync(db, " jane doe ", "OTHER PERSON", TestContext.Current.CancellationToken);
+        var nameOnly = await RelationNameResolver.ResolvePerformersAsync(db, ["JANE DOE"], TestContext.Current.CancellationToken);
+
+        Assert.Equal(disambiguated.Id, exact?.Id);
+        Assert.Equal(plain.Id, nameOnly["JANE DOE"].Id);
+    }
+
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

@@ -32,14 +32,7 @@ public static class RelationNameResolver
         var requestedKeys = requested
             .Select(item => item.IdentityKey)
             .ToHashSet(StringComparer.Ordinal);
-        var rows = await db.Performers.AsNoTracking()
-            .Select(performer => new PerformerIdentityRow(performer.Id, performer.Name, performer.Disambiguation))
-            .ToListAsync(ct);
-        var idsByIdentity = BuildUniqueIdentityLookup(
-            rows,
-            performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
-            requestedKeys,
-            NameConflictEntityTypes.Performer);
+        var idsByIdentity = await FindPerformerIdentitiesAsync(db, requestedKeys, ct);
         var matchedIds = idsByIdentity.Values.Select(row => row.Id).ToArray();
         var candidates = await db.Performers
             .Where(performer => matchedIds.Contains(performer.Id))
@@ -59,14 +52,10 @@ public static class RelationNameResolver
         CancellationToken ct = default)
     {
         var identityKey = EntityNameRules.PerformerIdentityKey(name, disambiguation);
-        var rows = await db.Performers.AsNoTracking()
-            .Select(performer => new PerformerIdentityRow(performer.Id, performer.Name, performer.Disambiguation))
-            .ToListAsync(ct);
-        var matched = BuildUniqueIdentityLookup(
-            rows,
-            performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+        var matched = (await FindPerformerIdentitiesAsync(
+            db,
             new HashSet<string>(StringComparer.Ordinal) { identityKey },
-            NameConflictEntityTypes.Performer).GetValueOrDefault(identityKey);
+            ct)).GetValueOrDefault(identityKey);
         if (matched == null)
             return null;
 
@@ -96,7 +85,11 @@ public static class RelationNameResolver
             return new Dictionary<string, Studio>(StringComparer.Ordinal);
 
         var requestedKeys = requested.Select(item => item.IdentityKey).ToHashSet(StringComparer.Ordinal);
+        // The stored key narrows the read to the requested names; the identity is still recomputed
+        // from the name below, so a row is matched by exactly the rule the writes enforce.
+        var keyList = requestedKeys.ToArray();
         var rows = await db.Studios.AsNoTracking()
+            .Where(studio => keyList.Contains(studio.NameKey))
             .Select(studio => new StudioIdentityRow(studio.Id, studio.Name))
             .ToListAsync(ct);
         var idsByIdentity = BuildUniqueIdentityLookup(
@@ -104,6 +97,7 @@ public static class RelationNameResolver
             studio => EntityNameRules.StudioIdentityKey(studio.Name),
             requestedKeys,
             NameConflictEntityTypes.Studio);
+        // Studio aliases have no stored key, so they are still read in full; there are few of them.
         var idsByAlias = new Dictionary<string, int>(StringComparer.Ordinal);
         var aliases = await db.Set<StudioAlias>().AsNoTracking()
             .OrderBy(alias => alias.Id)
@@ -160,26 +154,32 @@ public static class RelationNameResolver
         if (requested.Length == 0)
             return new Dictionary<string, Tag>(TagNameRules.NamespaceComparer);
 
-        // Deliberately evaluate the shared namespace key in .NET. SQL trim/case-fold behavior varies
-        // by provider and collation; the scanner, write validator, and resolver must interpret a name
-        // identically during the 1.2 compatibility window.
+        // Match on the stored namespace keys, which the write path computes in .NET (SQL trim and
+        // case-folding vary by provider and collation, so the key is never derived in SQL). Only the
+        // requested names are read, instead of every tag and alias.
+        var keys = requested.Select(TagNameRules.NamespaceKey).Distinct(StringComparer.Ordinal).ToArray();
+        var aliasRows = await db.Set<TagAlias>().AsNoTracking()
+            .Where(alias => keys.Contains(alias.NamespaceKey))
+            .OrderBy(alias => alias.Id)
+            .Select(alias => new TagAliasKeyRow(alias.TagId, alias.NamespaceKey))
+            .ToListAsync(ct);
+        var aliasTagIds = aliasRows.Select(row => row.TagId).Distinct().ToArray();
         var candidates = await db.Tags
             .Include(tag => tag.Aliases)
+            .Where(tag => keys.Contains(tag.NamespaceKey) || aliasTagIds.Contains(tag.Id))
             .OrderBy(tag => tag.Id)
             .ToListAsync(ct);
+        var tagsById = candidates.ToDictionary(tag => tag.Id);
 
+        var requestedKeys = keys.ToHashSet(StringComparer.Ordinal);
         var byName = new Dictionary<string, Tag>(StringComparer.Ordinal);
-        var byAlias = new Dictionary<string, Tag>(StringComparer.Ordinal);
         foreach (var candidate in candidates)
-        {
-            byName.TryAdd(TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(candidate.Name)), candidate);
-            foreach (var alias in candidate.Aliases.OrderBy(alias => alias.Id))
-            {
-                var normalizedAlias = TagNameRules.NormalizeAlias(alias.Alias);
-                if (normalizedAlias != null)
-                    byAlias.TryAdd(TagNameRules.NamespaceKey(normalizedAlias), candidate);
-            }
-        }
+            if (requestedKeys.Contains(candidate.NamespaceKey))
+                byName.TryAdd(candidate.NamespaceKey, candidate);
+        var byAlias = new Dictionary<string, Tag>(StringComparer.Ordinal);
+        foreach (var row in aliasRows)
+            if (tagsById.TryGetValue(row.TagId, out var owner))
+                byAlias.TryAdd(row.NamespaceKey, owner);
 
         var result = new Dictionary<string, Tag>(TagNameRules.NamespaceComparer);
         foreach (var name in requested)
@@ -192,6 +192,27 @@ public static class RelationNameResolver
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads only the performers whose stored identity key is requested. The key is recomputed from
+    /// the name and disambiguation, so a row is matched by exactly the rule the writes enforce.
+    /// </summary>
+    private static async Task<Dictionary<string, PerformerIdentityRow>> FindPerformerIdentitiesAsync(
+        CoveContext db,
+        IReadOnlySet<string> requestedKeys,
+        CancellationToken ct)
+    {
+        var keyList = requestedKeys.ToArray();
+        var rows = await db.Performers.AsNoTracking()
+            .Where(performer => keyList.Contains(performer.IdentityKey))
+            .Select(performer => new PerformerIdentityRow(performer.Id, performer.Name, performer.Disambiguation))
+            .ToListAsync(ct);
+        return BuildUniqueIdentityLookup(
+            rows,
+            performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+            requestedKeys,
+            NameConflictEntityTypes.Performer);
     }
 
     private static Dictionary<string, T> BuildUniqueIdentityLookup<T>(
@@ -216,5 +237,6 @@ public static class RelationNameResolver
     private sealed record PerformerIdentityRow(int Id, string Name, string? Disambiguation);
     private sealed record StudioIdentityRow(int Id, string Name);
     private sealed record StudioAliasRow(int StudioId, string Alias);
+    private sealed record TagAliasKeyRow(int TagId, string NamespaceKey);
     private sealed record RequestedName(string LookupName, string IdentityKey);
 }
