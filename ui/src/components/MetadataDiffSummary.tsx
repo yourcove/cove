@@ -7,6 +7,7 @@ import {
   CreateSourceButton,
   isOfferedItem,
   sourceAwaitsCreate,
+  WaitingNote,
   type DiffField,
   type DiffRecord,
   type DiffSelection,
@@ -42,6 +43,16 @@ export function MetadataDiffSummary({
   const unchanged: string[] = [];
 
   for (const field of fields) {
+    if (field.waiting) {
+      // Nothing about it is known yet, so nothing is counted or offered; the row only says why.
+      if (field.kind !== "list" || diffListItems(field, source, target).length > 0)
+        rows.push(
+          <SummaryRow key={field.key} tone="wait" label={field.label}>
+            <WaitingNote text={field.waiting} />
+          </SummaryRow>,
+        );
+      continue;
+    }
     if (field.kind === "list") {
       const items = diffListItems(field, source, target);
       if (items.length === 0) continue;
@@ -222,7 +233,7 @@ function SummaryRow({
   action,
   children,
 }: {
-  tone: "ok" | "warn" | "same";
+  tone: "ok" | "warn" | "same" | "wait";
   label: string;
   how?: string;
   action?: ReactNode;
@@ -250,7 +261,7 @@ function SummaryRow({
       <span className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-full ${iconClass}`}>
         {icon}
       </span>
-      <span className={`text-xs ${tone === "same" ? "text-muted" : "text-secondary"}`}>{label}</span>
+      <span className={`text-xs ${tone === "same" || tone === "wait" ? "text-muted" : "text-secondary"}`}>{label}</span>
       <span className="col-start-2 min-w-0 md:col-start-3">{children}</span>
       {how || action ? (
         <span className="col-start-2 flex flex-wrap items-center gap-x-2 text-[11px] text-muted md:col-start-4 md:justify-end">

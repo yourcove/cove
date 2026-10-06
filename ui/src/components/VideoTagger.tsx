@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system, tags } from "../api/client";
 import type {
@@ -290,6 +290,79 @@ function endWithStop(text: string): string {
  * formatter words better than its raw message does.
  */
 class TaggerPreconditionError extends Error {}
+
+/** Where a row's library lookup stands: the tags, performers, studio and Apply wait for "ready". */
+type RelationLookupState = "ready" | "waiting" | "failed";
+
+const LOOKUP_FAILED = "The library check failed, so nothing was applied. Retry it on this row.";
+const LOOKUP_NOT_ANSWERED = "The library check has not answered yet.";
+
+/**
+ * An apply that stopped while it waited for its lookup (Apply all cancelled, a new search, the row gone),
+ * so nothing was sent.
+ */
+class TaggerApplyCancelled extends Error {}
+
+/** A row's apply as Apply all drives it; the signal is the batch's, so Cancel reaches a waiting row. */
+type RowApply = (signal: AbortSignal) => Promise<unknown>;
+
+/**
+ * Lets an apply started while the row's lookup is out wait for it. The promise resolves once the lookup
+ * has answered for these names and rejects when it fails, so Apply all neither sends a guess nor hangs on
+ * a row; a lookup that had already failed is asked once more first. When the batch is cancelled, the
+ * names change (a new search) or the row goes away, it rejects as cancelled: nothing was sent, and the
+ * row is left as it is now rather than marked with a reason about a search it no longer shows.
+ *
+ * Layout effects, so the state is settled before anything awaiting it resumes, and the apply it resumes
+ * into (kept in a ref the same way) is the one built from the answer.
+ */
+function useLookupWaiters(state: RelationLookupState, names: unknown, retry: () => void) {
+  const stateRef = useRef(state);
+  const retryRef = useRef(retry);
+  const waiters = useRef(new Set<{ resolve: () => void; reject: (error: Error) => void }>());
+  useLayoutEffect(() => {
+    stateRef.current = state;
+    retryRef.current = retry;
+  });
+  useLayoutEffect(() => {
+    const pending = waiters.current;
+    return () => {
+      for (const waiter of pending) waiter.reject(new TaggerApplyCancelled());
+      pending.clear();
+    };
+  }, [names]);
+  useLayoutEffect(() => {
+    if (state === "waiting") return;
+    for (const waiter of waiters.current)
+      if (state === "ready") waiter.resolve();
+      else waiter.reject(new TaggerPreconditionError(LOOKUP_FAILED));
+    waiters.current.clear();
+  }, [state]);
+  return useCallback(
+    (signal?: AbortSignal) =>
+      new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) return reject(new TaggerApplyCancelled());
+        if (stateRef.current === "ready") return resolve();
+        const onAbort = () => waiter.reject(new TaggerApplyCancelled());
+        const waiter = {
+          resolve: () => {
+            signal?.removeEventListener("abort", onAbort);
+            waiters.current.delete(waiter);
+            resolve();
+          },
+          reject: (error: Error) => {
+            signal?.removeEventListener("abort", onAbort);
+            waiters.current.delete(waiter);
+            reject(error);
+          },
+        };
+        signal?.addEventListener("abort", onAbort);
+        waiters.current.add(waiter);
+        if (stateRef.current === "failed") retryRef.current();
+      }),
+    [],
+  );
+}
 
 /**
  * Why an attempt failed, in the most specific wording available. Only this component's own
@@ -652,13 +725,6 @@ function buildVideoRelationActionMap(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
-  /**
-   * Whether the library has not yet said which scraped names it has (a scraper row whose lookup is
-   * pending or failed). An apply request then sends a name nobody left out as "include", which the
-   * server links when the library has it and skips when it does not; leaving it out would silently
-   * drop tags the library already has. Once the lookup has answered, the review is the authority.
-   */
-  lookupPending = false,
 ): ScrapeRelationActionMap {
   const current = new Set(currentNames.map(relationKey));
   const existing = new Set(existingNames.map(relationKey));
@@ -672,7 +738,7 @@ function buildVideoRelationActionMap(
     if (excluded.has(key)) actions[key] = "exclude";
     else if (forced.has(key)) actions[key] = "create";
     else if (current.has(key) || existing.has(key)) actions[key] = "include";
-    else actions[key] = createMissing ? "create" : lookupPending ? "include" : "exclude";
+    else actions[key] = createMissing ? "create" : "exclude";
   }
 
   return actions;
@@ -685,19 +751,10 @@ function buildVideoRelationSelections(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
-  lookupPending: boolean,
 ): ScrapeCollectionItemSelection[] {
   return buildRelationSelectionPayload(
     names,
-    buildVideoRelationActionMap(
-      names,
-      currentNames,
-      existingNames,
-      excludedNames,
-      forceCreateNames,
-      createMissing,
-      lookupPending,
-    ),
+    buildVideoRelationActionMap(names, currentNames, existingNames, excludedNames, forceCreateNames, createMissing),
   );
 }
 
@@ -706,7 +763,6 @@ function buildScraperVideoApplyRequest(
   video: Video,
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
-  lookupPending: boolean,
 ): ApplyVideoScrapeAttemptRequest {
   const fieldStrategies = buildVideoFieldStrategies(video, result, state, taggerConfig);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
@@ -729,7 +785,6 @@ function buildScraperVideoApplyRequest(
     state?.excludedPerformers,
     state?.forceIncludedPerformers,
     !taggerConfig.onlyExistingPerformers,
-    lookupPending,
   );
   return {
     replaceFields,
@@ -752,7 +807,6 @@ function buildScraperVideoApplyRequest(
             state?.excludedTags,
             state?.forceIncludedTags,
             !taggerConfig.onlyExistingTags,
-            lookupPending,
           )
         : undefined,
     performerSelections:
@@ -1219,8 +1273,8 @@ export function VideoTagger({
 
   // Bulk apply. Each row publishes its own apply here, so Apply all sends exactly the request the
   // row's own Apply button would, honouring every per-row exclusion and field choice already made.
-  const applyHandlersRef = useRef(new Map<number, () => Promise<unknown>>());
-  const registerApply = useCallback((videoId: number, apply: (() => Promise<unknown>) | null) => {
+  const applyHandlersRef = useRef(new Map<number, RowApply>());
+  const registerApply = useCallback((videoId: number, apply: RowApply | null) => {
     if (apply) applyHandlersRef.current.set(videoId, apply);
     else applyHandlersRef.current.delete(videoId);
   }, []);
@@ -1252,7 +1306,7 @@ export function VideoTagger({
     await runWithConcurrency(
       applyBatchRef,
       targetIds,
-      async (videoId) => {
+      async (videoId, signal) => {
         // A row unmounted or saved since the click no longer has a handler; skip it rather than fail.
         const apply = applyHandlersRef.current.get(videoId);
         if (!apply) {
@@ -1260,8 +1314,12 @@ export function VideoTagger({
           return;
         }
         startedIds.push(videoId);
-        // The row records its own outcome, and one row's failure must not abandon the batch.
-        await apply().catch(() => undefined);
+        // The row records its own outcome, and one row's failure must not abandon the batch. A row still
+        // waiting for its library lookup when the batch is cancelled sends nothing, so it was not attempted.
+        await apply(signal).catch((error: unknown) => {
+          const index = startedIds.indexOf(videoId);
+          if (error instanceof TaggerApplyCancelled && index >= 0) startedIds.splice(index, 1);
+        });
       },
       CONCURRENCY_LIMIT,
       {
@@ -1683,7 +1741,7 @@ interface TaggerVideoRowProps {
    * request it would send, so bulk apply reuses that instead of rebuilding it from the outside.
    * Called with null when the row has nothing to apply.
    */
-  onRegisterApply?: (videoId: number, apply: (() => Promise<unknown>) | null) => void;
+  onRegisterApply?: (videoId: number, apply: RowApply | null) => void;
   /** Takes this row off the list for the rest of the visit. Absent when dismissing does not apply. */
   onDismiss?: () => void;
   /** The library lookup, shared by the page's rows. */
@@ -1745,15 +1803,32 @@ function TaggerVideoRow({
     }
     return { tags: [...tags], performers: [...performers], studios: [...studios] };
   }, [state?.results]);
-  const { data: resolvedRelations } = useQuery({
+  const lookupNeeded =
+    relationNamesToResolve.tags.length > 0 ||
+    relationNamesToResolve.performers.length > 0 ||
+    relationNamesToResolve.studios.length > 0;
+  const {
+    data: resolvedRelations,
+    isError: lookupErrored,
+    isFetching: lookupFetching,
+    refetch: retryLookup,
+  } = useQuery({
     queryKey: ["tagger-resolve-relations", relationNamesToResolve],
     queryFn: () => resolveRelations(relationNamesToResolve),
-    enabled:
-      relationNamesToResolve.tags.length > 0 ||
-      relationNamesToResolve.performers.length > 0 ||
-      relationNamesToResolve.studios.length > 0,
+    enabled: lookupNeeded,
     staleTime: 30_000,
   });
+  // The tags, performers and studio wait for the lookup's first answer for these names (a new search
+  // asks again); a refetch after a link or an apply keeps the answer it replaces, so it does not hold
+  // anything up. Until then the review cannot say what is new or what an alias lands on, and Apply
+  // would send a guess.
+  const relationLookup: RelationLookupState =
+    !lookupNeeded || resolvedRelations !== undefined
+      ? "ready"
+      : lookupErrored && !lookupFetching
+        ? "failed"
+        : "waiting";
+  const waitForLookup = useLookupWaiters(relationLookup, relationNamesToResolve, () => void retryLookup());
   const existingTagKeys = useMemo(
     () => new Set((resolvedRelations?.tags ?? []).map((m) => relationKey(m.input))),
     [resolvedRelations],
@@ -1825,98 +1900,109 @@ function TaggerVideoRow({
     : "Search query...";
   const textSearchLabel = isScraperSource ? "Search" : "Search for this text";
 
-  const importMut = useMutation<Video | ScrapeAttempt, Error>({
-    mutationFn: () => {
-      if (!selectedResult) throw new TaggerPreconditionError("No result selected");
-      const collectionModes = getVideoCollectionModes(selectedResult, state, taggerConfig);
-      const tagActions = buildVideoRelationActionMap(
-        selectedResult.tagNames,
-        getVideoTagNames(video),
-        selectedResult.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name),
-        state?.excludedTags,
-        state?.forceIncludedTags,
-        !taggerConfig.onlyExistingTags,
+  // Builds this row's apply from what its review shows and sends it.
+  const sendApply = (): Promise<Video | ScrapeAttempt> => {
+    if (!selectedResult) throw new TaggerPreconditionError("No result selected");
+    if (relationLookup !== "ready") throw new TaggerPreconditionError(LOOKUP_NOT_ANSWERED);
+    const collectionModes = getVideoCollectionModes(selectedResult, state, taggerConfig);
+    const tagActions = buildVideoRelationActionMap(
+      selectedResult.tagNames,
+      getVideoTagNames(video),
+      selectedResult.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name),
+      state?.excludedTags,
+      state?.forceIncludedTags,
+      !taggerConfig.onlyExistingTags,
+    );
+    const performerChoices = getPerformerChoices(selectedResult);
+    const performerActions = buildVideoRelationActionMap(
+      performerChoices.map((choice) => choice.key),
+      getCurrentPerformerChoiceKeys(video, performerChoices),
+      performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key),
+      state?.excludedPerformers,
+      state?.forceIncludedPerformers,
+      !taggerConfig.onlyExistingPerformers,
+    );
+    const excludedTags =
+      collectionModes.tags === "skip"
+        ? selectedResult.tagNames
+        : selectedResult.tagNames.filter((name) => tagActions[relationKey(name)] === "exclude");
+    if (selectedResult?.sourceKind === "scraper") {
+      if (!selectedResult.scrapeAttemptId) throw new TaggerPreconditionError("No scraper attempt selected");
+      return scrapeAttempts.apply(
+        selectedResult.scrapeAttemptId,
+        buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig),
       );
-      const performerChoices = getPerformerChoices(selectedResult);
-      const performerActions = buildVideoRelationActionMap(
-        performerChoices.map((choice) => choice.key),
-        getCurrentPerformerChoiceKeys(video, performerChoices),
-        performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key),
-        state?.excludedPerformers,
-        state?.forceIncludedPerformers,
-        !taggerConfig.onlyExistingPerformers,
-      );
-      const excludedTags =
-        collectionModes.tags === "skip"
-          ? selectedResult.tagNames
-          : selectedResult.tagNames.filter((name) => tagActions[relationKey(name)] === "exclude");
-      if (selectedResult?.sourceKind === "scraper") {
-        if (!selectedResult.scrapeAttemptId) throw new TaggerPreconditionError("No scraper attempt selected");
-        return scrapeAttempts.apply(
-          selectedResult.scrapeAttemptId,
-          // Until the library lookup answers, the review cannot tell which scraped names exist.
-          buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig, resolvedRelations === undefined),
-        );
-      }
+    }
 
-      // Remote IDs keep same-name performer identities independent. Send every non-default choice so
-      // an exclusion for one disambiguation can never affect another performer with the same name.
-      const performerOverrides = performerChoices.flatMap((choice) => {
-        const action = performerActions[relationKey(choice.key)] ?? "exclude";
-        if (action === "exclude")
-          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "skip" }];
-        if (action === "create")
-          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "create" }];
-        if (choice.candidate.localId != null)
-          return [
-            {
-              remoteId: choice.candidate.remoteId,
-              name: choice.candidate.name,
-              action: "existing",
-              localId: choice.candidate.localId,
-            },
-          ];
-        return [];
-      });
-      const tagOverrides = selectedResult.tagCandidates.some((tag) => tagActions[relationKey(tag.name)] === "create")
-        ? selectedResult.tagCandidates
-            .filter((t) => tagActions[relationKey(t.name)] === "create")
-            .map((t) => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
+    // Remote IDs keep same-name performer identities independent. Send every non-default choice so
+    // an exclusion for one disambiguation can never affect another performer with the same name.
+    const performerOverrides = performerChoices.flatMap((choice) => {
+      const action = performerActions[relationKey(choice.key)] ?? "exclude";
+      if (action === "exclude")
+        return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "skip" }];
+      if (action === "create")
+        return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "create" }];
+      if (choice.candidate.localId != null)
+        return [
+          {
+            remoteId: choice.candidate.remoteId,
+            name: choice.candidate.name,
+            action: "existing",
+            localId: choice.candidate.localId,
+          },
+        ];
+      return [];
+    });
+    const tagOverrides = selectedResult.tagCandidates.some((tag) => tagActions[relationKey(tag.name)] === "create")
+      ? selectedResult.tagCandidates
+          .filter((t) => tagActions[relationKey(t.name)] === "create")
+          .map((t) => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
+      : undefined;
+    const studioOverride =
+      selectedResult.studioCandidate && isStudioChosenForCreate(selectedResult, state?.createdStudio)
+        ? {
+            remoteId: selectedResult.studioCandidate.remoteId,
+            name: selectedResult.studioCandidate.name,
+            action: "create",
+          }
         : undefined;
-      const studioOverride =
-        selectedResult.studioCandidate && isStudioChosenForCreate(selectedResult, state?.createdStudio)
-          ? {
-              remoteId: selectedResult.studioCandidate.remoteId,
-              name: selectedResult.studioCandidate.name,
-              action: "create",
-            }
-          : undefined;
 
-      const importReq: MetadataServerVideoImportRequest = {
-        endpoint: selectedResult.endpoint,
-        videoId: selectedResult?.id ?? "",
-        setCoverImage: getVideoImageReplace(video, selectedResult, state, taggerConfig),
-        // When the user explicitly chose Replace, overwrite even an explicitly set cover.
-        overwriteExplicitCover: getVideoImageReplace(video, selectedResult, state, taggerConfig),
-        setTags: taggerConfig.setTags && collectionModes.tags !== "skip",
-        setPerformers: taggerConfig.setPerformers && collectionModes.performers !== "skip",
-        setStudio: taggerConfig.setStudio && collectionModes.studio !== "skip",
-        onlyExistingTags: taggerConfig.onlyExistingTags,
-        onlyExistingPerformers: taggerConfig.onlyExistingPerformers,
-        onlyExistingStudio: taggerConfig.onlyExistingStudio,
-        markOrganized: taggerConfig.markOrganized,
-        // The preview already dropped the excluded genders; send the same selection the filter above
-        // used, so a performer it hides can never be written by the parts of the import the overrides
-        // do not cover. Omitted, and only omitted, when nothing is filtered.
-        performerGenders: allowedGenderKeys ? taggerConfig.performerGenders : undefined,
-        excludedTagNames: excludedTags.length > 0 ? excludedTags : undefined,
-        performerOverrides: performerOverrides.length > 0 ? performerOverrides : undefined,
-        tagOverrides,
-        studioOverride,
-        fieldStrategies: buildVideoFieldStrategies(video, selectedResult, state, taggerConfig),
-        ...relationshipEditFields(state),
-      };
-      return videos.importFromMetadataServer(video.id, importReq);
+    const importReq: MetadataServerVideoImportRequest = {
+      endpoint: selectedResult.endpoint,
+      videoId: selectedResult?.id ?? "",
+      setCoverImage: getVideoImageReplace(video, selectedResult, state, taggerConfig),
+      // When the user explicitly chose Replace, overwrite even an explicitly set cover.
+      overwriteExplicitCover: getVideoImageReplace(video, selectedResult, state, taggerConfig),
+      setTags: taggerConfig.setTags && collectionModes.tags !== "skip",
+      setPerformers: taggerConfig.setPerformers && collectionModes.performers !== "skip",
+      setStudio: taggerConfig.setStudio && collectionModes.studio !== "skip",
+      onlyExistingTags: taggerConfig.onlyExistingTags,
+      onlyExistingPerformers: taggerConfig.onlyExistingPerformers,
+      onlyExistingStudio: taggerConfig.onlyExistingStudio,
+      markOrganized: taggerConfig.markOrganized,
+      // The preview already dropped the excluded genders; send the same selection the filter above
+      // used, so a performer it hides can never be written by the parts of the import the overrides
+      // do not cover. Omitted, and only omitted, when nothing is filtered.
+      performerGenders: allowedGenderKeys ? taggerConfig.performerGenders : undefined,
+      excludedTagNames: excludedTags.length > 0 ? excludedTags : undefined,
+      performerOverrides: performerOverrides.length > 0 ? performerOverrides : undefined,
+      tagOverrides,
+      studioOverride,
+      fieldStrategies: buildVideoFieldStrategies(video, selectedResult, state, taggerConfig),
+      ...relationshipEditFields(state),
+    };
+    return videos.importFromMetadataServer(video.id, importReq);
+  };
+  // Apply all can start a row whose lookup has not answered; the apply then waits for the answer and is
+  // built from the review as it stands after it, not from the render that started it.
+  const sendApplyRef = useRef(sendApply);
+  useLayoutEffect(() => {
+    sendApplyRef.current = sendApply;
+  });
+  const importMut = useMutation<Video | ScrapeAttempt, Error, AbortSignal | void>({
+    mutationFn: async (signal) => {
+      await waitForLookup(signal ?? undefined);
+      return sendApplyRef.current();
     },
     // The row and the Apply all summary both report this failure with the server's own wording, so
     // the app-wide notice would be a third, vaguer account of the same thing.
@@ -1947,6 +2033,8 @@ function TaggerVideoRow({
     // Apply all deliberately swallows a rejection so one row cannot abandon the batch, so the reason
     // has to be recorded here: without this the row keeps its pending changes and looks untouched.
     onError: (err) => {
+      // Cancelled before anything was sent: the row is as it was, and Apply all counts it as not attempted.
+      if (err instanceof TaggerApplyCancelled) return;
       onUpdateState({ error: taggerFailureReason(err) });
     },
   });
@@ -1957,7 +2045,7 @@ function TaggerVideoRow({
   const canApply = Boolean(selectedResult) && !state?.saved;
   useEffect(() => {
     if (!onRegisterApply) return;
-    onRegisterApply(video.id, canApply ? () => applyImport() : null);
+    onRegisterApply(video.id, canApply ? (signal) => applyImport(signal) : null);
     return () => onRegisterApply(video.id, null);
   }, [applyImport, onRegisterApply, video.id, canApply]);
 
@@ -2370,6 +2458,15 @@ function TaggerVideoRow({
               }
               taggerConfig={taggerConfig}
               coverComparison={coverComparison}
+              relationLookup={relationLookup}
+              // One failed request fails every row that shared it, so Retry asks again for all of them.
+              onRetryLookup={() =>
+                void queryClient.refetchQueries({
+                  queryKey: ["tagger-resolve-relations"],
+                  type: "active",
+                  predicate: (query) => query.state.status === "error",
+                })
+              }
             />
           )}
 
@@ -2422,6 +2519,9 @@ interface TaggerResultsProps {
   performerEdits?: TaggerRelationshipEdits;
   onRelationshipEditsChange: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
   taggerConfig: TaggerConfig;
+  /** Whether the library lookup the tags, performers and studio depend on has answered. */
+  relationLookup: RelationLookupState;
+  onRetryLookup: () => void;
   /** Pixel verdict on the selected result's cover; absent until it has been asked for and answered. */
   coverComparison?: VideoCoverComparison;
 }
@@ -2455,6 +2555,8 @@ function TaggerResults({
   onRelationshipEditsChange,
   taggerConfig,
   coverComparison,
+  relationLookup,
+  onRetryLookup,
 }: TaggerResultsProps) {
   const current = results[selectedIndex] ? selectedIndex : 0;
   const row = (result: UnifiedVideoMatch, i: number) => (
@@ -2489,6 +2591,8 @@ function TaggerResults({
       onRelationshipEditsChange={i === current ? onRelationshipEditsChange : undefined}
       taggerConfig={taggerConfig}
       coverComparison={i === current ? coverComparison : undefined}
+      relationLookup={relationLookup}
+      onRetryLookup={onRetryLookup}
     />
   );
   const others = results.map((result, i) => ({ result, i })).filter(({ i }) => i !== current);
@@ -2539,9 +2643,11 @@ function TaggerResultRow({
   onRelationshipEditsChange,
   taggerConfig,
   coverComparison,
+  relationLookup,
+  onRetryLookup,
 }: {
   video: Video;
-  result: MetadataServerVideoMatch;
+  result: UnifiedVideoMatch;
   tagMatchInfo?: Record<string, string>;
   studioMatchInfo?: Record<string, string>;
   isSelected: boolean;
@@ -2569,6 +2675,8 @@ function TaggerResultRow({
   onRelationshipEditsChange?: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
   taggerConfig: TaggerConfig;
   coverComparison?: VideoCoverComparison;
+  relationLookup: RelationLookupState;
+  onRetryLookup: () => void;
 }) {
   const metadataServers = useOptionalAppConfig()?.config?.scraping?.metadataServers;
   // Accept-all is the common case, so the review opens as a list of facts; the full side-by-side
@@ -2601,6 +2709,12 @@ function TaggerResultRow({
     forceIncludedPerformers,
     !taggerConfig.onlyExistingPerformers,
   );
+  const lookupNote =
+    relationLookup === "waiting"
+      ? "Checking your library…"
+      : relationLookup === "failed"
+        ? "Not checked against your library"
+        : undefined;
   const reviewInput: TaggerReviewInput = {
     video,
     result,
@@ -2612,6 +2726,13 @@ function TaggerResultRow({
     imageReplace: (fieldStrategies.image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite",
     coverComparison,
     collectionModes,
+    // A metadata server's search already placed its performers and studio; only its unmatched tags are
+    // asked about. A scraper's tags, performers and studio all come from the lookup.
+    relationsWaiting: lookupNote
+      ? result.sourceKind === "scraper"
+        ? { tags: lookupNote, performers: lookupNote, studio: lookupNote }
+        : { tags: lookupNote }
+      : undefined,
     showStudio: taggerConfig.setStudio,
     studioIsNew: result.studioCandidate != null && !result.studioCandidate.existsLocally,
     createStudio: willCreateStudio(result, createdStudio, taggerConfig),
@@ -2781,6 +2902,16 @@ function TaggerResultRow({
           )}
           {/* Summary reads left to right; the actions that act on it are grouped at the right edge. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-surface/60 px-3 py-2">
+            {/* A status, not an alert: rows share one lookup, so one failure fails every row on the page. */}
+            {onSave && relationLookup === "failed" ? (
+              <span role="status" className="flex w-full flex-wrap items-center gap-x-2 text-[11px] text-red-400">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Couldn't check which of these are in your library.
+                <button type="button" onClick={onRetryLookup} className="text-accent hover:underline">
+                  Retry
+                </button>
+              </span>
+            ) : null}
             {summary ? (
               <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
                 {summary.changes.map((change) => change.text).join(" · ")}
@@ -2798,13 +2929,19 @@ function TaggerResultRow({
               {onSave && (
                 <button
                   onClick={onSave}
-                  disabled={saving}
+                  disabled={saving || relationLookup !== "ready"}
                   className="flex items-center gap-1.5 rounded px-4 py-1.5 text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
                 >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  {summary?.changeCount
-                    ? `Apply ${summary.changeCount} ${summary.changeCount === 1 ? "change" : "changes"}`
-                    : "Apply"}
+                  {saving || relationLookup === "waiting" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  {relationLookup === "waiting"
+                    ? "Checking library…"
+                    : summary?.changeCount
+                      ? `Apply ${summary.changeCount} ${summary.changeCount === 1 ? "change" : "changes"}`
+                      : "Apply"}
                 </button>
               )}
             </div>

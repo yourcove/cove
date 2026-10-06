@@ -61,6 +61,11 @@ export interface TaggerReviewInput {
    */
   coverComparison?: VideoCoverComparison;
   collectionModes: Record<string, CollectionMode>;
+  /**
+   * The rows whose outcome the tagger cannot say yet (it is still asking the library which scraped items it
+   * has), each with the note it shows instead; those rows cannot be changed meanwhile.
+   */
+  relationsWaiting?: Partial<Record<"studio" | TaggerRelationshipKey, string>>;
   showStudio: boolean;
   /** The scraped studio is not in the library. False while that is not known yet. */
   studioIsNew?: boolean;
@@ -380,6 +385,7 @@ function RelationshipEditor({
   onChange,
   disabled,
   incomingHidden,
+  waiting = false,
   onLinkTag,
 }: {
   entityType: "tag" | "performer";
@@ -390,6 +396,8 @@ function RelationshipEditor({
   onChange: (selected: string[]) => void;
   disabled: boolean;
   incomingHidden: boolean;
+  /** The library has not said yet which scraped items it has, so none is called new or matched. */
+  waiting?: boolean;
   onLinkTag?: TaggerReviewInput["onLinkTag"];
 }) {
   const chosen = new Set(selected);
@@ -408,8 +416,9 @@ function RelationshipEditor({
   const scraped = incomingHidden ? [] : items.filter((entry) => !entry.inTarget);
   // What the library already knows comes first; what it does not is kept apart, so a new item is
   // always a visible decision whether or not the tagger creates missing items by default.
-  const matched = scraped.filter((entry) => !entry.isNew);
-  const unknown = scraped.filter((entry) => entry.isNew);
+  // While the library has not said, the scraped items stand together, with nothing called new or matched.
+  const matched = waiting ? scraped : scraped.filter((entry) => !entry.isNew);
+  const unknown = waiting ? [] : scraped.filter((entry) => entry.isNew);
   const [linking, setLinking] = useState<ReviewItem | null>(null);
   const linkIdPrefix = useId();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -425,7 +434,8 @@ function RelationshipEditor({
     onChange(chosen.has(entry.id) ? selected.filter((id) => id !== entry.id) : [...selected, entry.id]);
   const chip = (entry: ReviewItem) => {
     const included = chosen.has(entry.id);
-    const state = !included ? (entry.isNew ? "available" : "excluded") : entry.isNew ? "new" : "added";
+    const isNew = entry.isNew && !waiting;
+    const state = waiting ? "available" : !included ? (isNew ? "available" : "excluded") : isNew ? "new" : "added";
     const chipClass = {
       new: "border-amber-400/50 bg-card text-amber-300",
       added: "border-green-400/50 bg-card text-green-300",
@@ -439,20 +449,20 @@ function RelationshipEditor({
         title={state === "new" ? "Not in your library yet; will be created" : undefined}
         className={`inline-flex max-w-full items-center gap-1.5 rounded border py-0.5 pl-2 pr-1 text-xs ${chipClass}`}
       >
-        {included ? <Plus className="h-3 w-3 shrink-0" /> : null}
+        {included && !waiting ? <Plus className="h-3 w-3 shrink-0" /> : null}
         <span className="min-w-0 truncate">{renderItem(entry)}</span>
         {state === "new" ? <span className="sr-only"> (new, will be created)</span> : null}
         <button
           type="button"
           disabled={disabled}
           onClick={() => toggle(entry)}
-          aria-label={`${included ? "Remove" : entry.isNew ? "Create and add" : "Add"} ${label}: ${entry.label}`}
-          title={!included && entry.isNew ? `Create “${entry.label}” and add it` : undefined}
+          aria-label={`${included ? "Remove" : isNew ? "Create and add" : "Add"} ${label}: ${entry.label}`}
+          title={!included && isNew ? `Create “${entry.label}” and add it` : undefined}
           className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
         >
           {included ? <X className="h-2.5 w-2.5" /> : <Plus className="h-2.5 w-2.5" />}
         </button>
-        {entry.isNew && onLinkTag ? (
+        {isNew && onLinkTag ? (
           <button
             type="button"
             id={`${linkIdPrefix}-link-${entry.id}`}
@@ -661,6 +671,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     fields.push({
       key: "studio",
       label: "Studio",
+      waiting: input.relationsWaiting?.studio,
       sourceIsNew: input.studioIsNew,
       onCreateSource: awaitsCreate ? input.onCreateStudio : undefined,
       // The studio the video gets is the library's; the scraped spelling stays on hover.
@@ -728,6 +739,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
     const mode = input.collectionModes[key] ?? "merge";
     const field = listField(key, label, mode);
     field.lockKeptItems = false;
+    field.waiting = input.relationsWaiting?.[key];
     field.unchosenNewItemsOffered = !(key === "tags" ? input.createMissingTags : input.createMissingPerformers);
     field.renderList = (selected, onChange, disabled) => (
       <RelationshipEditor
@@ -739,6 +751,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
         onChange={onChange}
         disabled={disabled}
         incomingHidden={mode === "skip"}
+        waiting={Boolean(field.waiting)}
         onLinkTag={entityType === "tag" ? input.onLinkTag : undefined}
       />
     );

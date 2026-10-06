@@ -156,6 +156,25 @@ describe("MetadataDiff", () => {
     expect(summary.changes.map((change) => change.text)).toEqual(["1 tag added (1 new)", "1 url added"]);
   });
 
+  it("holds a waiting field, leaves the others usable, and keeps it out of the summary", () => {
+    const waiting = fields.map((field) =>
+      field.key === "tags" || field.key === "description" ? { ...field, waiting: "Checking…" } : field,
+    );
+    const value = defaultDiffSelection(waiting, source, target);
+    render(<MetadataDiff fields={waiting} source={source} target={target} value={value} onChange={() => {}} />);
+    for (const label of ["Tags", "Description"]) {
+      const row = screen.getByRole("group", { name: label });
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(within(row).getAllByText("Checking…").length).toBeGreaterThan(0);
+    }
+    expect(screen.getByRole("button", { name: "Remove Tags: new" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Use combined Tags" })).toBeDisabled();
+    expect(screen.getByLabelText("Description from source")).toBeDisabled();
+    expect(screen.getByLabelText("Title from source")).toBeEnabled();
+    const texts = summarizeDiff(waiting, source, target, value).changes.map((change) => change.text);
+    expect(texts.join(" ")).not.toMatch(/tag|Description/i);
+  });
+
   it("summarises what the selection will do", () => {
     const value = defaultDiffSelection(fields, source, target);
     const summary = summarizeDiff(fields, source, target, value);

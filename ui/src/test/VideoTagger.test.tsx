@@ -1674,19 +1674,6 @@ describe("VideoTagger", () => {
     return { countdown, request: mocks.applyScrapeAttempt.mock.calls[0][1] };
   }
 
-  it("lets the server link scraped names that already exist when the library lookup has not answered", async () => {
-    // The lookup that says which names the library has never answers, as on a slow or failed request.
-    mocks.resolveRelations.mockReturnValue(new Promise(() => {}));
-    const { request } = await scrapeAndApply();
-    // Nothing is created, yet nothing is left out either: the server links what the library has.
-    expect(request.createMissingTags).toBe(false);
-    expect(request.tagSelections).toEqual([
-      { name: "Countdown", action: "include" },
-      { name: "Edging", action: "include" },
-    ]);
-    expect(request.performerSelections).toEqual([{ name: "Scraped Performer", action: "include" }]);
-  });
-
   it("keeps a saved choice to create missing tags and performers", async () => {
     localStorage.setItem(
       "cove-tagger-config",
@@ -1710,5 +1697,261 @@ describe("VideoTagger", () => {
       { name: "Edging", action: "exclude" },
     ]);
     expect(request.performerSelections).toEqual([{ name: "Scraped Performer", action: "exclude" }]);
+  });
+
+  describe("before the library lookup has answered", () => {
+    const noMatches = { tags: [], performers: [], studios: [] };
+
+    // A lookup the test answers, or fails, when it chooses.
+    function heldLookup() {
+      const held = {} as { answer: (result: object) => void; fail: (error: Error) => void };
+      mocks.resolveRelations.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            held.answer = resolve;
+            held.fail = reject;
+          }),
+      );
+      return held;
+    }
+
+    // Scrapes one video with a URL scraper, leaving its review open for the test to act on.
+    async function scrape(result: object, videoTags: { id: number; name: string }[] = []) {
+      mocks.listScrapers.mockResolvedValue([
+        {
+          id: "pack/site:video",
+          name: "Site Scraper",
+          entityType: "video",
+          supportedScrapes: ["url"],
+          urls: ["site.example/watch/"],
+          sourcePath: "",
+        },
+      ]);
+      mocks.createScrapeAttempt.mockResolvedValue({
+        id: "attempt-1",
+        scraperId: "pack/site:video",
+        entityType: "video",
+        entityId: 123,
+        inputKind: "url",
+        status: "Success",
+        error: null,
+        candidateResultsJson: null,
+        resultJson: JSON.stringify(result),
+      });
+      mocks.applyScrapeAttempt.mockResolvedValue({ id: "attempt-1", status: "Applied" });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const video = {
+        id: 123,
+        title: "",
+        files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+        performers: [],
+        tags: videoTags,
+        urls: ["https://site.example/watch/1"],
+        remoteIds: [],
+      } as any;
+      render(
+        <QueryClientProvider client={queryClient}>
+          <VideoTagger videos={[video]} mode="detail" />
+        </QueryClientProvider>,
+      );
+      await screen.findByRole("option", { name: "Site Scraper (Scraper)" });
+      await userEvent.selectOptions(screen.getByRole("combobox"), "scraper:pack/site:video");
+      await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+      await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+      return queryClient;
+    }
+
+    const fullResult = {
+      Title: "Scraped title",
+      Studio: "Scraped Studio",
+      Tags: [{ Name: "Countdown" }, { Name: "Edging" }],
+      Performers: [{ Name: "Scraped Performer" }],
+    };
+
+    it("holds the tags, performers, studio and Apply until it answers, and leaves the other fields usable", async () => {
+      const lookup = heldLookup();
+      await scrape(fullResult);
+
+      expect(await screen.findByRole("button", { name: /Checking library/ })).toBeDisabled();
+      for (const label of ["Tags", "Performers", "Studio"]) {
+        const row = screen.getByText(label, { selector: "span" }).closest("[data-tone]") as HTMLElement;
+        expect(within(row).getByText("Checking your library…")).toBeInTheDocument();
+      }
+      // Nothing is called new on a guess before the library has said.
+      expect(screen.queryByText(/not in your library/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Title: keep empty instead" })).toBeEnabled();
+
+      lookup.answer({ ...noMatches, tags: [{ input: "Countdown", matchedName: "Countdown" }] });
+      await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScrapeAttempt).toHaveBeenCalledOnce());
+      expect(mocks.applyScrapeAttempt.mock.calls[0][1].tagSelections).toEqual([
+        { name: "Countdown", action: "include" },
+        { name: "Edging", action: "exclude" },
+      ]);
+    });
+
+    it("says when it failed and offers a retry instead of staying disabled", async () => {
+      mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
+      await scrape(fullResult);
+
+      const failure = (await screen.findByText("Couldn't check which of these are in your library.")).closest(
+        "[role=status]",
+      ) as HTMLElement;
+      expect(failure).not.toBeNull();
+      expect(screen.getByRole("button", { name: /^Apply/ })).toBeDisabled();
+
+      await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
+      expect(await screen.findByRole("button", { name: /^Apply/ })).toBeEnabled();
+      expect(screen.queryByText("Couldn't check which of these are in your library.")).not.toBeInTheDocument();
+    });
+
+    it("calls no scraped item new or matched in the full rows while it waits, and keeps them disabled", async () => {
+      heldLookup();
+      await scrape(fullResult);
+      await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+      expect(screen.queryByText("Not in your library")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add Tags: Countdown" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Add Performers: Scraped Performer" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /^Link Tags/ })).not.toBeInTheDocument();
+    });
+
+    describe("Apply all", () => {
+      // A metadata-server match with a tag its search did not find, which the row asks the library about.
+      const withUnmatchedTag = () =>
+        mocks.searchMetadataServer.mockResolvedValue([
+          {
+            ...matchFor(123),
+            tagNames: ["Unmatched"],
+            tagCandidates: [{ remoteId: "tag-1", name: "Unmatched", existsLocally: false }],
+          },
+        ]);
+
+      async function searchAndApplyAll() {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const video = { id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] };
+        render(
+          <QueryClientProvider client={queryClient}>
+            <VideoTagger videos={[video] as any} />
+          </QueryClientProvider>,
+        );
+        await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+        await userEvent.click(await screen.findByRole("button", { name: "Apply all (1)" }));
+      }
+
+      it("waits for a row's lookup and applies with its answer", async () => {
+        withUnmatchedTag();
+        const lookup = heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
+
+        lookup.answer({ ...noMatches, tags: [{ input: "Unmatched", matchedName: "Library Tag" }] });
+        await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+        expect(mocks.importFromMetadataServer.mock.calls[0][1].excludedTagNames).toBeUndefined();
+      });
+
+      it("counts a row whose lookup failed as failed, with the reason", async () => {
+        withUnmatchedTag();
+        const lookup = heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+        lookup.fail(new Error("lookup failed"));
+
+        const summary = await findApplyAllSummary();
+        expect(summary).toHaveTextContent(/^Applied 0, failed 1\. The library check failed/);
+        expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
+      });
+
+      it("sends nothing for a waiting row once the batch is cancelled, and counts it as not attempted", async () => {
+        withUnmatchedTag();
+        const lookup = heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+        await userEvent.click(await screen.findByRole("button", { name: /cancel/i }));
+
+        const summary = await findApplyAllSummary();
+        expect(summary).toHaveTextContent("Cancelled. Applied 0, not attempted 1.");
+        lookup.answer(noMatches);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
+      });
+
+      it("drops a waiting row's apply when the row is searched again, without marking the row failed", async () => {
+        withUnmatchedTag();
+        heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+        await userEvent.click(screen.getByRole("button", { name: "Search for this text" }));
+
+        const summary = await findApplyAllSummary();
+        expect(summary).toHaveTextContent("Applied 0, not attempted 1.");
+        expect(summary).not.toHaveTextContent(/failed/);
+        expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
+      });
+
+      it("asks a lookup that had already failed once more before applying", async () => {
+        withUnmatchedTag();
+        mocks.resolveRelations
+          .mockRejectedValueOnce(new Error("lookup failed"))
+          .mockResolvedValueOnce({ ...noMatches, tags: [{ input: "Unmatched", matchedName: "Library Tag" }] });
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(
+          <QueryClientProvider client={queryClient}>
+            <VideoTagger
+              videos={
+                [{ id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] }] as any
+              }
+            />
+          </QueryClientProvider>,
+        );
+        await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+        await screen.findByText("Couldn't check which of these are in your library.");
+        await userEvent.click(screen.getByRole("button", { name: "Apply all (1)" }));
+
+        await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+        // Asked again, and applied only after that answer (the apply's own refresh asks once more afterwards).
+        expect(mocks.resolveRelations.mock.invocationCallOrder[1]).toBeLessThan(
+          mocks.importFromMetadataServer.mock.invocationCallOrder[0],
+        );
+        expect(mocks.importFromMetadataServer.mock.calls[0][1].excludedTagNames).toBeUndefined();
+      });
+
+      it("holds only the tags of a metadata-server row, whose search already placed its performers", async () => {
+        mocks.searchMetadataServer.mockResolvedValue([
+          {
+            ...matchFor(123),
+            tagNames: ["Unmatched"],
+            tagCandidates: [{ remoteId: "tag-1", name: "Unmatched", existsLocally: false }],
+            performerNames: ["Known Performer"],
+            performerCandidates: [{ remoteId: "p-1", name: "Known Performer", existsLocally: true, localId: 9 }],
+          },
+        ]);
+        heldLookup();
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(
+          <QueryClientProvider client={queryClient}>
+            <VideoTagger
+              videos={
+                [{ id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] }] as any
+              }
+            />
+          </QueryClientProvider>,
+        );
+        await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+        const tags = (await screen.findByText("Tags", { selector: "span" })).closest("[data-tone]") as HTMLElement;
+        expect(within(tags).getByText("Checking your library…")).toBeInTheDocument();
+        const performers = screen.getByText("Performers", { selector: "span" }).closest("[data-tone]") as HTMLElement;
+        expect(within(performers).queryByText("Checking your library…")).not.toBeInTheDocument();
+        expect(within(performers).getByText("Known Performer")).toBeInTheDocument();
+      });
+
+      it("does not wait for a row that asks the library nothing", async () => {
+        mocks.searchMetadataServer.mockResolvedValue([matchFor(123)]);
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+        expect(mocks.resolveRelations).not.toHaveBeenCalled();
+      });
+    });
   });
 });

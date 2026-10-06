@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronUp, Plus, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, Plus, X } from "lucide-react";
 
 /**
  * Generic two-sided review: the user compares a kept record against an incoming one and decides,
@@ -79,6 +79,11 @@ export interface DiffField {
    * as it is, and this asks, as the "+" on a new list item does.
    */
   onCreateSource?: () => void;
+  /**
+   * The owner does not know this field's outcome yet (it is still checking something the field depends
+   * on), so the field cannot be changed, is left out of the summary, and shows this note as its outcome.
+   */
+  waiting?: string;
 }
 
 /** The incoming side of a scalar can only be reached through its create action. */
@@ -181,6 +186,8 @@ export function summarizeDiff(fields: DiffField[], source: DiffRecord, target: D
   const taken: string[] = [];
   const conflictKept: string[] = [];
   for (const field of fields) {
+    // Whatever it would say now is a guess, and the field says so itself.
+    if (field.waiting) continue;
     if (field.kind === "list") {
       const items = diffListItems(field, source, target);
       const selected = new Set(Array.isArray(value[field.key]) ? (value[field.key] as string[]) : []);
@@ -356,7 +363,7 @@ export function MetadataDiff({
               selected={Array.isArray(value[row.field.key]) ? (value[row.field.key] as string[]) : []}
               sourceLabel={sentenceLabel(source)}
               targetLabel={sentenceLabel(target)}
-              disabled={disabled}
+              disabled={disabled || Boolean(row.field.waiting)}
               onChange={(selected) => onChange({ ...value, [row.field.key]: selected })}
             />
           ) : (
@@ -368,7 +375,7 @@ export function MetadataDiff({
               target={target}
               chosen={value[row.field.key] === "source" ? "source" : "target"}
               name={`${instanceId}-${row.field.key}`}
-              disabled={disabled}
+              disabled={disabled || Boolean(row.field.waiting)}
               onChange={(side) => onChange({ ...value, [row.field.key]: side })}
             />
           ),
@@ -401,7 +408,7 @@ export function MetadataDiff({
                       selected={Array.isArray(value[row.field.key]) ? (value[row.field.key] as string[]) : []}
                       sourceLabel={sentenceLabel(source)}
                       targetLabel={sentenceLabel(target)}
-                      disabled={disabled}
+                      disabled={disabled || Boolean(row.field.waiting)}
                       onChange={(selected) => onChange({ ...value, [row.field.key]: selected })}
                     />
                   ) : (
@@ -413,7 +420,7 @@ export function MetadataDiff({
                       target={target}
                       chosen={value[row.field.key] === "source" ? "source" : "target"}
                       name={`${instanceId}-${row.field.key}`}
-                      disabled={disabled}
+                      disabled={disabled || Boolean(row.field.waiting)}
                       onChange={(side) => onChange({ ...value, [row.field.key]: side })}
                     />
                   ),
@@ -482,7 +489,9 @@ function ScalarRow({
     );
   };
   // Nothing lands while the incoming value waits to be created, whatever the plain comparison says.
-  const pill = awaitsCreate ? (
+  const pill = field.waiting ? (
+    <WaitingNote text={field.waiting} />
+  ) : awaitsCreate ? (
     <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-muted">
       Not in your library
     </span>
@@ -492,6 +501,7 @@ function ScalarRow({
   return (
     <fieldset
       disabled={disabled}
+      aria-busy={field.waiting ? true : undefined}
       className="grid grid-cols-1 gap-2 py-3 md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_190px] md:gap-3"
     >
       <legend className="sr-only">{field.label}</legend>
@@ -692,20 +702,25 @@ function ListRow({
   return (
     <fieldset
       disabled={disabled}
+      aria-busy={field.waiting ? true : undefined}
       className="grid grid-cols-1 gap-2 py-3 md:grid-cols-[150px_minmax(0,1fr)_190px] md:gap-3"
     >
       <legend className="sr-only">{field.label}</legend>
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-semibold">{field.label}</span>
         <span className="text-[11px] text-secondary">
-          {counts.length
-            ? counts.map((count, index) => (
-                <span key={index}>
-                  {index > 0 ? " · " : ""}
-                  {count}
-                </span>
-              ))
-            : "No values"}
+          {field.waiting ? (
+            <WaitingNote text={field.waiting} />
+          ) : counts.length ? (
+            counts.map((count, index) => (
+              <span key={index}>
+                {index > 0 ? " · " : ""}
+                {count}
+              </span>
+            ))
+          ) : (
+            "No values"
+          )}
         </span>
       </div>
       <div className="flex min-w-0 flex-col gap-2">
@@ -772,5 +787,15 @@ function ListRow({
         </div>
       </div>
     </fieldset>
+  );
+}
+
+/** A field's outcome while its owner is still finding it out. */
+export function WaitingNote({ text }: { text: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted">
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
+      {text}
+    </span>
   );
 }
