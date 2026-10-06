@@ -330,6 +330,21 @@ describe("VideoTaggerReview alias matches", () => {
     expect(summary.changes.map((change) => change.text)).toContain("1 tag added (1 new)");
   });
 
+  it("ignores an exclusion on a scraped name that lines up with a tag the video has", () => {
+    // "Tit Tease" was taken out while it was still a new name of its own; it now lands on "Tit Worship".
+    const review = buildTaggerReview(
+      aliased({
+        video: { ...video, tags: [...video.tags, { id: 2, name: "Tit Worship" }] } as Video,
+        currentTagNames: ["Old tag", "Tit Worship"],
+        result: { ...result, tagNames: ["Tit Tease"], tagCandidates: [] } as MetadataServerVideoMatch,
+        tagMatchInfo: { "tit tease": "Tit Worship" },
+        tagActions: { "tit tease": "exclude" },
+        collectionModes: { urls: "merge", tags: "replace", performers: "merge", studio: "replace" },
+      }),
+    );
+    expect(review.selection.tags).toEqual(["tit worship"]);
+  });
+
   it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {
     const review = buildTaggerReview(
       aliased({

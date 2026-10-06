@@ -725,6 +725,11 @@ function buildVideoRelationActionMap(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
+  /**
+   * Tags only: the library name each scraped name resolved to. A name that lands on a current item is
+   * that item, so an exclusion made while it still stood on its own is ignored, as the review ignores it.
+   */
+  matchInfo?: Record<string, string>,
 ): ScrapeRelationActionMap {
   const current = new Set(currentNames.map(relationKey));
   const existing = new Set(existingNames.map(relationKey));
@@ -735,7 +740,9 @@ function buildVideoRelationActionMap(
   for (const name of names) {
     const key = relationKey(name);
     if (!key) continue;
-    if (excluded.has(key)) actions[key] = "exclude";
+    if (matchInfo && current.has(relationKey(Object.hasOwn(matchInfo, key) ? matchInfo[key] : name)))
+      actions[key] = "include";
+    else if (excluded.has(key)) actions[key] = "exclude";
     else if (forced.has(key)) actions[key] = "create";
     else if (current.has(key) || existing.has(key)) actions[key] = "include";
     else actions[key] = createMissing ? "create" : "exclude";
@@ -751,10 +758,19 @@ function buildVideoRelationSelections(
   excludedNames: Set<string> | undefined,
   forceCreateNames: Set<string> | undefined,
   createMissing: boolean,
+  matchInfo: Record<string, string> | undefined,
 ): ScrapeCollectionItemSelection[] {
   return buildRelationSelectionPayload(
     names,
-    buildVideoRelationActionMap(names, currentNames, existingNames, excludedNames, forceCreateNames, createMissing),
+    buildVideoRelationActionMap(
+      names,
+      currentNames,
+      existingNames,
+      excludedNames,
+      forceCreateNames,
+      createMissing,
+      matchInfo,
+    ),
   );
 }
 
@@ -763,6 +779,7 @@ function buildScraperVideoApplyRequest(
   video: Video,
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
+  tagMatchInfo: Record<string, string> | undefined,
 ): ApplyVideoScrapeAttemptRequest {
   const fieldStrategies = buildVideoFieldStrategies(video, result, state, taggerConfig);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
@@ -807,6 +824,7 @@ function buildScraperVideoApplyRequest(
             state?.excludedTags,
             state?.forceIncludedTags,
             !taggerConfig.onlyExistingTags,
+            tagMatchInfo ?? {},
           )
         : undefined,
     performerSelections:
@@ -1912,6 +1930,7 @@ function TaggerVideoRow({
       state?.excludedTags,
       state?.forceIncludedTags,
       !taggerConfig.onlyExistingTags,
+      tagMatchInfo ?? {},
     );
     const performerChoices = getPerformerChoices(selectedResult);
     const performerActions = buildVideoRelationActionMap(
@@ -1930,7 +1949,7 @@ function TaggerVideoRow({
       if (!selectedResult.scrapeAttemptId) throw new TaggerPreconditionError("No scraper attempt selected");
       return scrapeAttempts.apply(
         selectedResult.scrapeAttemptId,
-        buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig),
+        buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig, tagMatchInfo),
       );
     }
 
@@ -2700,6 +2719,7 @@ function TaggerResultRow({
     excludedTags,
     forceIncludedTags,
     !taggerConfig.onlyExistingTags,
+    tagMatchInfo ?? {},
   );
   const performerActions = buildVideoRelationActionMap(
     performerChoiceKeys,

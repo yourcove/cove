@@ -265,7 +265,12 @@ function tagItems(input: TaggerReviewInput) {
     }),
   );
   const nameIncluded = (name: string) => input.tagActions[relationKey(name)] !== "exclude";
-  const included = [...groups].filter(([, group]) => group.names.some(nameIncluded)).map(([id]) => id);
+  // A name that lands on a tag the video has is that tag, which only a hand removal takes off; an
+  // exclusion made while the name still stood on its own (before an alias matched it) means nothing here.
+  // The video tagger's actions already say so; the review does not rely on its caller for it.
+  const included = [...groups]
+    .filter(([id, group]) => currentIds.has(id) || group.names.some(nameIncluded))
+    .map(([id]) => id);
   // Flipping an item flips only the names behind it that are not already on its new side.
   const namesToToggle = (id: string) => {
     const names = groups.get(id)?.names ?? [];

@@ -1815,6 +1815,35 @@ describe("VideoTagger", () => {
       expect(screen.queryByRole("button", { name: /^Link Tags/ })).not.toBeInTheDocument();
     });
 
+    it("keeps a tag the video has when an excluded scraped name later turns out to be its alias", async () => {
+      localStorage.setItem("cove-tagger-config", JSON.stringify({ onlyExistingTags: false }));
+      const queryClient = await scrape({ Title: "Scraped title", Tags: [{ Name: "Tit Tease" }] }, [
+        { id: 2, name: "Tit Worship" },
+      ]);
+      await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Remove Tags: Tit Tease" }));
+      await userEvent.click(screen.getByRole("button", { name: "Use source Tags" }));
+
+      // Another row links the name, so this row's lookup now lands it on the tag the video has.
+      mocks.resolveRelations.mockResolvedValue({
+        ...noMatches,
+        tags: [{ input: "Tit Tease", matchedName: "Tit Worship" }],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["tagger-resolve-relations"] });
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Remove Tags: Tit Tease" })).not.toBeInTheDocument(),
+      );
+      // The exclusion was made on a separate new name; on the tag the video has it no longer means anything.
+      expect(screen.getByRole("button", { name: "Remove Tit Worship" })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScrapeAttempt).toHaveBeenCalledOnce());
+      const request = mocks.applyScrapeAttempt.mock.calls[0][1];
+      expect(request.collectionModes.tags).toBe("replace");
+      expect(request.tagSelections).toEqual([{ name: "Tit Tease", action: "include" }]);
+      expect(request.removedTagIds).toBeUndefined();
+    });
+
     describe("Apply all", () => {
       // A metadata-server match with a tag its search did not find, which the row asks the library about.
       const withUnmatchedTag = () =>
