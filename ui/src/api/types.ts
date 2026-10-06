@@ -4001,6 +4001,7 @@ export interface ExtensionInfo {
   source: string;
   installedAt?: string;
   jobs: { id: string; name: string; description?: string }[];
+  restartRequiredReason?: string | null;
 }
 
 export interface ExtensionExternalDependency {

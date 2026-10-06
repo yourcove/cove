@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Loader;
 using System.Text.Json;
 using Cove.Core.Common;
@@ -39,6 +41,7 @@ public class ExtensionManager : IExtensionContributionRuntime
     private readonly SemaphoreSlim _extensionMigrationGate = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _startupDisabledExtensions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _extensionFailureReasons = new(StringComparer.OrdinalIgnoreCase);
+    private volatile ConcurrentDictionary<string, string> _restartRequiredReasons = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _unloadOperations = new(StringComparer.OrdinalIgnoreCase);
     private readonly AsyncLocal<IReadOnlySet<string>?> _activeUnloadOperations = new();
     private IServiceScopeFactory? _scopeFactory;
@@ -222,7 +225,14 @@ public class ExtensionManager : IExtensionContributionRuntime
             .Where(dir => !string.Equals(Path.GetFileName(dir), ".load-cache", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         CleanupStaleLoadCaches(extensionsDir, extensionDirectories);
-        ExtensionLoadContext.PreloadSharedAssemblies(extensionsDir, extensionDirectories);
+        var sharedAssemblyChanges = ExtensionLoadContext.PreloadSharedAssemblies(extensionsDir, extensionDirectories)
+            .ToDictionary(change => change.AssemblyName, StringComparer.OrdinalIgnoreCase);
+        foreach (var change in sharedAssemblyChanges.Values)
+            _logger?.LogWarning("{Reason}", DescribeRestartRequired(change));
+
+        // Loaded shared copies never change, so this depends only on the installed copies. It is rebuilt
+        // on every discovery and swapped in whole so readers never see a partly filled set.
+        var restartRequiredReasons = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dir in extensionDirectories)
         {
@@ -239,6 +249,13 @@ public class ExtensionManager : IExtensionContributionRuntime
 
                     if (manifestFile != null)
                     {
+                        var changedSharedAssembly = (manifestFile.SharedAssemblies ?? [])
+                            .Where(name => !string.IsNullOrWhiteSpace(name))
+                            .Select(name => sharedAssemblyChanges.GetValueOrDefault(name.Trim()))
+                            .FirstOrDefault(change => change != null);
+                        if (changedSharedAssembly != null)
+                            restartRequiredReasons[manifestFile.Id] = DescribeRestartRequired(changedSharedAssembly);
+
                         var publicationGate = TryAcquireExtensionPublicationGate(manifestFile.Id);
                         if (publicationGate == null)
                         {
@@ -429,6 +446,15 @@ public class ExtensionManager : IExtensionContributionRuntime
                 _logger?.LogError(ex, "Failed to process extension directory {Dir}", dir);
             }
         }
+
+        // An extension unloaded while this pass ran cleared its reason from the previous set; keep it cleared.
+        foreach (var id in restartRequiredReasons.Keys)
+        {
+            if (!_manifestFiles.ContainsKey(id))
+                restartRequiredReasons.TryRemove(id, out _);
+        }
+
+        _restartRequiredReasons = restartRequiredReasons;
     }
 
     // ========================================================================
@@ -1712,6 +1738,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                 _extensionDirectories.TryRemove(id, out _);
                 _startupDisabledExtensions.TryRemove(id, out _);
                 _extensionFailureReasons.TryRemove(id, out _);
+                _restartRequiredReasons.TryRemove(id, out _);
             }
             await RemoveInstallationStateAsync(id, ct);
             return known;
@@ -2474,6 +2501,18 @@ public class ExtensionManager : IExtensionContributionRuntime
     public string? GetLastFailureReason(string id) =>
         _extensionFailureReasons.TryGetValue(id, out var reason) ? reason : null;
 
+    /// <summary>
+    /// Why the extension needs a Cove restart before it sees its installed files, or null when it does not.
+    /// Set when an installed copy of a shared assembly it declares differs from the copy already loaded.
+    /// </summary>
+    public string? GetRestartRequiredReason(string id) =>
+        _restartRequiredReasons.TryGetValue(id, out var reason) ? reason : null;
+
+    private static string DescribeRestartRequired(SharedAssemblyChange change) =>
+        change.InstalledVersion != null && change.InstalledVersion == change.LoadedVersion
+            ? $"Restart Cove to load the reinstalled build of shared assembly {change.AssemblyName} {change.InstalledVersion}."
+            : $"Restart Cove to load shared assembly {change.AssemblyName} {change.InstalledVersion?.ToString() ?? "(unknown version)"}; {change.LoadedVersion?.ToString() ?? "an unknown version"} is loaded.";
+
     public bool IsEffectivelyInstalled(string id)
     {
         if (GetExtension(id) != null) return true;
@@ -3073,6 +3112,7 @@ public class ExtensionManager : IExtensionContributionRuntime
 
         _manifestFiles.TryRemove(id, out _);
         _extensionDirectories.TryRemove(id, out _);
+        _restartRequiredReasons.TryRemove(id, out _);
         // Drop the active-slot record so the now-unreferenced shadow-copy slot is reaped on the
         // next discovery pass (it stays protected only while the extension is loaded).
         _loadCacheSlots.TryRemove(id, out _);
@@ -3271,6 +3311,9 @@ public class ExtensionManager : IExtensionContributionRuntime
     }
 }
 
+/// <summary>A shared assembly whose preferred installed copy differs from the copy loaded in this process.</summary>
+internal sealed record SharedAssemblyChange(string AssemblyName, Version? LoadedVersion, Version? InstalledVersion);
+
 internal sealed class ExtensionLoadContext : AssemblyLoadContext
 {
     private static readonly JsonSerializerOptions ManifestJsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -3386,21 +3429,29 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
         return File.Exists(cachedPath) ? cachedPath : fullSourcePath;
     }
 
-    internal static void PreloadSharedAssemblies(string extensionsRoot, IEnumerable<string> extensionDirectories)
+    /// <summary>
+    /// Chooses the preferred installed copy of each shared assembly (the highest assembly version, then the
+    /// newest file) and loads it the first time the name is seen. A shared assembly lives in the default
+    /// context, which never unloads, so later calls only compare. Returns the shared assemblies whose preferred
+    /// installed copy is not the loaded one and is not older, meaning only a restart makes extensions see it.
+    /// </summary>
+    internal static IReadOnlyList<SharedAssemblyChange> PreloadSharedAssemblies(string extensionsRoot, IEnumerable<string> extensionDirectories)
     {
+        var changes = new List<SharedAssemblyChange>();
         foreach (var assemblyName in DiscoverSharedAssemblyNames(extensionDirectories))
         {
-            var preferredSourcePath = extensionDirectories
+            var preferredSource = extensionDirectories
                 .Select(dir => Path.Combine(dir, $"{assemblyName}.dll"))
                 .Where(File.Exists)
                 .Select(path => new FileInfo(path))
-                .OrderByDescending(static file => file.LastWriteTimeUtc)
-                .ThenByDescending(static file => file.Length)
-                .ThenBy(static file => file.FullName, StringComparer.OrdinalIgnoreCase)
-                .Select(static file => file.FullName)
+                .Select(static file => (File: file, Identity: ReadAssemblyIdentity(file.FullName)))
+                .OrderByDescending(static candidate => candidate.Identity.Version)
+                .ThenByDescending(static candidate => candidate.File.LastWriteTimeUtc)
+                .ThenByDescending(static candidate => candidate.File.Length)
+                .ThenBy(static candidate => candidate.File.FullName, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault();
 
-            if (preferredSourcePath is null)
+            if (preferredSource.File is null)
             {
                 continue;
             }
@@ -3409,11 +3460,47 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
             {
                 if (!PreferredSharedAssemblyPaths.ContainsKey(assemblyName))
                 {
-                    PreferredSharedAssemblyPaths[assemblyName] = CreateSharedShadowCopy(extensionsRoot, assemblyName, preferredSourcePath);
+                    PreferredSharedAssemblyPaths[assemblyName] = CreateSharedShadowCopy(extensionsRoot, assemblyName, preferredSource.File.FullName);
                 }
             }
 
-            _ = TryLoadSharedAssembly(new AssemblyName(assemblyName));
+            // The host may already supply this assembly itself; a restart would not replace that copy.
+            var loaded = TryLoadSharedAssembly(new AssemblyName(assemblyName));
+            string sharedCopyPath;
+            lock (SharedAssemblyGate)
+                sharedCopyPath = Path.GetFullPath(PreferredSharedAssemblyPaths[assemblyName]);
+            if (loaded is null || !string.Equals(loaded.Location, sharedCopyPath, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // A rebuild can keep the assembly version, so the module version id tells copies apart.
+            var loadedVersion = loaded.GetName().Version;
+            var installed = preferredSource.Identity;
+            if (installed.ModuleVersionId is { } installedMvid
+                && installedMvid != loaded.ManifestModule.ModuleVersionId
+                && (installed.Version is null || loadedVersion is null || installed.Version >= loadedVersion))
+            {
+                changes.Add(new SharedAssemblyChange(assemblyName, loadedVersion, installed.Version));
+            }
+        }
+
+        return changes;
+    }
+
+    private static (Version? Version, Guid? ModuleVersionId) ReadAssemblyIdentity(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var metadata = peReader.GetMetadataReader();
+            return (metadata.GetAssemblyDefinition().Version, metadata.GetGuid(metadata.GetModuleDefinition().Mvid));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException)
+        {
+            // Unreadable copies sort last and are never reported as a change.
+            return (null, null);
         }
     }
 

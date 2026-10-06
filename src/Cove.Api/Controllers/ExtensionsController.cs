@@ -220,7 +220,8 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                         manifest?.Kind ?? "extension",
                         install?.Source ?? "unknown",
                         install?.InstalledAt,
-                        e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : []);
+                        e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : [],
+                        extensionManager.GetRestartRequiredReason(e.Id));
                 });
             })
                 .Where(info => info != null)
@@ -264,7 +265,8 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                     manifest.Kind,
                     install.Source,
                     install.InstalledAt,
-                    []);
+                    [],
+                    null);
             })
             .Where(info => info != null)
             .Cast<ExtensionInfo>());
@@ -600,7 +602,12 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             if (!initialized)
             {
                 var action = installationSource == "url" ? "downloaded" : "uploaded";
-                return StatusCode(500, new { message = $"Extension '{manifest.Id}' was {action} but failed to initialize.", path = extensionDir });
+                return StatusCode(500, new
+                {
+                    message = $"Extension '{manifest.Id}' was {action} but failed to initialize.",
+                    path = extensionDir,
+                    restartRequiredReason = extensionManager.GetRestartRequiredReason(manifest.Id),
+                });
             }
 
             await extensionManager.SetInstallationSourceAsync(manifest.Id, installationSource, ct);
@@ -785,6 +792,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 path = installPath,
                 detail = extensionManager.GetLastFailureReason(request.ExtensionId)
                     ?? $"Extension '{request.ExtensionId}' was not loaded during discovery.",
+                restartRequiredReason = extensionManager.GetRestartRequiredReason(request.ExtensionId),
             });
         }
 
@@ -1253,7 +1261,8 @@ public record ExtensionInfo(
     string Kind,
     string Source,
     DateTime? InstalledAt,
-    List<JobInfo> Jobs);
+    List<JobInfo> Jobs,
+    string? RestartRequiredReason);
 
 public record JobInfo(string Id, string Name, string? Description);
 

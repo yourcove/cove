@@ -7983,6 +7983,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
     hasState: boolean;
     hasEvents: boolean;
     jobs: { id: string; name: string; description?: string }[];
+    restartRequiredReason?: string | null;
     legacyTasks?: import("../api/types").PluginTask[];
     legacySettings?: import("../api/types").PluginSettingSchema[];
   };
@@ -8011,6 +8012,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
         hasState: ext.hasState,
         hasEvents: ext.hasEvents,
         jobs: ext.jobs,
+        restartRequiredReason: ext.restartRequiredReason,
       });
     }
 
@@ -8270,6 +8272,14 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                               Unverified
                             </span>
                           )}
+                          {ext.restartRequiredReason && (
+                            <span
+                              title={ext.restartRequiredReason}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25"
+                            >
+                              Restart required
+                            </span>
+                          )}
                           {ext.author && <span className="text-xs text-muted">by {ext.author}</span>}
                         </div>
                         {ext.description && <div className="text-xs text-secondary truncate">{ext.description}</div>}
@@ -8367,6 +8377,9 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                   {loadFailure && <ExtensionLoadFailureDetails failure={loadFailure} retry={retryFailedExtensions} />}
                   {isExpanded && (
                     <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
+                      {ext.restartRequiredReason && (
+                        <div className="text-xs text-orange-300">{ext.restartRequiredReason}</div>
+                      )}
                       <div className="text-xs text-muted">
                         <span className="font-medium">ID:</span> {ext.id}
                         {ext.url && (
