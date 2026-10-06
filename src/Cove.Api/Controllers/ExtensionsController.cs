@@ -842,6 +842,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         CancellationToken ct = default)
     {
         if (!extensionManager.Installations.ContainsKey(request.ExtensionId)
+            && extensionManager.GetManifestFile(request.ExtensionId) == null
             && !extensionManager.Extensions.Any(extension => string.Equals(extension.Id, request.ExtensionId, StringComparison.OrdinalIgnoreCase)))
         {
             return NotFound($"Extension '{request.ExtensionId}' not found.");
@@ -876,6 +877,8 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
         foreach (var extensionId in idsToUninstall)
         {
+            // Resolve the directory before unloading, which forgets where the extension was discovered.
+            var extDir = ResolveInstalledExtensionDirectory(extensionsDir, extensionId);
             var unloaded = await extensionManager.UnloadExtensionAsync(extensionId, HttpContext.RequestServices, ct);
             if (!unloaded)
             {
@@ -885,8 +888,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 continue;
             }
 
-            var extDir = Path.Combine(extensionsDir, extensionId);
-            if (Directory.Exists(extDir))
+            if (Directory.Exists(extDir) && !IsDirectoryUsedByAnotherExtension(extDir))
             {
                 var deleteError = await DeleteDirectoryWithRetriesAsync(extDir, ct);
                 if (deleteError != null && Directory.Exists(extDir))
@@ -913,6 +915,31 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             requiresDependents = false,
             uninstalledExtensions,
         });
+    }
+
+    /// <summary>
+    /// The directory the extension was discovered in when it lies inside the extensions directory,
+    /// otherwise the conventional directory named after its id.
+    /// </summary>
+    private string ResolveInstalledExtensionDirectory(string extensionsDir, string extensionId)
+    {
+        var discoveredDir = extensionManager.GetExtensionDirectory(extensionId);
+        return discoveredDir != null && IsPathInsideDirectory(extensionsDir, discoveredDir)
+            ? Path.GetFullPath(discoveredDir)
+            : Path.Combine(extensionsDir, extensionId);
+    }
+
+    /// <summary>
+    /// True when a still-registered extension was discovered in the same directory, as happens when one
+    /// folder's DLL exposes several extensions. Its files must stay until that extension is uninstalled too.
+    /// </summary>
+    private bool IsDirectoryUsedByAnotherExtension(string directory)
+    {
+        var fullDirectory = Path.GetFullPath(directory);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return extensionManager.Installations.Keys
+            .Select(extensionManager.GetExtensionDirectory)
+            .Any(candidate => candidate != null && string.Equals(Path.GetFullPath(candidate), fullDirectory, comparison));
     }
 
     private ExtensionDependencyImpact CreateDependencyImpact(string extensionId)

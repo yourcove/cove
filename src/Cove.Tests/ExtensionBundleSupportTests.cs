@@ -1611,6 +1611,174 @@ public class ExtensionBundleSupportTests
         }
     }
 
+    [Fact]
+    public async Task RegistryUninstall_RemovesExtensionThatFailedToLoad()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-broken-uninstall-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+        // The folder name differs from the id so the recorded directory, not the id, decides what is removed.
+        var brokenDir = Path.Combine(extensionsDir, "broken-folder");
+
+        Directory.CreateDirectory(dataDir);
+        await WriteUnloadableExtensionAsync(brokenDir, "broken.extension", dependencies: null);
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+
+            manager.DiscoverExtensions(extensionsDir);
+            Assert.Null(manager.GetExtension("broken.extension"));
+            Assert.NotNull(manager.GetLastFailureReason("broken.extension"));
+
+            var controller = CreateController(manager, new ServiceCollection().BuildServiceProvider());
+            var uninstallResult = await controller.RegistryUninstall(
+                new RegistryUninstallRequest { ExtensionId = "broken.extension" },
+                TestContext.Current.CancellationToken);
+
+            Assert.IsType<OkObjectResult>(uninstallResult);
+            Assert.False(Directory.Exists(brokenDir));
+            Assert.Null(manager.GetInstallation("broken.extension"));
+            Assert.Null(manager.GetManifestFile("broken.extension"));
+            Assert.Null(manager.GetLastFailureReason("broken.extension"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RegistryUninstall_RemovesExtensionKnownOnlyByItsManifest()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-manifest-only-uninstall-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+        var extensionDir = Path.Combine(extensionsDir, "missing.entry");
+
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(extensionDir);
+        // The entry DLL is absent, so discovery registers the manifest but records no installation or failure.
+        await File.WriteAllTextAsync(Path.Combine(extensionDir, "extension.json"), JsonSerializer.Serialize(new ExtensionManifestFile
+        {
+            Id = "missing.entry",
+            Name = "Missing Entry",
+            Version = "1.0.0",
+            EntryDll = "Missing.Entry.dll",
+        }), TestContext.Current.CancellationToken);
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+
+            manager.DiscoverExtensions(extensionsDir);
+            Assert.NotNull(manager.GetManifestFile("missing.entry"));
+            Assert.Null(manager.GetInstallation("missing.entry"));
+
+            var controller = CreateController(manager, new ServiceCollection().BuildServiceProvider());
+            var uninstallResult = await controller.RegistryUninstall(
+                new RegistryUninstallRequest { ExtensionId = "missing.entry" },
+                TestContext.Current.CancellationToken);
+
+            Assert.IsType<OkObjectResult>(uninstallResult);
+            Assert.False(Directory.Exists(extensionDir));
+            Assert.Null(manager.GetManifestFile("missing.entry"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RegistryUninstall_RemovesDependentThatFailedToLoad()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-broken-dependent-uninstall-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+        var baseDir = Path.Combine(extensionsDir, "base.pack");
+        var brokenDir = Path.Combine(extensionsDir, "broken.dependent");
+
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(baseDir);
+        await File.WriteAllTextAsync(Path.Combine(baseDir, "extension.json"), JsonSerializer.Serialize(new ExtensionManifestFile
+        {
+            Id = "base.pack",
+            Name = "Base Pack",
+            Version = "1.0.0",
+            Kind = "scraper-pack",
+        }), TestContext.Current.CancellationToken);
+        await WriteUnloadableExtensionAsync(brokenDir, "broken.dependent", new Dictionary<string, string> { ["base.pack"] = ">=1.0.0" });
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+
+            manager.DiscoverExtensions(extensionsDir);
+            Assert.Null(manager.GetExtension("broken.dependent"));
+            var controller = CreateController(manager, new ServiceCollection().BuildServiceProvider());
+
+            var uninstallResult = await controller.RegistryUninstall(new RegistryUninstallRequest
+                {
+                    ExtensionId = "base.pack",
+                    UninstallDependents = true,
+                }, TestContext.Current.CancellationToken);
+
+            var ok = Assert.IsType<OkObjectResult>(uninstallResult);
+            var body = JsonSerializer.SerializeToElement(ok.Value);
+            Assert.Equal(
+                ["broken.dependent", "base.pack"],
+                body.GetProperty("uninstalledExtensions").EnumerateArray().Select(item => item.GetString()).ToArray());
+            Assert.False(Directory.Exists(baseDir));
+            Assert.False(Directory.Exists(brokenDir));
+            Assert.Null(manager.GetInstallation("broken.dependent"));
+            Assert.Empty(manager.GetDependentExtensionIds("base.pack"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>Writes a runtime extension whose entry DLL is not a valid assembly, so discovery records a load failure.</summary>
+    private static async Task WriteUnloadableExtensionAsync(string directory, string id, Dictionary<string, string>? dependencies)
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "extension.json"), JsonSerializer.Serialize(new ExtensionManifestFile
+        {
+            Id = id,
+            Name = "Unloadable Extension",
+            Version = "1.0.0",
+            EntryDll = "Unloadable.dll",
+            Dependencies = dependencies ?? [],
+        }), TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(directory, "Unloadable.dll"), [0x00, 0x01, 0x02, 0x03], TestContext.Current.CancellationToken);
+    }
+
     private sealed class RuntimeCategoryFallbackExtension : IExtension
     {
         public const string ExtensionId = "com.example.runtime-category-fallback";

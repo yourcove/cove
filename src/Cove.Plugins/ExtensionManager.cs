@@ -1702,11 +1702,19 @@ public class ExtensionManager : IExtensionContributionRuntime
                 return true;
             }
 
-            // It may still exist as a stale installation record.
+            // A runtime extension that failed to load has a manifest and an installation record but no
+            // registered instance. It is still installed, so forget it entirely and report success; the
+            // caller then removes its directory instead of leaving it to fail again at every start.
+            bool known;
             lock (_extensionSetMutationGate)
-                _installations.TryRemove(id, out _);
+            {
+                known = _installations.TryRemove(id, out _) | _manifestFiles.TryRemove(id, out _);
+                _extensionDirectories.TryRemove(id, out _);
+                _startupDisabledExtensions.TryRemove(id, out _);
+                _extensionFailureReasons.TryRemove(id, out _);
+            }
             await RemoveInstallationStateAsync(id, ct);
-            return false;
+            return known;
         }
 
         var wasDataExtension = ext is IDataExtension;
