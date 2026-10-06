@@ -180,11 +180,14 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [HttpGet]
     public ActionResult<IEnumerable<ExtensionInfo>> GetExtensions([FromQuery] string? category = null)
     {
-        var loadedIds = extensionManager.Extensions
+        // One snapshot for both lists; with the check below, an extension registered mid-request is never
+        // listed twice or reported as failed.
+        var loadedExtensions = extensionManager.Extensions.ToList();
+        var loadedIds = loadedExtensions
             .Select(e => extensionManager.ExecuteExtensionMetadata(e, () => e.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var items = extensionManager.Extensions
+        var items = loadedExtensions
             .Select(e =>
             {
                 return extensionManager.ExecuteExtensionMetadata(e, () =>
@@ -221,15 +224,18 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                         install?.Source ?? "unknown",
                         install?.InstalledAt,
                         e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : [],
-                        extensionManager.GetRestartRequiredReason(e.Id));
+                        extensionManager.GetRestartRequiredReason(e.Id),
+                        null);
                 });
             })
                 .Where(info => info != null)
                 .Cast<ExtensionInfo>()
             .ToList();
 
+        // Installed packages with no runtime instance: manifest-only bundles and scraper packs, and runtime
+        // extensions whose DLL failed to load. The failed ones are listed so they can still be uninstalled.
         items.AddRange(extensionManager.Installations.Values
-            .Where(install => !loadedIds.Contains(install.ExtensionId) && extensionManager.IsManifestOnlyExtension(install.ExtensionId))
+            .Where(install => !loadedIds.Contains(install.ExtensionId) && extensionManager.GetExtension(install.ExtensionId) == null)
             .Select(install =>
             {
                 var manifest = extensionManager.GetManifestFile(install.ExtensionId);
@@ -240,6 +246,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 if (!MatchesCategory(categories, category))
                     return null;
 
+                var isManifestOnly = extensionManager.IsManifestOnlyExtension(manifest.Id);
                 return new ExtensionInfo(
                     manifest.Id,
                     manifest.Name,
@@ -266,7 +273,10 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                     install.Source,
                     install.InstalledAt,
                     [],
-                    null);
+                    null,
+                    isManifestOnly
+                        ? null
+                        : extensionManager.GetLastFailureReason(manifest.Id) ?? "Cove did not load this extension's DLL.");
             })
             .Where(info => info != null)
             .Cast<ExtensionInfo>());
@@ -1262,7 +1272,8 @@ public record ExtensionInfo(
     string Source,
     DateTime? InstalledAt,
     List<JobInfo> Jobs,
-    string? RestartRequiredReason);
+    string? RestartRequiredReason,
+    string? FailureReason);
 
 public record JobInfo(string Id, string Name, string? Description);
 

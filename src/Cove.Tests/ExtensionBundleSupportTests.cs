@@ -1657,6 +1657,48 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public async Task GetExtensions_lists_an_extension_that_failed_to_load_with_its_failure_reason()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-failed-load-list-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+        Directory.CreateDirectory(dataDir);
+        await WriteUnloadableExtensionAsync(Path.Combine(extensionsDir, "broken.extension"), "broken.extension", dependencies: null);
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+            manager.DiscoverExtensions(extensionsDir);
+            var controller = CreateController(manager, new ServiceCollection().BuildServiceProvider());
+
+            var ok = Assert.IsType<OkObjectResult>(controller.GetExtensions().Result);
+            var broken = Assert.Single(Assert.IsAssignableFrom<IEnumerable<ExtensionInfo>>(ok.Value));
+
+            Assert.Equal("broken.extension", broken.Id);
+            Assert.Equal("Unloadable Extension", broken.Name);
+            Assert.Equal("1.0.0", broken.Version);
+            // Update checks read the installation record, so it must carry the version on disk too.
+            Assert.Equal("1.0.0", manager.GetInstallation("broken.extension")?.Version);
+            Assert.Equal("extension", broken.Kind);
+            Assert.False(broken.Enabled);
+            Assert.Equal(manager.GetLastFailureReason("broken.extension"), broken.FailureReason);
+            Assert.Contains("BadImageFormatException", broken.FailureReason);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RegistryUninstall_RemovesExtensionKnownOnlyByItsManifest()
     {
         var root = Path.Combine(Path.GetTempPath(), $"cove-manifest-only-uninstall-{Guid.NewGuid():N}");

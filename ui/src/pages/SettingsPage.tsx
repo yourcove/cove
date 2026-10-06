@@ -7814,7 +7814,7 @@ function ExtensionSettingsForm({
 }
 
 // ===== Extensions Panel — unified view of all extensions =====
-function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
+export function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   const {
     loadFailures = [],
     retryFailedExtensions,
@@ -7984,6 +7984,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
     hasEvents: boolean;
     jobs: { id: string; name: string; description?: string }[];
     restartRequiredReason?: string | null;
+    failureReason?: string | null;
     legacyTasks?: import("../api/types").PluginTask[];
     legacySettings?: import("../api/types").PluginSettingSchema[];
   };
@@ -8013,6 +8014,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
         hasEvents: ext.hasEvents,
         jobs: ext.jobs,
         restartRequiredReason: ext.restartRequiredReason,
+        failureReason: ext.failureReason,
       });
     }
 
@@ -8251,7 +8253,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className={`w-2 h-2 rounded-full shrink-0 ${loadFailure ? "bg-yellow-500" : ext.enabled ? "bg-green-400" : "bg-gray-500"}`}
+                        className={`w-2 h-2 rounded-full shrink-0 ${loadFailure || ext.failureReason ? "bg-yellow-500" : ext.enabled ? "bg-green-400" : "bg-gray-500"}`}
                       />
                       <div className="min-w-0">
                         <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
@@ -8283,6 +8285,11 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                           {ext.author && <span className="text-xs text-muted">by {ext.author}</span>}
                         </div>
                         {ext.description && <div className="text-xs text-secondary truncate">{ext.description}</div>}
+                        {ext.failureReason && (
+                          <div className="text-xs text-yellow-300 truncate" title={ext.failureReason}>
+                            {ext.failureReason}
+                          </div>
+                        )}
                         {ext.categories.length > 0 && (
                           <div className="flex gap-1 mt-1 flex-wrap">
                             {ext.categories.map((c) => (
@@ -8334,6 +8341,10 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                         <span className="px-3 py-1 text-xs rounded font-medium bg-sky-500/15 text-sky-300 border border-sky-500/25">
                           Bundle
                         </span>
+                      ) : ext.failureReason ? (
+                        <span className="px-3 py-1 text-xs rounded font-medium bg-yellow-500/15 text-yellow-300 border border-yellow-500/25">
+                          Failed to load
+                        </span>
                       ) : (
                         <button
                           onClick={(e) => {
@@ -8379,6 +8390,9 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                     <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
                       {ext.restartRequiredReason && (
                         <div className="text-xs text-orange-300">{ext.restartRequiredReason}</div>
+                      )}
+                      {ext.failureReason && (
+                        <div className="text-xs text-yellow-300 break-words">{ext.failureReason}</div>
                       )}
                       <div className="text-xs text-muted">
                         <span className="font-medium">ID:</span> {ext.id}

@@ -437,7 +437,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                                 _logger?.LogError(le, "Loader exception while loading extension DLL {Dll}", sourceDll);
                         }
                         if (manifestFile != null)
-                            DisableExtensionForStartupFailure(manifestFile.Id, ex, "discover");
+                            DisableExtensionForStartupFailure(manifestFile.Id, ex, "discover", manifestFile.Version);
                     }
                 }
             }
@@ -2995,7 +2995,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         await SaveInstallationAsync(scope.ServiceProvider, extensionId, ct, keepSavedEnabled);
     }
 
-    private void DisableExtensionForStartupFailure(string extensionId, Exception ex, string phase)
+    private void DisableExtensionForStartupFailure(string extensionId, Exception ex, string phase, string? manifestVersion = null)
     {
         if (string.IsNullOrWhiteSpace(extensionId))
             return;
@@ -3008,10 +3008,11 @@ public class ExtensionManager : IExtensionContributionRuntime
             }
             else
             {
+                // The version on disk, when known, so update checks and the extensions list agree on it.
                 _installations[extensionId] = new ExtensionInstallation
                 {
                     ExtensionId = extensionId,
-                    Version = "0.0.0",
+                    Version = manifestVersion ?? "0.0.0",
                     Enabled = false,
                     Source = "local",
                 };
