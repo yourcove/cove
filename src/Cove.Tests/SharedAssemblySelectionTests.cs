@@ -11,11 +11,32 @@ namespace Cove.Tests;
 /// Shared assemblies load into the default context, which never unloads. Each test therefore uses an
 /// assembly name of its own so the process-wide preferred copy and loaded assembly start empty.
 /// </summary>
+/// <remarks>
+/// The loaded shadow copy stays open until the test process exits, and Windows refuses to delete an open
+/// file. Cleanup therefore removes what it can and leaves the loaded copy behind, and each run sweeps the
+/// folders that earlier runs could not finish deleting.
+/// </remarks>
 public sealed class SharedAssemblySelectionTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"cove-shared-assembly-{Guid.NewGuid():N}");
+    private static readonly string TestsRoot = Path.Combine(Path.GetTempPath(), "cove-shared-assembly-tests");
+    private static readonly TimeSpan LeftoverAge = TimeSpan.FromHours(1);
+
+    private readonly string _root = Path.Combine(TestsRoot, Guid.NewGuid().ToString("N"));
     private readonly string _extensionsDir;
     private readonly string _assemblyName = $"Cove.Tests.SharedContract{Guid.NewGuid():N}";
+
+    static SharedAssemblySelectionTests()
+    {
+        if (!Directory.Exists(TestsRoot))
+            return;
+
+        // Only folders old enough that no concurrent test run can still be using them.
+        foreach (var leftover in new DirectoryInfo(TestsRoot).EnumerateDirectories())
+        {
+            if (DateTime.UtcNow - leftover.LastWriteTimeUtc > LeftoverAge)
+                DeleteBestEffort(leftover.FullName);
+        }
+    }
 
     public SharedAssemblySelectionTests()
     {
@@ -23,10 +44,51 @@ public sealed class SharedAssemblySelectionTests : IDisposable
         Directory.CreateDirectory(_extensionsDir);
     }
 
-    public void Dispose()
+    public void Dispose() => DeleteBestEffort(_root);
+
+    private static void DeleteBestEffort(string directory)
     {
-        if (Directory.Exists(_root))
-            Directory.Delete(_root, recursive: true);
+        try
+        {
+            DeleteDeletableEntries(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Another test process sweeping the same leftover removed or locked part of it while it was listed.
+        }
+    }
+
+    private static void DeleteDeletableEntries(string directory)
+    {
+        if (!Directory.Exists(directory))
+            return;
+
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Still loaded by this process.
+            }
+        }
+
+        // Deepest first, so a folder is empty by the time it is deleted unless it holds a loaded file.
+        foreach (var folder in Directory.EnumerateDirectories(directory, "*", SearchOption.AllDirectories)
+            .OrderByDescending(folder => folder.Length)
+            .Append(directory))
+        {
+            try
+            {
+                Directory.Delete(folder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Not empty because a loaded file remains in it.
+            }
+        }
     }
 
     [Fact]
