@@ -1,5 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, CloudDownload, Eye, EyeOff, Loader2, RefreshCw, Settings2, Undo2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  CloudDownload,
+  Eye,
+  EyeOff,
+  Loader2,
+  RefreshCw,
+  Settings2,
+  Undo2,
+  X,
+} from "lucide-react";
 import type { CollectionMode } from "./videoScrapeUtils";
 
 // Reduce an endpoint to its registrable domain (last two labels, "www." dropped) so a remote id stored
@@ -611,5 +623,51 @@ export function CompactListValue({ values, breakAll = false }: { values: string[
   if (values.length === 0) return <span className="text-xs text-muted">Empty</span>;
   return (
     <div className={`text-xs leading-relaxed line-clamp-2 ${breakAll ? "break-all" : ""}`}>{values.join(", ")}</div>
+  );
+}
+
+/**
+ * A row's failed library lookup and its Retry. Not a live region: the page announces how its checks went
+ * once, rather than every row at once. While the lookup is asked again the line stays, its Retry focusable
+ * but marked unavailable, so keyboard focus is kept; when the line goes while Retry has focus,
+ * `onFocusedRemoval` lets the row move focus on.
+ */
+export function LookupFailureLine({
+  retrying,
+  onRetry,
+  onFocusedRemoval,
+}: {
+  retrying: boolean;
+  onRetry: () => void;
+  onFocusedRemoval: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const onFocusedRemovalRef = useRef(onFocusedRemoval);
+  useLayoutEffect(() => {
+    onFocusedRemovalRef.current = onFocusedRemoval;
+  });
+  // A layout cleanup runs before the button leaves the document, so it can still tell whether it has focus.
+  useLayoutEffect(() => {
+    const button = buttonRef.current;
+    return () => {
+      if (button && document.activeElement === button) onFocusedRemovalRef.current();
+    };
+  }, []);
+  return (
+    <span className="flex w-full flex-wrap items-center gap-x-2 text-[11px] text-red-400">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {retrying ? "Checking your library again…" : "Couldn't check which of these are in your library."}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-disabled={retrying || undefined}
+        onClick={() => {
+          if (!retrying) onRetry();
+        }}
+        className="text-accent hover:underline aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:no-underline"
+      >
+        Retry
+      </button>
+    </span>
   );
 }

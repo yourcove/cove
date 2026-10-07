@@ -13,12 +13,14 @@ const mocks = vi.hoisted(() => ({
   findMetadataServerByIds: vi.fn(),
   applyScraped: vi.fn(),
   importFromMetadataServer: vi.fn(),
+  resolveRelations: vi.fn(),
   metadataServers: [] as Array<{ endpoint: string; name: string }>,
 }));
 
 vi.mock("../api/client", () => ({
   system: { listScrapers: mocks.listScrapers },
   tags: { find: mocks.tagsFind },
+  scrapeAttempts: { resolveRelations: mocks.resolveRelations },
   performers: {
     previewScrape: mocks.previewScrape,
     searchMetadataServer: mocks.searchMetadataServer,
@@ -53,6 +55,7 @@ function renderTagger(performers: Performer[], mode: "bulk" | "detail" = "bulk")
 
 describe("PerformerTagger", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mocks.metadataServers.splice(0);
     mocks.listScrapers.mockResolvedValue([
       {
@@ -72,6 +75,8 @@ describe("PerformerTagger", () => {
     mocks.findMetadataServerByIds.mockResolvedValue([]);
     mocks.applyScraped.mockResolvedValue({});
     mocks.importFromMetadataServer.mockResolvedValue({});
+    mocks.resolveRelations.mockResolvedValue({ tags: [], performers: [], studios: [] });
+    window.localStorage.clear();
   });
 
   it("shows a friendly empty result message for scraper 404 responses", async () => {
@@ -174,5 +179,76 @@ describe("PerformerTagger", () => {
         }),
       ),
     );
+  });
+
+  describe("which scraped tags are in the library", () => {
+    const performer: Performer = {
+      id: 7,
+      name: "Jane Doe",
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+    beforeEach(() => {
+      // Missing tags are not created, so only a tag the library has is applied by default.
+      window.localStorage.setItem("cove.performerTaggerConfig", JSON.stringify({ createMissingTags: false }));
+      mocks.previewScrape.mockResolvedValue({
+        scraped: { name: "Jane Doe", tagNames: ["Big Tits", "Brand New"] },
+        inputKind: "name",
+      });
+    });
+    const search = async () => {
+      renderTagger([performer]);
+      await userEvent.click(await screen.findByRole("button", { name: /^Search$/i }));
+    };
+
+    it("asks the server, so a tag it matches by alias is applied without being created", async () => {
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [{ input: "Big Tits", matchedName: "Big Breasts" }],
+        performers: [],
+        studios: [],
+      });
+      await search();
+      await waitFor(() =>
+        expect(mocks.resolveRelations).toHaveBeenCalledWith({
+          tags: ["Big Tits", "Brand New"],
+          performers: [],
+          studios: [],
+        }),
+      );
+      expect(mocks.tagsFind).not.toHaveBeenCalled();
+
+      await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScraped).toHaveBeenCalledOnce());
+      const request = mocks.applyScraped.mock.calls[0][1];
+      expect(request.scraped.tagNames).toEqual(["Big Tits"]);
+      expect(request.createMissingTags).toBe(false);
+    });
+
+    it("holds Apply until the server answers, and offers Retry when it fails", async () => {
+      let fail!: (error: Error) => void;
+      mocks.resolveRelations.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+      await search();
+      const apply = await screen.findByRole("button", { name: /Checking library/ });
+      expect(apply).toBeDisabled();
+
+      fail(new Error("lookup failed"));
+      expect(await screen.findByText("Couldn't check which of these are in your library.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Apply/ })).toBeDisabled();
+
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+      expect(mocks.applyScraped).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,7 +1,9 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { performers, system, tags } from "../api/client";
+import { performers, scrapeAttempts, system } from "../api/client";
 import type {
+  ResolveScrapeRelationsRequest,
+  ResolveScrapeRelationsResult,
   Performer,
   MetadataServer,
   MetadataServerPerformerMatch,
@@ -10,6 +12,7 @@ import type {
   ScraperSummary,
 } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
+import { createRelationLookupBatcher } from "../utils/relationLookupBatcher";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { DEFAULT_COLLECTION_MODES, pickBestSourceUrl, type CollectionMode } from "./videoScrapeUtils";
 import { buildRelationActionMap, relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
@@ -17,6 +20,7 @@ import {
   DEFAULT_TAGGER_DENYLIST,
   RemoteRefreshButtons,
   TaggerSettingsPanel,
+  LookupFailureLine,
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
@@ -321,6 +325,9 @@ function buildPerformerFieldStrategies(
   };
 }
 
+/** Where a row's tag lookup stands: the tags row and Apply wait for "ready". */
+type PerformerTagLookup = "ready" | "waiting" | "failed";
+
 function buildFilteredScrapedPerformer(
   performer: Performer,
   result: UnifiedPerformerMatch,
@@ -382,12 +389,11 @@ export function PerformerTagger({
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
   const { data: scraperList = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers });
-  const { data: tagPage } = useQuery({
-    queryKey: ["performer-tagger-tags"],
-    queryFn: () => tags.find({ page: 1, perPage: 10000, sort: "name", direction: "asc" }),
-    enabled: performerList.length > 0,
-    staleTime: 60_000,
-  });
+  // Whether a scraped tag is in the library is the server's answer, from the matcher the apply uses (names
+  // and aliases, the whole library). The rows share their lookups, so a page asks the server once.
+  const [resolveRelations] = useState(() =>
+    createRelationLookupBatcher((request) => scrapeAttempts.resolveRelations(request)),
+  );
   const performerScrapers = scraperList.filter((scraper) => scraper.entityType.toLowerCase() === "performer");
   const sources: PerformerSource[] = [
     ...metadataServers.map((server) => ({
@@ -420,7 +426,6 @@ export function PerformerTagger({
   const [scraperInputKinds, setScraperInputKinds] = useState<Record<number, PerformerInputKind>>({});
   const [showSettings, setShowSettings] = useState(false);
   const selectedSource = resolveSource(taggerConfig.selectedEndpoint, sources);
-  const existingTagNames = (tagPage?.items ?? []).map((tag) => tag.name);
 
   const getScraperInputKind = useCallback(
     (performer: Performer, source: PerformerSource | undefined): PerformerInputKind => {
@@ -630,7 +635,7 @@ export function PerformerTagger({
             onNavigate={onNavigate}
             metadataServers={metadataServers}
             taggerConfig={taggerConfig}
-            existingTagNames={existingTagNames}
+            resolveRelations={resolveRelations}
             detailMode={mode === "detail"}
           />
         ))}
@@ -655,7 +660,7 @@ function PerformerTaggerRow({
   onNavigate,
   metadataServers,
   taggerConfig,
-  existingTagNames,
+  resolveRelations,
   detailMode = false,
 }: {
   performer: Performer;
@@ -673,11 +678,44 @@ function PerformerTaggerRow({
   onNavigate?: (performerId: number) => void;
   metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
-  existingTagNames: string[];
+  resolveRelations: (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>;
   detailMode?: boolean;
 }) {
   const imageUrl = performer.imagePath;
   const queryClient = useQueryClient();
+  // Every scraper result's tag names, asked about together; metadata-server results bring no tags.
+  const scrapedTagNames = useMemo(
+    () => [...new Set((state?.results ?? []).flatMap((result) => result.scraped?.tagNames ?? []))],
+    [state?.results],
+  );
+  const lookupNeeded = scrapedTagNames.length > 0;
+  const {
+    data: resolvedRelations,
+    isError: lookupErrored,
+    isFetching: lookupFetching,
+    errorUpdateCount: lookupErrorCount,
+  } = useQuery({
+    queryKey: ["performer-tagger-resolve-relations", scrapedTagNames],
+    queryFn: () => resolveRelations({ tags: scrapedTagNames, performers: [], studios: [] }),
+    enabled: lookupNeeded,
+    staleTime: 30_000,
+    // As in the video tagger: offline it fails into Retry rather than reading as still checking, and a
+    // failed lookup is not put back to checking each time the window is focused.
+    networkMode: "always",
+    refetchOnWindowFocus: false,
+  });
+  // The tags row and Apply wait for the first answer for these names; a refetch after an apply keeps it.
+  const tagLookup: PerformerTagLookup =
+    !lookupNeeded || resolvedRelations !== undefined
+      ? "ready"
+      : lookupErrored && !lookupFetching
+        ? "failed"
+        : "waiting";
+  const tagLookupRetrying = lookupNeeded && resolvedRelations === undefined && lookupErrorCount > 0 && lookupFetching;
+  const existingTagNames = useMemo(
+    () => (resolvedRelations?.tags ?? []).map((match) => match.input),
+    [resolvedRelations],
+  );
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
 
   const refreshFromRemote = useCallback(
@@ -719,6 +757,8 @@ function PerformerTaggerRow({
       if (!selectedResult) throw new Error("No result selected");
       if (selectedResult.sourceKind === "scraper") {
         if (!selectedResult.scraped) throw new Error("No scraped performer selected");
+        // Never sent on a guess about which tags exist; the Apply button waits for the same answer.
+        if (tagLookup !== "ready") throw new Error("The library check has not answered yet.");
         const tagActions =
           state?.tagActions ??
           buildRelationActionMap(
@@ -756,6 +796,8 @@ function PerformerTaggerRow({
     },
     onSuccess: () => {
       onUpdateState({ saved: true });
+      // A tag this apply created is in the library now, so other rows offering the same name ask again.
+      void queryClient.invalidateQueries({ queryKey: ["performer-tagger-resolve-relations"] });
       queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
       queryClient.invalidateQueries({ queryKey: ["performers"] });
     },
@@ -951,6 +993,16 @@ function PerformerTaggerRow({
                   }
                   existingTagNames={existingTagNames}
                   createMissingTags={taggerConfig.createMissingTags}
+                  tagLookup={result.scraped?.tagNames?.length ? tagLookup : "ready"}
+                  tagLookupRetrying={tagLookupRetrying}
+                  // One failed request fails every row that shared it, so Retry asks again for all of them.
+                  onRetryLookup={() =>
+                    void queryClient.refetchQueries({
+                      queryKey: ["performer-tagger-resolve-relations"],
+                      type: "active",
+                      predicate: (query) => query.state.status === "error",
+                    })
+                  }
                   showSelector={state.results!.length > 1}
                   sourceName={
                     result.sourceKind === "scraper"
@@ -1022,6 +1074,9 @@ function PerformerResultRow({
   tagActions,
   existingTagNames,
   createMissingTags,
+  tagLookup,
+  tagLookupRetrying,
+  onRetryLookup,
   imageIndex,
   onImageIndexChange,
   onFieldStrategyChange,
@@ -1042,6 +1097,10 @@ function PerformerResultRow({
   tagActions: ScrapeRelationActionMap;
   existingTagNames: string[];
   createMissingTags: boolean;
+  /** Whether the server has said which of this result's scraped tags are in the library. */
+  tagLookup: PerformerTagLookup;
+  tagLookupRetrying: boolean;
+  onRetryLookup: () => void;
   imageIndex: number;
   onImageIndexChange: (index: number) => void;
   onFieldStrategyChange: (field: string, strategy: PerformerFieldStrategy) => void;
@@ -1055,6 +1114,14 @@ function PerformerResultRow({
   // Accept-all is the common case, so the review opens as a list of facts; the full side-by-side
   // rows are one click away for per-item chips.
   const [adjusting, setAdjusting] = useState(false);
+  // When the failure line goes while its Retry has focus, focus moves on to Apply.
+  const applyButtonRef = useRef<HTMLButtonElement>(null);
+  const focusApply = useRef(false);
+  useEffect(() => {
+    if (!focusApply.current) return;
+    focusApply.current = false;
+    applyButtonRef.current?.focus();
+  });
   const currentTagNames = getPerformerTagNames(performer);
   const scrapedTagNames = result.scraped?.tagNames ?? [];
   const candidates = getPerformerImageCandidates(result);
@@ -1086,6 +1153,7 @@ function PerformerResultRow({
     },
     createMissingTags,
     onCollectionModeChange,
+    tagsWaiting: tagLookup === "ready" ? undefined : "Checking your library…",
   };
   const review = isSelected ? buildPerformerReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;
@@ -1189,16 +1257,32 @@ function PerformerResultRow({
             </div>
           )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-surface/60 px-3 py-2">
+            {onSave && (tagLookup === "failed" || tagLookupRetrying) ? (
+              <LookupFailureLine
+                retrying={tagLookupRetrying}
+                onRetry={onRetryLookup}
+                onFocusedRemoval={() => {
+                  focusApply.current = true;
+                }}
+              />
+            ) : null}
             {onSave && (
               <button
+                ref={applyButtonRef}
                 onClick={onSave}
-                disabled={saving}
+                disabled={saving || tagLookup !== "ready"}
                 className="flex items-center gap-1.5 rounded px-4 py-1.5 text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
               >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                {summary?.changeCount
-                  ? `Apply ${summary.changeCount} ${summary.changeCount === 1 ? "change" : "changes"}`
-                  : "Apply"}
+                {saving || tagLookup === "waiting" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                {tagLookup === "waiting"
+                  ? "Checking library…"
+                  : summary?.changeCount
+                    ? `Apply ${summary.changeCount} ${summary.changeCount === 1 ? "change" : "changes"}`
+                    : "Apply"}
               </button>
             )}
             {summary ? (

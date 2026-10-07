@@ -39,6 +39,11 @@ export interface PerformerReviewInput {
    */
   createMissingTags?: boolean;
   /**
+   * Set while the tagger is still asking the server which scraped tags are in the library: the tags row
+   * cannot be changed and says this instead of an outcome, since which tags are new is not known yet.
+   */
+  tagsWaiting?: string;
+  /**
    * Sets a collection's mode directly, for a preset that selects exactly what another one does: the
    * selection cannot say which of them was meant.
    */
@@ -150,6 +155,7 @@ export function buildPerformerReview(input: PerformerReviewInput) {
       // A preset is a mode, not a way to create every new tag at once.
       newItemsOnlyWhenChosen: true,
       unchosenNewItemsOffered: input.createMissingTags === false,
+      waiting: input.tagsWaiting,
     });
     sourceValues.tags = tags.incoming;
     targetValues.tags = tags.current;
