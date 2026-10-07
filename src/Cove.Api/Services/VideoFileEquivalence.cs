@@ -1,3 +1,6 @@
+using Cove.Data;
+using Microsoft.EntityFrameworkCore;
+
 namespace Cove.Api.Services;
 
 /// <summary>
@@ -24,6 +27,21 @@ public static class VideoFileEquivalence
         => string.IsNullOrWhiteSpace(sourcePhash) || string.IsNullOrWhiteSpace(targetPhash)
             ? SameLength(sourceDuration, targetDuration)
             : AreEquivalent(sourceDuration, sourcePhash, targetDuration, targetPhash);
+
+    /// <summary>
+    /// The perceptual hash stored for each of the files that has one. Hashes are never computed here:
+    /// decoding a file can take minutes.
+    /// </summary>
+    public static Task<Dictionary<int, string>> LoadStoredPhashesAsync(CoveContext db, IReadOnlyCollection<int> fileIds, CancellationToken ct)
+    {
+        var ids = fileIds.ToArray();
+        return db.FileFingerprints
+            .AsNoTracking()
+            .Where(fingerprint => ids.Contains(fingerprint.FileId) && fingerprint.Type == "phash" && fingerprint.Value != "")
+            .GroupBy(fingerprint => fingerprint.FileId)
+            .Select(group => new { FileId = group.Key, Value = group.Min(fingerprint => fingerprint.Value) })
+            .ToDictionaryAsync(row => row.FileId, row => row.Value!, ct);
+    }
 
     private static bool SameLength(double sourceDuration, double targetDuration)
         => sourceDuration > 0 && targetDuration > 0

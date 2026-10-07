@@ -319,12 +319,7 @@ public sealed class VideoMergeService(
             .Where(file => file.VideoId.HasValue && ids.Contains(file.VideoId.Value))
             .OrderBy(file => file.Id)
             .ToListAsync(ct);
-        var fileIds = files.Select(file => file.Id).ToArray();
-        var hashes = await db.FileFingerprints.AsNoTracking()
-            .Where(fingerprint => fileIds.Contains(fingerprint.FileId) && fingerprint.Type == "phash" && fingerprint.Value != "")
-            .GroupBy(fingerprint => fingerprint.FileId)
-            .Select(group => new { FileId = group.Key, Value = group.Min(fingerprint => fingerprint.Value) })
-            .ToDictionaryAsync(row => row.FileId, row => row.Value, ct);
+        var hashes = await VideoFileEquivalence.LoadStoredPhashesAsync(db, files.Select(file => file.Id).ToArray(), ct);
         VideoFile? PrimaryOf(int videoId)
             => files.FirstOrDefault(file => file.Id == primaries.GetValueOrDefault(videoId))
                 ?? files.FirstOrDefault(file => file.VideoId == videoId);
@@ -623,6 +618,22 @@ public sealed class VideoMergeService(
         var kept = markers.Where(segment => !equivalentIds.Contains(segment.HostId)).Select(segment => segment.HostId).Distinct().ToArray();
         foreach (var segment in markers.Where(segment => equivalentIds.Contains(segment.HostId)))
             segment.HostId = targetId;
+        // Shot boundaries belong to files. Any file of a copy that shows the kept video's timeline hands
+        // its shots to the kept video's primary file before the copy is deleted with its files.
+        var keptFileId = await db.Videos.IgnoreQueryFilters().Where(video => video.Id == targetId).Select(video => video.PrimaryFileId).FirstOrDefaultAsync(ct)
+            ?? await db.VideoFiles.IgnoreQueryFilters()
+                .Where(file => file.VideoId == targetId)
+                .OrderBy(file => file.Id)
+                .Select(file => (int?)file.Id)
+                .FirstOrDefaultAsync(ct);
+        if (keptFileId is int replacementFileId)
+        {
+            var copyFileIds = await db.VideoFiles.IgnoreQueryFilters()
+                .Where(file => file.VideoId.HasValue && sourceIds.Contains(file.VideoId.Value))
+                .Select(file => file.Id)
+                .ToArrayAsync(ct);
+            await VideoShotCarryOver.KeepOnReplacementAsync(db, copyFileIds, replacementFileId, ct);
+        }
         return kept;
     }
 

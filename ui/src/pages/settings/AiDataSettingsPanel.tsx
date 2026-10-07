@@ -19,6 +19,7 @@ const KIND_OPTIONS: Array<{ value: AiDataKind; label: string }> = [
   { value: "segment", label: "Segments" },
   { value: "tagApplication", label: "Tag Provenance" },
   { value: "face", label: "Faces" },
+  { value: "shotSet", label: "Shot Boundaries" },
 ];
 
 const MODALITY_OPTIONS = ["visual", "audio", "face", "text", "other"];
@@ -123,7 +124,7 @@ export function AiDataSettingsPanel() {
 
       <SectionCard
         title="AI Artifact Totals"
-        description="Current counts across embeddings, detections, timeline segments, tag provenance, and face-owned AI state."
+        description="Current counts across embeddings, detections, timeline segments, tag provenance, face-owned AI state, and shot boundaries."
         actions={
           <button
             type="button"
@@ -137,7 +138,7 @@ export function AiDataSettingsPanel() {
           </button>
         }
       >
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {KIND_OPTIONS.map((option) => (
             <SettingsMetricCard
               key={option.value}
@@ -397,7 +398,7 @@ function getPurgeTotal(result: AiDataPurgeResult) {
 
 function PurgeKindCounts({ result }: { result: AiDataPurgeResult }) {
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {KIND_OPTIONS.map((option) => (
         <SettingsMetricCard
           key={option.value}

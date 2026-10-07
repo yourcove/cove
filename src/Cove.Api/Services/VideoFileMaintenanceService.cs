@@ -128,6 +128,9 @@ public sealed class VideoFileMaintenanceService(
                     : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename));
             }
 
+            if (file is VideoFile)
+                await VideoShotCarryOver.KeepOnReplacementAsync(db, [file.Id], replacementFileId: null, ct);
+
             db.Set<BaseFileEntity>().Remove(file);
             var deletionContext = new BulkDeletionExecutionContext();
             deletionContext.StagePhysicalFiles(db, physicalPaths);

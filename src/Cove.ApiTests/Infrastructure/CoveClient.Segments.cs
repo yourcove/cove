@@ -27,4 +27,16 @@ public sealed partial class CoveClient
 
     public Task<SegmentSpanCountResponseDto> CountResolvedSpansAsync(SegmentSpanSearchRequestDto request, CancellationToken cancellationToken = default)
         => SendAsync<SegmentSpanCountResponseDto>(HttpMethod.Post, "/api/segments/spans/count", request, cancellationToken);
+
+    public Task<VideoShotSetDto> GetVideoShotsAsync(VideoDto video, int? fileId = null, CancellationToken cancellationToken = default)
+        => SendAsync<VideoShotSetDto>(HttpMethod.Get, WithCacheNonce(VideoShotsUri(video, fileId)), null, cancellationToken);
+
+    public Task<List<VideoShotSetDto>> ListVideoShotSetsAsync(VideoDto video, CancellationToken cancellationToken = default)
+        => SendAsync<List<VideoShotSetDto>>(HttpMethod.Get, WithCacheNonce($"/api/videos/{video.Id}/shots/sets"), null, cancellationToken);
+
+    public Task DeleteVideoShotsAsync(VideoDto video, int? fileId = null, CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Delete, VideoShotsUri(video, fileId), new { }, cancellationToken);
+
+    public static string VideoShotsUri(VideoDto video, int? fileId = null)
+        => fileId is int id ? $"/api/videos/{video.Id}/shots?fileId={id}" : $"/api/videos/{video.Id}/shots";
 }

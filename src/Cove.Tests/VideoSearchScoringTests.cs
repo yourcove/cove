@@ -298,6 +298,8 @@ public sealed class VideoSearchScoringTests
                 await using var command = new NpgsqlCommand($"CREATE SCHEMA {schema}", pg);
                 await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
                 var pgDb = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseNpgsql(pg, options => options.UseVector()).Options);
+                // The shot set CHECK constraints call these functions, so they must exist before the tables.
+                await pgDb.Database.ExecuteSqlRawAsync(Cove.Data.Services.VideoShotSqlDefinitions.CreateFunctionsSql, TestContext.Current.CancellationToken);
                 await pgDb.Database.ExecuteSqlRawAsync(pgDb.Database.GenerateCreateScript(), TestContext.Current.CancellationToken);
                 // Retain the isolated schema for inspection in the disposable sidecar.
                 return new(pg, pgDb);

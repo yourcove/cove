@@ -170,6 +170,70 @@ the invalidation happened.
 video-specific invalidation should be preferred. The service only invalidates projections; it neither
 persists nor authorizes the underlying mutation.
 
+## Shot boundaries
+
+Cove stores the shot boundaries of video files: for each file, at most one `VideoShotSet`, a
+contiguous, gapless partition of the file's timeline into shots. Sets belong to files,
+not videos, because timestamps belong to the file that was analysed; a set follows its file through
+merges and file moves and is deleted with it. When Cove deletes a file in favour of another copy of
+the same footage (a converted copy's original, a duplicate deleted in file review or from the Files
+tab, a copy a merge removes), the set moves to the video's primary file instead (for a merge, the
+kept video's), provided both files have matching stored perceptual hashes, their running times agree
+to within two frames or 0.1 s, and the set was measured on the file's current contents. A primary
+file that has a set of its own keeps it, unless that set is an unedited analysis and the moving set
+was edited by hand. A cut that replaces the original removes the original's set: its timeline no
+longer matches the cut file, so the video needs analysing again. Resolve `Cove.Core.Interfaces.IVideoShotService` to read and write them; it is
+the only writer, and the entity is public so you can query it. They arrive in the first release
+after Cove 1.5.1; set `minCoveVersion` to that release.
+
+- **Storage.** A set stores its shots in its own row as the cuts between them: `CutTimes` (seconds),
+  `CutFrames` (null when the set has no frames), one `ShotTypes` entry per shot and one `Transitions`
+  entry per cut, for the shot after it. Shot `i` runs from cut `i - 1` (or 0) to cut `i` (or
+  `DurationSec`, and in frames `FrameCount`), so each boundary is stored once; a set of one shot has
+  no cuts. PostgreSQL CHECK constraints keep the array lengths consistent and the cuts strictly
+  increasing inside the set. Shots have no ids: address them by time and the set's version, and read
+  them as `VideoShotDto`s from the service.
+- **Invariants.** Every set holds 1 to `VideoShotRules.MaxShotsPerSet` shots, ordered by start; the
+  first starts at 0, each starts where the previous ended, and the last ends at the set's
+  `DurationSec`. Boundaries within `VideoShotRules.BoundaryToleranceSec` (1 ms) of where they belong
+  are snapped into place; anything further off is rejected, never repaired. Frames are optional and
+  half-open (`[StartFrame, EndFrame)`); either every shot gives them or none does, and with frames the
+  set needs `Fps`. Labels are trimmed and at most 100 characters; the first shot has no
+  `TransitionIn`. `VideoShotRules` holds these limits as read-only fields, not constants.
+- **Writing a whole set.** `WriteSetAsync` with `VideoShotWriteMode.SkipIfExists` (the default) leaves
+  a file that already has a set alone and reports `SkippedExisting`; `Replace` replaces the set as a
+  whole, hand edits included, and reports whether it overwrote an edited set. Pass `Expected` with
+  `Replace` to replace only the exact set you read. To catch a result written to the wrong file, the
+  analysed duration may run past the file's probed duration by at most 2 s or 1%, whichever is larger.
+  It may fall short of it down to half, because the probed duration is the container's and the video
+  stream can end before the audio does (`VideoShotRules.DurationSanity*`). Files without a probed
+  duration are not checked. `EditedAt` is stored in UTC, so give it in UTC or as local time. The
+  optional `Payload` is at most 64 KiB of UTF-8 and may not contain U+0000; only whole reads return
+  it, not summaries. Use `GetSummariesForFilesAsync` to find which files already have a set before
+  starting work.
+- **Editing.** `SplitAsync`, `MergeAsync`, `MoveCutAsync` and `ReplaceShotsAsync` (for undo) take the
+  `VideoShotSetVersion` (set id and revision) the edit started from and answer `Conflict`, with the
+  current set, when it no longer matches. Edits are checked against the set's own `DurationSec`, not
+  the file's. When the set has frames, a split or a moved cut lands on the nearest frame boundary,
+  and its time is that frame's. A split or replace without a version creates a set drawn by hand on
+  a file that has none. A replace sets the frame count from its own frames, and clears it when they
+  have none. Every change increments `Revision`, and edits set `EditedAt`.
+- **Transactions and tracking.** Every write that changes a set is one statement on the set's row:
+  an insert that does nothing if the file already has a set, or an update or delete that matches only
+  the set and revision it started from. It joins your transaction on the scoped Cove database context
+  when you have begun one, locks only that row and, when it creates a set, its file's row against
+  deletion. It neither saves your pending changes nor touches the change tracker, so save your own
+  changes yourself. It runs without a savepoint: a statement that fails, for example when cancelled,
+  aborts your PostgreSQL transaction. A write that loses a race changes
+  nothing: an edit, or a replace of an expected set, answers `Conflict` with the current set, a
+  `SkipIfExists` write reports the set that got there first, and a `Replace` without a version tries
+  again. Read sets through the service rather than tracking them; tracked instances are not refreshed
+  and can be stale. Never modify them directly. In a REPEATABLE READ or SERIALIZABLE transaction, a
+  write that races another can fail with a serialization error instead; retry the whole transaction.
+- **Authorization.** The service authorizes nothing and publishes no events: check the caller's
+  permissions first. Cove's own endpoints use `segments.read` and `segments.delete`.
+- The service is implemented by Cove only; members added later arrive with default implementations.
+
 ## Host services and extension-container ownership
 
 Each runtime extension has a reloadable service container. Closed host singletons available through

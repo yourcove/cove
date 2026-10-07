@@ -71,6 +71,8 @@ public class CleanService(
             await DeleteOrphansAsync(plan, "text", BulkDeletionEntityKind.Text, removal, progress, ct);
 
             // Orphans took their own files with them; this prunes missing files of surviving entities.
+            // Shot boundaries of pruned files go with them: a file that vanished from disk may have been
+            // replaced or lost, and nothing here can tell which.
             var pruned = 0;
             await foreach (var ids in plan.ReadAsync("files", ct))
                 pruned += await db.Set<BaseFileEntity>().Where(file => ids.Contains(file.Id)).ExecuteDeleteAsync(ct);
