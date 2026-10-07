@@ -303,4 +303,52 @@ describe("PerformerTaggerReview", () => {
       expect(pressed("Use combined Tags")).toBe("false");
     });
   });
+
+  // The server matched the scraped "Big Tits" to the library tag "Big Breasts", by alias.
+  describe("a scraped tag the server matched under another name", () => {
+    const aliased = (overrides: Partial<PerformerReviewInput["tags"]> = {}) =>
+      input({
+        tags: {
+          current: ["Big Breasts"],
+          incoming: ["Big Tits", "Tattoos"],
+          existing: ["Big Tits", "Tattoos"],
+          actions: { "big tits": "include", tattoos: "include" },
+          matches: { "big tits": "Big Breasts" },
+          ...overrides,
+        },
+      });
+
+    it("lands on the library tag, so a tag the performer has is not shown as added", () => {
+      const review = buildPerformerReview(aliased());
+      const incoming = review.source.values.tags as { id: string; label: string; isNew: boolean }[];
+      expect(incoming.map((tag) => [tag.id, tag.label, tag.isNew])).toEqual([
+        ["big breasts", "Big Breasts", false],
+        ["tattoos", "Tattoos", false],
+      ]);
+      const text = summarizeDiff(review.fields, review.source, review.target, review.selection).changes;
+      expect(text.map((change) => change.text)).toContain("1 tag added");
+    });
+
+    it("keeps the scraped spelling on hover", () => {
+      const review = buildPerformerReview(aliased({ current: [] }));
+      render(
+        <MetadataDiff
+          fields={review.fields.filter((field) => field.key === "tags")}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTitle("Scraped as “Big Tits”")).toHaveTextContent("Big Breasts");
+    });
+
+    it("toggles the scraped name the apply sends when the library tag's chip is toggled", () => {
+      const base = aliased({ current: [] });
+      const review = buildPerformerReview(base);
+      const calls = handlers();
+      applyPerformerSelectionChange(base, review.selection, { ...review.selection, tags: ["tattoos"] }, calls);
+      expect(calls.onTagActionsChange).toHaveBeenLastCalledWith({ "big tits": "exclude" });
+    });
+  });
 });

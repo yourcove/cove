@@ -245,6 +245,12 @@ describe("PerformerTagger", () => {
       fail(new Error("lookup failed"));
       expect(await screen.findByText("Couldn't check which of these are in your library.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^Apply/ })).toBeDisabled();
+      // The tags row says it was not checked rather than still checking, and the page says so once.
+      expect(screen.getAllByText("Not checked against your library").length).toBeGreaterThan(0);
+      expect(screen.queryByText("Checking your library…")).not.toBeInTheDocument();
+      expect(
+        (await screen.findByText(/Couldn't check some performers against your library/)).closest("[role=status]"),
+      ).not.toBeNull();
 
       await userEvent.click(screen.getByRole("button", { name: "Retry" }));
       await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());

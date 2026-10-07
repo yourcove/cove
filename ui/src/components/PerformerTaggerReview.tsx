@@ -32,7 +32,17 @@ export interface PerformerReviewInput {
   incomingImageUrl?: string;
   urls: { current: string[]; incoming: string[] };
   aliases: { current: string[]; incoming: string[] };
-  tags: { current: string[]; incoming: string[]; existing: string[]; actions: ScrapeRelationActionMap };
+  tags: {
+    current: string[];
+    incoming: string[];
+    existing: string[];
+    actions: ScrapeRelationActionMap;
+    /**
+     * The library tag each matched scraped name lands on, keyed by the scraped name's relation key (the
+     * server's answer, which also matches aliases). A name landing on another name is shown as that tag.
+     */
+    matches?: Record<string, string>;
+  };
   /**
    * Whether the tagger creates missing tags by default. When it does not, a new tag that is not chosen
    * is only offered ("not in your library"); when it does, one not chosen was left out on purpose.
@@ -61,11 +71,23 @@ interface ReviewItem {
   id: string;
   label: string;
   isNew: boolean;
+  /** Scraped spellings that land on this library tag under another name. */
+  scrapedAs?: string[];
 }
 
 const itemKey = (value: unknown) => (value as ReviewItem).id;
 const itemLabel = (value: unknown) => (value as ReviewItem).label;
-const renderItem = (value: unknown) => (value as ReviewItem).label;
+const renderItem = (value: unknown) => {
+  const entry = value as ReviewItem;
+  if (!entry.scrapedAs) return entry.label;
+  const title = `Scraped as ${entry.scrapedAs.map((name) => `“${name}”`).join(", ")}`;
+  return (
+    <span title={title}>
+      {entry.label}
+      <span className="sr-only"> ({title})</span>
+    </span>
+  );
+};
 const itemIsNew = (value: unknown) => (value as ReviewItem).isNew;
 const plainItems = (values: string[]): ReviewItem[] =>
   [...new Set(values.map((value) => value.trim()).filter(Boolean))].map((value) => ({
@@ -74,18 +96,39 @@ const plainItems = (values: string[]): ReviewItem[] =>
     isNew: false,
   }));
 
+/**
+ * The tags row's items. Scraped names are grouped by the library tag they land on, as the video tagger
+ * does, so a name matched by alias reads as that tag and folds into it when the performer has it. A group
+ * is chosen while any of its scraped names is, and toggling it toggles all of them, since the apply sends
+ * scraped names.
+ */
 function tagItems(input: PerformerReviewInput) {
   const currentIds = new Set(input.tags.current.map(relationKey));
   const existing = new Set(input.tags.existing.map(relationKey));
+  const matches = input.tags.matches ?? {};
   const dedupe = (names: string[]) => [...new Map(names.map((name) => [relationKey(name), name])).entries()];
   const current = dedupe(input.tags.current).map(([id, label]) => ({ id, label, isNew: false }));
-  const incoming = dedupe(input.tags.incoming).map(([id, label]) => ({
+  const currentLabels = new Map(current.map((tag) => [tag.id, tag.label]));
+  const groups = new Map<string, { label: string; members: string[]; scrapedAs: string[] }>();
+  for (const [key, name] of dedupe(input.tags.incoming)) {
+    const library = matches[key];
+    const id = relationKey(library ?? name);
+    const group = groups.get(id) ?? { label: currentLabels.get(id) ?? library ?? name, members: [], scrapedAs: [] };
+    group.members.push(key);
+    if (id !== key) group.scrapedAs.push(name);
+    groups.set(id, group);
+  }
+  const incoming: ReviewItem[] = [...groups].map(([id, group]) => ({
     id,
-    label,
-    isNew: !currentIds.has(id) && !existing.has(id),
+    label: group.label,
+    isNew: !currentIds.has(id) && !group.members.some((key) => existing.has(key)),
+    scrapedAs: group.scrapedAs.length > 0 ? group.scrapedAs : undefined,
   }));
-  const included = incoming.filter((tag) => input.tags.actions[tag.id] !== "exclude").map((tag) => tag.id);
-  return { current, incoming, included, existing };
+  const included = [...groups]
+    .filter(([, group]) => group.members.some((key) => input.tags.actions[key] !== "exclude"))
+    .map(([id]) => id);
+  const membersOf = (id: string) => groups.get(id)?.members ?? [id];
+  return { current, incoming, included, existing, membersOf };
 }
 
 export function buildPerformerReview(input: PerformerReviewInput) {
@@ -229,7 +272,11 @@ export function applyPerformerSelectionChange(
     (changed, chosen) =>
       handlers.onTagActionsChange(
         Object.fromEntries(
-          changed.map((id) => [id, chosen.has(id) ? (tags.existing.has(id) ? "include" : "create") : "exclude"]),
+          changed.flatMap((id) =>
+            tags
+              .membersOf(id)
+              .map((key) => [key, chosen.has(id) ? (tags.existing.has(key) ? "include" : "create") : "exclude"]),
+          ),
         ),
       ),
     // The presets offer a new tag only once it has been chosen (the list row does the same).

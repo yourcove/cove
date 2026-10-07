@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   Check,
@@ -669,5 +670,65 @@ export function LookupFailureLine({
         Retry
       </button>
     </span>
+  );
+}
+
+/** How long the lookups must stay quiet before the page says how checking went, so rows finishing one after another are one message. */
+const LOOKUP_ANNOUNCEMENT_DELAY_MS = 500;
+
+/**
+ * What the page says once its rows have stopped waiting on the library lookup: that checking finished, or
+ * that some of its items could not be checked. Rows wait on the lookup together, so one page-wide message
+ * replaces each row announcing its own, said once the lookups have been quiet for a moment. Only a
+ * lookup a row waited on counts: a refetch that keeps a previous answer (after a link or an apply) held
+ * nothing up, and a lookup whose row went away was never checked. Each message gets a new id so that a
+ * repeat (a Retry that fails again) is announced again.
+ */
+export function useRelationLookupAnnouncement(queryKey: string, itemsLabel: string) {
+  const queryClient = useQueryClient();
+  const [announcement, setAnnouncement] = useState<{ id: number; text: string } | null>(null);
+  useEffect(() => {
+    const cache = queryClient.getQueryCache();
+    const waitedOn = new Set<string>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const activeLookups = () => cache.findAll({ queryKey: [queryKey], type: "active" });
+    const settle = () => {
+      timer = undefined;
+      const active = new Map(activeLookups().map((query) => [query.queryHash, query]));
+      const settled = [...waitedOn].flatMap((hash) => active.get(hash) ?? []);
+      waitedOn.clear();
+      if (settled.length === 0) return;
+      const failed = settled.some((query) => query.state.data === undefined && query.state.status === "error");
+      setAnnouncement((current) => ({
+        id: (current?.id ?? 0) + 1,
+        text: failed
+          ? `Couldn't check some ${itemsLabel} against your library. Their rows have a Retry.`
+          : "Finished checking your library.",
+      }));
+    };
+    const update = () => {
+      const waiting = activeLookups().filter(
+        (query) => query.state.data === undefined && query.state.fetchStatus !== "idle",
+      );
+      for (const query of waiting) waitedOn.add(query.queryHash);
+      clearTimeout(timer);
+      timer = waiting.length === 0 && waitedOn.size > 0 ? setTimeout(settle, LOOKUP_ANNOUNCEMENT_DELAY_MS) : undefined;
+    };
+    const unsubscribe = cache.subscribe(update);
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [queryClient, queryKey, itemsLabel]);
+  return announcement;
+}
+
+/** The page's announcement of how its lookups went: mounted empty, so screen readers announce what it later says. */
+export function LookupAnnouncementRegion({ queryKey, itemsLabel }: { queryKey: string; itemsLabel: string }) {
+  const announcement = useRelationLookupAnnouncement(queryKey, itemsLabel);
+  return (
+    <div role="status" className="sr-only">
+      {announcement ? <span key={announcement.id}>{announcement.text}</span> : null}
+    </div>
   );
 }

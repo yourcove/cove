@@ -15,11 +15,17 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { createRelationLookupBatcher } from "../utils/relationLookupBatcher";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { DEFAULT_COLLECTION_MODES, pickBestSourceUrl, type CollectionMode } from "./videoScrapeUtils";
-import { buildRelationActionMap, relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import {
+  buildMatchInfo,
+  buildRelationActionMap,
+  relationKey,
+  type ScrapeRelationActionMap,
+} from "./ScrapeRelationChoices";
 import {
   DEFAULT_TAGGER_DENYLIST,
   RemoteRefreshButtons,
   TaggerSettingsPanel,
+  LookupAnnouncementRegion,
   LookupFailureLine,
   TaggerToolbar,
   cleanTaggerQueryString,
@@ -615,6 +621,8 @@ export function PerformerTagger({
         </TaggerSettingsPanel>
       )}
 
+      <LookupAnnouncementRegion queryKey="performer-tagger-resolve-relations" itemsLabel="performers" />
+
       {/* Performer list */}
       <div className="divide-y divide-border">
         {visiblePerformers.map((performer) => (
@@ -716,6 +724,7 @@ function PerformerTaggerRow({
     () => (resolvedRelations?.tags ?? []).map((match) => match.input),
     [resolvedRelations],
   );
+  const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
 
   const refreshFromRemote = useCallback(
@@ -992,6 +1001,7 @@ function PerformerTaggerRow({
                     )
                   }
                   existingTagNames={existingTagNames}
+                  tagMatchInfo={tagMatchInfo}
                   createMissingTags={taggerConfig.createMissingTags}
                   tagLookup={result.scraped?.tagNames?.length ? tagLookup : "ready"}
                   tagLookupRetrying={tagLookupRetrying}
@@ -1073,6 +1083,7 @@ function PerformerResultRow({
   collectionModes,
   tagActions,
   existingTagNames,
+  tagMatchInfo,
   createMissingTags,
   tagLookup,
   tagLookupRetrying,
@@ -1096,6 +1107,8 @@ function PerformerResultRow({
   collectionModes: Record<string, CollectionMode>;
   tagActions: ScrapeRelationActionMap;
   existingTagNames: string[];
+  /** The library tag each matched scraped name lands on (see PerformerReviewInput). */
+  tagMatchInfo: Record<string, string>;
   createMissingTags: boolean;
   /** Whether the server has said which of this result's scraped tags are in the library. */
   tagLookup: PerformerTagLookup;
@@ -1150,10 +1163,16 @@ function PerformerResultRow({
       incoming: scrapedTagNames,
       existing: existingTagNames,
       actions: tagActions,
+      matches: tagMatchInfo,
     },
     createMissingTags,
     onCollectionModeChange,
-    tagsWaiting: tagLookup === "ready" ? undefined : "Checking your library…",
+    tagsWaiting:
+      tagLookup === "waiting"
+        ? "Checking your library…"
+        : tagLookup === "failed"
+          ? "Not checked against your library"
+          : undefined,
   };
   const review = isSelected ? buildPerformerReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;

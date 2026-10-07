@@ -56,6 +56,7 @@ import {
   type TaggerQueryMode,
   type TaggerRunAllOption,
   DismissibleMenu,
+  LookupAnnouncementRegion,
   LookupFailureLine,
 } from "./TaggerShared";
 import {
@@ -892,56 +893,6 @@ function relationshipEditFields(state: VideoSearchState | undefined) {
   };
 }
 
-/** How long the lookups must stay quiet before the page says how checking went, so rows finishing one after another are one message. */
-const LOOKUP_ANNOUNCEMENT_DELAY_MS = 500;
-
-/**
- * What the page says once its rows have stopped waiting on the library lookup: that checking finished, or
- * that some videos could not be checked. Rows wait on the lookup together, so one page-wide message
- * replaces each row announcing its own, said once the lookups have been quiet for a moment. Only a
- * lookup a row waited on counts: a refetch that keeps a previous answer (after a link or an apply) held
- * nothing up, and a lookup whose row went away was never checked. Each message gets a new id so that a
- * repeat (a Retry that fails again) is announced again.
- */
-export function useRelationLookupAnnouncement() {
-  const queryClient = useQueryClient();
-  const [announcement, setAnnouncement] = useState<{ id: number; text: string } | null>(null);
-  useEffect(() => {
-    const cache = queryClient.getQueryCache();
-    const waitedOn = new Set<string>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const activeLookups = () => cache.findAll({ queryKey: ["tagger-resolve-relations"], type: "active" });
-    const settle = () => {
-      timer = undefined;
-      const active = new Map(activeLookups().map((query) => [query.queryHash, query]));
-      const settled = [...waitedOn].flatMap((hash) => active.get(hash) ?? []);
-      waitedOn.clear();
-      if (settled.length === 0) return;
-      const failed = settled.some((query) => query.state.data === undefined && query.state.status === "error");
-      setAnnouncement((current) => ({
-        id: (current?.id ?? 0) + 1,
-        text: failed
-          ? "Couldn't check some videos against your library. Their rows have a Retry."
-          : "Finished checking your library.",
-      }));
-    };
-    const update = () => {
-      const waiting = activeLookups().filter(
-        (query) => query.state.data === undefined && query.state.fetchStatus !== "idle",
-      );
-      for (const query of waiting) waitedOn.add(query.queryHash);
-      clearTimeout(timer);
-      timer = waiting.length === 0 && waitedOn.size > 0 ? setTimeout(settle, LOOKUP_ANNOUNCEMENT_DELAY_MS) : undefined;
-    };
-    const unsubscribe = cache.subscribe(update);
-    return () => {
-      unsubscribe();
-      clearTimeout(timer);
-    };
-  }, [queryClient]);
-  return announcement;
-}
-
 const CONCURRENCY_LIMIT = 5;
 
 interface BatchLifecycle {
@@ -1484,7 +1435,6 @@ export function VideoTagger({
     applyBatchRef.current?.abort();
   }, []);
   const applyAllOutcome = summariseApplyAllRun(applyAllRun, searchStates);
-  const lookupAnnouncement = useRelationLookupAnnouncement();
 
   if (taggerSources.length === 0) {
     return (
@@ -1818,10 +1768,7 @@ export function VideoTagger({
         </div>
       )}
 
-      {/* Mounted empty before anything is said, so screen readers announce what it later says. */}
-      <div role="status" className="sr-only">
-        {lookupAnnouncement ? <span key={lookupAnnouncement.id}>{lookupAnnouncement.text}</span> : null}
-      </div>
+      <LookupAnnouncementRegion queryKey="tagger-resolve-relations" itemsLabel="videos" />
 
       {/* Video list */}
       <div

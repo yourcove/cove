@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useRelationLookupAnnouncement } from "../components/VideoTagger";
+import { useRelationLookupAnnouncement } from "../components/TaggerShared";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -19,7 +19,7 @@ function Lookup({ id, answer }: { id: string; answer: () => Promise<object> }) {
 }
 
 function Announcer() {
-  const announcement = useRelationLookupAnnouncement();
+  const announcement = useRelationLookupAnnouncement("tagger-resolve-relations", "videos");
   return <div data-testid="said">{announcement ? `${announcement.id}:${announcement.text}` : ""}</div>;
 }
 
