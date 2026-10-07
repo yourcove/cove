@@ -78,6 +78,38 @@ public class PerformerScrapeServiceTests
         Assert.Contains(updated.Urls, item => item.Url == "https://site.example/models/original-name");
     }
 
+    [Theory]
+    [InlineData("replace", 0)]
+    [InlineData("merge", 2)]
+    public async Task ApplyAsync_ReplacesTagsWithTheSelectionEvenWhenNoneWasChosen(string tagsMode, int expectedTags)
+    {
+        // The tagger sends only the tags the person chose. In "Only <source>" with none chosen, the
+        // performer ends up with no tags, as its URLs and aliases do; a merge keeps them.
+        await using var context = CreateContext();
+        var performer = new Performer
+        {
+            Name = "Original Name",
+            PerformerTags = [new PerformerTag { Tag = new Tag { Name = "Blonde" } }, new PerformerTag { Tag = new Tag { Name = "Curvy" } }],
+        };
+        context.Performers.Add(performer);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new PerformerScrapeService(context, null!);
+        await service.ApplyAsync(
+            performer,
+            new ScrapedPerformerDto { TagNames = [] },
+            createMissingTags: false,
+            collectionModes: new Dictionary<string, string> { ["tags"] = tagsMode },
+            ct: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var updated = await context.Performers
+            .Include(item => item.PerformerTags)
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(expectedTags, updated.PerformerTags.Count);
+        Assert.Equal(2, await context.Tags.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task ApplyAsync_RecordsScraperFieldAndTagProvenance()
     {

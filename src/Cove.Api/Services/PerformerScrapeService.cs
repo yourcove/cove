@@ -206,11 +206,11 @@ public class PerformerScrapeService(
 
         var normalizedTagNames = NormalizeNames(scraped.TagNames);
         var tagsMode = GetCollectionMode("tags");
+        // Replace leaves exactly the tags sent, none when none were chosen, as URLs and aliases do.
+        if (tagsMode == "replace")
+            performer.PerformerTags.Clear();
         if (tagsMode != "skip" && normalizedTagNames.Count > 0)
         {
-            if (tagsMode == "replace")
-                performer.PerformerTags.Clear();
-
             var lookup = await RelationNameResolver.ResolveTagsAsync(db, normalizedTagNames, ct);
 
             var existingTagIds = performer.PerformerTags.Select(item => item.TagId).ToHashSet();
