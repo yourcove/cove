@@ -18,6 +18,7 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
 import { useSettledListKey } from "../hooks/useSettledListKey";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
+import { RELEVANCE_SORT_VALUE } from "../utils/relevanceSort";
 import { VideoTagger } from "../components/VideoTagger";
 import {
   toggleOptionsFromEvent,
@@ -558,8 +559,14 @@ export function VideosPage({ onNavigate }: Props) {
   // Paged lists wait for the aggregate total before paging by it; infinite scroll follows full pages.
   const totalCountPending = countFromAggregate && !infinitePageSize && filteredAggregateLoading;
 
+  // A visual search is ranked by visual match: a multi-sort, or the text relevance sort carried in by
+  // a saved filter, a deep link or an older page state, would drop that ranking, so put it back.
   useEffect(() => {
-    if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
+    if (!visualSimilarityAvailable || searchMode !== "visual") {
+      return;
+    }
+    const hasMultiSort = Boolean(filter.sorts && filter.sorts.length > 1);
+    if (!hasMultiSort && filter.sort !== RELEVANCE_SORT_VALUE) {
       return;
     }
 
@@ -870,23 +877,24 @@ export function VideosPage({ onNavigate }: Props) {
   const handleSelectAllMatching = useCallback(async () => {
     setSelectAllMatchingPending(true);
     try {
-      const ids = await fetchAllMatchingIds<Video>(filter, (nextFilter) => {
-        if (visualSearchActive && visualSimilarity) {
-          return visualSimilarity.searchVideos({
-            findFilter: nextFilter,
-            objectFilter: hasObjectFilter ? (backendObjectFilter as VideoFilterCriteria) : undefined,
-            filterExpression,
-          });
-        }
-
-        return hasObjectFilter
-          ? videos.findFiltered({
-              findFilter: nextFilter,
-              objectFilter: backendObjectFilter as VideoFilterCriteria,
-              filterExpression,
-            })
-          : videos.find(nextFilter);
-      });
+      // A visual search ranks on the similarity service, which only answers page by page; every other
+      // filter asks the server for the matching ids in one query instead of walking the list a page at a time.
+      const ids =
+        visualSearchActive && visualSimilarity
+          ? await fetchAllMatchingIds<Video>(filter, (nextFilter) =>
+              visualSimilarity.searchVideos({
+                findFilter: nextFilter,
+                objectFilter: hasObjectFilter ? (backendObjectFilter as VideoFilterCriteria) : undefined,
+                filterExpression,
+              }),
+            )
+          : (
+              await videos.findIds({
+                findFilter: filter,
+                objectFilter: hasObjectFilter ? (backendObjectFilter as VideoFilterCriteria) : undefined,
+                filterExpression,
+              })
+            ).ids;
       selectIds(ids);
     } finally {
       setSelectAllMatchingPending(false);
@@ -960,6 +968,7 @@ export function VideosPage({ onNavigate }: Props) {
             : "Search videos, tags, performers..."
         }
         onSearchModeChange={handleSearchModeChange}
+        disableRelevanceSort={visualSimilarityAvailable && searchMode === "visual"}
         sortOptions={sortOptions}
         multiSortKeys={searchMode === "text" && !includeCompilationGroups ? VIDEO_MULTI_SORT_KEYS : undefined}
         displayMode={displayMode}

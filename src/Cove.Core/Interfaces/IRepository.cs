@@ -117,6 +117,19 @@ public interface IImageRepository : IRepository<Image>
 {
     Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+
+    /// <summary>
+    /// Ids of every matching image in sort order, without loading entities or paging: the whole match is
+    /// one projection query. Used where only membership matters, such as selecting every match of a
+    /// filter. The default implementation falls back to <see cref="FindAsync"/> and is for extensions'
+    /// own implementations compiled before this member existed.
+    /// </summary>
+    async Task<IReadOnlyList<int>> FindIdsAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var (items, _) = await FindAsync(filter, findFilter, ct);
+        return items.Select(image => image.Id).ToList();
+    }
+
     Task<Image?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns ImagePerformer join rows (with Performer.RemoteIds included) for the given image IDs.</summary>
     Task<IReadOnlyList<ImagePerformer>> GetImagePerformersAsync(IReadOnlyList<int> imageIds, CancellationToken ct = default);

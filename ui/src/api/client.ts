@@ -1514,6 +1514,12 @@ export const images = {
       method: "POST",
       body: JSON.stringify(normalizeCriterionPayload(req)),
     }),
+  /** The ids of every image a /find request matches, in its order. */
+  findIds: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
+    request<{ ids: number[] }>("/images/find-ids", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
     request<ImageAggregate>("/images/aggregate", {
       method: "POST",

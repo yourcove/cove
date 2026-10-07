@@ -2134,6 +2134,59 @@ describe("ListPage active filter chips", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the current sort and offers no Relevance option for a new search when relevance is disabled", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderPage = (filter: {
+      page: number;
+      perPage: number;
+      sort: string;
+      direction: "asc" | "desc";
+      q?: string;
+    }) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filter={filter}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            searchMode="visual"
+            searchModes={[
+              { value: "text", label: "Text" },
+              { value: "visual", label: "Visual" },
+            ]}
+            disableRelevanceSort
+            sortOptions={[
+              { value: "visual_match", label: "Visual Match" },
+              { value: "date", label: "Date" },
+            ]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderPage({ page: 3, perPage: 40, sort: "visual_match", direction: "desc" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search list" }), { target: { value: "needle" } });
+    await vi.advanceTimersByTimeAsync(350);
+
+    const searchedFilter = onFilterChange.mock.lastCall?.[0];
+    expect(searchedFilter).toEqual(
+      expect.objectContaining({ q: "needle", page: 1, sort: "visual_match", direction: "desc" }),
+    );
+
+    rerender(renderPage(searchedFilter));
+    const primarySort = screen.getByRole("combobox", { name: "Primary sort" });
+    expect(primarySort).toHaveValue("visual_match");
+    expect(within(primarySort).queryByRole("option", { name: "Relevance" })).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
   it("keeps the list's sort for a new search when the library turns relevance sorting off", async () => {
     vi.useFakeTimers();
     appConfigMock.optional = { config: { ui: { sortSearchesByRelevance: false } } };

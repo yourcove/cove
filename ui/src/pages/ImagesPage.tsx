@@ -12,6 +12,7 @@ import {
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
+import { RELEVANCE_SORT_VALUE } from "../utils/relevanceSort";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { ImageIcon, FolderOpen, ThumbsUp, Eye, Heart } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/filterCriteriaCatalogs";
@@ -148,8 +149,14 @@ export function ImagesPage({ onNavigate }: Props) {
     visualSimilarityAvailable,
   ]);
 
+  // A visual search is ranked by visual match: a multi-sort, or the text relevance sort carried in by
+  // a saved filter, a deep link or an older page state, would drop that ranking, so put it back.
   useEffect(() => {
-    if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
+    if (!visualSimilarityAvailable || searchMode !== "visual") {
+      return;
+    }
+    const hasMultiSort = Boolean(filter.sorts && filter.sorts.length > 1);
+    if (!hasMultiSort && filter.sort !== RELEVANCE_SORT_VALUE) {
       return;
     }
 
@@ -328,11 +335,21 @@ export function ImagesPage({ onNavigate }: Props) {
   const handleSelectAllMatching = useCallback(async () => {
     setSelectAllMatchingPending(true);
     try {
-      selectIds(await listData.fetchAllIds());
+      // A visual search ranks on the similarity service, which only answers page by page; every other
+      // filter asks the server for the matching ids in one query instead of walking the list a page at a time.
+      const ids = visualSearchActive
+        ? await listData.fetchAllIds()
+        : (
+            await images.findIds({
+              findFilter: filter,
+              objectFilter: hasObjectFilter ? (objectFilter as ImageFilterCriteria) : undefined,
+            })
+          ).ids;
+      selectIds(ids);
     } finally {
       setSelectAllMatchingPending(false);
     }
-  }, [listData, selectIds]);
+  }, [filter, hasObjectFilter, listData, objectFilter, selectIds, visualSearchActive]);
 
   return (
     <>
@@ -372,6 +389,7 @@ export function ImagesPage({ onNavigate }: Props) {
             : "Search images, tags, performers..."
         }
         onSearchModeChange={handleSearchModeChange}
+        disableRelevanceSort={visualSimilarityAvailable && searchMode === "visual"}
         sortOptions={sortOptions}
         multiSortKeys={searchMode === "text" ? IMAGE_MULTI_SORT_KEYS : undefined}
         displayMode={displayMode}

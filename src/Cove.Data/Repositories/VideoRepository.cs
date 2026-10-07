@@ -294,9 +294,12 @@ public class VideoRepository : IVideoRepository
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
             filterQuery = await ApplyVideoRelevanceOrderingAsync(filterQuery, findFilter?.Q, ct);
 
+        // int.MaxValue means every match; a LIMIT clause would only make Postgres plan for a bound it never reaches.
+        if (limit < int.MaxValue)
+            filterQuery = filterQuery.Take(limit);
+
         return await filterQuery
             .AsNoTracking()
-            .Take(limit)
             .Select(video => video.Id)
             .ToListAsync(ct);
     }
