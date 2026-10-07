@@ -660,7 +660,16 @@ export function ListPage({
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [disableRelevanceSort, filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions, switchToRelevance],
+    [
+      disableRelevanceSort,
+      filter,
+      listEntityType,
+      objectFilter,
+      onFilterChange,
+      pageKey,
+      sortOptions,
+      switchToRelevance,
+    ],
   );
 
   const goTo = useCallback(
