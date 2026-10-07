@@ -2619,6 +2619,32 @@ public class ImageRepository : IImageRepository
         return (sorted, totalCount);
     }
 
+    public async Task<IReadOnlyList<int>> FindIdsAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        using var relativeDates = RelativeDateEvaluation.Begin();
+        // Same filtering and ordering as FindAsync, but the ids never leave the lightweight query: no count,
+        // no offset and no entity load, so selecting every match costs one projection instead of N pages.
+        var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct);
+
+        var multiSortRegistry = CreateImageMultiSortRegistry();
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "updated_at";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        filterQuery = sortClauses.Count > 1
+            ? ApplyImageMultiSort(filterQuery, sortClauses, multiSortRegistry)
+            : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            filterQuery = ApplyImageRelevanceOrdering(filterQuery, findFilter?.Q);
+
+        return await filterQuery
+            .AsNoTracking()
+            .Select(image => image.Id)
+            .ToListAsync(ct);
+    }
+
     public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         using var relativeDates = RelativeDateEvaluation.Begin();

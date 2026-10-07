@@ -69,6 +69,19 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(new PaginatedResponse<ImageDto>(dtos, totalCount, findFilter.Page, findFilter.PerPage));
     }
 
+    /// <summary>
+    /// The ids of the images a /find request matches, in its order, without loading them: the same object
+    /// filter and search as the list, for a client that derives its own view from the matching set, such as
+    /// selecting every match. The whole library is one projection query, so there is no cap.
+    /// </summary>
+    [HttpPost("find-ids")]
+    public async Task<ActionResult<ImageIdsDto>> FindIds([FromBody] FilteredQueryRequest<ImageFilter> req, CancellationToken ct)
+    {
+        var filter = req.ObjectFilter ?? new ImageFilter();
+        var findFilter = req.FindFilter ?? new FindFilter();
+        return Ok(new ImageIdsDto(await imageRepo.FindIdsAsync(filter, findFilter, ct)));
+    }
+
     [HttpPost("aggregate")]
     public async Task<ActionResult<ImageAggregate>> Aggregate([FromBody] FilteredQueryRequest<ImageFilter> req, CancellationToken ct)
     {
@@ -590,3 +603,5 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     private static List<TagProvenanceDto> GetTagProvenance(IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup, int tagId)
         => provenanceLookup != null && provenanceLookup.TryGetValue(tagId, out var provenance) ? provenance : [];
 }
+
+public sealed record ImageIdsDto(IReadOnlyList<int> Ids);

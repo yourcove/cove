@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Cove.Api.Controllers;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -79,6 +80,11 @@ public sealed partial class CoveClient
         FilteredQueryRequest<ImageFilter> request,
         CancellationToken cancellationToken = default)
         => SendAsync<PaginatedResponse<ImageDto>>(HttpMethod.Post, "/api/images/find", request, cancellationToken);
+
+    public Task<ImageIdsDto> FindImageIdsAsync(
+        FilteredQueryRequest<ImageFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageIdsDto>(HttpMethod.Post, "/api/images/find-ids", request, cancellationToken);
 
     public Task<ImageAggregate> AggregateImagesAsync(
         FilteredQueryRequest<ImageFilter> request,

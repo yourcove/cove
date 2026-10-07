@@ -137,6 +137,12 @@ export interface ListPageProps {
   searchModes?: { value: string; label: string; title?: string }[];
   searchPlaceholder?: string;
   onSearchModeChange?: (mode: string) => void;
+  /**
+   * Keeps a new text query on the list's current sort and leaves Relevance out of the sort options.
+   * For search modes that rank results themselves (a visual search orders by visual match), where
+   * switching to the text relevance order would discard that ranking.
+   */
+  disableRelevanceSort?: boolean;
   // Advanced filtering
   criteriaDefinitions?: CriterionDefinition[];
   objectFilter?: Record<string, unknown>;
@@ -308,6 +314,7 @@ export function ListPage({
   searchModes,
   searchPlaceholder,
   onSearchModeChange,
+  disableRelevanceSort = false,
   criteriaDefinitions,
   objectFilter,
   onObjectFilterChange,
@@ -485,10 +492,10 @@ export function ListPage({
         label: `Custom: ${definition.label || definition.key}`,
       }),
     );
-    const mergedOptions = withRelevanceSortOption(
-      [...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions],
-      { listEntityType, filter },
-    );
+    const baseOptions = [...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions];
+    const mergedOptions = disableRelevanceSort
+      ? baseOptions
+      : withRelevanceSortOption(baseOptions, { listEntityType, filter });
     const knownValues = new Set(mergedOptions.map((option) => option.value));
     const unavailableCustomSortOptions = getSortClauses(filter)
       .filter(
@@ -500,7 +507,7 @@ export function ListPage({
     return mergedOptions.length > 0
       ? mergedOptions.sort((left, right) => left.label.localeCompare(right.label))
       : undefined;
-  }, [customFieldDefinitions, extensionSortOptions, filter, listEntityType, sortOptions]);
+  }, [customFieldDefinitions, disableRelevanceSort, extensionSortOptions, filter, listEntityType, sortOptions]);
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
   const showSelectionBar = Boolean(selectedIds && selecting);
@@ -648,12 +655,21 @@ export function ListPage({
         listEntityType,
         sortOptions,
         previousSearchSort: previousSearchSortRef.current,
-        switchToRelevance,
+        switchToRelevance: switchToRelevance && !disableRelevanceSort,
       });
       previousSearchSortRef.current = resolved.previousSearchSort;
       onFilterChange(resolved.filter);
     },
-    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions, switchToRelevance],
+    [
+      disableRelevanceSort,
+      filter,
+      listEntityType,
+      objectFilter,
+      onFilterChange,
+      pageKey,
+      sortOptions,
+      switchToRelevance,
+    ],
   );
 
   const goTo = useCallback(

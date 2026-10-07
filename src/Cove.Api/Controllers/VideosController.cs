@@ -347,7 +347,9 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     /// <summary>
     /// The ids of the videos a /find request matches, in its order, without loading them: the same object
     /// filter, expression, search and extension criteria as the list, for a client that derives its own view
-    /// from the matching set. A request matching more than the candidate limit is refused.
+    /// from the matching set, such as selecting every match. The whole library is one projection query, so
+    /// there is no cap; only a request with extension criteria is bounded, by the candidate limit those
+    /// providers are handed.
     /// </summary>
     [HttpPost("find-ids")]
     public async Task<ActionResult<VideoIdsDto>> FindIds([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
@@ -360,7 +362,7 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
         IReadOnlyList<int> ids;
         if ((filter.ExtensionCriteria ?? []).Count == 0)
         {
-            ids = await videoRepo.FindIdsAsync(filter, findFilter, ExtensionFilterCandidateLimit + 1, ct, req.FilterExpression);
+            ids = await videoRepo.FindIdsAsync(filter, findFilter, int.MaxValue, ct, req.FilterExpression);
         }
         else
         {
@@ -372,14 +374,6 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
             {
                 return problem;
             }
-        }
-        if (ids.Count > ExtensionFilterCandidateLimit)
-        {
-            return UnprocessableEntity(new ProblemDetails
-            {
-                Title = "Too many matching videos.",
-                Detail = $"At most {ExtensionFilterCandidateLimit:N0} video ids are returned per query. Narrow the filters first.",
-            });
         }
         return Ok(new VideoIdsDto(ids));
     }
