@@ -150,6 +150,7 @@ public class FileOpsController(
                 conflict = true;
                 return;
             }
+            await VideoShotCarryOver.KeepOnReplacementAsync(db, requestedVideoFileIds, replacementFileId: null, ct);
             foreach (var file in files)
             {
                 if (dto.DeleteFromDisk)

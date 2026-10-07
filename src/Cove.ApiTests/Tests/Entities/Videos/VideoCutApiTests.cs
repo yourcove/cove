@@ -125,6 +125,43 @@ public sealed class VideoCutApiTests(
         movedClip.ClipEndSec.Should().BeApproximately(9.5, 0.05);
     }
 
+    [Fact]
+    [CoversEndpoint("POST", "/api/videos/cut")]
+    public async Task GivenShotBoundaries_WhenACutReplacesTheOriginal_ThenTheyAreRemovedRatherThanCarriedOver()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = AsUser();
+        var video = await CreateKeyframedVideoAsync("shots", ct);
+        var original = video.Files.Should().ContainSingle().Which;
+        var written = await AsDbUser().WriteVideoShotsAsync(new VideoShotSetWrite
+        {
+            FileId = original.Id,
+            SourceKey = "api-test",
+            DurationSec = original.Duration,
+            Shots =
+            [
+                new VideoShotInput { StartSec = 0, EndSec = 6 },
+                new VideoShotInput { StartSec = 6, EndSec = original.Duration },
+            ],
+        }, ct);
+        written.Outcome.Should().Be(VideoShotWriteOutcome.Written);
+        (await owner.ListVideoShotSetsAsync(video, ct)).Should().ContainSingle();
+
+        var started = await owner.StartVideoCutAsync(new VideoCutRequestDto
+        {
+            Videos = [new VideoCutItemDto { VideoId = video.Id, FileId = original.Id, Remove = [Removed] }],
+            ReplaceOriginal = true,
+        }, ct);
+        var job = await owner.WaitForTerminalJobAsync(started.JobId, ct);
+
+        job.Status.Should().Be(JobStatus.Completed, job.Error ?? job.Summary);
+        job.UnitsSucceeded.Should().Be(1, job.Summary);
+        var cut = await owner.GetVideoByIdAsync(video.Id, ct);
+        cut.PrimaryFileId.Should().NotBe(original.Id);
+        (await owner.ListVideoShotSetsAsync(cut, ct)).Should().BeEmpty(
+            "shots measured on the original's timeline do not describe the cut file");
+    }
+
     /// <summary>
     /// Cutting while re-encoding lands exactly on the marks. It measures quality on samples of the kept
     /// footage first, which needs ffmpeg's libvmaf; without it the job must fail and say so.

@@ -99,6 +99,7 @@ public partial class CoveContext : DbContext
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
     public DbSet<FieldProvenance> FieldProvenance => Set<FieldProvenance>();
     public DbSet<Segment> Segments => Set<Segment>();
+    public DbSet<VideoShotSet> VideoShotSets => Set<VideoShotSet>();
     public DbSet<SegmentDisplayProfile> SegmentDisplayProfiles => Set<SegmentDisplayProfile>();
     public DbSet<SegmentDisplayRule> SegmentDisplayRules => Set<SegmentDisplayRule>();
     public DbSet<Detection> Detections => Set<Detection>();
@@ -281,6 +282,7 @@ public partial class CoveContext : DbContext
         if (isNpgsql)
         {
             ConfigureCustomFieldJsonFunctions(modelBuilder);
+            ConfigureVideoShotArrayChecks(modelBuilder);
             ConfigureSearchVectors(modelBuilder);
             ConfigureAuthorizationFilters(modelBuilder);
         }
@@ -302,6 +304,29 @@ public partial class CoveContext : DbContext
         modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Boolean))!)
             .HasName("cove_json_pointer_boolean")
             .HasSchema("public");
+    }
+
+    /// <summary>
+    /// Keeps a shot set's arrays a partition: one type per shot, one cut, transition and (with frames)
+    /// frame per boundary between shots, and cuts strictly increasing inside the set's duration and frame
+    /// count. The cut checks call functions created by the AddVideoShotSets migration, so PostgreSQL
+    /// only; the service checks the same on every provider.
+    /// </summary>
+    private static void ConfigureVideoShotArrayChecks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<VideoShotSet>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_video_shot_sets_array_shapes", """
+                cardinality("ShotTypes") = "ShotCount" AND cardinality("CutTimes") = "ShotCount" - 1
+                AND cardinality("Transitions") = "ShotCount" - 1
+                AND ("CutFrames" IS NULL OR cardinality("CutFrames") = "ShotCount" - 1)
+                AND coalesce(array_ndims("ShotTypes"), 1) = 1 AND coalesce(array_ndims("CutTimes"), 1) = 1
+                AND coalesce(array_ndims("Transitions"), 1) = 1 AND coalesce(array_ndims("CutFrames"), 1) = 1
+                """);
+            table.HasCheckConstraint("CK_video_shot_sets_cut_times", "public.cove_video_shot_cut_times_valid(\"CutTimes\", \"DurationSec\")");
+            table.HasCheckConstraint("CK_video_shot_sets_cut_frames",
+                "\"CutFrames\" IS NULL OR (\"FrameCount\" IS NOT NULL AND public.cove_video_shot_cut_frames_valid(\"CutFrames\", \"FrameCount\"))");
+        });
     }
 
     private static void ConfigureSearchVectors(ModelBuilder modelBuilder)

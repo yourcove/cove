@@ -92,6 +92,7 @@ public static class DataServiceExtensions
         services.AddScoped<FacePerformerPropagationService>();
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
         services.AddScoped<ISegmentRepository, SegmentRepository>();
+        services.AddScoped<IVideoShotService, VideoShotService>();
         services.AddScoped<ITagExternalReferenceInspector, PostgresTagExternalReferenceInspector>();
         services.AddScoped<IEntityExternalReferenceInspector, PostgresEntityExternalReferenceInspector>();
         services.AddScoped<TagMergeService>();

@@ -454,6 +454,8 @@ public sealed class VideoConversionJobService(
                 }
                 if (moved.Moved + moved.Removed > 0)
                     notes.Add($"{moved.Moved} timed item(s) moved with the cut; {moved.Removed} that lay entirely inside removed parts were deleted.");
+                if (moved.ShotSetsRemoved > 0)
+                    notes.Add("The original file's shot boundaries were removed because they do not follow a cut; analyse the video again to detect them on the cut file.");
                 regenerate.Add((videoId, assetsBefore));
             }
             else
@@ -907,17 +909,18 @@ public sealed class VideoConversionJobService(
     /// Makes a cut file the video's primary and moves everything timed on the video through the cut, in
     /// one transaction. Items entirely inside removed parts are deleted; items spanning a cut are joined
     /// across it; everything else shifts earlier by what was removed before it. The same permission
-    /// checks as the primary-file dialog apply, made against the user who asked for the cut.
+    /// checks as the primary-file dialog apply, made against the user who asked for the cut. The original
+    /// file's shot boundaries are removed, since they do not follow a cut.
     /// Returns a reason when nothing was changed.
     /// </summary>
-    private async Task<(string? Reason, int Moved, int Removed)> ApplyCutTimelineAsync(
+    private async Task<(string? Reason, int Moved, int Removed, int ShotSetsRemoved)> ApplyCutTimelineAsync(
         AsyncServiceScope scope, int videoId, int originalFileId, int newFileId, IReadOnlyList<TimeRange> kept,
         double sourceDuration, CovePrincipal? principal, CancellationToken ct)
     {
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
         var timeline = scope.ServiceProvider.GetRequiredService<VideoTimelineDependencyService>();
         var assetCoordinator = scope.ServiceProvider.GetRequiredService<VideoGeneratedAssetCoordinator>();
-        (string? Reason, int Moved, int Removed) result = ("The cut could not be applied to the video's timeline.", 0, 0);
+        (string? Reason, int Moved, int Removed, int ShotSetsRemoved) result = ("The cut could not be applied to the video's timeline.", 0, 0, 0);
         var affected = new HashSet<int> { videoId };
 
         await using (await assetCoordinator.AcquireAsync(videoId, ct))
@@ -930,8 +933,8 @@ public sealed class VideoConversionJobService(
                     ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct)
                     : null;
                 var video = await db.Videos.SingleOrDefaultAsync(item => item.Id == videoId, ct);
-                if (video is null) { result = ("The video no longer exists.", 0, 0); return; }
-                if (video.PrimaryFileId != originalFileId) { result = ("The video's primary file changed while it was being cut.", 0, 0); return; }
+                if (video is null) { result = ("The video no longer exists.", 0, 0, 0); return; }
+                if (video.PrimaryFileId != originalFileId) { result = ("The video's primary file changed while it was being cut.", 0, 0, 0); return; }
 
                 var dependencies = await timeline.LoadAsync(videoId, includeSegments: true, ct);
                 var mapped = new Dictionary<string, Cove.Core.Services.AlignedRange>();
@@ -947,12 +950,20 @@ public sealed class VideoConversionJobService(
                 if (!await timeline.CanReadAsync(principal, dependencies, ct)
                     || !await timeline.MayChangeAsync(principal, videoId, dependencies, moves: true, deletesAll: false, deletes, ct))
                 {
-                    result = ("The user who asked for the cut may not move or remove everything on this video's timeline that it affects.", 0, 0);
+                    result = ("The user who asked for the cut may not move or remove everything on this video's timeline that it affects.", 0, 0, 0);
                     return;
                 }
 
                 await timeline.ApplyAsync(principal, dependencies, mapped, deletes, ct);
                 await timeline.InvalidateDerivedDataAsync(videoId, dependencies, ct);
+
+                // Shot boundaries describe the original file's timeline and do not follow a cut yet. They are
+                // removed with the cut instead of being left to the original's deletion, so they can never be
+                // carried over to the cut file as if it showed the same footage.
+                var shotSets = await db.VideoShotSets
+                    .Where(set => set.FileId == originalFileId).ToListAsync(ct);
+                db.VideoShotSets.RemoveRange(shotSets);
+
                 video.PrimaryFileId = newFileId;
                 video.UpdatedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync(ct);
@@ -960,7 +971,7 @@ public sealed class VideoConversionJobService(
                     await transaction.CommitAsync(ct);
                 foreach (var host in dependencies.Select(item => item.TimelineHostId).Where(id => id.HasValue))
                     affected.Add(host!.Value);
-                result = (null, mapped.Count, deletes.Count);
+                result = (null, mapped.Count, deletes.Count, shotSets.Count);
             });
 
             if (result.Reason is not null)

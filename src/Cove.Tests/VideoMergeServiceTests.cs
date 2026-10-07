@@ -271,6 +271,88 @@ public sealed class VideoMergeServiceTests
         Assert.True(await verify.Videos.AnyAsync(video => video.Id == removed.Id));
     }
 
+    [Fact]
+    public async Task AttachModeCarriesTheCopysShotBoundariesWithItsFile()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 90);
+        var removedFileId = removed.Files.Single().Id;
+        await harness.WriteShotsAsync(removedFileId, 90);
+
+        await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id]));
+
+        await using var verify = harness.CreateContext();
+        var shots = new Cove.Data.Services.VideoShotService(verify);
+        var set = Assert.Single(await shots.ListForVideoAsync(kept.Id, TestContext.Current.CancellationToken));
+        Assert.Equal((removedFileId, false), (set.FileId, set.IsPrimaryFile));
+        Assert.Null(await shots.GetForVideoAsync(kept.Id, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RemoveModeLeavesShotBoundariesWithTheCopyUntilItsFileIsDeleted()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 90);
+        var removedFileId = removed.Files.Single().Id;
+        await harness.WriteShotsAsync(removedFileId, 90);
+
+        await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], VideoMergeFileHandling.Remove));
+
+        await using (var verify = harness.CreateContext())
+        {
+            Assert.Equal(removed.Id, Assert.Single(await new Cove.Data.Services.VideoShotService(verify).ListForVideoAsync(removed.Id, TestContext.Current.CancellationToken)).VideoId);
+            verify.VideoFiles.Remove(await verify.VideoFiles.SingleAsync(file => file.Id == removedFileId, TestContext.Current.CancellationToken));
+            await verify.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var afterDelete = harness.CreateContext();
+        Assert.False(await afterDelete.VideoShotSets.AnyAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RemoveModeCarriesShotBoundariesOntoAnEquivalentKeptFile()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 60, phash: "00ff00ff00ff00ff");
+        await harness.WriteShotsAsync(removed.Files.Single().Id, 60);
+
+        await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], VideoMergeFileHandling.Remove));
+
+        await using var verify = harness.CreateContext();
+        var shots = new Cove.Data.Services.VideoShotService(verify);
+        Assert.Equal(kept.Files.Single().Id, (await shots.GetForVideoAsync(kept.Id, TestContext.Current.CancellationToken))!.FileId);
+        Assert.Empty(await shots.ListForVideoAsync(removed.Id, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RemoveModeCarriesShotBoundariesFromAnyFileOfTheCopy()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 90, phash: "00ff00ff00ff00ff");
+        var secondFileId = await harness.AttachFileAsync(removed.Id, duration: 60, phash: "00ff00ff00ff00ff");
+        await harness.WriteShotsAsync(secondFileId, 60);
+
+        await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], VideoMergeFileHandling.Remove));
+
+        await using var verify = harness.CreateContext();
+        Assert.Equal(kept.Files.Single().Id, (await new Cove.Data.Services.VideoShotService(verify).GetForVideoAsync(kept.Id, TestContext.Current.CancellationToken))!.FileId);
+    }
+
+    [Fact]
+    public async Task RemoveModeLeavesShotBoundariesOfACopyWithoutFingerprints()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 60);
+        await harness.WriteShotsAsync(removed.Files.Single().Id, 60);
+
+        await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], VideoMergeFileHandling.Remove));
+
+        await using var verify = harness.CreateContext();
+        var shots = new Cove.Data.Services.VideoShotService(verify);
+        Assert.Null(await shots.GetForVideoAsync(kept.Id, TestContext.Current.CancellationToken));
+        Assert.Single(await shots.ListForVideoAsync(removed.Id, TestContext.Current.CancellationToken));
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private readonly SqliteConnection _anchor;
@@ -354,6 +436,34 @@ public sealed class VideoMergeServiceTests
                 new GroupItem { GroupId = group.Id, Kind = GroupItemKind.Video, HostType = "video", HostId = videoId, VideoId = videoId, StartSec = 5, EndSec = 10 },
                 new Segment { HostType = SegmentHostType.Video, HostId = videoId, StartSec = 12, SourceKey = "user", Title = "Marker" });
             await db.SaveChangesAsync();
+        }
+
+        public async Task<int> AttachFileAsync(int videoId, double duration, string phash)
+        {
+            await using var db = CreateContext();
+            var file = new VideoFile { VideoId = videoId, ParentFolder = new Folder { Path = $"/library/merge/{Guid.NewGuid():N}" }, Basename = "second.mp4", Duration = duration };
+            db.VideoFiles.Add(file);
+            await db.SaveChangesAsync();
+            db.FileFingerprints.Add(new FileFingerprint { FileId = file.Id, Type = "phash", Value = phash });
+            await db.SaveChangesAsync();
+            return file.Id;
+        }
+
+        public async Task WriteShotsAsync(int fileId, double duration)
+        {
+            await using var db = CreateContext();
+            var result = await new Cove.Data.Services.VideoShotService(db).WriteSetAsync(new VideoShotSetWrite
+            {
+                FileId = fileId,
+                SourceKey = "ext:ai.shots",
+                DurationSec = duration,
+                Shots =
+                [
+                    new VideoShotInput { StartSec = 0, EndSec = duration / 2 },
+                    new VideoShotInput { StartSec = duration / 2, EndSec = duration },
+                ],
+            });
+            Assert.Equal(VideoShotWriteOutcome.Written, result.Outcome);
         }
 
         public async ValueTask DisposeAsync() => await _anchor.DisposeAsync();

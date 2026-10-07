@@ -1,4 +1,5 @@
 using Cove.Data.Auth;
+using Cove.Data.Services;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +21,8 @@ public sealed class MetadataImportPostgresFixture : IAsyncLifetime
     {
         database = await PostgreSqlTestDatabase.CreateAsync();
         await using var db = CreateContext();
+        // The shot set CHECK constraints call these functions, so they must exist before the tables.
+        await db.Database.ExecuteSqlRawAsync(VideoShotSqlDefinitions.CreateFunctionsSql);
         await db.Database.EnsureCreatedAsync();
         await db.Database.OpenConnectionAsync();
         await using var command = db.Database.GetDbConnection().CreateCommand();
