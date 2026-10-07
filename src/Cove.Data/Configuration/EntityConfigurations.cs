@@ -398,6 +398,10 @@ public class TagConfiguration : IEntityTypeConfiguration<Tag>
         builder.HasKey(t => t.Id);
         builder.Property(t => t.Name).IsRequired().HasMaxLength(500);
         builder.Property(t => t.NamespaceKey).IsRequired();
+        // Name lookups match a list of requested keys (RelationNameResolver). A hash index answers
+        // equality without the B-tree size limit; uniqueness is enforced across names and aliases by
+        // tag_name_claims.
+        builder.HasIndex(t => t.NamespaceKey).HasMethod("hash");
         builder.Property(t => t.Color).HasMaxLength(9);
         builder.Property(t => t.VideoCount).HasDefaultValue(0);
         builder.Property(t => t.SegmentCount).HasDefaultValue(0);

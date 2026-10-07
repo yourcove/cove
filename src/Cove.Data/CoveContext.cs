@@ -211,6 +211,8 @@ public partial class CoveContext : DbContext
         {
             entity.ToTable("tag_aliases");
             entity.Property(alias => alias.NamespaceKey).IsRequired();
+            // Aliases are unbounded text, so a B-tree could reject a long one; see the tags index.
+            entity.HasIndex(alias => alias.NamespaceKey).HasMethod("hash");
         });
         modelBuilder.Entity<VideoPlayHistory>().ToTable("video_play_history");
 
