@@ -280,6 +280,55 @@ describe("VideoTagger", () => {
     expect(request.studioOverride).toEqual(expected.studioOverride);
   });
 
+  it("shows a metadata-server match under the library name it lands on and folds it into the tag the video has", async () => {
+    // The search matched "Big Tits" to the library tag "Big Breasts" (by alias or remote id), and the
+    // studio to one linked under another name.
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      {
+        ...matchFor(123),
+        id: "first-video-id",
+        studioName: "Fixture Studio",
+        studioCandidate: {
+          remoteId: "remote-studio",
+          name: "Fixture Studio",
+          existsLocally: true,
+          localId: 9,
+          localName: "Fixture Studios Inc",
+        },
+        tagNames: ["Big Tits"],
+        tagCandidates: [
+          { remoteId: "t1", name: "Big Tits", existsLocally: true, localId: 5, localName: "Big Breasts" },
+        ],
+      },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [{ id: 5, name: "Big Breasts" }],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+
+    // One chip, the tag the video has, and nothing added.
+    expect(screen.queryByText("Big Tits")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Tags" })).getAllByText("Big Breasts")).toHaveLength(1);
+    expect(screen.queryByText(/tags? added/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Fixture Studios Inc").length).toBeGreaterThan(0);
+    // The search answered for its tag, so nothing is asked about it.
+    expect(mocks.resolveRelations).not.toHaveBeenCalled();
+  });
+
   it("shows skipped related tag claims as a partial-success warning", async () => {
     mocks.importFromMetadataServer.mockResolvedValue({
       importWarnings: ["Skipped remote alias because it is already claimed by another tag."],

@@ -3181,13 +3181,17 @@ query Me {
         if (remoteStudio == null || string.IsNullOrWhiteSpace(remoteStudio.Name))
             return null;
 
-        var localId = await _db.Studios
+        var local = await _db.Studios
             .Where(studio => studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
-            .Select(studio => (int?)studio.Id)
+            .Select(studio => new { studio.Id, studio.Name })
             .FirstOrDefaultAsync(ct);
-        localId ??= (await FindStudioByIdentityAsync(remoteStudio.Name, ct))?.Id;
+        if (local == null && await FindStudioByIdentityAsync(remoteStudio.Name, ct) is { } identityMatch)
+            local = new { identityMatch.Id, identityMatch.Name };
 
-        return new MetadataServerEntityCandidateDto(remoteStudio.Id, remoteStudio.Name.Trim(), localId.HasValue, localId);
+        return new MetadataServerEntityCandidateDto(remoteStudio.Id, remoteStudio.Name.Trim(), local != null, local?.Id)
+        {
+            LocalName = local?.Name,
+        };
     }
 
     private async Task<List<MetadataServerEntityCandidateDto>> BuildPerformerCandidatesAsync(string endpoint, MetadataServerRemoteVideo video, CancellationToken ct)
@@ -3209,34 +3213,34 @@ query Me {
             : await _db.Performers
                 .SelectMany(performer => performer.RemoteIds
                     .Where(remoteId => remoteId.Endpoint == endpoint && remoteIds.Contains(remoteId.RemoteId))
-                    .Select(remoteId => new { remoteId.RemoteId, PerformerId = performer.Id }))
+                    .Select(remoteId => new { remoteId.RemoteId, PerformerId = performer.Id, performer.Name }))
                 .ToListAsync(ct);
 
-        var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var idsByRemoteId = new Dictionary<string, (int Id, string Name)>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
         {
-            idsByRemoteId.TryAdd(match.RemoteId, match.PerformerId);
+            idsByRemoteId.TryAdd(match.RemoteId, (match.PerformerId, match.Name));
         }
 
         var result = new List<MetadataServerEntityCandidateDto>(remotePerformers.Count);
         foreach (var remotePerformer in remotePerformers)
         {
             var name = remotePerformer.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var localId);
-            if (!exists)
+            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var local);
+            if (!exists && await FindPerformerByIdentityAsync(name, remotePerformer.Disambiguation, ct) is { } identityMatch)
             {
-                var identityMatch = await FindPerformerByIdentityAsync(name, remotePerformer.Disambiguation, ct);
-                localId = identityMatch?.Id ?? 0;
-                exists = identityMatch != null;
+                local = (identityMatch.Id, identityMatch.Name);
+                exists = true;
             }
             result.Add(new MetadataServerEntityCandidateDto(
                 remotePerformer.Id,
                 name,
                 exists,
-                exists ? localId : null,
+                exists ? local.Id : null,
                 EntityNameRules.NormalizeDisambiguation(remotePerformer.Disambiguation))
             {
                 Gender = remotePerformer.Gender,
+                LocalName = exists ? local.Name : null,
             });
         }
         return result;
@@ -3261,27 +3265,30 @@ query Me {
             : await _db.Tags
                 .SelectMany(tag => tag.RemoteIds
                     .Where(remoteId => remoteId.Endpoint == endpoint && remoteIds.Contains(remoteId.RemoteId))
-                    .Select(remoteId => new { remoteId.RemoteId, TagId = tag.Id }))
+                    .Select(remoteId => new { remoteId.RemoteId, TagId = tag.Id, tag.Name }))
                 .ToListAsync(ct);
 
         var matchedByName = await RelationNameResolver.ResolveTagsAsync(_db, remoteNames, ct);
 
-        var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var idsByRemoteId = new Dictionary<string, (int Id, string Name)>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
         {
-            idsByRemoteId.TryAdd(match.RemoteId, match.TagId);
+            idsByRemoteId.TryAdd(match.RemoteId, (match.TagId, match.Name));
         }
 
         return remoteTags.Select(remoteTag =>
         {
             var name = remoteTag.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var localId);
+            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var local);
             if (!exists && matchedByName.TryGetValue(name, out var nameMatch))
             {
                 exists = true;
-                localId = nameMatch.Id;
+                local = (nameMatch.Id, nameMatch.Name);
             }
-            return new MetadataServerEntityCandidateDto(remoteTag.Id, name, exists, exists ? localId : null);
+            return new MetadataServerEntityCandidateDto(remoteTag.Id, name, exists, exists ? local.Id : null)
+            {
+                LocalName = exists ? local.Name : null,
+            };
         }).ToList();
     }
 

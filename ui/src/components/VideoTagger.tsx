@@ -798,6 +798,25 @@ function buildVideoRelationSelections(
   );
 }
 
+/**
+ * The library name each of a result's scraped tags lands on: the lookup's answers, plus a metadata server's
+ * own matches, which its search names and the lookup is not asked about. The search's match wins, since
+ * the import attaches that tag.
+ */
+function resultTagMatchInfo(result: UnifiedVideoMatch, lookup: Record<string, string> | undefined) {
+  const info: Record<string, string> = Object.assign(Object.create(null), lookup);
+  for (const candidate of result.tagCandidates)
+    if (candidate.existsLocally && candidate.localName) info[relationKey(candidate.name)] = candidate.localName;
+  return info;
+}
+
+/** The library studio a result's scraped studio lands on, from its search's match or the lookup. */
+function resultStudioMatchName(result: UnifiedVideoMatch, lookup: Record<string, string> | undefined) {
+  if (!result.studioName) return undefined;
+  const candidate = result.studioCandidate;
+  return (candidate?.existsLocally ? candidate.localName : undefined) ?? lookup?.[relationKey(result.studioName)];
+}
+
 function buildScraperVideoApplyRequest(
   result: UnifiedVideoMatch,
   video: Video,
@@ -2057,7 +2076,7 @@ function TaggerVideoRow({
       state?.excludedTags,
       state?.forceIncludedTags,
       !taggerConfig.onlyExistingTags,
-      tagMatchInfo ?? {},
+      resultTagMatchInfo(selectedResult, tagMatchInfo),
     );
     const performerChoices = getPerformerChoices(selectedResult);
     const performerActions = buildVideoRelationActionMap(
@@ -2076,7 +2095,13 @@ function TaggerVideoRow({
       if (!selectedResult.scrapeAttemptId) throw new TaggerPreconditionError("No scraper attempt selected");
       return scrapeAttempts.apply(
         selectedResult.scrapeAttemptId,
-        buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig, tagMatchInfo),
+        buildScraperVideoApplyRequest(
+          selectedResult,
+          video,
+          state,
+          taggerConfig,
+          resultTagMatchInfo(selectedResult, tagMatchInfo),
+        ),
       );
     }
 
@@ -2863,6 +2888,7 @@ function TaggerResultRow({
   const existingPerformerChoiceKeys = performerChoices
     .filter((choice) => choice.candidate.existsLocally)
     .map((choice) => choice.key);
+  const matchInfo = resultTagMatchInfo(result, tagMatchInfo);
   const tagActions = buildVideoRelationActionMap(
     result.tagNames,
     currentTagNames,
@@ -2870,7 +2896,7 @@ function TaggerResultRow({
     excludedTags,
     forceIncludedTags,
     !taggerConfig.onlyExistingTags,
-    tagMatchInfo ?? {},
+    matchInfo,
   );
   const performerActions = buildVideoRelationActionMap(
     performerChoiceKeys,
@@ -2907,7 +2933,7 @@ function TaggerResultRow({
     showStudio: taggerConfig.setStudio,
     studioIsNew: result.studioCandidate != null && !result.studioCandidate.existsLocally,
     createStudio: willCreateStudio(result, createdStudio, taggerConfig),
-    studioMatchName: result.studioName ? studioMatchInfo?.[relationKey(result.studioName)] : undefined,
+    studioMatchName: resultStudioMatchName(result, studioMatchInfo),
     onCreateStudio,
     showTags: taggerConfig.setTags,
     showPerformers: taggerConfig.setPerformers,
@@ -2916,7 +2942,7 @@ function TaggerResultRow({
     currentTagNames,
     existingTagNames,
     tagActions,
-    tagMatchInfo,
+    tagMatchInfo: matchInfo,
     onLinkTag,
     onCollectionModeChange,
     performerChoices,

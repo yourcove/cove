@@ -2866,6 +2866,8 @@ export interface MetadataServerEntityCandidate {
   disambiguation?: string;
   // Performer candidates only: the remote gender as the metadata server spells it (e.g. TRANSGENDER_FEMALE).
   gender?: string;
+  // The library entity's own name when existsLocally; differs from name for a remote-id or alias match.
+  localName?: string | null;
 }
 
 export interface MetadataServerVideoEntityOverride {

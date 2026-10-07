@@ -90,6 +90,36 @@ public sealed class MetadataServerServiceTests
         Assert.Contains(match.TagCandidates, candidate => candidate.Name == "Action" && candidate.ExistsLocally);
     }
 
+    [Fact]
+    public async Task SearchVideosAsync_NamesTheLibraryEntityEachCandidateLandsOn()
+    {
+        // Each remote entity matches a library one under another name: the studio and performer by the
+        // remote id linked to them, the tag by an alias. The tagger shows what the video gets.
+        await using var context = CreateContext();
+        context.Studios.Add(new Studio { Name = "Fixture Studios Inc", RemoteIds = [new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-studio-1" }] });
+        context.Performers.Add(new Performer { Name = "Jane D.", RemoteIds = [new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-performer-1" }] });
+        context.Tags.Add(new Tag { Name = "Big Breasts", Aliases = [new TagAlias { Alias = "Action" }] });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var video = new Video { Title = "Local Video" };
+        video.Files.Add(new VideoFile { Duration = 118 });
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "searchVideo": [{{RemoteVideoJson}}]
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var match = Assert.Single(await service.SearchVideosAsync(video, "Remote Video", Endpoint, VideoMetadataSearchStrategy.Text, CancellationToken.None));
+
+        Assert.Equal("Fixture Studios Inc", match.StudioCandidate?.LocalName);
+        var performer = Assert.Single(match.PerformerCandidates, candidate => candidate.Name == "Jane Doe");
+        Assert.Equal("Jane D.", performer.LocalName);
+        var tag = Assert.Single(match.TagCandidates);
+        Assert.True(tag.ExistsLocally);
+        Assert.Equal("Action", tag.Name);
+        Assert.Equal("Big Breasts", tag.LocalName);
+        Assert.All(match.PerformerCandidates.Where(candidate => !candidate.ExistsLocally), candidate => Assert.Null(candidate.LocalName));
+    }
+
     // The tagger mirrors these rules client-side to filter its preview, so they are a contract: an absent
     // list filters nothing, a present one filters by normalized key, an unstated gender counts as
     // "Unknown", and a present but empty list allows no performer at all.

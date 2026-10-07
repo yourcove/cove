@@ -1780,6 +1780,10 @@ public record MetadataServerEntityCandidateDto(
     // arity. Carries the remote gender as the metadata server spells it, so the tagger can filter its
     // preview by the same performer genders the import filters by when it writes.
     public string? Gender { get; init; }
+
+    // Init property for the same reason. The library entity's own name when ExistsLocally, which differs
+    // from Name when the match was by remote id or by alias, so the tagger can show what the video gets.
+    public string? LocalName { get; init; }
 }
 
 public record MetadataServerVideoEntityOverrideDto
