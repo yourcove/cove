@@ -180,11 +180,14 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [HttpGet]
     public ActionResult<IEnumerable<ExtensionInfo>> GetExtensions([FromQuery] string? category = null)
     {
-        var loadedIds = extensionManager.Extensions
+        // One snapshot for both lists; with the check below, an extension registered mid-request is never
+        // listed twice or reported as failed.
+        var loadedExtensions = extensionManager.Extensions.ToList();
+        var loadedIds = loadedExtensions
             .Select(e => extensionManager.ExecuteExtensionMetadata(e, () => e.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var items = extensionManager.Extensions
+        var items = loadedExtensions
             .Select(e =>
             {
                 return extensionManager.ExecuteExtensionMetadata(e, () =>
@@ -220,15 +223,19 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                         manifest?.Kind ?? "extension",
                         install?.Source ?? "unknown",
                         install?.InstalledAt,
-                        e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : []);
+                        e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : [],
+                        extensionManager.GetRestartRequiredReason(e.Id),
+                        null);
                 });
             })
                 .Where(info => info != null)
                 .Cast<ExtensionInfo>()
             .ToList();
 
+        // Installed packages with no runtime instance: manifest-only bundles and scraper packs, and runtime
+        // extensions whose DLL failed to load. The failed ones are listed so they can still be uninstalled.
         items.AddRange(extensionManager.Installations.Values
-            .Where(install => !loadedIds.Contains(install.ExtensionId) && extensionManager.IsManifestOnlyExtension(install.ExtensionId))
+            .Where(install => !loadedIds.Contains(install.ExtensionId) && extensionManager.GetExtension(install.ExtensionId) == null)
             .Select(install =>
             {
                 var manifest = extensionManager.GetManifestFile(install.ExtensionId);
@@ -239,6 +246,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 if (!MatchesCategory(categories, category))
                     return null;
 
+                var isManifestOnly = extensionManager.IsManifestOnlyExtension(manifest.Id);
                 return new ExtensionInfo(
                     manifest.Id,
                     manifest.Name,
@@ -264,7 +272,11 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                     manifest.Kind,
                     install.Source,
                     install.InstalledAt,
-                    []);
+                    [],
+                    null,
+                    isManifestOnly
+                        ? null
+                        : extensionManager.GetLastFailureReason(manifest.Id) ?? "Cove did not load this extension's DLL.");
             })
             .Where(info => info != null)
             .Cast<ExtensionInfo>());
@@ -600,7 +612,12 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             if (!initialized)
             {
                 var action = installationSource == "url" ? "downloaded" : "uploaded";
-                return StatusCode(500, new { message = $"Extension '{manifest.Id}' was {action} but failed to initialize.", path = extensionDir });
+                return StatusCode(500, new
+                {
+                    message = $"Extension '{manifest.Id}' was {action} but failed to initialize.",
+                    path = extensionDir,
+                    restartRequiredReason = extensionManager.GetRestartRequiredReason(manifest.Id),
+                });
             }
 
             await extensionManager.SetInstallationSourceAsync(manifest.Id, installationSource, ct);
@@ -785,6 +802,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 path = installPath,
                 detail = extensionManager.GetLastFailureReason(request.ExtensionId)
                     ?? $"Extension '{request.ExtensionId}' was not loaded during discovery.",
+                restartRequiredReason = extensionManager.GetRestartRequiredReason(request.ExtensionId),
             });
         }
 
@@ -842,6 +860,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         CancellationToken ct = default)
     {
         if (!extensionManager.Installations.ContainsKey(request.ExtensionId)
+            && extensionManager.GetManifestFile(request.ExtensionId) == null
             && !extensionManager.Extensions.Any(extension => string.Equals(extension.Id, request.ExtensionId, StringComparison.OrdinalIgnoreCase)))
         {
             return NotFound($"Extension '{request.ExtensionId}' not found.");
@@ -876,6 +895,8 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
         foreach (var extensionId in idsToUninstall)
         {
+            // Resolve the directory before unloading, which forgets where the extension was discovered.
+            var extDir = ResolveInstalledExtensionDirectory(extensionsDir, extensionId);
             var unloaded = await extensionManager.UnloadExtensionAsync(extensionId, HttpContext.RequestServices, ct);
             if (!unloaded)
             {
@@ -885,8 +906,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
                 continue;
             }
 
-            var extDir = Path.Combine(extensionsDir, extensionId);
-            if (Directory.Exists(extDir))
+            if (Directory.Exists(extDir) && !IsDirectoryUsedByAnotherExtension(extDir))
             {
                 var deleteError = await DeleteDirectoryWithRetriesAsync(extDir, ct);
                 if (deleteError != null && Directory.Exists(extDir))
@@ -913,6 +933,31 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             requiresDependents = false,
             uninstalledExtensions,
         });
+    }
+
+    /// <summary>
+    /// The directory the extension was discovered in when it lies inside the extensions directory,
+    /// otherwise the conventional directory named after its id.
+    /// </summary>
+    private string ResolveInstalledExtensionDirectory(string extensionsDir, string extensionId)
+    {
+        var discoveredDir = extensionManager.GetExtensionDirectory(extensionId);
+        return discoveredDir != null && IsPathInsideDirectory(extensionsDir, discoveredDir)
+            ? Path.GetFullPath(discoveredDir)
+            : Path.Combine(extensionsDir, extensionId);
+    }
+
+    /// <summary>
+    /// True when a still-registered extension was discovered in the same directory, as happens when one
+    /// folder's DLL exposes several extensions. Its files must stay until that extension is uninstalled too.
+    /// </summary>
+    private bool IsDirectoryUsedByAnotherExtension(string directory)
+    {
+        var fullDirectory = Path.GetFullPath(directory);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return extensionManager.Installations.Keys
+            .Select(extensionManager.GetExtensionDirectory)
+            .Any(candidate => candidate != null && string.Equals(Path.GetFullPath(candidate), fullDirectory, comparison));
     }
 
     private ExtensionDependencyImpact CreateDependencyImpact(string extensionId)
@@ -1226,7 +1271,9 @@ public record ExtensionInfo(
     string Kind,
     string Source,
     DateTime? InstalledAt,
-    List<JobInfo> Jobs);
+    List<JobInfo> Jobs,
+    string? RestartRequiredReason,
+    string? FailureReason);
 
 public record JobInfo(string Id, string Name, string? Description);
 
