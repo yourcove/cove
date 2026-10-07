@@ -66,6 +66,11 @@ interface PerformerSearchState {
   saved?: boolean;
   fieldStrategies?: Record<string, PerformerFieldStrategy>;
   collectionModes?: Record<string, CollectionMode>;
+  /**
+   * Only the tag choices the person made. Every other scraped tag follows its default, from the library as
+   * the server last described it and the Create missing setting (see `getPerformerTagActions`), so a tag
+   * another row's apply creates is included here too unless this row left it out.
+   */
   tagActions?: ScrapeRelationActionMap;
   /** Which of the source's images is on screen in the review; that one is applied. */
   imageIndex?: number;
@@ -334,6 +339,25 @@ function buildPerformerFieldStrategies(
 /** Where a row's tag lookup stands: the tags row and Apply wait for "ready". */
 type PerformerTagLookup = "ready" | "waiting" | "failed";
 
+/** Each scraped tag's action: the person's own choice, else the default for the library as it stands. */
+function getPerformerTagActions(
+  performer: Performer,
+  result: UnifiedPerformerMatch,
+  state: PerformerSearchState | undefined,
+  existingTagNames: string[],
+  createMissingTags: boolean,
+): ScrapeRelationActionMap {
+  return {
+    ...buildRelationActionMap(
+      result.scraped?.tagNames ?? [],
+      getPerformerTagNames(performer),
+      existingTagNames,
+      createMissingTags,
+    ),
+    ...state?.tagActions,
+  };
+}
+
 function buildFilteredScrapedPerformer(
   performer: Performer,
   result: UnifiedPerformerMatch,
@@ -345,10 +369,7 @@ function buildFilteredScrapedPerformer(
   if (!scraped) throw new Error("No scraped performer selected");
   const fieldStrategies = getPerformerFieldStrategies(performer, result, state);
   const collectionModes = getPerformerCollectionModes(result, state);
-  const currentTagNames = getPerformerTagNames(performer);
-  const tagActions =
-    state?.tagActions ??
-    buildRelationActionMap(scraped.tagNames ?? [], currentTagNames, existingTagNames, createMissingTags);
+  const tagActions = getPerformerTagActions(performer, result, state, existingTagNames, createMissingTags);
   const selectedTags = (scraped.tagNames ?? []).filter((name) => tagActions[relationKey(name)] !== "exclude");
 
   const filtered: ScrapedPerformer = {
@@ -768,14 +789,13 @@ function PerformerTaggerRow({
         if (!selectedResult.scraped) throw new Error("No scraped performer selected");
         // Never sent on a guess about which tags exist; the Apply button waits for the same answer.
         if (tagLookup !== "ready") throw new Error("The library check has not answered yet.");
-        const tagActions =
-          state?.tagActions ??
-          buildRelationActionMap(
-            selectedResult.scraped.tagNames ?? [],
-            getPerformerTagNames(performer),
-            existingTagNames,
-            taggerConfig.createMissingTags,
-          );
+        const tagActions = getPerformerTagActions(
+          performer,
+          selectedResult,
+          state,
+          existingTagNames,
+          taggerConfig.createMissingTags,
+        );
         const forceCreateTags = Object.values(tagActions).some((action) => action === "create");
         return performers.applyScraped(performer.id, {
           scraped: buildFilteredScrapedPerformer(
@@ -991,15 +1011,13 @@ function PerformerTaggerRow({
                   isSelected={i === (state.selectedIndex ?? 0)}
                   fieldStrategies={getPerformerFieldStrategies(performer, result, state)}
                   collectionModes={getPerformerCollectionModes(result, state)}
-                  tagActions={
-                    state.tagActions ??
-                    buildRelationActionMap(
-                      result.scraped?.tagNames ?? [],
-                      getPerformerTagNames(performer),
-                      existingTagNames,
-                      taggerConfig.createMissingTags,
-                    )
-                  }
+                  tagActions={getPerformerTagActions(
+                    performer,
+                    result,
+                    state,
+                    existingTagNames,
+                    taggerConfig.createMissingTags,
+                  )}
                   existingTagNames={existingTagNames}
                   tagMatchInfo={tagMatchInfo}
                   createMissingTags={taggerConfig.createMissingTags}
@@ -1031,16 +1049,8 @@ function PerformerTaggerRow({
                   }
                   onTagActionsChange={(actions) =>
                     onUpdateState({
-                      tagActions: {
-                        ...(state.tagActions ??
-                          buildRelationActionMap(
-                            result.scraped?.tagNames ?? [],
-                            getPerformerTagNames(performer),
-                            existingTagNames,
-                            taggerConfig.createMissingTags,
-                          )),
-                        ...actions,
-                      },
+                      // Only what was chosen; the rest keeps following the library.
+                      tagActions: { ...state.tagActions, ...actions },
                     })
                   }
                   onClick={() =>

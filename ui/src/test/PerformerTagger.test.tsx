@@ -46,11 +46,12 @@ function renderTagger(performers: Performer[], mode: "bulk" | "detail" = "bulk")
     },
   });
 
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <PerformerTagger performers={performers} mode={mode} />
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 describe("PerformerTagger", () => {
@@ -208,8 +209,9 @@ describe("PerformerTagger", () => {
       });
     });
     const search = async () => {
-      renderTagger([performer]);
+      const view = renderTagger([performer]);
       await userEvent.click(await screen.findByRole("button", { name: /^Search$/i }));
+      return view;
     };
 
     it("asks the server, so a tag it matches by alias is applied without being created", async () => {
@@ -233,6 +235,38 @@ describe("PerformerTagger", () => {
       const request = mocks.applyScraped.mock.calls[0][1];
       expect(request.scraped.tagNames).toEqual(["Big Tits"]);
       expect(request.createMissingTags).toBe(false);
+    });
+
+    it("follows the library for tags the person has not chosen, after choosing another", async () => {
+      mocks.previewScrape.mockResolvedValue({
+        scraped: { name: "Jane Doe", tagNames: ["Tattoos", "Brand New"] },
+        inputKind: "name",
+      });
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [{ input: "Tattoos", matchedName: "Tattoos" }],
+        performers: [],
+        studios: [],
+      });
+      const { queryClient } = await search();
+      await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Remove Tags: Tattoos" }));
+
+      // Another row's apply creates "Brand New", and this row asks again.
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [
+          { input: "Tattoos", matchedName: "Tattoos" },
+          { input: "Brand New", matchedName: "Brand New" },
+        ],
+        performers: [],
+        studios: [],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["performer-tagger-resolve-relations"] });
+
+      // Now in the library and never chosen against, so it is included; Tattoos stays left out.
+      expect(await screen.findByRole("button", { name: "Remove Tags: Brand New" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScraped).toHaveBeenCalledOnce());
+      expect(mocks.applyScraped.mock.calls[0][1].scraped.tagNames).toEqual(["Brand New"]);
     });
 
     it("holds Apply until the server answers, and offers Retry when it fails", async () => {
