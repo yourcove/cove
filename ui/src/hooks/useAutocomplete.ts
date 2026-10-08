@@ -27,6 +27,12 @@ interface UseAutocompleteOptions<T> {
   disabled?: boolean;
   busy?: boolean;
   preserveActiveKeyOnInputChange?: boolean;
+  /**
+   * Whether an option is exactly what was typed. With it, Enter while no option is highlighted picks
+   * that option when it is the only one, instead of doing nothing; without it, Enter only picks a
+   * highlighted option.
+   */
+  matchesInput?: (value: T, inputValue: string) => boolean;
 }
 
 interface AutocompleteInputProps {
@@ -40,6 +46,9 @@ interface AutocompleteInputProps {
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
 }
 
+// The one item there is, or none when there are several and which is meant is unclear.
+const onlyItem = <T>(items: T[]) => (items.length === 1 ? items[0] : undefined);
+
 export function useAutocomplete<T>({
   items,
   inputValue,
@@ -48,6 +57,7 @@ export function useAutocomplete<T>({
   disabled = false,
   busy = false,
   preserveActiveKeyOnInputChange = false,
+  matchesInput,
 }: UseAutocompleteOptions<T>) {
   const generatedId = useId();
   const listboxId = `autocomplete-${generatedId}`;
@@ -171,8 +181,13 @@ export function useAutocomplete<T>({
           moveActive(-1);
           break;
         case "Enter": {
-          if (!isOpen || activeKey == null) return;
-          const item = items.find((candidate) => candidate.key === activeKey);
+          if (!isOpen) return;
+          const item =
+            activeKey != null
+              ? items.find((candidate) => candidate.key === activeKey)
+              : matchesInput
+                ? onlyItem(selectableItems.filter((candidate) => matchesInput(candidate.value, inputValue)))
+                : undefined;
           if (!item || item.disabled) return;
           event.preventDefault();
           selectItem(item);

@@ -90,4 +90,47 @@ describe("useAutocomplete", () => {
     rerender({ items: [items[0]], inputValue: "a" });
     expect(result.current.activeKey).toBeNull();
   });
+
+  describe("Enter with no option highlighted", () => {
+    const matches = (value: string, input: string) => value.toLowerCase() === input.trim().toLowerCase();
+    const render = (inputValue: string, matchesInput?: typeof matches, list = items) => {
+      const onSelect = vi.fn();
+      // Starts empty and then has the text typed, which opens the list as typing does.
+      const hook = renderHook(
+        ({ value }: { value: string }) =>
+          useAutocomplete({ items: list, inputValue: value, onInputValueChange: vi.fn(), onSelect, matchesInput }),
+        { initialProps: { value: "" } },
+      );
+      hook.rerender({ value: inputValue });
+      return { ...hook, onSelect };
+    };
+
+    it("picks the option whose name is exactly what was typed", () => {
+      const { result, onSelect } = render(" beta ", matches);
+      pressKey(result, "Enter");
+      expect(onSelect).toHaveBeenCalledWith("Beta");
+    });
+
+    it("does nothing for a partial match, a disabled match, two matches, or an owner that does not opt in", () => {
+      const partial = render("bet", matches);
+      pressKey(partial.result, "Enter");
+      expect(partial.onSelect).not.toHaveBeenCalled();
+
+      const disabled = render("beta", matches, [{ key: "b", value: "Beta", disabled: true }]);
+      pressKey(disabled.result, "Enter");
+      expect(disabled.onSelect).not.toHaveBeenCalled();
+
+      const plain = render("beta");
+      pressKey(plain.result, "Enter");
+      expect(plain.onSelect).not.toHaveBeenCalled();
+
+      // Two results with that name (performers told apart only by disambiguation): which is meant is unclear.
+      const twice = render("beta", matches, [
+        { key: "b1", value: "Beta" },
+        { key: "b2", value: "Beta" },
+      ]);
+      pressKey(twice.result, "Enter");
+      expect(twice.onSelect).not.toHaveBeenCalled();
+    });
+  });
 });

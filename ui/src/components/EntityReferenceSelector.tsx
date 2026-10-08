@@ -33,6 +33,11 @@ export interface EntityReferenceOption {
 
 type ReferenceAutocompleteValue = { kind: "entity"; option: EntityReferenceOption } | { kind: "create"; query: string };
 
+// Enter without a highlighted option picks the result named exactly as typed. Create is never offered
+// alongside such a result, so this cannot stand in for a Create the person meant.
+const matchesTypedName = (value: ReferenceAutocompleteValue, inputValue: string) =>
+  value.kind === "entity" && value.option.label.toLowerCase() === inputValue.trim().toLowerCase();
+
 function buildReferenceAutocompleteItems(
   options: EntityReferenceOption[],
   createQuery: string | false | undefined,
@@ -250,6 +255,7 @@ export function EntityReferenceSelector({
     disabled,
     busy: isPlaceholderData,
     preserveActiveKeyOnInputChange: true,
+    matchesInput: matchesTypedName,
     onSelect: (item) => {
       if (item.kind === "create") {
         createMutation.mutate(item.query);
@@ -520,6 +526,7 @@ export function EntityReferenceMultiSelector({
     disabled,
     busy: isPlaceholderData,
     preserveActiveKeyOnInputChange: true,
+    matchesInput: matchesTypedName,
     onSelect: (item) => {
       if (item.kind === "create") {
         createMutation.mutate(item.query);
