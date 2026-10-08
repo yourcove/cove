@@ -665,7 +665,8 @@ export function EntityReferenceValue({ entityType, value }: { entityType: Entity
   return <>{text || `Unavailable ${labels.singular}`}</>;
 }
 
-function useEntityReferenceOptions(
+/** The entities with these ids, as options: the seeds, then one cached lookup per missing id. */
+export function useEntityReferenceOptions(
   entityType: EntityReferenceType,
   ids: number[],
   seedOptions: EntityReferenceOption[] = [],

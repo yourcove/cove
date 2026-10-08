@@ -11,6 +11,7 @@ import { videos } from "../api/client";
 import {
   EntityReferenceMultiSelector,
   EntityReferenceSelector,
+  useEntityReferenceOptions,
   type EntityReferenceOption,
 } from "./EntityReferenceSelector";
 import { metadataServerLabel } from "./MetadataServerLinks";
@@ -446,10 +447,12 @@ function RelationshipEditor({
     .filter((id): id is number => id != null && !current.some((entry) => entry.localId === id));
   const seedOptions: EntityReferenceOption[] = current.map((entry) => ({ id: entry.localId!, label: entry.label }));
   const labelOf = new Map(seedOptions.map((option) => [option.id, option.label]));
-  const values = [
-    ...new Set([...current.filter((entry) => chosen.has(entry.id)).map((entry) => entry.localId!), ...libraryIds]),
-  ].sort((left, right) =>
-    (labelOf.get(left) ?? "￿").localeCompare(labelOf.get(right) ?? "￿", undefined, { sensitivity: "base" }),
+  // The selector draws the current items; what the search added is drawn apart as additions, the way
+  // added scraped items are, so it is not mistaken for something the video already has.
+  const addedOptions = useEntityReferenceOptions(entityType, libraryIds);
+  const values = [...new Set(current.filter((entry) => chosen.has(entry.id)).map((entry) => entry.localId!))].sort(
+    (left, right) =>
+      (labelOf.get(left) ?? "￿").localeCompare(labelOf.get(right) ?? "￿", undefined, { sensitivity: "base" }),
   );
   const lockedIds = current.filter((entry) => entry.locked).map((entry) => entry.localId!);
   const scraped = incomingHidden ? [] : items.filter((entry) => !entry.inTarget);
@@ -517,9 +520,37 @@ function RelationshipEditor({
       </span>
     );
   };
+  const addedChip = (id: number) => {
+    const name = addedOptions.get(id)?.label ?? `Loading ${entityType}…`;
+    return (
+      <span
+        key={`library-${id}`}
+        data-state="added"
+        title="Added from your library"
+        className="inline-flex max-w-full items-center gap-1.5 rounded border border-green-400/50 bg-card py-0.5 pl-2 pr-1 text-xs text-green-300"
+      >
+        <Plus className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 truncate">{name}</span>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(selected.filter((selectedId) => selectedId !== libraryItemId(id)))}
+          aria-label={`Remove ${label}: ${name}`}
+          className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      </span>
+    );
+  };
   return (
     <div ref={rowRef} className="flex flex-col gap-2">
-      {matched.length ? <div className="flex flex-wrap gap-1.5">{matched.map(chip)}</div> : null}
+      {matched.length || libraryIds.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {matched.map(chip)}
+          {libraryIds.map(addedChip)}
+        </div>
+      ) : null}
       {unknown.length ? (
         <div role="group" aria-labelledby={`${linkIdPrefix}-heading`} className="flex flex-col gap-1">
           <span id={`${linkIdPrefix}-heading`} className="text-[11px] text-muted">
@@ -542,7 +573,7 @@ function RelationshipEditor({
                 selectorChange(
                   items,
                   selected.filter((id) => id !== linking.id),
-                  [...values, tag.id],
+                  [...values, ...libraryIds, tag.id],
                   incomingHidden,
                 ),
               );
@@ -553,8 +584,9 @@ function RelationshipEditor({
       <EntityReferenceMultiSelector
         entityType={entityType}
         values={values}
+        excludeIds={libraryIds}
         lockedIds={lockedIds}
-        onChange={(ids) => onChange(selectorChange(items, selected, ids, incomingHidden))}
+        onChange={(ids) => onChange(selectorChange(items, selected, [...ids, ...libraryIds], incomingHidden))}
         placeholder={placeholder}
         seedOptions={seedOptions}
         disabled={disabled}

@@ -19,6 +19,9 @@ vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cov
 // The library pickers search through the API; here the link panel's picker just offers one tag.
 vi.mock("../components/EntityReferenceSelector", () => ({
   EntityReferenceMultiSelector: () => null,
+  // Names for library ids added through the search.
+  useEntityReferenceOptions: (_type: string, ids: number[]) =>
+    new Map(ids.map((id) => [id, { id, label: `Library tag ${id}` }])),
   EntityReferenceSelector: ({
     onChange,
   }: {
@@ -636,6 +639,14 @@ describe("VideoTaggerReview items the library does not have", () => {
     return { onChange, selected };
   };
 
+  it("shows a tag added through the search as an addition, which can be taken off", async () => {
+    const { onChange, selected } = renderRow(leftOut({ tagEdits: { added: [42], removed: [] } }));
+    const chip = screen.getByText("Library tag 42").closest("[data-state]");
+    expect(chip).toHaveAttribute("data-state", "added");
+    await userEvent.click(screen.getByRole("button", { name: "Remove Tags: Library tag 42" }));
+    expect(onChange).toHaveBeenCalledWith(selected.filter((id) => id !== "library:42"));
+  });
+
   it("keeps new items apart from matched ones, each with a way to add or link it", () => {
     renderRow(leftOut());
     const strip = screen.getByText("Not in your library").parentElement!;
@@ -676,6 +687,22 @@ describe("VideoTaggerReview items the library does not have", () => {
     await userEvent.click(screen.getByLabelText(/Remember “Brand new tag” as an alias/));
     await userEvent.click(screen.getByRole("button", { name: "Link" }));
     expect(reviewInput.onLinkTag).not.toHaveBeenCalled();
+    expect([...onChange.mock.calls[0][0]].sort()).toEqual(
+      [...selected.filter((id) => id !== "brand new tag"), "library:7"].sort(),
+    );
+  });
+
+  it("keeps a tag added through the search when another is linked to this video alone", async () => {
+    const reviewInput = leftOut({
+      tagActions: { "existing tag": "include", "library tag": "include", "brand new tag": "create" },
+      tagEdits: { added: [42], removed: [] },
+    });
+    const { onChange, selected } = renderRow(reviewInput);
+    expect(selected).toContain("library:42");
+    await userEvent.click(screen.getByRole("button", { name: "Link Tags: Brand new tag to a library tag" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pick Edging" }));
+    await userEvent.click(screen.getByLabelText(/Remember “Brand new tag” as an alias/));
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
     expect([...onChange.mock.calls[0][0]].sort()).toEqual(
       [...selected.filter((id) => id !== "brand new tag"), "library:7"].sort(),
     );
