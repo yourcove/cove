@@ -703,6 +703,24 @@ export function useEntityReferenceOptions(
   }, [seedOptions, selectedQueries]);
 }
 
+/**
+ * The options the selectors already hold for an entity type: their search results and the entities they
+ * looked up by id, so a chip drawn outside a selector can be named without asking the server again.
+ */
+export function cachedEntityReferenceOptions(
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: EntityReferenceType,
+): EntityReferenceOption[] {
+  const isOption = (value: unknown): value is EntityReferenceOption =>
+    typeof value === "object" && value != null && "id" in value && "label" in value;
+  return [
+    ...(getCachedEntityReferenceOptions(queryClient, entityType) ?? []),
+    ...queryClient
+      .getQueriesData<unknown>({ queryKey: ["entity-reference-selector", entityType] })
+      .flatMap(([, data]) => (Array.isArray(data) ? data.filter(isOption) : isOption(data) ? [data] : [])),
+  ];
+}
+
 function getCachedEntityReferenceOptions(
   queryClient: ReturnType<typeof useQueryClient>,
   entityType: EntityReferenceType,

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render as renderWithoutProviders, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import type { MetadataServerVideoMatch, Video } from "../api/types";
 import {
@@ -18,14 +20,18 @@ import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
 vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cover/${id}` } }));
 // The library pickers search through the API; here the link panel's picker just offers one tag.
 const selectorProps = vi.hoisted(() => [] as Array<{ valueTitles?: Record<number, string> }>);
+const cachedOptions = vi.hoisted(() => ({
+  value: [] as Array<{ id: number; label: string; secondaryLabel?: string }>,
+}));
 vi.mock("../components/EntityReferenceSelector", () => ({
   EntityReferenceMultiSelector: (props: { valueTitles?: Record<number, string> }) => {
     selectorProps.push(props);
-    return null;
+    return <input aria-label="Search the library" />;
   },
-  // Names for library ids added through the search.
-  useEntityReferenceOptions: (_type: string, ids: number[]) =>
-    new Map(ids.map((id) => [id, { id, label: `Library tag ${id}` }])),
+  cachedEntityReferenceOptions: () => cachedOptions.value,
+  // Names for library ids added through the search: the seeds given, else a stand-in for a lookup.
+  useEntityReferenceOptions: (_type: string, ids: number[], seeds: Array<{ id: number; label: string }> = []) =>
+    new Map(ids.map((id) => [id, seeds.find((seed) => seed.id === id) ?? { id, label: `Library tag ${id}` }])),
   EntityReferenceSelector: ({
     onChange,
   }: {
@@ -36,6 +42,12 @@ vi.mock("../components/EntityReferenceSelector", () => ({
     </button>
   ),
 }));
+
+// The relationship rows read the selectors' cached options, so every render has a query client.
+const render = (ui: ReactElement) =>
+  renderWithoutProviders(ui, {
+    wrapper: ({ children }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>,
+  });
 
 const video: Video = {
   id: 5,
@@ -727,6 +739,19 @@ describe("VideoTaggerReview items the library does not have", () => {
     expect(chip).toHaveAttribute("data-state", "added");
     await userEvent.click(screen.getByRole("button", { name: "Remove Tags: Library tag 42" }));
     expect(onChange).toHaveBeenCalledWith(selected.filter((id) => id !== "library:42"));
+  });
+
+  it("names an addition from what the search already found, and moves focus to the search once it is removed", async () => {
+    cachedOptions.value = [{ id: 42, label: "Cached Anna", secondaryLabel: "Model" }];
+    try {
+      renderRow(leftOut({ tagEdits: { added: [42], removed: [] } }));
+      const chip = screen.getByText("Cached Anna").closest("[data-state]")!;
+      expect(chip).toHaveTextContent("Model");
+      await userEvent.click(screen.getByRole("button", { name: "Remove Tags: Cached Anna" }));
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Search the library" })).toHaveFocus());
+    } finally {
+      cachedOptions.value = [];
+    }
   });
 
   it("keeps new items apart from matched ones, each with a way to add or link it", () => {

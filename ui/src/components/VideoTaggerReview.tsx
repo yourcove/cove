@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link2, Plus, X } from "lucide-react";
 import type {
   MetadataServer,
@@ -11,6 +12,7 @@ import { videos } from "../api/client";
 import {
   EntityReferenceMultiSelector,
   EntityReferenceSelector,
+  cachedEntityReferenceOptions,
   useEntityReferenceOptions,
   type EntityReferenceOption,
 } from "./EntityReferenceSelector";
@@ -463,7 +465,13 @@ function RelationshipEditor({
   const labelOf = new Map(seedOptions.map((option) => [option.id, option.label]));
   // The selector draws the current items; what the search added is drawn apart as additions, the way
   // added scraped items are, so it is not mistaken for something the video already has.
-  const addedOptions = useEntityReferenceOptions(entityType, libraryIds);
+  // Named from what the selector already found, so an addition is not looked up again one by one.
+  const queryClient = useQueryClient();
+  const addedOptions = useEntityReferenceOptions(
+    entityType,
+    libraryIds,
+    cachedEntityReferenceOptions(queryClient, entityType).filter((option) => libraryIds.includes(option.id)),
+  );
   const values = [...new Set(current.filter((entry) => chosen.has(entry.id)).map((entry) => entry.localId!))].sort(
     (left, right) =>
       (labelOf.get(left) ?? "￿").localeCompare(labelOf.get(right) ?? "￿", undefined, { sensitivity: "base" }),
@@ -541,7 +549,8 @@ function RelationshipEditor({
     );
   };
   const addedChip = (id: number) => {
-    const name = addedOptions.get(id)?.label ?? `Loading ${entityType}…`;
+    const option = addedOptions.get(id);
+    const name = option?.label ?? `Loading ${entityType}…`;
     return (
       <span
         key={`library-${id}`}
@@ -551,10 +560,15 @@ function RelationshipEditor({
       >
         <Plus className="h-3 w-3 shrink-0" />
         <span className="min-w-0 truncate">{name}</span>
+        {option?.secondaryLabel ? <span className="shrink-0 text-muted">{option.secondaryLabel}</span> : null}
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onChange(selected.filter((selectedId) => selectedId !== libraryItemId(id)))}
+          onClick={() => {
+            onChange(selected.filter((selectedId) => selectedId !== libraryItemId(id)));
+            // The chip leaves with the button that had focus; the search is where the next one is found.
+            requestAnimationFrame(() => rowRef.current?.querySelector<HTMLInputElement>("input")?.focus());
+          }}
           aria-label={`Remove ${label}: ${name}`}
           className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"
         >
