@@ -371,6 +371,65 @@ describe("VideoTaggerReview alias matches", () => {
     expect(selectorProps.at(-1)?.valueTitles).toEqual({ 2: "Scraped as “Tit Tease”" });
   });
 
+  it("keeps a disambiguated remote performer's label, since the library's disambiguation is not known", () => {
+    const anna = {
+      remoteId: "p-anna",
+      name: "Anna",
+      disambiguation: "X",
+      existsLocally: true,
+      localId: 12,
+      localName: "Anna",
+    };
+    const review = buildTaggerReview(
+      input({
+        result: { ...result, performerCandidates: [anna] } as MetadataServerVideoMatch,
+        performerChoices: [{ key: "remote-performer:p-anna", label: "Anna (X)", candidate: anna }],
+        currentPerformerChoiceKeys: [],
+        performerActions: { "remote-performer:p-anna": "include" },
+      }),
+    );
+    const incoming = review.source.values.performers as { id: string; label: string; scrapedAs?: string[] }[];
+    expect(incoming[0]).toMatchObject({ label: "Anna (X)" });
+    expect(incoming[0].scrapedAs).toBeUndefined();
+  });
+
+  it("names a performer the search matched under the library's name, with the remote one on hover", () => {
+    // StashDB calls the video's "Known Performer" (id 9) "Jane Doe", and matched "Remote Name" to the
+    // library's "Library Name" (id 12), which the video does not have yet.
+    const onVideo = {
+      remoteId: "p-known",
+      name: "Jane Doe",
+      existsLocally: true,
+      localId: 9,
+      localName: "Known Performer",
+    };
+    const toAdd = {
+      remoteId: "p-lib",
+      name: "Remote Name",
+      existsLocally: true,
+      localId: 12,
+      localName: "Library Name",
+    };
+    const review = buildTaggerReview(
+      input({
+        result: { ...result, performerCandidates: [onVideo, toAdd] } as MetadataServerVideoMatch,
+        performerChoices: [
+          { key: "remote-performer:p-known", label: "Jane Doe", candidate: onVideo },
+          { key: "remote-performer:p-lib", label: "Remote Name", candidate: toAdd },
+        ],
+        currentPerformerChoiceKeys: ["remote-performer:p-known"],
+        performerActions: { "remote-performer:p-known": "include", "remote-performer:p-lib": "include" },
+      }),
+    );
+    const current = review.target.values.performers as { id: string; label: string; scrapedAs?: string[] }[];
+    const incoming = review.source.values.performers as { id: string; label: string; scrapedAs?: string[] }[];
+    expect(current.map((entry) => [entry.label, entry.scrapedAs])).toEqual([["Known Performer", ["Jane Doe"]]]);
+    expect(incoming.find((entry) => entry.id === "remote-performer:p-lib")).toMatchObject({
+      label: "Library Name",
+      scrapedAs: ["Remote Name"],
+    });
+  });
+
   it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {
     const review = buildTaggerReview(
       aliased({

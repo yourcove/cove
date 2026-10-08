@@ -328,17 +328,26 @@ function performerItems(input: TaggerReviewInput) {
   const byIdentity = new Map(
     input.video.performers.map((performer) => [relationKey(performerIdentity(performer)), performer.id]),
   );
-  const choices = input.performerChoices.map((choice) => ({
-    ...item(
-      relationKey(choice.key),
-      choice.label,
-      !choice.candidate.existsLocally,
-      undefined,
-      choice.candidate.localId ?? byIdentity.get(relationKey(performerIdentity(choice.candidate))),
-    ),
-    choiceKey: choice.key,
-    candidate: choice.candidate,
-  }));
+  const videoPerformers = new Map(input.video.performers.map((performer) => [performer.id, performer]));
+  // A performer the search matched is shown as the library performer it lands on, the one the video has
+  // or the one the import adds, with the remote name on hover; the choice keeps its remote key.
+  const choices = input.performerChoices.map((choice) => {
+    const localId = choice.candidate.localId ?? byIdentity.get(relationKey(performerIdentity(choice.candidate)));
+    const onVideo = localId != null ? videoPerformers.get(localId) : undefined;
+    // The candidate names the library performer but not its disambiguation, so a disambiguated remote
+    // performer keeps its own label rather than lose the part that tells it apart.
+    const localName =
+      choice.candidate.existsLocally && !choice.candidate.disambiguation?.trim()
+        ? choice.candidate.localName
+        : undefined;
+    const label = onVideo ? performerIdentity(onVideo) : localName || choice.label;
+    const scrapedAs = relationKey(label) !== relationKey(choice.label) ? [choice.label] : undefined;
+    return {
+      ...item(relationKey(choice.key), label, !choice.candidate.existsLocally, scrapedAs, localId),
+      choiceKey: choice.key,
+      candidate: choice.candidate,
+    };
+  });
   const matchedChoices = choices.filter((choice) => matched.has(choice.id));
   // A current performer is represented by its scraped counterpart when one matched it, whether the
   // match came through a local id or through the same name.
@@ -346,7 +355,7 @@ function performerItems(input: TaggerReviewInput) {
   const linkedNames = new Set(matchedChoices.map((choice) => relationKey(performerIdentity(choice.candidate))));
   const current = byLabel([
     ...matchedChoices.map((choice) => ({
-      ...item(choice.id, choice.label, false, undefined, choice.localId),
+      ...item(choice.id, choice.label, false, choice.scrapedAs, choice.localId),
       inTarget: true,
     })),
     ...input.video.performers
