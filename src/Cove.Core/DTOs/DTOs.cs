@@ -323,6 +323,12 @@ public record TagCreateDto(
     Dictionary<string, object>? CustomFields = null,
     List<TagRemoteIdDto>? RemoteIds = null,
     bool Organized = false);
+/// <summary>One alias to add to a tag, appended on the server so a concurrent change to its other aliases is kept.</summary>
+public record TagAliasAddDto
+{
+    public string Alias { get; init; } = string.Empty;
+}
+
 public record TagUpdateDto(
     string? Name,
     string? SortName,

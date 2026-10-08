@@ -1270,6 +1270,9 @@ export const tags = {
   create: (data: TagCreate) => request<TagDetail>("/tags", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: TagUpdate) =>
     request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  /** Appends one alias on the server, so other aliases saved meanwhile are kept; 409 when another tag has it. */
+  addAlias: (id: number, alias: string) =>
+    request<TagDetail>(`/tags/${id}/aliases`, { method: "POST", body: JSON.stringify({ alias }) }),
   bulkUpdate: (data: BulkTagUpdate) => request<void>("/tags/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/tags/${id}`, { method: "DELETE" }),
   bulkDelete: (ids: number[]) =>

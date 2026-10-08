@@ -2591,9 +2591,9 @@ function TaggerVideoRow({
                 onUpdateState({ forceIncludedTags: forceIncluded, excludedTags: excluded });
               }}
               onLinkTag={async (scrapedName, tag) => {
-                const detail = await tags.get(tag.id);
-                if (!detail.aliases.some((alias) => relationKey(alias) === relationKey(scrapedName)))
-                  await tags.update(tag.id, { aliases: [...detail.aliases, scrapedName] });
+                // Appended on the server: a whole-list write could drop an alias another row, or an edit of
+                // the tag elsewhere, saved in the meantime. A name the tag already has is a no-op there.
+                await tags.addAlias(tag.id, scrapedName);
                 // Linking is a choice to use the tag, whatever was decided about the name as a new one.
                 const forget = (names?: Set<string>) =>
                   new Set([...(names ?? [])].filter((name) => relationKey(name) !== relationKey(scrapedName)));

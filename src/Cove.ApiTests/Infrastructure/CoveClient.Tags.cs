@@ -92,6 +92,29 @@ public sealed partial class CoveClient
             tag,
             cancellationToken);
 
+    public Task<TagDetailDto> AddTagAliasAsync(
+        int tagId,
+        string alias,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagDetailDto>(
+            HttpMethod.Post,
+            $"/api/tags/{tagId}/aliases",
+            new TagAliasAddDto { Alias = alias },
+            cancellationToken);
+
+    public async Task<System.Net.HttpStatusCode> TryAddTagAliasAsync(
+        int tagId,
+        string alias,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _client.PostAsJsonAsync(
+            $"/api/tags/{tagId}/aliases",
+            new TagAliasAddDto { Alias = alias },
+            ApiJson.Options,
+            cancellationToken);
+        return response.StatusCode;
+    }
+
     public async Task<IReadOnlyList<TagListDto>> GetTagsAsync(
         CancellationToken cancellationToken = default)
     {

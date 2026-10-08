@@ -487,6 +487,60 @@ public class TagsController(
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }
 
+    /// <summary>
+    /// Adds one alias to a tag. Unlike sending the whole list through Update, this appends on the server, so
+    /// two links made at nearly the same time, or an edit of the tag elsewhere, cannot drop each other's
+    /// alias. The tag's own name or an alias it already has is a no-op; a name another tag claims is a 409.
+    /// </summary>
+    [HttpPost("{id:int}/aliases")]
+    [RequiresPermission(Permissions.TagsWrite)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsWrite)]
+    public async Task<ActionResult<TagDetailDto>> AddAlias(int id, [FromBody] TagAliasAddDto dto, CancellationToken ct)
+    {
+        var alias = TagNameRules.NormalizeAlias(dto.Alias);
+        if (alias == null)
+            return BadRequest(new { message = "An alias needs a name." });
+
+        var tag = await db.Tags.Include(t => t.Aliases).FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (tag == null) return NotFound();
+
+        var key = TagNameRules.NamespaceKey(alias);
+        var alreadyNamed = TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)) == key
+            || tag.Aliases.Any(existing => TagNameRules.NormalizeAlias(existing.Alias) is { } normalized
+                && TagNameRules.NamespaceKey(normalized) == key);
+        if (!alreadyNamed)
+        {
+            tag.Aliases.Add(new TagAlias { Alias = alias, TagId = id });
+            MetadataCollectionUpdater.Touch(tag);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                await EvictSegmentSpanCachesForTagsAsync([id], ct);
+            }
+            catch (TagNameConflictException exception)
+            {
+                // The same alias added to this tag by a request that saved first is what was asked for.
+                var addedMeanwhile = await db.Set<TagAlias>().AsNoTracking()
+                    .AnyAsync(existing => existing.TagId == id && existing.NamespaceKey == key, ct);
+                if (!addedMeanwhile)
+                    return Conflict(new { message = exception.Message });
+                db.ChangeTracker.Clear();
+            }
+        }
+
+        var updated = tagRepo != null
+            ? await tagRepo.GetByIdWithRelationsAsync(id, ct)
+            : await db.Tags
+                .AsNoTracking()
+                .Include(t => t.Aliases)
+                .Include(t => t.TagGroup)
+                .Include(t => t.RemoteIds)
+                .Include(t => t.ParentRelations).ThenInclude(tp => tp.Parent).ThenInclude(parent => parent!.TagGroup)
+                .Include(t => t.ChildRelations).ThenInclude(tp => tp.Child).ThenInclude(child => child!.TagGroup)
+                .FirstOrDefaultAsync(t => t.Id == id, ct);
+        return Ok(await MapToDetailDtoAsync(updated!, ct));
+    }
+
     [HttpGet("{id:int}/metadata-server/search")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<IReadOnlyList<MetadataServerTagMatchDto>>> SearchMetadataServer(int id, [FromServices] MetadataServerService metadataServerService, [FromQuery] string? term, [FromQuery] string? endpoint, CancellationToken ct)
