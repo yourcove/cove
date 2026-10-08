@@ -109,14 +109,14 @@ public sealed class VideoCoverComparisonServiceTests
 }
 
 /// <summary>
-/// The signature the cover decision is built on. Hashing resizes the image in place, so the size has
-/// to be read first: were that order ever reversed, every image would report 64×64, every comparison
-/// would call itself the same picture, and the cover would quietly stop being offered at all.
+/// The signature the cover decision is built on. The size must be the image's own, not the 64×64 the
+/// hash reduces it to: were it ever the latter, every comparison would call itself the same picture,
+/// and the cover would quietly stop being offered at all.
 /// </summary>
 public sealed class ImageSignatureTests
 {
     [Fact]
-    public void ComputeImageSignature_ReportsTheSizeBeforeHashingResizesTheImage()
+    public void ComputeImageSignature_ReportsTheImageSizeRatherThanTheHashSize()
     {
         var signature = CreateFingerprintService().ComputeImageSignature(EncodePng(1920, 1080));
 

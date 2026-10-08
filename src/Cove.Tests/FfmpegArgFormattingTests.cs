@@ -57,11 +57,11 @@ public class FfmpegArgFormattingTests
     }
 
     /// <summary>
-    /// The scale/quality/pixel-format triple defines the pixels a pHash is computed from. Changing
-    /// any of them re-hashes the entire library without warning, so they are pinned here.
+    /// The scale/quality/pixel-format triple defines the pixels of every sprite and cover frame, so it
+    /// is pinned here.
     /// </summary>
     [Fact]
-    public void FrameExtractArgs_PinTheOutputFormatThatPhashesDependOn()
+    public void FrameExtractArgs_PinTheJpegOutputFormat()
     {
         var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
             "/media/clip.mp4", "/tmp/frames", [10], start: 0, count: 1, scaleWidth: 160));
@@ -75,8 +75,37 @@ public class FfmpegArgFormattingTests
     }
 
     /// <summary>
+    /// pHash frames are extracted as Stash's phasher extracts them: the seek at full precision and the
+    /// scaled frame written losslessly as BMP. Either difference changes the hash; see
+    /// <see cref="VideoFrameBatchExtractor.ExtractAsync"/>.
+    /// </summary>
+    [Fact]
+    public void FrameExtractArgs_ExactFramesSeekAtFullPrecisionAndWriteBmp()
+    {
+        var args = string.Join(" ", VideoFrameBatchExtractor.BuildBatchArguments(
+            "/media/clip.mp4", "/tmp/frames", [397.7204], start: 0, count: 1, scaleWidth: 160, exactFrames: true));
+
+        Assert.Contains("-ss 397.7204 -i", args);
+        Assert.Contains("-frames:v 1 -vf scale=160:-2 -threads 1 -c:v bmp", args);
+        Assert.Contains("frame_0000.bmp", args);
+        Assert.DoesNotContain("-q:v", args);
+        Assert.DoesNotContain("yuvj420p", args);
+    }
+
+    [Theory]
+    [InlineData(397.7204, "397.7204")]
+    [InlineData(25.826, "25.826")]
+    [InlineData(0.1 + 0.2, "0.30000000000000004")]
+    // Go would write 1e-05, which ffmpeg rejects; only sub-0.1 ms seeks take this fallback.
+    [InlineData(0.00001, "0.00001")]
+    public void FormatExactSeek_WritesTheShortestRoundTripDecimal(double seconds, string expected)
+    {
+        Assert.Equal(expected, VideoFrameBatchExtractor.FormatExactSeek(seconds));
+    }
+
+    /// <summary>
     /// A VR sprite sheet flattens one eye before scaling; the reprojection goes ahead of the scale in
-    /// the same filter chain, and callers that pass nothing (pHash) get the pinned scale-only chain.
+    /// the same filter chain, and callers that pass nothing get the pinned scale-only chain.
     /// </summary>
     [Fact]
     public void FrameExtractArgs_PutThePreFilterAheadOfTheScale()
@@ -89,8 +118,8 @@ public class FfmpegArgFormattingTests
     }
 
     /// <summary>
-    /// Keyframe seeks put both options on every input, ahead of its -ss. The default (pHash) must
-    /// stay on exact seeks: its frames define the stored hashes.
+    /// Keyframe seeks put both options on every input, ahead of its -ss. The default must stay on
+    /// exact seeks: pHash frames define the stored hashes.
     /// </summary>
     [Fact]
     public void FrameExtractArgs_KeyframeSeekIsPerInputAndOffByDefault()
@@ -132,6 +161,25 @@ public class FfmpegArgFormattingTests
         Assert.All(plans, plan => Assert.True(
             VideoFrameBatchExtractor.BuildBatchArguments(
                 longPath, "/tmp/frames", timestamps, plan.Start, plan.Count, 160, keyframeSeek: true)
+                .Sum(argument => argument.Length + 3) < 32767));
+    }
+
+    /// <summary>Full-precision seeks are longer than millisecond ones and must still fit the budget.</summary>
+    [Fact]
+    public void BatchPlanner_AccountsForFullPrecisionSeeks()
+    {
+        var longPath = "/media/" + new string('x', 900) + "/clip.mp4";
+        // Values whose shortest decimal needs all 17 significant digits.
+        var timestamps = Enumerable.Range(0, 81).Select(i => 1234.1 + i * 0.1 + 0.2).ToArray();
+
+        var plans = VideoFrameBatchExtractor
+            .PlanBatches(longPath, "/tmp/frames", timestampCount: 81, scaleWidth: 160, batchSize: 24, exactFrames: true)
+            .ToList();
+
+        Assert.Equal(81, plans.Sum(plan => plan.Count));
+        Assert.All(plans, plan => Assert.True(
+            VideoFrameBatchExtractor.BuildBatchArguments(
+                longPath, "/tmp/frames", timestamps, plan.Start, plan.Count, 160, exactFrames: true)
                 .Sum(argument => argument.Length + 3) < 32767));
     }
 

@@ -14,10 +14,11 @@ namespace Cove.Api.Services;
 /// its own single-frame output. FFmpeg then decodes the batch's inputs concurrently, which is
 /// where the speedup comes from - a 4K 42-minute video drops from ~144s to ~23s for 81 frames.
 ///
-/// The per-frame arguments are byte-identical to the one-process-per-frame path this replaces
-/// (same <c>scale</c>, <c>-q:v</c> and <c>-pix_fmt</c>), so extracted frames - and therefore any
-/// perceptual hash built from them - are unchanged. That was verified frame-by-frame before this
-/// path was adopted; changing those arguments would silently invalidate every stored pHash.
+/// The per-frame arguments are byte-identical to a one-process-per-frame command, so batching does
+/// not change the extracted frames. Sprite frames are JPEGs (<c>scale</c>, <c>-q:v</c> and
+/// <c>-pix_fmt</c>). pHash frames use <c>exactFrames</c>: full-precision seeks and lossless BMP, as
+/// Stash's phasher extracts them. Those arguments define every stored pHash, so changing them
+/// silently invalidates the stored ones.
 ///
 /// Unlike the per-frame path, a frame that cannot be decoded yields a null slot rather than
 /// failing the whole request, so callers can decide their own tolerance (a sprite can survive a
@@ -57,6 +58,12 @@ internal static class VideoFrameBatchExtractor
     /// requests that landed on the same keyframe because keyframes are sparse relative to the
     /// spacing, or a source whose container marks almost none - are re-extracted with exact seeks.
     /// </param>
+    /// <param name="exactFrames">
+    /// Extract each frame the way Stash's pHash does: seek to the timestamp at full precision rather
+    /// than to the millisecond, and write the scaled frame losslessly as BMP instead of as JPEG. Both
+    /// matter to a pHash: a seek rounded across a frame boundary can land on the other side of a scene
+    /// cut, and the JPEG path's full-range conversion shifts the colours of limited-range sources.
+    /// </param>
     public static async Task<Image<Rgba32>?[]?> ExtractAsync(
         string ffmpegPath,
         string videoPath,
@@ -67,7 +74,8 @@ internal static class VideoFrameBatchExtractor
         CancellationToken ct,
         int batchSize = DefaultBatchSize,
         string? preFilter = null,
-        bool keyframeSeek = false)
+        bool keyframeSeek = false,
+        bool exactFrames = false)
     {
         if (timestamps.Count == 0)
             return null;
@@ -83,7 +91,7 @@ internal static class VideoFrameBatchExtractor
 
         try
         {
-            var pass = new ExtractionPass(ffmpegPath, videoPath, timestamps, scaleWidth, preFilter, batchSize, limiter, logger, frames, fingerprints);
+            var pass = new ExtractionPass(ffmpegPath, videoPath, timestamps, scaleWidth, preFilter, batchSize, limiter, logger, frames, fingerprints, exactFrames);
             await pass.RunAsync(Enumerable.Range(0, timestamps.Count).ToArray(), keyframeSeek, Path.Combine(tmpDir, "first"), ct);
 
             if (keyframeSeek)
@@ -160,7 +168,8 @@ internal static class VideoFrameBatchExtractor
         FfmpegConcurrencyLimiter limiter,
         ILogger logger,
         Image<Rgba32>?[] frames,
-        string?[] fingerprints)
+        string?[] fingerprints,
+        bool exactFrames)
     {
         public async Task RunAsync(IReadOnlyList<int> indices, bool keyframeSeek, string dir, CancellationToken ct)
         {
@@ -168,11 +177,11 @@ internal static class VideoFrameBatchExtractor
             // Batches address frames by position within this pass; indices maps a position back to its slot.
             var subset = indices.Select(index => timestamps[index]).ToArray();
 
-            foreach (var batch in PlanBatches(videoPath, dir, subset.Length, scaleWidth, batchSize, preFilter, keyframeSeek))
+            foreach (var batch in PlanBatches(videoPath, dir, subset.Length, scaleWidth, batchSize, preFilter, keyframeSeek, exactFrames))
             {
                 ct.ThrowIfCancellationRequested();
 
-                var args = BuildBatchArguments(videoPath, dir, subset, batch.Start, batch.Count, scaleWidth, preFilter, keyframeSeek);
+                var args = BuildBatchArguments(videoPath, dir, subset, batch.Start, batch.Count, scaleWidth, preFilter, keyframeSeek, exactFrames);
                 var timeout = BaseBatchTimeout + PerFrameTimeout * batch.Count;
 
                 // Held only for the decode itself. Loading the extracted frames afterwards is
@@ -201,7 +210,7 @@ internal static class VideoFrameBatchExtractor
                 {
                     var position = batch.Start + offset;
                     var index = indices[position];
-                    var framePath = FramePath(dir, position);
+                    var framePath = FramePath(dir, position, exactFrames);
                     if (!File.Exists(framePath) || new FileInfo(framePath).Length == 0)
                         continue;
 
@@ -225,13 +234,13 @@ internal static class VideoFrameBatchExtractor
     /// <summary>Splits the timestamps into batches that each fit inside the command-line limit.</summary>
     internal static IEnumerable<BatchPlan> PlanBatches(
         string videoPath, string tmpDir, int timestampCount, int scaleWidth, int batchSize, string? preFilter = null,
-        bool keyframeSeek = false)
+        bool keyframeSeek = false, bool exactFrames = false)
     {
         var requested = Math.Max(1, batchSize);
 
         // Worst-case characters one input/output pair contributes, measured against the longest
         // frame index so the estimate never under-counts.
-        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth) + (preFilter?.Length + 1 ?? 0)
+        var perFrame = PerFrameArgumentLength(videoPath, tmpDir, timestampCount, scaleWidth, exactFrames) + (preFilter?.Length + 1 ?? 0)
             + (keyframeSeek ? KeyframeSeekArguments.Sum(argument => argument.Length + 1) : 0);
         var affordable = Math.Max(1, MaxCommandLineLength / Math.Max(1, perFrame));
         var effective = Math.Min(requested, affordable);
@@ -240,11 +249,12 @@ internal static class VideoFrameBatchExtractor
             yield return new BatchPlan(start, Math.Min(effective, timestampCount - start));
     }
 
-    private static int PerFrameArgumentLength(string videoPath, string tmpDir, int timestampCount, int scaleWidth)
+    private static int PerFrameArgumentLength(string videoPath, string tmpDir, int timestampCount, int scaleWidth, bool exactFrames)
     {
-        var lastFramePath = FramePath(tmpDir, Math.Max(0, timestampCount - 1));
-        // -ss <12 chars> -i "path"  +  -map N:v:0 -an -frames:v 1 [-vf "scale=W:-2"] -q:v 3 -pix_fmt yuvj420p "out"
-        var inputLength = videoPath.Length + 28;
+        var lastFramePath = FramePath(tmpDir, Math.Max(0, timestampCount - 1), exactFrames);
+        // -ss <12 chars> -i "path"  +  -map N:v:0 -an -frames:v 1 [-vf "scale=W:-2"] -q:v 3 -pix_fmt yuvj420p "out".
+        // A full-precision seek takes up to 24 characters; the BMP output options are shorter than the JPEG ones.
+        var inputLength = videoPath.Length + (exactFrames ? 40 : 28);
         var outputLength = lastFramePath.Length + 72 + (scaleWidth > 0 ? 22 : 0);
         return inputLength + outputLength;
     }
@@ -253,13 +263,24 @@ internal static class VideoFrameBatchExtractor
     // exact timestamp. Both are needed: -skip_frame alone would wait for the next keyframe.
     private static readonly string[] KeyframeSeekArguments = ["-skip_frame", "nokey", "-noaccurate_seek"];
 
-    private static string FramePath(string tmpDir, int index)
-        => Path.Combine(tmpDir, $"frame_{index:D4}.jpg");
+    private static string FramePath(string tmpDir, int index, bool exactFrames = false)
+        => Path.Combine(tmpDir, $"frame_{index:D4}.{(exactFrames ? "bmp" : "jpg")}");
+
+    /// <summary>
+    /// A seek as Stash formats it: the shortest decimal that round-trips the value, as Go's
+    /// <c>fmt.Sprint</c> writes it. ffmpeg reads the result to the microsecond.
+    /// </summary>
+    internal static string FormatExactSeek(double seconds)
+    {
+        var text = seconds.ToString("R", CultureInfo.InvariantCulture);
+        // ffmpeg does not accept exponents; only timestamps below 0.0001 s would produce one.
+        return text.Contains('E') ? seconds.ToString("0.####################", CultureInfo.InvariantCulture) : text;
+    }
 
     /// <summary>
     /// Builds one ffmpeg invocation covering <paramref name="count"/> timestamps.
-    /// The output options per frame mirror the historical single-frame command exactly so that
-    /// frames (and pHashes derived from them) do not change.
+    /// The output options per frame mirror a single-frame command exactly, so batching does not change
+    /// the frames: JPEG for sprites, lossless BMP for pHash (<paramref name="exactFrames"/>).
     /// </summary>
     internal static IReadOnlyList<string> BuildBatchArguments(
         string videoPath,
@@ -269,7 +290,8 @@ internal static class VideoFrameBatchExtractor
         int count,
         int scaleWidth,
         string? preFilter = null,
-        bool keyframeSeek = false)
+        bool keyframeSeek = false,
+        bool exactFrames = false)
     {
         var args = new List<string> { "-v", "error", "-y" };
 
@@ -281,7 +303,8 @@ internal static class VideoFrameBatchExtractor
             var seconds = Math.Max(0, timestamps[start + offset]);
             if (keyframeSeek)
                 args.AddRange(KeyframeSeekArguments);
-            args.AddRange(["-threads", "1", "-ss", seconds.ToString("F3", CultureInfo.InvariantCulture), "-i", videoPath]);
+            var seek = exactFrames ? FormatExactSeek(seconds) : seconds.ToString("F3", CultureInfo.InvariantCulture);
+            args.AddRange(["-threads", "1", "-ss", seek, "-i", videoPath]);
         }
 
         var filters = new List<string>();
@@ -295,15 +318,17 @@ internal static class VideoFrameBatchExtractor
             args.AddRange(["-map", offset.ToString(CultureInfo.InvariantCulture) + ":v:0", "-an", "-frames:v", "1"]);
             if (filters.Count > 0)
                 args.AddRange(["-vf", string.Join(',', filters)]);
-            // -threads 1 on the OUTPUT caps the mjpeg encoder. The -threads 1 before each input only
+            // -threads 1 on the OUTPUT caps the frame encoder. The -threads 1 before each input only
             // caps that input's decoder; each output encoder otherwise defaults to frame threading
             // across every core, so a 24-output batch spawned ~770 threads on a 32-core host. Capping
-            // it brings that to ~40 with no measurable time cost - encoding a 160px JPEG is trivial -
-            // and the written frames are byte-identical, which matters because pHashes are built
-            // from them.
+            // it brings that to ~40 with no measurable time cost - encoding a 160px frame is trivial -
+            // and the written frames are byte-identical.
             // -pix_fmt yuvj420p forces full-range JPEG so the mjpeg encoder accepts limited-range
             // YUV sources instead of failing with "Non full-range YUV is non-standard".
-            args.AddRange(["-threads", "1", "-q:v", "3", "-pix_fmt", "yuvj420p", FramePath(tmpDir, start + offset)]);
+            if (exactFrames)
+                args.AddRange(["-threads", "1", "-c:v", "bmp", FramePath(tmpDir, start + offset, exactFrames)]);
+            else
+                args.AddRange(["-threads", "1", "-q:v", "3", "-pix_fmt", "yuvj420p", FramePath(tmpDir, start + offset)]);
         }
 
         return args;
