@@ -374,6 +374,50 @@ describe("VideoTagger", () => {
     expect(request.studioOverride).toBeUndefined();
   });
 
+  it("asks only about the selected result, so a result that needs nothing is not held by another", async () => {
+    // The first result's search matched everything; the second has a tag only the lookup can place,
+    // and that lookup never answers.
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      { ...matchFor(123), id: "first-video-id" },
+      {
+        ...matchFor(123),
+        id: "second-video-id",
+        title: "Second result",
+        tagNames: ["Unmatched"],
+        tagCandidates: [{ remoteId: "t9", name: "Unmatched", existsLocally: false }],
+      },
+    ]);
+    mocks.resolveRelations.mockImplementation(() => new Promise(() => {}));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    const apply = await screen.findByRole("button", { name: /^Apply/ });
+    expect(apply).toBeEnabled();
+    expect(mocks.resolveRelations).not.toHaveBeenCalled();
+
+    // Choosing the second result asks about its names, and that result waits for the answer.
+    const more = screen.queryByRole("button", { name: /other match/i });
+    if (more) await userEvent.click(more);
+    await userEvent.click(await screen.findByRole("button", { name: "Use Second result" }));
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledOnce());
+    expect(mocks.resolveRelations.mock.calls[0][0].tags).toEqual(["Unmatched"]);
+    expect(await screen.findByRole("button", { name: /Checking library/ })).toBeDisabled();
+  });
+
   it("shows skipped related tag claims as a partial-success warning", async () => {
     mocks.importFromMetadataServer.mockResolvedValue({
       importWarnings: ["Skipped remote alias because it is already claimed by another tag."],

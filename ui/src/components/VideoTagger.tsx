@@ -1908,11 +1908,14 @@ function TaggerVideoRow({
   // correct existsLocally from their own search, so only scraper candidates are enriched below — except
   // a metadata-server tag the search found no match for, which is asked again: an alias linked since
   // the search matches it now, the same way the apply path will resolve it.
+  // Only the selected result is reviewed and applied, so only its names are asked about: a result that
+  // needs nothing does not wait for another's, and choosing another result asks about that one.
+  const lookupResult = state?.results?.[state?.selectedIndex ?? 0];
   const relationNamesToResolve = useMemo(() => {
     const tags = new Set<string>();
     const performers = new Set<string>();
     const studios = new Set<string>();
-    for (const r of state?.results ?? []) {
+    for (const r of lookupResult ? [lookupResult] : []) {
       if (r.sourceKind !== "scraper") {
         r.tagCandidates.filter((c) => !c.existsLocally).forEach((c) => tags.add(c.name));
         // Its search said no; another row may have created the studio since.
@@ -1924,7 +1927,7 @@ function TaggerVideoRow({
       if (r.studioName) studios.add(r.studioName);
     }
     return { tags: [...tags], performers: [...performers], studios: [...studios] };
-  }, [state?.results]);
+  }, [lookupResult]);
   const lookupNeeded =
     relationNamesToResolve.tags.length > 0 ||
     relationNamesToResolve.performers.length > 0 ||
