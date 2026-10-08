@@ -17,8 +17,12 @@ import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
 
 vi.mock("../api/client", () => ({ videos: { screenshotUrl: (id: number) => `/cover/${id}` } }));
 // The library pickers search through the API; here the link panel's picker just offers one tag.
+const selectorProps = vi.hoisted(() => [] as Array<{ valueTitles?: Record<number, string> }>);
 vi.mock("../components/EntityReferenceSelector", () => ({
-  EntityReferenceMultiSelector: () => null,
+  EntityReferenceMultiSelector: (props: { valueTitles?: Record<number, string> }) => {
+    selectorProps.push(props);
+    return null;
+  },
   // Names for library ids added through the search.
   useEntityReferenceOptions: (_type: string, ids: number[]) =>
     new Map(ids.map((id) => [id, { id, label: `Library tag ${id}` }])),
@@ -346,6 +350,25 @@ describe("VideoTaggerReview alias matches", () => {
       }),
     );
     expect(review.selection.tags).toEqual(["tit worship"]);
+  });
+
+  it("tells on a tag the video has that the scrape returned it under another name", () => {
+    const review = buildTaggerReview(
+      aliased({
+        video: { ...video, tags: [...video.tags, { id: 2, name: "Tit Worship" }] } as Video,
+        currentTagNames: ["Old tag", "Tit Worship"],
+        result: { ...result, tagNames: ["Tit Tease"], tagCandidates: [] } as MetadataServerVideoMatch,
+        tagMatchInfo: { "tit tease": "Tit Worship" },
+      }),
+    );
+    const current = review.target.values.tags as { id: string; scrapedAs?: string[] }[];
+    expect(current.find((tag) => tag.id === "tit worship")?.scrapedAs).toEqual(["Tit Tease"]);
+    expect(current.find((tag) => tag.id === "old tag")?.scrapedAs).toBeUndefined();
+
+    selectorProps.length = 0;
+    const tags = review.fields.find((field) => field.key === "tags")!;
+    render(<>{tags.renderList!(review.selection.tags as string[], vi.fn(), false)}</>);
+    expect(selectorProps.at(-1)?.valueTitles).toEqual({ 2: "Scraped as “Tit Tease”" });
   });
 
   it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {

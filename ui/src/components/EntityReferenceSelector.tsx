@@ -392,6 +392,7 @@ export function EntityReferenceMultiSelector({
   containerClassName,
   excludeIds,
   lockedIds,
+  valueTitles,
   creatable = true,
   selectedProvenanceById,
   reportableIds,
@@ -417,6 +418,8 @@ export function EntityReferenceMultiSelector({
   seedOptions?: EntityReferenceOption[];
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
+  /** A note per selected value, shown on hover and to screen readers (how the owner matched it, say). */
+  valueTitles?: Record<number, string>;
   creatable?: boolean;
   selectedProvenanceById?: Record<number, TagProvenance[] | undefined>;
   // Locked chips whose id is in reportableIds get the same "⋯" correction menu as the Details tab.
@@ -548,9 +551,10 @@ export function EntityReferenceMultiSelector({
               <span
                 key={id}
                 className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground"
-                title={lockedValue ? "Derived tag" : undefined}
+                title={[lockedValue ? "Derived tag" : null, valueTitles?.[id]].filter(Boolean).join(" · ") || undefined}
               >
                 <span>{option?.label ?? `Loading ${labels.singular}...`}</span>
+                {valueTitles?.[id] ? <span className="sr-only"> ({valueTitles[id]})</span> : null}
                 {option?.secondaryLabel ? <span className="text-muted">{option.secondaryLabel}</span> : null}
                 {!lockedValue ? (
                   <button

@@ -55,4 +55,23 @@ describe("EntityReferenceMultiSelector and Enter", () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(api.createTag).not.toHaveBeenCalled();
   });
+
+  it("shows a note on a chip only when the owner gives one", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={[2, 5]}
+          onChange={vi.fn()}
+          seedOptions={[
+            { id: 2, label: "Tit Worship" },
+            { id: 5, label: "Old tag" },
+          ]}
+          valueTitles={{ 2: "Scraped as “Tit Tease”" }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTitle("Scraped as “Tit Tease”")).toHaveTextContent("Tit Worship");
+    expect(screen.getByText("Old tag").closest("[title]")).toBeNull();
+  });
 });

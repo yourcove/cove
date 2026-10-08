@@ -287,6 +287,11 @@ function tagItems(input: TaggerReviewInput) {
     if (group) group.names.push(name);
     else groups.set(id, { label, names: [name] });
   }
+  // A tag the video has, which the scrape also returned under another name, says so on hover too.
+  const currentWithScrapedAs = current.map((tag) => {
+    const scrapedAs = groups.get(tag.id)?.names.filter((name) => relationKey(name) !== tag.id);
+    return scrapedAs?.length ? { ...tag, scrapedAs } : tag;
+  });
   const incoming = byLabel(
     [...groups].map(([id, { label, names }]) => {
       const localId = names.map((name) => candidates.get(relationKey(name))?.localId).find((value) => value != null);
@@ -312,7 +317,7 @@ function tagItems(input: TaggerReviewInput) {
     const wasIncluded = names.some(nameIncluded);
     return names.filter((name) => nameIncluded(name) === wasIncluded);
   };
-  return { current, incoming, included, namesToToggle };
+  return { current: currentWithScrapedAs, incoming, included, namesToToggle };
 }
 
 const performerIdentity = (performer: { name: string; disambiguation?: string | null }) =>
@@ -455,6 +460,12 @@ function RelationshipEditor({
       (labelOf.get(left) ?? "￿").localeCompare(labelOf.get(right) ?? "￿", undefined, { sensitivity: "base" }),
   );
   const lockedIds = current.filter((entry) => entry.locked).map((entry) => entry.localId!);
+  const valueTitles = Object.fromEntries(
+    current.flatMap((entry) => {
+      const title = scrapedAsTitle(entry);
+      return title ? [[entry.localId!, title]] : [];
+    }),
+  );
   const scraped = incomingHidden ? [] : items.filter((entry) => !entry.inTarget);
   // What the library already knows comes first; what it does not is kept apart, so a new item is
   // always a visible decision whether or not the tagger creates missing items by default.
@@ -586,6 +597,7 @@ function RelationshipEditor({
         values={values}
         excludeIds={libraryIds}
         lockedIds={lockedIds}
+        valueTitles={valueTitles}
         onChange={(ids) => onChange(selectorChange(items, selected, [...ids, ...libraryIds], incomingHidden))}
         placeholder={placeholder}
         seedOptions={seedOptions}
