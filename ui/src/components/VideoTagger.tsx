@@ -691,6 +691,22 @@ function buildDefaultVideoCollectionModes(
   };
 }
 
+/**
+ * A metadata server's studio its search did not find, which the lookup now finds under the same name (one
+ * created since, by another row say). Only a match on the name counts: the import finds a studio by remote
+ * id or name, not alias, so a studio the lookup reached through an alias would still not be set.
+ */
+function studioFoundSinceSearch(
+  candidate: UnifiedVideoMatch["studioCandidate"],
+  studioMatchInfo: Record<string, string> | undefined,
+): UnifiedVideoMatch["studioCandidate"] {
+  if (!candidate || candidate.existsLocally) return candidate;
+  const matched = studioMatchInfo?.[relationKey(candidate.name)];
+  return matched && relationKey(matched) === relationKey(candidate.name)
+    ? { ...candidate, existsLocally: true, localName: matched }
+    : candidate;
+}
+
 /** The person chose "+ Create" for this result's studio; a later search naming another studio has not. */
 function isStudioChosenForCreate(result: Pick<UnifiedVideoMatch, "studioName">, createdStudio: string | undefined) {
   return Boolean(result.studioName) && createdStudio === relationKey(result.studioName ?? "");
@@ -1899,6 +1915,8 @@ function TaggerVideoRow({
     for (const r of state?.results ?? []) {
       if (r.sourceKind !== "scraper") {
         r.tagCandidates.filter((c) => !c.existsLocally).forEach((c) => tags.add(c.name));
+        // Its search said no; another row may have created the studio since.
+        if (r.studioCandidate && !r.studioCandidate.existsLocally) studios.add(r.studioCandidate.name);
         continue;
       }
       r.tagNames.forEach((name) => tags.add(name));
@@ -1978,6 +1996,7 @@ function TaggerVideoRow({
             tagCandidates: r.tagCandidates.map((c) =>
               c.existsLocally || !existingTagKeys.has(relationKey(c.name)) ? c : { ...c, existsLocally: true },
             ),
+            studioCandidate: studioFoundSinceSearch(r.studioCandidate, studioMatchInfo),
           }
         : {
             ...r,
@@ -2877,12 +2896,14 @@ function TaggerResultRow({
     imageReplace: (fieldStrategies.image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite",
     coverComparison,
     collectionModes,
-    // A metadata server's search already placed its performers and studio; only its unmatched tags are
-    // asked about. A scraper's tags, performers and studio all come from the lookup.
+    // A metadata server's search already placed its performers; only its unmatched tags, and a studio it
+    // did not find, are asked about. A scraper's tags, performers and studio all come from the lookup.
     relationsWaiting: lookupNote
       ? result.sourceKind === "scraper"
         ? { tags: lookupNote, performers: lookupNote, studio: lookupNote }
-        : { tags: lookupNote }
+        : result.studioCandidate && !result.studioCandidate.existsLocally
+          ? { tags: lookupNote, studio: lookupNote }
+          : { tags: lookupNote }
       : undefined,
     showStudio: taggerConfig.setStudio,
     studioIsNew: result.studioCandidate != null && !result.studioCandidate.existsLocally,
