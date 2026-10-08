@@ -676,6 +676,154 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ApplyAttemptAsync_VideoRecordsOnlyTheTagsAndPerformersActuallyAttached()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        db.Tags.Add(new Tag { Name = "Existing" });
+        db.Performers.Add(new Performer { Name = "Known Performer" });
+        var video = new Video { Title = "Current Video", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Tags"] = new[] { "Existing", "Deleted Since" },
+                ["Performers"] = new[] { new { Name = "Known Performer" }, new { Name = "Gone Performer" } },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance,
+            new FieldProvenanceService(db));
+
+        // Both "include"s were chosen while the names were in the library; the second of each has gone
+        // since, and nothing is created.
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "merge", ["performers"] = "merge" },
+                CreateMissingTags: false,
+                CreateMissingPerformers: false,
+                TagSelections:
+                [
+                    new ScrapeCollectionItemSelectionDto("Existing", "include"),
+                    new ScrapeCollectionItemSelectionDto("Deleted Since", "include"),
+                ],
+                PerformerSelections:
+                [
+                    new ScrapeCollectionItemSelectionDto("Known Performer", "include"),
+                    new ScrapeCollectionItemSelectionDto("Gone Performer", "include"),
+                ]),
+            CancellationToken.None);
+
+        Assert.Equal("AppliedPartial", result!.Status);
+        var provenance = await db.FieldProvenance
+            .Where(item => item.HostType == AffinityHostType.Video && item.HostId == video.Id)
+            .ToDictionaryAsync(item => item.FieldKey, item => item.ValueJson, TestContext.Current.CancellationToken);
+        Assert.Equal(["Existing"], JsonSerializer.Deserialize<string[]>(provenance["tags"]!));
+        Assert.Equal(["Known Performer"], JsonSerializer.Deserialize<string[]>(provenance["performers"]!));
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_VideoHistoryLeavesOutATagRemovedByHandInTheSameApply()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var kept = new Tag { Name = "Kept" };
+        var removed = new Tag { Name = "Removed" };
+        db.Tags.AddRange(kept, removed);
+        var video = new Video { Title = "Current Video", VideoTags = [new VideoTag { Tag = removed }], TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Kept", "Removed" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new NoOpTagProvenanceService(), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance, new FieldProvenanceService(db));
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "merge" },
+                CreateMissingTags: false,
+                TagSelections:
+                [
+                    new ScrapeCollectionItemSelectionDto("Kept", "include"),
+                    new ScrapeCollectionItemSelectionDto("Removed", "include"),
+                ])
+            {
+                RemovedTagIds = [removed.Id],
+            },
+            CancellationToken.None);
+
+        var history = await db.FieldProvenance
+            .Where(item => item.HostType == AffinityHostType.Video && item.HostId == video.Id && item.FieldKey == "tags")
+            .Select(item => item.ValueJson)
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(["Kept"], JsonSerializer.Deserialize<string[]>(history!));
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_VideoWithoutSelectionsDoesNotCountAnUncreatedNameAsMissed()
+    {
+        // Identify sends no selections: a name the library lacks, with creating off, was never chosen.
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        db.Tags.Add(new Tag { Name = "Existing" });
+        var video = new Video { Title = "Current Video", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Existing", "Unknown" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new NoOpTagProvenanceService(), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "merge" },
+                CreateMissingTags: false),
+            CancellationToken.None);
+
+        Assert.Equal("Applied", result!.Status);
+    }
+
+    [Fact]
     public async Task ApplyAttemptAsync_VideoTagReplaceRemovesCurrentTagsNotInScrapedSet()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";

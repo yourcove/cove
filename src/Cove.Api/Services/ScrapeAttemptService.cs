@@ -260,14 +260,20 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         var sourceRunId = attempt.Id.ToString();
 
         ApplyUrls(video, root, collectionModes);
-        await ApplyTagsAsync(video, root, collectionModes, dto.CreateMissingTags, tagSelections, sourceKey, sourceRunId, ct);
-        var createdPerformerIds = await ApplyPerformersAsync(video, root, collectionModes, dto.CreateMissingPerformers, performerSelections, ct);
+        var appliedTags = await ApplyTagsAsync(video, root, collectionModes, dto.CreateMissingTags, tagSelections, sourceKey, sourceRunId, ct);
+        var appliedPerformers = await ApplyPerformersAsync(video, root, collectionModes, dto.CreateMissingPerformers, performerSelections, ct);
         if (dto.HydratePerformers)
-            await HydratePerformersAsync(root, dto.CreateMissingPerformers, dto.CreateMissingTags, performerSelections, createdPerformerIds, ct);
+            await HydratePerformersAsync(root, dto.CreateMissingPerformers, dto.CreateMissingTags, performerSelections, appliedPerformers.CreatedIds, ct);
         await ApplyStudioAsync(video, root, collectionModes, dto.CreateMissingStudio, ct);
         await VideoRelationshipEdits.ApplyAsync(db, video, dto.AddedTagIds, dto.RemovedTagIds, dto.AddedPerformerIds, dto.RemovedPerformerIds, tagProvenanceService, ct);
 
-        var fieldProvenance = BuildAppliedVideoFieldProvenance(root, replaceFields, collectionModes, tagSelections, performerSelections);
+        // Recorded after the hand edits, so a scraped name the person took off in the same apply is not listed.
+        var fieldProvenance = BuildAppliedVideoFieldProvenance(
+            root,
+            replaceFields,
+            collectionModes,
+            appliedTags.NamesStillOn(video.VideoTags.Select(item => item.TagId)),
+            appliedPerformers.NamesStillOn(video.VideoPerformers.Select(item => item.PerformerId)));
         if (fieldProvenance.Count > 0 && fieldProvenanceService != null)
             await fieldProvenanceService.RecordManyAsync(AffinityHostType.Video, video.Id, fieldProvenance, sourceKey, sourceRunId: sourceRunId, cancellationToken: ct);
 
@@ -275,7 +281,11 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             video.Organized = true;
 
         attempt.AppliedAt = DateTime.UtcNow;
-        attempt.Status = DetermineApplyStatus(availableFields, replaceFields, collectionModes, dto);
+        // A selected tag or performer that was not attached (it went from the library since the review, and
+        // was not to be created) makes the apply partial, as an excluded one does.
+        attempt.Status = appliedTags.Missed || appliedPerformers.Missed
+            ? "AppliedPartial"
+            : DetermineApplyStatus(availableFields, replaceFields, collectionModes, dto);
 
         await db.SaveChangesAsync(ct);
         eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
@@ -1592,15 +1602,39 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         }
     }
 
-    private async Task ApplyTagsAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)
+    /// <summary>
+    /// The scraped names a relation apply attached, and whether any the request selected was not attached. With
+    /// no selections (identify) nothing was chosen, so a name left uncreated is not a miss.
+    /// </summary>
+    private sealed record AppliedRelationNames(IReadOnlyList<AttachedRelation> Attached, bool Missed)
+    {
+        public static readonly AppliedRelationNames None = new([], false);
+
+        /// <summary>The scraped names whose entity is still attached (a hand removal in the same apply drops one).</summary>
+        public IReadOnlyList<string> NamesStillOn(IEnumerable<int> attachedIds)
+        {
+            var ids = attachedIds.ToHashSet();
+            return Attached.Where(item => ids.Contains(item.Id)).Select(item => item.Name).ToList();
+        }
+    }
+
+    private sealed record AttachedRelation(string Name, int Id);
+
+    private sealed record AppliedPerformers(IReadOnlyList<AttachedRelation> Attached, bool Missed, HashSet<int> CreatedIds)
+    {
+        public IReadOnlyList<string> NamesStillOn(IEnumerable<int> attachedIds) =>
+            new AppliedRelationNames(Attached, Missed).NamesStillOn(attachedIds);
+    }
+
+    private async Task<AppliedRelationNames> ApplyTagsAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)
     {
         var mode = GetMode(collectionModes, "tags");
         if (mode == "skip")
-            return;
+            return AppliedRelationNames.None;
 
         var tagNames = GetTagNames(root, "Tags", "Tag", "TagNames");
         if (tagNames.Count == 0)
-            return;
+            return AppliedRelationNames.None;
 
         var selectedTagNames = ResolveSelectedRelationNames(tagNames, selections, createMissing);
         if (selectedTagNames.Count == 0)
@@ -1610,7 +1644,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
                 video.VideoTags.Clear();
                 await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, [], ct);
             }
-            return;
+            return AppliedRelationNames.None;
         }
 
         // Match on primary name or alias via the shared resolver so this apply and the dialog's
@@ -1624,13 +1658,18 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         var existingTagIds = video.VideoTags.Select(item => item.TagId).ToHashSet();
         var appliedTagNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var appliedTagIds = new HashSet<int>();
+        var attachedScrapedNames = new List<AttachedRelation>();
+        var missed = false;
         foreach (var selectedTag in selectedTagNames)
         {
             var tagName = selectedTag.Name;
             if (!tagLookup.TryGetValue(tagName, out var tag))
             {
                 if (!selectedTag.AllowCreate)
+                {
+                    missed |= selections != null;
                     continue;
+                }
 
                 tag = new Tag { Name = tagName };
                 db.Tags.Add(tag);
@@ -1640,6 +1679,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
             appliedTagNames.Add(tag.Name);
             appliedTagIds.Add(tag.Id);
+            attachedScrapedNames.Add(new AttachedRelation(tagName, tag.Id));
 
             if (existingTagIds.Add(tag.Id))
                 video.VideoTags.Add(new VideoTag { VideoId = video.Id, TagId = tag.Id, Tag = tag });
@@ -1651,6 +1691,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, appliedTagIds, ct);
 
         await ApplyTagHierarchyAsync(root, tagLookup, selections == null && createMissing, appliedTagNames, ct);
+        return new AppliedRelationNames(attachedScrapedNames, missed);
     }
 
     private async Task ApplyTagHierarchyAsync(JsonElement root, Dictionary<string, Tag> tagLookup, bool createMissing, IReadOnlySet<string> selectedTagNames, CancellationToken ct)
@@ -1764,23 +1805,23 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         return result;
     }
 
-    private async Task<HashSet<int>> ApplyPerformersAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, CancellationToken ct)
+    private async Task<AppliedPerformers> ApplyPerformersAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, CancellationToken ct)
     {
         var createdPerformerIds = new HashSet<int>();
         var mode = GetMode(collectionModes, "performers");
         if (mode == "skip")
-            return createdPerformerIds;
+            return new AppliedPerformers([], false, createdPerformerIds);
 
         var performerNames = GetNamedItems(root, "Performers", "Performer", "PerformerNames");
         if (performerNames.Count == 0)
-            return createdPerformerIds;
+            return new AppliedPerformers([], false, createdPerformerIds);
 
         var selectedPerformerNames = ResolveSelectedRelationNames(performerNames, selections, createMissing);
         if (selectedPerformerNames.Count == 0)
         {
             if (mode == "replace")
                 video.VideoPerformers.Clear();
-            return createdPerformerIds;
+            return new AppliedPerformers([], false, createdPerformerIds);
         }
 
         // Scraper relation selections only carry a name, so they resolve the exact (name, null)
@@ -1791,13 +1832,18 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             video.VideoPerformers.Clear();
 
         var existingPerformerIds = video.VideoPerformers.Select(item => item.PerformerId).ToHashSet();
+        var attachedScrapedNames = new List<AttachedRelation>();
+        var missed = false;
         foreach (var selectedPerformer in selectedPerformerNames)
         {
             var performerName = selectedPerformer.Name;
             if (!performerLookup.TryGetValue(performerName, out var performer))
             {
                 if (!selectedPerformer.AllowCreate)
+                {
+                    missed |= selections != null;
                     continue;
+                }
 
                 performer = new Performer { Name = performerName };
                 db.Performers.Add(performer);
@@ -1808,9 +1854,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
             if (existingPerformerIds.Add(performer.Id))
                 video.VideoPerformers.Add(new VideoPerformer { VideoId = video.Id, PerformerId = performer.Id, Performer = performer });
+            attachedScrapedNames.Add(new AttachedRelation(performerName, performer.Id));
         }
 
-        return createdPerformerIds;
+        return new AppliedPerformers(attachedScrapedNames, missed, createdPerformerIds);
     }
 
     private async Task ApplyStudioAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, CancellationToken ct)
@@ -2000,7 +2047,9 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         return skipped || skippedSelection ? "AppliedPartial" : "Applied";
     }
 
-    private static Dictionary<string, object?> BuildAppliedVideoFieldProvenance(JsonElement root, HashSet<string> replaceFields, IDictionary<string, string> collectionModes, IReadOnlyDictionary<string, string>? tagSelections, IReadOnlyDictionary<string, string>? performerSelections)
+    // Tags and performers are recorded as the scraped names the apply attached, not as what was selected: a
+    // selected name that was no longer in the library, and not to be created, never reached the video.
+    private static Dictionary<string, object?> BuildAppliedVideoFieldProvenance(JsonElement root, HashSet<string> replaceFields, IDictionary<string, string> collectionModes, IReadOnlyList<string> appliedTagNames, IReadOnlyList<string> appliedPerformerNames)
     {
         var fields = new Dictionary<string, object?>();
 
@@ -2014,8 +2063,8 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         AddStringField(fields, "image_url", replaceFields.Contains("image"), GetString(root, "Image", "ImageUrl", "ImageURL"));
         AddListField(fields, "urls", GetMode(collectionModes, "urls") != "skip", GetStringList(root, "URLs", "Url", "URL"));
-        AddListField(fields, "tags", GetMode(collectionModes, "tags") != "skip", FilterSelectedRelationNames(GetTagNames(root, "Tags", "Tag", "TagNames"), tagSelections));
-        AddListField(fields, "performers", GetMode(collectionModes, "performers") != "skip", FilterSelectedRelationNames(GetNamedItems(root, "Performers", "Performer", "PerformerNames"), performerSelections));
+        AddListField(fields, "tags", GetMode(collectionModes, "tags") != "skip", appliedTagNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        AddListField(fields, "performers", GetMode(collectionModes, "performers") != "skip", appliedPerformerNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
 
         var studioName = GetNamedItems(root, "Studio", "StudioName").FirstOrDefault() ?? GetString(root, "Studio", "StudioName");
         AddStringField(fields, "studio", GetMode(collectionModes, "studio") != "skip", studioName);
