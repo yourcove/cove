@@ -144,7 +144,7 @@ export function MetadataDiffSummary({
           action={<CreateSourceButton field={field} value={source.values[field.key]} disabled={disabled} />}
         >
           <span className="text-muted">
-            <ScalarValue value={source.values[field.key]} render={render} />
+            <ScalarValue value={source.values[field.key]} render={(value) => render(value, "source")} />
           </span>
         </SummaryRow>,
       );
@@ -174,7 +174,7 @@ export function MetadataDiffSummary({
             </button>
           }
         >
-          <ScalarValue value={source.values[field.key]} render={render} />
+          <ScalarValue value={source.values[field.key]} render={(value) => render(value, "source")} />
         </SummaryRow>,
       );
       continue;
@@ -198,7 +198,7 @@ export function MetadataDiffSummary({
             label={keepLabel}
             onChoose={() => onChange({ ...value, [field.key]: "target" })}
           >
-            {status === "conflict" ? render(target.values[field.key]) : null}
+            {status === "conflict" ? render(target.values[field.key], "target") : null}
           </ChoiceButton>
           <ChoiceButton
             name={name}
@@ -207,7 +207,7 @@ export function MetadataDiffSummary({
             label={`Use ${incoming}`}
             onChoose={() => onChange({ ...value, [field.key]: "source" })}
           >
-            {render(source.values[field.key])}
+            {render(source.values[field.key], "source")}
           </ChoiceButton>
         </span>
       </SummaryRow>,

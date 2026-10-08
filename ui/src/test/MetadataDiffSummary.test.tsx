@@ -84,6 +84,24 @@ describe("MetadataDiffSummary", () => {
     expect(within(unchanged as HTMLElement).getByText("Title · Date")).toBeInTheDocument();
   });
 
+  it("tells a field's render which side each value is drawn on", () => {
+    const sided: DiffField[] = [
+      { key: "director", label: "Director", render: (value, side) => `${String(value)} [${side ?? "unknown"}]` },
+    ];
+    render(
+      <MetadataDiffSummary
+        fields={sided}
+        source={source}
+        target={target}
+        value={defaultDiffSelection(sided, source, target)}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/\[target\]/)).toBeInTheDocument();
+    expect(screen.getByText(/\[source\]/)).toBeInTheDocument();
+    expect(screen.queryByText(/\[unknown\]/)).not.toBeInTheDocument();
+  });
+
   it("flips a conflict to the incoming side through the inline choice", async () => {
     const selection = defaultDiffSelection(fields, source, target);
     const onChange = vi.fn();

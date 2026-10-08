@@ -769,8 +769,9 @@ export function buildTaggerReview(input: TaggerReviewInput) {
       // The studio the video gets is the library's; the scraped spelling stays on hover.
       render:
         matchName && relationKey(matchName) !== relationKey(scrapedStudio)
-          ? (value) =>
-              value === matchName ? (
+          ? // The scraped name is about the incoming studio; the current side is the video's own.
+            (value, side) =>
+              side !== "target" && value === matchName ? (
                 <span title={`Scraped as “${scrapedStudio}”`}>
                   {matchName}
                   <span className="sr-only"> (scraped as “{scrapedStudio}”)</span>

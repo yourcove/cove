@@ -32,7 +32,8 @@ export interface DiffField {
   readOnly?: boolean;
   alwaysVisible?: boolean;
   unavailableLabel?: string;
-  render?: (value: unknown) => ReactNode;
+  /** A value as it reads in the row; `side` says which side it is drawn on, where the row has two. */
+  render?: (value: unknown, side?: DiffSide) => ReactNode;
   equal?: (left: unknown, right: unknown) => boolean;
   /** Treat a value as empty for the fill-empty default and the outcome label. */
   isEmpty?: (value: unknown) => boolean;
@@ -484,7 +485,7 @@ function ScalarRow({
             ) : null}
           </span>
           {available ? (
-            <ClampedValue value={record.values[field.key]} render={render} />
+            <ClampedValue value={record.values[field.key]} render={(value) => render(value, side)} />
           ) : (
             <span className="text-sm text-muted">{field.unavailableLabel ?? "Unavailable"}</span>
           )}

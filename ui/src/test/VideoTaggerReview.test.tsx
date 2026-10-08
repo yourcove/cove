@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { MetadataServerVideoMatch, Video } from "../api/types";
 import {
@@ -1156,5 +1156,30 @@ describe("VideoTaggerReview studio", () => {
     const { container } = render(<>{studio.render!(review.source.values.studio)}</>);
     expect(container).toHaveTextContent("Studio X Productions");
     expect(container.querySelector("[title]")).toHaveAttribute("title", "Scraped as “Studio X”");
+  });
+
+  it("does not tell the scraped name on the current side when the video already has that studio", () => {
+    const review = buildTaggerReview(
+      input({
+        video: { ...video, studioName: "Studio X Productions" } as Video,
+        studioMatchName: "Studio X Productions",
+      }),
+    );
+    render(
+      <MetadataDiff
+        fields={review.fields.filter((field) => field.key === "studio")}
+        source={review.source}
+        target={review.target}
+        value={review.selection}
+        onChange={vi.fn()}
+      />,
+    );
+    // The row is identical, so it sits under the collapsed list; open it.
+    const toggle = screen.queryByRole("button", { name: /identical/ });
+    if (toggle) fireEvent.click(toggle);
+    const current = screen.getByLabelText("Studio from target").closest("label")!;
+    const incoming = screen.getByLabelText("Studio from source").closest("label")!;
+    expect(incoming.querySelector("[title]")).toHaveAttribute("title", "Scraped as “Studio X”");
+    expect(current.querySelector("[title]")).toBeNull();
   });
 });
