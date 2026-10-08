@@ -2152,9 +2152,24 @@ describe("VideoTagger", () => {
         await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
         await userEvent.click(screen.getByRole("button", { name: "Search for this text" }));
 
+        // Its result went away before its turn, as for a row that disappears: skipped, not "not attempted",
+        // which is for rows a cancellation stopped.
         const summary = await findApplyAllSummary();
-        expect(summary).toHaveTextContent("Applied 0, not attempted 1.");
+        expect(summary).toHaveTextContent("Applied 0, skipped 1.");
         expect(summary).not.toHaveTextContent(/failed/);
+        expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
+      });
+
+      it("counts a row searched again while its failed lookup is asked once more as skipped", async () => {
+        withUnmatchedTag();
+        mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
+        heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
+        await userEvent.click(screen.getByRole("button", { name: "Search for this text" }));
+
+        const summary = await findApplyAllSummary();
+        expect(summary).toHaveTextContent("Applied 0, skipped 1.");
         expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
       });
 

@@ -1416,7 +1416,12 @@ export function VideoTagger({
       applyBatchRef,
       targetIds,
       async (videoId, signal) => {
-        if (droppedIds.has(videoId)) return;
+        // Its result went away while it waited for its lookup (a new search, the row gone): skipped, as
+        // when its handler has gone by its turn.
+        if (droppedIds.has(videoId)) {
+          skippedIds.push(videoId);
+          return;
+        }
         // A row unmounted or saved since the click no longer has a handler; skip it rather than fail.
         const row = applyHandlersRef.current.get(videoId);
         if (!row) {
@@ -1428,7 +1433,11 @@ export function VideoTagger({
         // waiting for its library lookup when the batch is cancelled sends nothing, so it was not attempted.
         await row.apply(signal, !failedWhileWaitingIds.has(videoId)).catch((error: unknown) => {
           const index = startedIds.indexOf(videoId);
-          if (error instanceof TaggerApplyCancelled && index >= 0) startedIds.splice(index, 1);
+          if (!(error instanceof TaggerApplyCancelled) || index < 0) return;
+          // Nothing was sent: not attempted when Apply all was cancelled, skipped when the row's result
+          // went away (a new search) while its lookup was being asked again.
+          startedIds.splice(index, 1);
+          if (!signal.aborted) skippedIds.push(videoId);
         });
       },
       CONCURRENCY_LIMIT,
