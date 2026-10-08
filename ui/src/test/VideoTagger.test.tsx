@@ -1817,6 +1817,22 @@ describe("VideoTagger", () => {
       Performers: [{ Name: "Scraped Performer" }],
     };
 
+    it("leaves tags alone once Set tags is unchecked, whatever was chosen in the row before", async () => {
+      await scrape(fullResult);
+      await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Use source Tags" }));
+      await userEvent.click(screen.getByRole("button", { name: "Tagger settings" }));
+      await userEvent.click(screen.getByRole("checkbox", { name: "Set tags" }));
+      expect(screen.queryByRole("group", { name: "Tags" })).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScrapeAttempt).toHaveBeenCalledOnce());
+      const request = mocks.applyScrapeAttempt.mock.calls[0][1];
+      expect(request.collectionModes.tags).toBe("skip");
+      expect(request.addedTagIds).toBeUndefined();
+      expect(request.removedTagIds).toBeUndefined();
+    });
+
     it("holds the tags, performers, studio and Apply until it answers, and leaves the other fields usable", async () => {
       const lookup = heldLookup();
       await scrape(fullResult);

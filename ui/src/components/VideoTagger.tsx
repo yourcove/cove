@@ -710,7 +710,13 @@ function getVideoCollectionModes(
   state: VideoSearchState | undefined,
   taggerConfig: TaggerConfig,
 ) {
-  const modes = { ...buildDefaultVideoCollectionModes(result, taggerConfig), ...state?.collectionModes };
+  const saved = { ...buildDefaultVideoCollectionModes(result, taggerConfig), ...state?.collectionModes };
+  // An unchecked Set tags / performers / studio hides the row and leaves that relation alone, whatever was
+  // chosen in the row while it was shown.
+  const modes: Record<string, CollectionMode> = { ...saved };
+  if (!taggerConfig.setTags) modes.tags = "skip";
+  if (!taggerConfig.setPerformers) modes.performers = "skip";
+  if (!taggerConfig.setStudio) modes.studio = "skip";
   // A studio the library lacks that nobody chose to create would not be set, so the studio is not
   // touched at all: the review, both apply requests and the attempt's record all read this one mode.
   const studioAwaitsCreate =
@@ -878,18 +884,19 @@ function buildScraperVideoApplyRequest(
             action: performerActions[relationKey(choice.key)] ?? "exclude",
           }))
         : undefined,
-    ...relationshipEditFields(state),
+    ...relationshipEditFields(state, taggerConfig),
   };
 }
 
-// The review's hand edits, in the shape both apply requests take; absent when there are none.
-function relationshipEditFields(state: VideoSearchState | undefined) {
-  const ids = (list: number[] | undefined) => (list && list.length > 0 ? list : undefined);
+// The review's hand edits, in the shape both apply requests take; absent when there are none, and for a
+// relation the tagger is not setting, whose row is hidden.
+function relationshipEditFields(state: VideoSearchState | undefined, taggerConfig: TaggerConfig) {
+  const ids = (list: number[] | undefined, set: boolean) => (set && list && list.length > 0 ? list : undefined);
   return {
-    addedTagIds: ids(state?.tagEdits?.added),
-    removedTagIds: ids(state?.tagEdits?.removed),
-    addedPerformerIds: ids(state?.performerEdits?.added),
-    removedPerformerIds: ids(state?.performerEdits?.removed),
+    addedTagIds: ids(state?.tagEdits?.added, taggerConfig.setTags),
+    removedTagIds: ids(state?.tagEdits?.removed, taggerConfig.setTags),
+    addedPerformerIds: ids(state?.performerEdits?.added, taggerConfig.setPerformers),
+    removedPerformerIds: ids(state?.performerEdits?.removed, taggerConfig.setPerformers),
   };
 }
 
@@ -2107,7 +2114,7 @@ function TaggerVideoRow({
       tagOverrides,
       studioOverride,
       fieldStrategies: buildVideoFieldStrategies(video, selectedResult, state, taggerConfig),
-      ...relationshipEditFields(state),
+      ...relationshipEditFields(state, taggerConfig),
     };
     return videos.importFromMetadataServer(video.id, importReq);
   };
