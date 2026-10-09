@@ -2062,13 +2062,21 @@ describe("VideoTagger", () => {
       async function searchAndApplyAll() {
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         const video = { id: 123, title: "Local video", files: [], performers: [], tags: [], urls: [], remoteIds: [] };
-        render(
+        const view = render(
           <QueryClientProvider client={queryClient}>
             <VideoTagger videos={[video] as any} />
           </QueryClientProvider>,
         );
         await userEvent.click(screen.getByRole("button", { name: "Search all" }));
         await userEvent.click(await screen.findByRole("button", { name: "Apply all (1)" }));
+        // The video leaves the page (the list changes), taking its row with it.
+        const removeRow = () =>
+          view.rerender(
+            <QueryClientProvider client={queryClient}>
+              <VideoTagger videos={[]} />
+            </QueryClientProvider>,
+          );
+        return { removeRow };
       }
 
       it("waits for a row's lookup and applies with its answer", async () => {
@@ -2145,12 +2153,12 @@ describe("VideoTagger", () => {
         expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
       });
 
-      it("drops a waiting row's apply when the row is searched again, without marking the row failed", async () => {
+      it("drops a waiting row's apply when the row goes away, without marking the row failed", async () => {
         withUnmatchedTag();
         heldLookup();
-        await searchAndApplyAll();
+        const { removeRow } = await searchAndApplyAll();
         await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
-        await userEvent.click(screen.getByRole("button", { name: "Search for this text" }));
+        removeRow();
 
         // Its result went away before its turn, as for a row that disappears: skipped, not "not attempted",
         // which is for rows a cancellation stopped.
@@ -2160,13 +2168,43 @@ describe("VideoTagger", () => {
         expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
       });
 
-      it("counts a row searched again while its failed lookup is asked once more as skipped", async () => {
+      it("locks a row's search and result choice while Apply all applies it", async () => {
+        mocks.searchMetadataServer.mockResolvedValue([
+          {
+            ...matchFor(123),
+            tagNames: ["Unmatched"],
+            tagCandidates: [{ remoteId: "tag-1", name: "Unmatched", existsLocally: false }],
+          },
+          { ...matchFor(123), id: "second-result", title: "Second result" },
+        ]);
+        const lookup = heldLookup();
+        await searchAndApplyAll();
+        await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalled());
+
+        // Waiting for its library check inside Apply all: what was shown at the click is what is applied.
+        expect(screen.getByRole("button", { name: "Search for this text" })).toBeDisabled();
+        const more = screen.queryByRole("button", { name: /other match/i });
+        if (more) await userEvent.click(more);
+        const second = screen.getByRole("button", { name: "Use Second result" });
+        expect(second).toHaveAttribute("aria-disabled", "true");
+        await userEvent.click(second);
+        // Still not the selected one.
+        expect(screen.getByRole("button", { name: "Use Second result" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Dismiss video" })).toBeDisabled();
+
+        lookup.answer(noMatches);
+        await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+        expect(mocks.importFromMetadataServer.mock.calls[0][1].videoId).toBe(matchFor(123).id);
+        await waitFor(() => expect(screen.getByRole("button", { name: "Search for this text" })).toBeEnabled());
+      });
+
+      it("counts a row that goes away while its failed lookup is asked once more as skipped", async () => {
         withUnmatchedTag();
         mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
         heldLookup();
-        await searchAndApplyAll();
+        const { removeRow } = await searchAndApplyAll();
         await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
-        await userEvent.click(screen.getByRole("button", { name: "Search for this text" }));
+        removeRow();
 
         const summary = await findApplyAllSummary();
         expect(summary).toHaveTextContent("Applied 0, skipped 1.");

@@ -1404,6 +1404,17 @@ export function VideoTagger({
     setApplyAllRun(null);
     videoListRef.current?.focus();
   }, []);
+  // Rows Apply all is applying and has not finished with. Their search, result choice and review are locked,
+  // so what was on screen at the click is what gets applied; each unlocks once its apply has settled.
+  const [applyAllLocked, setApplyAllLocked] = useState<ReadonlySet<number>>(() => new Set());
+  const unlockApplyAllRow = useCallback((videoId: number) => {
+    setApplyAllLocked((current) => {
+      if (!current.has(videoId)) return current;
+      const next = new Set(current);
+      next.delete(videoId);
+      return next;
+    });
+  }, []);
   const applyAll = useCallback(async () => {
     const targetIds = applyAllTargets;
     const startedIds: number[] = [];
@@ -1416,38 +1427,23 @@ export function VideoTagger({
       applyBatchRef,
       targetIds,
       async (videoId, signal) => {
-        // Its result went away while it waited for its lookup (a new search, the row gone): skipped, as
-        // when its handler has gone by its turn.
-        if (droppedIds.has(videoId)) {
-          skippedIds.push(videoId);
-          return;
+        try {
+          await applyRow(videoId, signal);
+        } finally {
+          unlockApplyAllRow(videoId);
         }
-        // A row unmounted or saved since the click no longer has a handler; skip it rather than fail.
-        const row = applyHandlersRef.current.get(videoId);
-        if (!row) {
-          skippedIds.push(videoId);
-          return;
-        }
-        startedIds.push(videoId);
-        // The row records its own outcome, and one row's failure must not abandon the batch. A row still
-        // waiting for its library lookup when the batch is cancelled sends nothing, so it was not attempted.
-        await row.apply(signal, !failedWhileWaitingIds.has(videoId)).catch((error: unknown) => {
-          const index = startedIds.indexOf(videoId);
-          if (!(error instanceof TaggerApplyCancelled) || index < 0) return;
-          // Nothing was sent: not attempted when Apply all was cancelled, skipped when the row's result
-          // went away (a new search) while its lookup was being asked again.
-          startedIds.splice(index, 1);
-          if (!signal.aborted) skippedIds.push(videoId);
-        });
       },
       CONCURRENCY_LIMIT,
       {
         onStart: () => {
           setApplyingAll(true);
           setApplyAllRun(null);
+          setApplyAllLocked(new Set(targetIds));
         },
         onFinish: (cancelled) => {
           setApplyingAll(false);
+          // Rows a cancellation never reached unlock with the run.
+          setApplyAllLocked(new Set());
           // Cancelling stops rows being started but never interrupts an import already sent, so the rows
           // that were never reached are recorded rather than dropped out of the arithmetic.
           setApplyAllRun({ targetIds, startedIds, skippedIds, cancelled });
@@ -1462,7 +1458,33 @@ export function VideoTagger({
         }
       },
     );
-  }, [applyAllTargets]);
+
+    async function applyRow(videoId: number, signal: AbortSignal) {
+      // Its result went away while it waited for its lookup (a new search, the row gone): skipped, as
+      // when its handler has gone by its turn.
+      if (droppedIds.has(videoId)) {
+        skippedIds.push(videoId);
+        return;
+      }
+      // A row unmounted or saved since the click no longer has a handler; skip it rather than fail.
+      const row = applyHandlersRef.current.get(videoId);
+      if (!row) {
+        skippedIds.push(videoId);
+        return;
+      }
+      startedIds.push(videoId);
+      // The row records its own outcome, and one row's failure must not abandon the batch. A row still
+      // waiting for its library lookup when the batch is cancelled sends nothing, so it was not attempted.
+      await row.apply(signal, !failedWhileWaitingIds.has(videoId)).catch((error: unknown) => {
+        const index = startedIds.indexOf(videoId);
+        if (!(error instanceof TaggerApplyCancelled) || index < 0) return;
+        // Nothing was sent: not attempted when Apply all was cancelled, skipped when the row's result
+        // went away (a new search) while its lookup was being asked again.
+        startedIds.splice(index, 1);
+        if (!signal.aborted) skippedIds.push(videoId);
+      });
+    }
+  }, [applyAllTargets, unlockApplyAllRow]);
   const cancelApplyAll = useCallback(() => {
     applyBatchRef.current?.abort();
   }, []);
@@ -1833,6 +1855,7 @@ export function VideoTagger({
             onSelect={onSelect ? withOrderedToggle(onSelect, visibleVideoIds) : undefined}
             detailMode={mode === "detail"}
             onRegisterApply={registerApply}
+            applyLocked={applyAllLocked.has(video.id)}
             onDismiss={mode === "bulk" ? () => dismissVideo(video.id) : undefined}
             resolveRelations={resolveRelations}
           />
@@ -1871,6 +1894,8 @@ interface TaggerVideoRowProps {
    * Called with null when the row has nothing to apply.
    */
   onRegisterApply?: (videoId: number, apply: RowApply | null) => void;
+  /** Apply all is applying this row: its search, result choice and review cannot change until it is done. */
+  applyLocked?: boolean;
   /** Takes this row off the list for the rest of the visit. Absent when dismissing does not apply. */
   onDismiss?: () => void;
   /** The library lookup, shared by the page's rows. */
@@ -1898,6 +1923,7 @@ function TaggerVideoRow({
   onSelect,
   detailMode = false,
   onRegisterApply,
+  applyLocked = false,
   onDismiss,
   resolveRelations,
 }: TaggerVideoRowProps) {
@@ -2288,175 +2314,178 @@ function TaggerVideoRow({
 
         {/* Search + Results: laid out by the row's own flex so the query can sit beside the title */}
         <div className="contents">
-          {detailMode && (
-            <div className="w-full">
-              <RemoteRefreshButtons
-                remoteIds={video.remoteIds}
-                servers={metadataServers}
-                busyEndpoint={refreshBusyEndpoint}
-                onRefresh={handleRefreshFromRemote}
-              />
-            </div>
-          )}
-          {isScraperSource && (
-            <div className="flex w-full flex-wrap items-center gap-1.5">
-              <select
-                value={scraperInputKind}
-                onChange={(event) => onScraperInputKindChange(event.target.value as InputKind)}
-                className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-              >
-                <option value="url" disabled={!supportsScrapeKind(source.scraper, "url")}>
-                  URL
-                </option>
-                <option value="name" disabled={!supportsScrapeKind(source.scraper, "name")}>
-                  Title
-                </option>
-                <option value="fragment" disabled={!supportsScrapeKind(source.scraper, "fragment")}>
-                  Fragment
-                </option>
-              </select>
-              {scraperInputKind === "url" && videoUrls.length > 0 ? (
+          {/* Locked while Apply all applies the row: a new search would replace what is being applied. */}
+          <fieldset disabled={applyLocked} className="contents">
+            {detailMode && (
+              <div className="w-full">
+                <RemoteRefreshButtons
+                  remoteIds={video.remoteIds}
+                  servers={metadataServers}
+                  busyEndpoint={refreshBusyEndpoint}
+                  onRefresh={handleRefreshFromRemote}
+                />
+              </div>
+            )}
+            {isScraperSource && (
+              <div className="flex w-full flex-wrap items-center gap-1.5">
                 <select
-                  value={selectedUrlOption}
-                  onChange={(event) => {
-                    if (event.target.value !== "__custom") {
-                      onQueryChange(event.target.value);
-                    }
-                  }}
-                  className="min-w-0 max-w-full flex-1 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                  value={scraperInputKind}
+                  onChange={(event) => onScraperInputKindChange(event.target.value as InputKind)}
+                  className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
                 >
-                  <option value="__custom">Custom URL</option>
-                  {videoUrls.map((url) => (
-                    <option key={url} value={url}>
-                      {url}
-                    </option>
-                  ))}
+                  <option value="url" disabled={!supportsScrapeKind(source.scraper, "url")}>
+                    URL
+                  </option>
+                  <option value="name" disabled={!supportsScrapeKind(source.scraper, "name")}>
+                    Title
+                  </option>
+                  <option value="fragment" disabled={!supportsScrapeKind(source.scraper, "fragment")}>
+                    Fragment
+                  </option>
                 </select>
-              ) : null}
-            </div>
-          )}
-          {/* Search input — inline and compact */}
-          <div className="flex min-w-0 flex-[1_1_100%] gap-1.5 md:flex-[1_1_22rem]">
-            {isFragmentInput ? (
-              <textarea
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                rows={detailMode ? 8 : 3}
-                placeholder={searchPlaceholder}
-                className="flex-1 min-w-0 bg-input border border-border rounded pl-2 pr-2 py-1 font-mono text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-              />
-            ) : (
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onSearch()}
-                placeholder={searchPlaceholder}
-                className="flex-1 min-w-0 bg-input border border-border rounded pl-2 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-              />
+                {scraperInputKind === "url" && videoUrls.length > 0 ? (
+                  <select
+                    value={selectedUrlOption}
+                    onChange={(event) => {
+                      if (event.target.value !== "__custom") {
+                        onQueryChange(event.target.value);
+                      }
+                    }}
+                    className="min-w-0 max-w-full flex-1 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                  >
+                    <option value="__custom">Custom URL</option>
+                    {videoUrls.map((url) => (
+                      <option key={url} value={url}>
+                        {url}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
             )}
-            <button
-              type="button"
-              onClick={onSearch}
-              disabled={state?.loading}
-              aria-label={textSearchLabel}
-              title={textSearchLabel}
-              // Stretch to the one-line input's height; beside the multi-line fragment box, stay compact at the top.
-              className={`flex shrink-0 items-center rounded bg-accent px-2 py-1 text-white hover:bg-accent-hover disabled:opacity-60 ${
-                isFragmentInput ? "h-fit" : ""
-              }`}
-            >
-              {state?.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-            </button>
-            {source?.kind === "metadata-server" && (
-              // The row's second search mode, so it sits beside the first rather than in the menu. It never
-              // reads the query box, which is what keeps the two visibly independent.
+            {/* Search input — inline and compact */}
+            <div className="flex min-w-0 flex-[1_1_100%] gap-1.5 md:flex-[1_1_22rem]">
+              {isFragmentInput ? (
+                <textarea
+                  value={query}
+                  onChange={(e) => onQueryChange(e.target.value)}
+                  rows={detailMode ? 8 : 3}
+                  placeholder={searchPlaceholder}
+                  className="flex-1 min-w-0 bg-input border border-border rounded pl-2 pr-2 py-1 font-mono text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => onQueryChange(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSearch()}
+                  placeholder={searchPlaceholder}
+                  className="flex-1 min-w-0 bg-input border border-border rounded pl-2 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
+                />
+              )}
               <button
                 type="button"
-                onClick={onSearchFingerprints}
+                onClick={onSearch}
                 disabled={state?.loading}
-                aria-label="Identify by file content"
-                title="Identify by file content (fingerprints). Ignores the search text."
-                className="flex shrink-0 items-center rounded border border-border bg-surface px-1.5 text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
-              >
-                <Fingerprint className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {onDismiss && (
-              // Sits beside Search so a row can be cleared whether or not it found a match.
-              <button
-                type="button"
-                onClick={onDismiss}
-                aria-label="Dismiss video"
-                title="Dismiss video from this search session. It will be included in future search sessions."
-                className={`flex shrink-0 items-center rounded border border-border bg-surface px-1.5 text-muted hover:border-red-500/40 hover:text-red-400 ${
-                  isFragmentInput ? "h-fit py-1" : ""
+                aria-label={textSearchLabel}
+                title={textSearchLabel}
+                // Stretch to the one-line input's height; beside the multi-line fragment box, stay compact at the top.
+                className={`flex shrink-0 items-center rounded bg-accent px-2 py-1 text-white hover:bg-accent-hover disabled:opacity-60 ${
+                  isFragmentInput ? "h-fit" : ""
                 }`}
               >
-                <X className="h-3.5 w-3.5" />
+                {state?.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               </button>
-            )}
-            {source?.kind === "metadata-server" && (
-              // The rare actions, the two submissions, live behind one menu so the row shows its query and its
-              // two search modes and nothing more.
-              <DismissibleMenu className="relative shrink-0">
-                <summary
-                  role="button"
-                  aria-label="More actions"
-                  title="More actions"
-                  className={`flex h-full cursor-pointer list-none items-center rounded border px-1.5 text-muted hover:text-foreground [&::-webkit-details-marker]:hidden ${
-                    shouldHighlightFingerprintSubmit
-                      ? "border-accent/40 bg-accent/10 text-accent"
-                      : "border-border bg-surface"
+              {source?.kind === "metadata-server" && (
+                // The row's second search mode, so it sits beside the first rather than in the menu. It never
+                // reads the query box, which is what keeps the two visibly independent.
+                <button
+                  type="button"
+                  onClick={onSearchFingerprints}
+                  disabled={state?.loading}
+                  aria-label="Identify by file content"
+                  title="Identify by file content (fingerprints). Ignores the search text."
+                  className="flex shrink-0 items-center rounded border border-border bg-surface px-1.5 text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
+                >
+                  <Fingerprint className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onDismiss && (
+                // Sits beside Search so a row can be cleared whether or not it found a match.
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  aria-label="Dismiss video"
+                  title="Dismiss video from this search session. It will be included in future search sessions."
+                  className={`flex shrink-0 items-center rounded border border-border bg-surface px-1.5 text-muted hover:border-red-500/40 hover:text-red-400 ${
+                    isFragmentInput ? "h-fit py-1" : ""
                   }`}
                 >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </summary>
-                <div className="absolute right-0 z-30 mt-1 w-64 overflow-hidden rounded border border-border bg-card shadow-xl">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.currentTarget.closest("details")?.removeAttribute("open");
-                      submitFingerprintsMut.mutate();
-                    }}
-                    disabled={submitFingerprintsMut.isPending || !canSubmitFingerprints}
-                    title={
-                      canSubmitFingerprints
-                        ? "Submit your fingerprints for this video to the metadata server"
-                        : "Link this video to a metadata-server entry before submitting fingerprints"
-                    }
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface disabled:opacity-60 ${
-                      shouldHighlightFingerprintSubmit ? "text-accent" : "text-foreground"
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {source?.kind === "metadata-server" && (
+                // The rare actions, the two submissions, live behind one menu so the row shows its query and its
+                // two search modes and nothing more.
+                <DismissibleMenu className="relative shrink-0">
+                  <summary
+                    role="button"
+                    aria-label="More actions"
+                    title="More actions"
+                    className={`flex h-full cursor-pointer list-none items-center rounded border px-1.5 text-muted hover:text-foreground [&::-webkit-details-marker]:hidden ${
+                      shouldHighlightFingerprintSubmit
+                        ? "border-accent/40 bg-accent/10 text-accent"
+                        : "border-border bg-surface"
                     }`}
                   >
-                    {submitFingerprintsMut.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Upload className="h-3.5 w-3.5 text-muted" />
-                    )}
-                    Submit fingerprints
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.currentTarget.closest("details")?.removeAttribute("open");
-                      submitDraftMut.submitDraft(submitEndpoint);
-                    }}
-                    disabled={submitDraftMut.isPending}
-                    title="Submit this video as a draft entry to the metadata server"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-surface disabled:opacity-60"
-                  >
-                    {submitDraftMut.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <CloudUpload className="h-3.5 w-3.5 text-muted" />
-                    )}
-                    Submit as draft
-                  </button>
-                </div>
-              </DismissibleMenu>
-            )}
-          </div>
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </summary>
+                  <div className="absolute right-0 z-30 mt-1 w-64 overflow-hidden rounded border border-border bg-card shadow-xl">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        submitFingerprintsMut.mutate();
+                      }}
+                      disabled={submitFingerprintsMut.isPending || !canSubmitFingerprints}
+                      title={
+                        canSubmitFingerprints
+                          ? "Submit your fingerprints for this video to the metadata server"
+                          : "Link this video to a metadata-server entry before submitting fingerprints"
+                      }
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface disabled:opacity-60 ${
+                        shouldHighlightFingerprintSubmit ? "text-accent" : "text-foreground"
+                      }`}
+                    >
+                      {submitFingerprintsMut.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5 text-muted" />
+                      )}
+                      Submit fingerprints
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        submitDraftMut.submitDraft(submitEndpoint);
+                      }}
+                      disabled={submitDraftMut.isPending}
+                      title="Submit this video as a draft entry to the metadata server"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-surface disabled:opacity-60"
+                    >
+                      {submitDraftMut.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <CloudUpload className="h-3.5 w-3.5 text-muted" />
+                      )}
+                      Submit as draft
+                    </button>
+                  </div>
+                </DismissibleMenu>
+              )}
+            </div>
+          </fieldset>
 
           {submitFingerprintsMut.isError && (
             <p className="w-full text-xs text-red-400">
@@ -2519,6 +2548,7 @@ function TaggerVideoRow({
               tagMatchInfo={tagMatchInfo}
               studioMatchInfo={studioMatchInfo}
               selectedIndex={state.selectedIndex ?? 0}
+              locked={applyLocked}
               onSelect={(i) =>
                 onUpdateState(
                   i === (state.selectedIndex ?? 0)
@@ -2658,6 +2688,8 @@ function TaggerVideoRow({
 /* ── Tagger Results ── */
 
 interface TaggerResultsProps {
+  /** Apply all is applying the row: the selected result, its review and Apply cannot change. */
+  locked?: boolean;
   video: Video;
   results: UnifiedVideoMatch[];
   tagMatchInfo?: Record<string, string>;
@@ -2725,6 +2757,7 @@ function TaggerResults({
   relationLookup,
   lookupRetrying,
   onRetryLookup,
+  locked = false,
 }: TaggerResultsProps) {
   const current = results[selectedIndex] ? selectedIndex : 0;
   const row = (result: UnifiedVideoMatch, i: number) => (
@@ -2736,9 +2769,12 @@ function TaggerResults({
       studioMatchInfo={studioMatchInfo}
       isSelected={i === current}
       showSelector={results.length > 1}
-      onClick={() => onSelect(i)}
+      onClick={() => {
+        if (!locked) onSelect(i);
+      }}
       onSave={i === current ? onSave : undefined}
       saving={i === current ? saving : false}
+      locked={locked}
       saved={saved}
       localDuration={localDuration}
       excludedPerformers={excludedPerformers}
@@ -2792,6 +2828,7 @@ function TaggerResultRow({
   onClick,
   onSave,
   saving,
+  locked = false,
   saved,
   localDuration,
   excludedPerformers,
@@ -2825,6 +2862,7 @@ function TaggerResultRow({
   onClick: () => void;
   onSave?: () => void;
   saving?: boolean;
+  locked?: boolean;
   saved?: boolean;
   localDuration?: number;
   excludedPerformers: Set<string>;
@@ -3009,6 +3047,7 @@ function TaggerResultRow({
         role={showSelector && !isSelected ? "button" : undefined}
         tabIndex={showSelector && !isSelected ? 0 : undefined}
         aria-label={showSelector && !isSelected ? `Use ${result.title || "this match"}` : undefined}
+        aria-disabled={showSelector && !isSelected && locked ? true : undefined}
         onKeyDown={(event) => {
           if (showSelector && !isSelected && (event.key === "Enter" || event.key === " ")) {
             event.preventDefault();
@@ -3032,7 +3071,7 @@ function TaggerResultRow({
           <CoverPanel
             review={review}
             onChange={handleSelectionChange}
-            disabled={saving}
+            disabled={saving || locked}
             coverComparison={coverComparison}
           />
         ) : null}
@@ -3064,7 +3103,7 @@ function TaggerResultRow({
                 target={review.target}
                 value={review.selection}
                 onChange={handleSelectionChange}
-                disabled={saving}
+                disabled={saving || locked}
               />
             </div>
           ) : (
@@ -3080,7 +3119,7 @@ function TaggerResultRow({
                 target={review.target}
                 value={review.selection}
                 onChange={handleSelectionChange}
-                disabled={saving}
+                disabled={saving || locked}
               />
             </div>
           )}
@@ -3113,7 +3152,7 @@ function TaggerResultRow({
                 <button
                   ref={applyButtonRef}
                   onClick={onSave}
-                  disabled={saving || relationLookup !== "ready"}
+                  disabled={saving || locked || relationLookup !== "ready"}
                   className="flex items-center gap-1.5 rounded px-4 py-1.5 text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
                 >
                   {saving || relationLookup === "waiting" ? (
