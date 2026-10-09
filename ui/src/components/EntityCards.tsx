@@ -498,7 +498,7 @@ export function EntityReferencePopovers({
   );
 }
 
-function StudioCardOverlay({
+export function StudioCardOverlay({
   studioId,
   studioName,
   selecting,
@@ -1213,23 +1213,23 @@ export function StudioHeaderImage({
   studioName?: string | null;
   onNavigate?: (route: any) => void;
 }) {
-  if (!studioId) return null;
+  // Remember which studio's logo failed so navigating to another studio retries its logo.
+  const [failedStudioId, setFailedStudioId] = useState<number | null>(null);
+  if (!studioId || failedStudioId === studioId) return null;
+  const route = { page: "studio", id: studioId };
+  const navigationHandlers = createRouteLinkProps<HTMLAnchorElement>(
+    route,
+    onNavigate ? () => onNavigate(route) : undefined,
+  );
   return (
-    <button
-      type="button"
-      onClick={() => onNavigate?.({ page: "studio", id: studioId })}
-      className="block"
-      title={studioName || "Studio"}
-    >
+    <a {...navigationHandlers} className="block w-fit max-w-full" title={studioName || "Studio"}>
       <img
         src={entityImages.studioImageUrl(studioId)}
         alt={studioName || "Studio"}
         className="h-20 w-auto max-w-full object-contain"
-        onError={(event) => {
-          (event.target as HTMLImageElement).style.display = "none";
-        }}
+        onError={() => setFailedStudioId(studioId)}
       />
-    </button>
+    </a>
   );
 }
 
@@ -2251,26 +2251,12 @@ export function GalleryTile({
               className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
             />
           ) : null}
-          {gallery.studioName && gallery.studioId && !selecting ? (
-            <div className="absolute top-0 right-0 p-1 z-[5]">
-              <img
-                src={entityImages.studioImageUrl(gallery.studioId)}
-                alt={gallery.studioName}
-                className="h-8 w-auto max-w-[120px] object-contain drop-shadow-md"
-                onError={(e) => {
-                  const el = e.target as HTMLImageElement;
-                  el.style.display = "none";
-                  if (el.nextElementSibling) (el.nextElementSibling as HTMLElement).style.display = "";
-                }}
-              />
-              <span
-                className="text-xs font-medium text-white bg-black/60 px-1.5 py-0.5 rounded"
-                style={{ display: "none" }}
-              >
-                {gallery.studioName}
-              </span>
-            </div>
-          ) : null}
+          <StudioCardOverlay
+            studioId={gallery.studioId}
+            studioName={gallery.studioName}
+            selecting={selecting}
+            onNavigate={onNavigate}
+          />
         </>
       }
       body={

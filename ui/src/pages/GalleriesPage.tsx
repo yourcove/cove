@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { galleries, entityImages } from "../api/client";
+import { galleries } from "../api/client";
 import type { EntityEngagement, Gallery, GalleryCreate, GalleryFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { RatingBanner } from "../components/Rating";
@@ -14,6 +14,7 @@ import {
   VideosPopoverContent,
   ImagesPopoverContent,
   EntityReferencePopovers,
+  StudioCardOverlay,
 } from "../components/EntityCards";
 import { GALLERY_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { IsoDateInput } from "../components/IsoDateInput";
@@ -425,26 +426,12 @@ function GalleryWallCard({
           </span>
         ) : null}
       </div>
-      {gallery.studioName && gallery.studioId && !selecting ? (
-        <div className="absolute top-0 right-0 p-1 z-[5]">
-          <img
-            src={entityImages.studioImageUrl(gallery.studioId)}
-            alt={gallery.studioName}
-            className="h-8 w-auto max-w-[120px] object-contain drop-shadow-md"
-            onError={(e) => {
-              const el = e.target as HTMLImageElement;
-              el.style.display = "none";
-              if (el.nextElementSibling) (el.nextElementSibling as HTMLElement).style.display = "";
-            }}
-          />
-          <span
-            className="text-xs font-medium text-white bg-black/60 px-1.5 py-0.5 rounded"
-            style={{ display: "none" }}
-          >
-            {gallery.studioName}
-          </span>
-        </div>
-      ) : null}
+      <StudioCardOverlay
+        studioId={gallery.studioId}
+        studioName={gallery.studioName}
+        selecting={selecting}
+        onNavigate={onNavigate}
+      />
     </WallMediaCard>
   );
 }

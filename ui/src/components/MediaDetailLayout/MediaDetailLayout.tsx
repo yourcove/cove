@@ -530,7 +530,7 @@ function MediaDetailLayoutRoot({
                 <ArrowLeft className="h-4 w-4" /> {backLabel}
               </button>
             ) : null}
-            {headerImage ? <div className="mb-2">{headerImage}</div> : null}
+            {headerImage ? <div className="mb-2 empty:hidden">{headerImage}</div> : null}
             <h3 className="mt-1 break-words text-xl font-semibold leading-snug text-foreground sm:text-[1.5rem]">
               {title}
             </h3>

@@ -21,6 +21,7 @@ import {
   GroupTile,
   ImageTile,
   PerformerTile,
+  StudioHeaderImage,
   TextTile,
   VideoCard,
   VideoCardPopovers,
@@ -629,6 +630,56 @@ describe("GalleryTile", () => {
     expect(screen.getByAltText("Studio Nine")).toHaveAttribute("src", expect.stringContaining("/api/studios/9/image"));
     expect(screen.getByTitle("Studio")).toBeInTheDocument();
     expect(screen.getByTitle("Performers")).toBeInTheDocument();
+  });
+
+  it("links the studio logo to the studio page", () => {
+    const onNavigate = vi.fn();
+    render(
+      <GalleryTile
+        gallery={{ ...baseGallery, studioId: 9, studioName: "Studio Nine" } as any}
+        onClick={vi.fn()}
+        onNavigate={onNavigate}
+      />,
+    );
+
+    const studioLink = screen.getByRole("link", { name: "Studio Nine" });
+    expect(studioLink).toHaveAttribute("href", "/studio/9");
+
+    fireEvent.click(studioLink);
+    expect(onNavigate).toHaveBeenCalledWith({ page: "studio", id: 9 });
+  });
+});
+
+describe("StudioHeaderImage", () => {
+  it("renders the studio logo as a link to the studio page", () => {
+    const onNavigate = vi.fn();
+    render(<StudioHeaderImage studioId={9} studioName="Studio Nine" onNavigate={onNavigate} />);
+
+    const studioLink = screen.getByRole("link", { name: "Studio Nine" });
+    expect(studioLink).toHaveAttribute("href", "/studio/9");
+    expect(studioLink.querySelector("img")).toHaveAttribute("src", expect.stringContaining("/api/studios/9/image"));
+
+    fireEvent.click(studioLink);
+    expect(onNavigate).toHaveBeenCalledWith({ page: "studio", id: 9 });
+  });
+
+  it("leaves modified clicks to the browser so the studio can open in a new tab", () => {
+    const onNavigate = vi.fn();
+    render(<StudioHeaderImage studioId={9} studioName="Studio Nine" onNavigate={onNavigate} />);
+
+    const notPrevented = fireEvent.click(screen.getByRole("link", { name: "Studio Nine" }), { ctrlKey: true });
+    expect(notPrevented).toBe(true);
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("removes the link when the studio has no logo and retries for another studio", () => {
+    const { container, rerender } = render(<StudioHeaderImage studioId={9} studioName="Studio Nine" />);
+
+    fireEvent.error(screen.getByAltText("Studio Nine"));
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<StudioHeaderImage studioId={10} studioName="Studio Ten" />);
+    expect(screen.getByRole("link", { name: "Studio Ten" })).toHaveAttribute("href", "/studio/10");
   });
 });
 
