@@ -143,7 +143,11 @@ public sealed class TagNameWriteValidationTests
             (await second.Tags.SingleAsync(tag => tag.Name == "Second", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "shared" });
 
             var firstSave = first.SaveChangesAsync(TestContext.Current.CancellationToken);
-            await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            // Only a bound on a hang: the first save takes the process-wide tag namespace lock before it reaches
+            // the interceptor, and in a full parallel run other test classes saving tags can hold that lock for
+            // seconds. The assertion below, that the second save does not enter while the first holds it, does
+            // not depend on how long this takes.
+            await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
             var secondSave = second.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var prematureSecondEntry = await Task.WhenAny(
