@@ -1038,7 +1038,8 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             .Where(profile => profile.Id == profileId)
             .Select(profile => profile.Version)
             .SingleAsync(ct);
-        var principal = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.Identity?.Name ?? "anonymous";
+        var user = ControllerContext.HttpContext?.User;
+        var principal = user?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user?.Identity?.Name ?? "anonymous";
         return $"spans-count:{segmentVersion}:{profileId}:{profileVersion}:{principal}:{BuildSpanCountKey(request)}";
     }
 
