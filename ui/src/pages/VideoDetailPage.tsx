@@ -115,7 +115,7 @@ import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
-import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
+import { PerformerTile, EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
 import {
   PerformerContextTagList,
   applyPerformerContextTagEdits,
@@ -916,27 +916,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
   const streamUrl = videos.streamUrl(video.id, alternateFileId ?? undefined);
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
 
-  const studioImageUrl = video.studioId ? entityImages.studioImageUrl(video.studioId) : null;
   const videoTitle = video.title || file?.basename || `Video ${video.id}`;
 
-  const videoHeaderImage =
-    studioImageUrl && video.studioId ? (
-      <button
-        type="button"
-        onClick={() => onNavigate({ page: "studio", id: video.studioId })}
-        className="block"
-        title={video.studioName || "Studio"}
-      >
-        <img
-          src={studioImageUrl}
-          alt={video.studioName || "Studio"}
-          className="h-20 w-auto max-w-full object-contain"
-          onError={(event) => {
-            (event.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-      </button>
-    ) : null;
+  const videoHeaderImage = video.studioId ? (
+    <StudioHeaderImage studioId={video.studioId} studioName={video.studioName} onNavigate={onNavigate} />
+  ) : null;
 
   const videoSubtitle = (
     <div className="flex flex-wrap items-start gap-4 text-sm text-secondary">
