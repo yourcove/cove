@@ -784,8 +784,8 @@ export function SegmentsPage({ onNavigate }: Props) {
   const spansTotalCount =
     spansCountQuery.data?.totalCount ??
     (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
-  const spansTotalCountUnknown = spansCountQuery.data == null &&
-    (infinitePageSize ? derivedInfiniteQuery.hasNextPage : spansPageTotal < 0);
+  const spansTotalCountUnknown =
+    spansCountQuery.data == null && (infinitePageSize ? derivedInfiniteQuery.hasNextPage : spansPageTotal < 0);
   const totalCount = isRawView
     ? infinitePageSize
       ? rawInfiniteQuery.totalCount

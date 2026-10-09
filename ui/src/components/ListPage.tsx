@@ -905,7 +905,9 @@ export function ListPage({
               : resolvedLoadState.status === "error"
                 ? "—"
                 : shownTotalCount > 0
-                  ? totalCountUnknown ? `${end.toLocaleString()}+` : shownTotalCount.toLocaleString()
+                  ? totalCountUnknown
+                    ? `${end.toLocaleString()}+`
+                    : shownTotalCount.toLocaleString()
                   : "0"}
           </span>
           {!summaryPending && metadataByline}
@@ -1314,7 +1316,12 @@ export function ListPage({
           </ListPageCardSizeContext.Provider>
           {showPagingControls && totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-center gap-1 py-4">
-              <PaginationControls page={page} totalPages={totalPages} totalPagesKnown={!totalCountUnknown} goTo={goTo} />
+              <PaginationControls
+                page={page}
+                totalPages={totalPages}
+                totalPagesKnown={!totalCountUnknown}
+                goTo={goTo}
+              />
             </div>
           )}
         </>
