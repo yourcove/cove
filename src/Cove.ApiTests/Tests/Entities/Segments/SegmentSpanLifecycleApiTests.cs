@@ -128,6 +128,54 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         search.Items.Select(item => item.VideoId).Should().Equal(firstVideo.Id, secondVideo.Id);
         search.Items.Select(item => (item.Span.StartSec, item.Span.EndSec)).Should().Equal((1, 4), (10, 16));
         count.Should().Be(new SegmentSpanCountResponseDto(2, 9));
+
+        // A count must stay exact without row filters even when the list uses a segment-level sort.
+        // This exercises the bounded count path without loading segment-row details for sorting.
+        var unfilteredCount = await eva.CountResolvedSpansAsync(
+            request with { Kind = null, SourceKey = null, Sort = "segment_confidence" },
+            TestContext.Current.CancellationToken);
+        unfilteredCount.Should().Be(new SegmentSpanCountResponseDto(2, 9));
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/segments/spans/search")]
+    [CoversEndpoint("POST", "/api/segments/spans/count")]
+    public async Task GivenCachedCount_WhenMemberOpensLastSpanPage_ThenThePageAndTotalAreExact()
+    {
+        var eva = AsUser(ApiTestUsers.Eva);
+        var suffix = Guid.NewGuid().ToString("N");
+        var profile = await eva.CreateSegmentDisplayProfileAsync(
+            new SegmentDisplayProfileCreateDto($"Paged span profile {suffix}", null, false),
+            TestContext.Current.CancellationToken);
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id,
+            new SegmentDisplayRuleCreateDto($"paged-{suffix}", "chapter", null, null,
+                SegmentHostType.Video, true, null, null, 0, false, null, 1, 100),
+            TestContext.Current.CancellationToken);
+
+        var videoIds = new List<int>();
+        for (var i = 0; i < 3; i++)
+        {
+            var video = await AsUser().CreateVideoAsync($"Paged span {suffix} {i}", TestContext.Current.CancellationToken);
+            videoIds.Add(video.Id);
+            await AsUser().CreateVideoSegmentAsync(video,
+                Segment(i, i + 2, null, "chapter", $"paged-{suffix}", $"Span {i}"),
+                TestContext.Current.CancellationToken);
+        }
+
+        var request = new SegmentSpanSearchRequestDto(profile.Id, null, 3, 1, "updated_at", "desc",
+            null, $"Paged span {suffix}", null, null);
+        var count = await eva.CountResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var lastPage = await eva.SearchResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var pastLastPage = await eva.SearchResolvedSpansAsync(request with { Page = 4 }, TestContext.Current.CancellationToken);
+
+        count.Should().Be(new SegmentSpanCountResponseDto(3, 6));
+        lastPage.TotalCount.Should().Be(3);
+        lastPage.Items.Should().ContainSingle();
+        videoIds.Should().Contain(lastPage.Items[0].VideoId);
+        lastPage.HasMore.Should().BeFalse();
+        pastLastPage.Items.Should().BeEmpty();
+        pastLastPage.TotalCount.Should().Be(3);
+        pastLastPage.HasMore.Should().BeFalse();
     }
 
     private static SegmentCreateDto Segment(double start, double end, int? tagId, string kind, string sourceKey, string title)

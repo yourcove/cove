@@ -43,8 +43,17 @@ public sealed class SegmentSpanResolver(
         return response;
     }
 
-    public async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveVideosBatchAsync(
+    public Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveVideosBatchAsync(
         IReadOnlyList<int> videoIds, int profileId, CancellationToken ct)
+        => ResolveVideosBatchCoreAsync(videoIds, profileId, ct, cacheNewResults: true);
+
+    // Library-wide counts must not retain every resolved video in the five-minute span cache.
+    public Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveVideosBatchWithoutCachingAsync(
+        IReadOnlyList<int> videoIds, int profileId, CancellationToken ct)
+        => ResolveVideosBatchCoreAsync(videoIds, profileId, ct, cacheNewResults: false);
+
+    private async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveVideosBatchCoreAsync(
+        IReadOnlyList<int> videoIds, int profileId, CancellationToken ct, bool cacheNewResults)
     {
         if (videoIds.Count == 0) return [];
 
@@ -91,16 +100,26 @@ public sealed class SegmentSpanResolver(
             var response = new VideoResolvedSpansDto(spans, profile.Id, profile.Version);
 
             var cacheKey = $"segment-spans:{videoId}:{profile.Id}:{profile.Version}";
-            SetVideoProfileCache(videoId, profile.Id, cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
+            if (cacheNewResults)
+                SetVideoProfileCache(videoId, profile.Id, cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
 
             results.Add((videoId, spans));
         }
 
-        return results;
+        var resultsByVideo = results.ToDictionary(result => result.VideoId);
+        return videoIds.Select(videoId => resultsByVideo[videoId]).ToList();
     }
 
-    public async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> QueryVideosBatchAsync(
+    public Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> QueryVideosBatchAsync(
         IReadOnlyList<int> videoIds, SegmentSpanQueryRequestDto queryRequest, CancellationToken ct)
+        => QueryVideosBatchCoreAsync(videoIds, queryRequest, ct, cacheNewResults: true);
+
+    public Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> QueryVideosBatchWithoutCachingAsync(
+        IReadOnlyList<int> videoIds, SegmentSpanQueryRequestDto queryRequest, CancellationToken ct)
+        => QueryVideosBatchCoreAsync(videoIds, queryRequest, ct, cacheNewResults: false);
+
+    private async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> QueryVideosBatchCoreAsync(
+        IReadOnlyList<int> videoIds, SegmentSpanQueryRequestDto queryRequest, CancellationToken ct, bool cacheNewResults)
     {
         if (videoIds.Count == 0 || queryRequest.Operands is null || queryRequest.Operands.Count == 0)
             return [];
@@ -196,12 +215,14 @@ public sealed class SegmentSpanResolver(
             }
 
             var cacheKey = $"video-segment-query:{videoId}:{profile.Id}:{profile.Version}:{requestHash}";
-            SetVideoProfileCache(videoId, profile.Id, cacheKey, (IReadOnlyList<ResolvedSpan>)resolvedSpans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
+            if (cacheNewResults)
+                SetVideoProfileCache(videoId, profile.Id, cacheKey, (IReadOnlyList<ResolvedSpan>)resolvedSpans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
 
             results.Add((videoId, resolvedSpans));
         }
 
-        return results;
+        var resultsByVideo = results.ToDictionary(result => result.VideoId);
+        return videoIds.Select(videoId => resultsByVideo[videoId]).ToList();
     }
 
     public async Task<IReadOnlyList<ResolvedSpan>> PreviewVideoAsync(int videoId, IReadOnlyList<SegmentDisplayRule> rules, CancellationToken ct)

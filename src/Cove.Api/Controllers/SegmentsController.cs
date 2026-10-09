@@ -1,6 +1,7 @@
-using System.Text.Json;
 using System.Globalization;
 using System.Linq.Expressions;
+using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -731,6 +732,50 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             var collected = 0;
             var earlyTerminated = false;
 
+            // An exact count also records how many spans each video contributed. Once available,
+            // skip preceding videos for a deep page instead of resolving all earlier spans again.
+            if (request.VideoTagIds is not { Length: > 0 })
+            {
+                var countKey = await GetSpanCountCacheKeyAsync(request, profileId, ct);
+                if (memoryCache.TryGetValue<SpanCountCacheEntry>(countKey, out var cachedCount)
+                    && cachedCount?.VideoCounts is { } videoCounts)
+                {
+                    var total = cachedCount.Aggregate.TotalCount;
+                    if (pageStart >= total)
+                        return Ok(new SegmentSpanSearchResponseDto([], total, page, perPage, HasMore: false));
+
+                    var firstVideoIndex = 0;
+                    while (firstVideoIndex < videoList.Count)
+                    {
+                        var videoId = videoList[firstVideoIndex].Id;
+                        var spanCount = videoCounts.GetValueOrDefault(videoId);
+                        if (collected + spanCount > pageStart) break;
+                        collected += spanCount;
+                        firstVideoIndex++;
+                    }
+
+                    for (var i = firstVideoIndex; i < videoList.Count && pageItems.Count < perPage; i += SpanResolveBatchSize)
+                    {
+                        var batchVideoIds = videoList.Skip(i).Take(SpanResolveBatchSize).Select(v => v.Id).ToList();
+                        foreach (var (videoId, spans) in await ResolveSpanBatchAsync(batchVideoIds, profileId, derivedQueryRequest, ct))
+                        {
+                            if (!videoMap.TryGetValue(videoId, out var video)) continue;
+                            foreach (var span in spans)
+                            {
+                                if (collected >= pageStart && pageItems.Count < perPage)
+                                    pageItems.Add(new SegmentSpanSearchResultItemDto(span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+                                collected++;
+                                if (pageItems.Count == perPage) break;
+                            }
+                            if (pageItems.Count == perPage) break;
+                        }
+                    }
+
+                    return Ok(new SegmentSpanSearchResponseDto(
+                        pageItems, total, page, perPage, HasMore: pageStart + pageItems.Count < total));
+                }
+            }
+
             for (var i = 0; i < videoList.Count && !earlyTerminated; i += SpanResolveBatchSize)
             {
                 var batchVideoIds = videoList.Skip(i).Take(SpanResolveBatchSize).Select(v => v.Id).ToList();
@@ -770,6 +815,10 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
 
     private const int SpanResolveBatchSize = 400;
 
+    private sealed record SpanCountCacheEntry(
+        SegmentSpanCountResponseDto Aggregate,
+        IReadOnlyDictionary<int, int>? VideoCounts);
+
     /// <summary>
     /// Exact span total for a filter set. Resolving every in-scope video is unavoidable for an exact
     /// merged-span count, so the result is cached keyed by the filter set plus a cheap segments-table
@@ -790,23 +839,61 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
-        var version = await GetSegmentsVersionAsync(ct);
-        var cacheKey = $"spans-count:{version}:{BuildSpanCountKey(request)}";
+        var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
+        var cacheKey = await GetSpanCountCacheKeyAsync(request, profileId, ct);
         var canCache = request.VideoTagIds is not { Length: > 0 } && !hasRelativeDates;
-        if (canCache && memoryCache.TryGetValue<SegmentSpanCountResponseDto>(cacheKey, out var cachedAggregate))
-            return Ok(cachedAggregate);
+        if (canCache && memoryCache.TryGetValue<SpanCountCacheEntry>(cacheKey, out var cachedEntry))
+            return Ok(cachedEntry!.Aggregate);
 
         var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
-        var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
         var derivedQueryRequest = BuildDerivedQueryRequest(request, profileId);
-        var videoMap = videoList.ToDictionary(v => v.Id);
-        var (allItems, _) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
+        // Counting must not retain every resolved span in the library. A single batch bounds both
+        // the segment-row lookup and the temporary span objects while preserving the search filters.
+        var needsSegmentRows = NeedsSegmentRows(request with { Sort = null });
+        Dictionary<int, int>? videoCounts = canCache && !needsSegmentRows ? new(videoList.Count) : null;
+        var totalCount = 0;
+        var totalDuration = 0d;
+        for (var i = 0; i < videoList.Count; i += SpanResolveBatchSize)
+        {
+            var batchVideos = videoList.Skip(i).Take(SpanResolveBatchSize).ToList();
+            var batchMap = batchVideos.ToDictionary(video => video.Id);
+            var resolved = await ResolveSpanBatchAsync(
+                batchVideos.Select(video => video.Id).ToList(), profileId, derivedQueryRequest, ct, cacheNewResults: false);
 
-        var aggregate = new SegmentSpanCountResponseDto(
-            allItems.Count,
-            allItems.Sum(item => Math.Max(0, item.Span.EndSec - item.Span.StartSec)));
+            if (!needsSegmentRows)
+            {
+                foreach (var (videoId, spans) in resolved)
+                {
+                    if (!batchMap.ContainsKey(videoId)) continue;
+                    videoCounts?.Add(videoId, spans.Count);
+                    totalCount += spans.Count;
+                    totalDuration += spans.Sum(span => Math.Max(0, span.EndSec - span.StartSec));
+                }
+                continue;
+            }
+
+            var batchItems = new List<SegmentSpanSearchResultItemDto>();
+            foreach (var (videoId, spans) in resolved)
+            {
+                if (!batchMap.TryGetValue(videoId, out var video)) continue;
+                foreach (var span in spans)
+                    batchItems.Add(new SegmentSpanSearchResultItemDto(
+                        span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+            }
+            if (batchItems.Count == 0) continue;
+
+            var segmentRows = await LoadSpanSegmentRowsAsync(batchItems.SelectMany(item => item.Span.SegmentIds), ct);
+            foreach (var item in batchItems)
+            {
+                if (!MatchesSpanSearchRequest(item, request, segmentRows)) continue;
+                totalCount++;
+                totalDuration += Math.Max(0, item.Span.EndSec - item.Span.StartSec);
+            }
+        }
+
+        var aggregate = new SegmentSpanCountResponseDto(totalCount, totalDuration);
         if (canCache)
-            memoryCache.Set(cacheKey, aggregate, TimeSpan.FromMinutes(30));
+            memoryCache.Set(cacheKey, new SpanCountCacheEntry(aggregate, videoCounts), TimeSpan.FromMinutes(30));
         return Ok(aggregate);
     }
 
@@ -893,10 +980,15 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
     }
 
     private async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveSpanBatchAsync(
-        IReadOnlyList<int> batchVideoIds, int profileId, SegmentSpanQueryRequestDto? derivedQueryRequest, CancellationToken ct)
+        IReadOnlyList<int> batchVideoIds, int profileId, SegmentSpanQueryRequestDto? derivedQueryRequest, CancellationToken ct,
+        bool cacheNewResults = true)
         => derivedQueryRequest is not null
-            ? await spanResolver.QueryVideosBatchAsync(batchVideoIds, derivedQueryRequest, ct)
-            : await spanResolver.ResolveVideosBatchAsync(batchVideoIds, profileId, ct);
+            ? cacheNewResults
+                ? await spanResolver.QueryVideosBatchAsync(batchVideoIds, derivedQueryRequest, ct)
+                : await spanResolver.QueryVideosBatchWithoutCachingAsync(batchVideoIds, derivedQueryRequest, ct)
+            : cacheNewResults
+                ? await spanResolver.ResolveVideosBatchAsync(batchVideoIds, profileId, ct)
+                : await spanResolver.ResolveVideosBatchWithoutCachingAsync(batchVideoIds, profileId, ct);
 
     private async Task<(List<SegmentSpanSearchResultItemDto> Items, IReadOnlyDictionary<int, SegmentSearchRow> SegmentRows)> ResolveAndFilterSpansAsync(
         List<(int Id, string? Title, DateTimeOffset UpdatedAt)> videoList,
@@ -936,6 +1028,18 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             ? (await db.Segments.Select(segment => segment.UpdatedAt).ToListAsync(ct)).Select(value => (DateTimeOffset?)value).Max()
             : await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
         return $"{count}:{maxUpdated?.UtcTicks ?? 0}";
+    }
+
+    private async Task<string> GetSpanCountCacheKeyAsync(
+        SegmentSpanSearchRequestDto request, int profileId, CancellationToken ct)
+    {
+        var segmentVersion = await GetSegmentsVersionAsync(ct);
+        var profileVersion = await db.SegmentDisplayProfiles
+            .Where(profile => profile.Id == profileId)
+            .Select(profile => profile.Version)
+            .SingleAsync(ct);
+        var principal = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.Identity?.Name ?? "anonymous";
+        return $"spans-count:{segmentVersion}:{profileId}:{profileVersion}:{principal}:{BuildSpanCountKey(request)}";
     }
 
     private static string BuildSpanCountKey(SegmentSpanSearchRequestDto request)

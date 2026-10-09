@@ -1748,7 +1748,12 @@ export const segmentSpans = {
     request<SegmentSpanSearchResponse>("/segments/spans/search", { method: "POST", body: JSON.stringify(data) }),
   // Exact span total for a filter set, computed/cached server-side. Independent of page/sort/direction.
   count: (data: SegmentSpanSearchRequest) =>
-    request<SegmentSpanCountResponse>("/segments/spans/count", { method: "POST", body: JSON.stringify(data) }),
+    request<SegmentSpanCountResponse>("/segments/spans/count", {
+      method: "POST",
+      body: JSON.stringify(data),
+      // A library-wide merged-span count can exceed the normal 15-second request limit.
+      timeoutMs: null,
+    }),
 };
 
 // ===== Entity Images =====

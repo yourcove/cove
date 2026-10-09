@@ -238,6 +238,42 @@ describe("ListPage active filter chips", () => {
     ).toBeInTheDocument();
   });
 
+  it("pages through known results without presenting a provisional total as exact", () => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderPage = (page: number, totalCount: number, totalCountUnknown: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Segments"
+            filter={{ page, perPage: 24 }}
+            onFilterChange={onFilterChange}
+            totalCount={totalCount}
+            totalCountUnknown={totalCountUnknown}
+            loadState={{ status: "success", data: {} }}
+          >
+            <div>segment content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderPage(1, 48, true));
+    expect(screen.getByText("1-24 of more")).toBeInTheDocument();
+    expect(screen.queryByText("1-24 of 48")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Last page" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Next page" })[0]);
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 2, perPage: 24 });
+
+    rerender(renderPage(2, 72, true));
+    expect(screen.getByText("25-48 of more")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Page 3" })).toHaveLength(2);
+
+    rerender(renderPage(2, 30512, false));
+    expect(screen.getByText(`25-48 of ${(30512).toLocaleString()}`)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Last page" })).toHaveLength(2);
+  });
+
   it("withholds a loaded count while related summary metadata is still loading", () => {
     const queryClient = new QueryClient();
 
