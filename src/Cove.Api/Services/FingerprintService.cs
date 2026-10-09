@@ -3,9 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
-using SixLabors.ImageSharp.Processing.Processors.Transforms;
 using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -41,10 +40,6 @@ public class FingerprintService(
     FfmpegConcurrencyLimiter ffmpegConcurrency,
     ILogger<FingerprintService> logger) : IFingerprintService
 {
-    // Matches goimagehash PerceptionHash: 64×64 resize, 8×8 DCT low-frequency block
-    private const int DctImageSize = 64;
-    private const int DctLowFreqSize = 8;
-
     // Sprite grid and frame size, matching Stash's videophash package. These, the 5% offset and the
     // 90% sampling window below define the hash: Cove's pHashes are compared against Stash's and
     // against remote metadata servers, so changing any of them re-hashes the library and breaks
@@ -199,7 +194,7 @@ public class FingerprintService(
             buckets[bucket] = total / read;
         }
 
-        var median = MedianQuickSelect(buckets);
+        var median = GoImageHash.MedianQuickSelect(buckets);
         ulong value = 0;
         for (var bucket = 0; bucket < bucketCount; bucket++)
         {
@@ -211,8 +206,7 @@ public class FingerprintService(
     }
 
     /// <summary>
-    /// The perceptual hash and the intrinsic size of encoded image bytes. The size is read before
-    /// hashing, because hashing resizes the image in place.
+    /// The perceptual hash and the intrinsic size of encoded image bytes.
     /// </summary>
     public ImageSignature? ComputeImageSignature(byte[] data)
     {
@@ -221,10 +215,9 @@ public class FingerprintService(
 
         try
         {
-            using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(data);
-            var width = image.Width;
-            var height = image.Height;
-            return new ImageSignature(ComputePerceptionHash(image), width, height, data.Length);
+            using var stream = new MemoryStream(data, writable: false);
+            var result = StashImagePhash.Compute(stream);
+            return new ImageSignature(GoImageHash.Format(result.Hash), result.Width, result.Height, data.Length);
         }
         catch (Exception ex)
         {
@@ -240,76 +233,16 @@ public class FingerprintService(
 
         try
         {
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(path, ct);
-            return ComputePerceptionHash(image);
+            // Decoding and resizing are CPU-bound; read the file up front so the decoder can seek.
+            var data = await File.ReadAllBytesAsync(path, ct);
+            using var stream = new MemoryStream(data, writable: false);
+            return GoImageHash.Format(StashImagePhash.Compute(stream).Hash);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to compute image phash for {Path}", path);
             return null;
         }
-    }
-
-    /// <summary>
-    /// Computes a perceptual hash matching Go's goimagehash.PerceptionHash:
-    /// 1. Resize to 64×64 using bilinear interpolation
-    /// 2. Convert to grayscale using ITU-R BT.601 luminance (0.299R + 0.587G + 0.114B)
-    /// 3. Apply 2D DCT (Lee 1984 algorithm, no normalization)
-    /// 4. Extract top-left 8×8 block (64 coefficients)
-    /// 5. Compute median threshold
-    /// 6. Set bits MSB-first where coefficient > median
-    /// </summary>
-    private static string ComputePerceptionHash(Image<Rgba32> image)
-    {
-        // Step 1: Resize to 64×64 (Go uses nfnt/resize Bilinear; closest match in ImageSharp is Triangle/Bilinear)
-        image.Mutate(ctx => ctx.Resize(new ResizeOptions
-        {
-            Size = new SixLabors.ImageSharp.Size(DctImageSize, DctImageSize),
-            Sampler = KnownResamplers.Triangle, // Bilinear/Triangle resampler
-            Mode = ResizeMode.Stretch,
-        }));
-
-        // Step 2: Convert to grayscale using Go's luminance formula
-        // Go: lum = 0.299*(r/257) + 0.587*(g/257) + 0.114*(b/256)
-        var pixels = new double[DctImageSize * DctImageSize];
-        for (var y = 0; y < DctImageSize; y++)
-        {
-            for (var x = 0; x < DctImageSize; x++)
-            {
-                var px = image[x, y];
-                // Go divides 16-bit RGBA values (0-65535) by 257 for R,G and 256 for B.
-                // ImageSharp Rgba32 gives 8-bit values (0-255), which is R*257/257 = R.
-                // So we can use the 8-bit values directly since they represent the same ratio.
-                pixels[y * DctImageSize + x] = 0.299 * px.R + 0.587 * px.G + 0.114 * px.B;
-            }
-        }
-
-        // Step 3: Apply 2D DCT (Lee 1984, matching goimagehash DCT2DFast64)
-        Dct2DInPlace64(pixels);
-
-        // Step 4: Extract top-left 8×8 block
-        var flattened = new double[DctLowFreqSize * DctLowFreqSize];
-        for (var i = 0; i < DctLowFreqSize; i++)
-        {
-            for (var j = 0; j < DctLowFreqSize; j++)
-            {
-                flattened[DctLowFreqSize * i + j] = pixels[i * DctImageSize + j];
-            }
-        }
-
-        // Step 5: Compute median
-        var median = MedianQuickSelect(flattened);
-
-        // Step 6: Set bits MSB-first (matching Go's leftShiftSet(64 - idx - 1))
-        ulong hash = 0;
-        for (var idx = 0; idx < flattened.Length; idx++)
-        {
-            if (flattened[idx] > median)
-                hash |= 1UL << (63 - idx);
-        }
-
-        // Format as hex without leading zeros (Go uses fmt.Sprintf("%x", hash))
-        return hash.ToString("x", CultureInfo.InvariantCulture);
     }
 
     public async Task<string?> ComputeVideoPhashAsync(string path, double duration, CancellationToken ct = default)
@@ -320,11 +253,15 @@ public class FingerprintService(
             return null;
         }
 
-        if (duration <= 0)
+        // Stash computes the sample times from the duration rounded to hundredths of a second
+        // (ffprobe.go), so the same frames are sampled. A duration that rounds to zero has no frames.
+        var rounded = Math.Round(duration * 100, MidpointRounding.AwayFromZero) / 100;
+        if (!(rounded > 0))
         {
             logger.LogWarning("Skipping pHash for {Path} — duration is {Duration}s (invalid)", path, duration);
             return null;
         }
+        duration = rounded;
 
         var ffmpegPath = FindFfmpeg();
         if (ffmpegPath == null)
@@ -346,7 +283,7 @@ public class FingerprintService(
         logger.LogTrace("pHash extraction for {Path}: ffmpeg={FfmpegPath}, duration={Duration:F1}s", path, ffmpegPath, duration);
 
         var extracted = await VideoFrameBatchExtractor.ExtractAsync(
-            ffmpegPath, path, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct);
+            ffmpegPath, path, timestamps, SpriteFrameSize, ffmpegConcurrency, logger, ct, exactFrames: true);
 
         if (extracted == null)
         {
@@ -379,18 +316,33 @@ public class FingerprintService(
         }
     }
 
-    private string? BuildSpritePhash(Image<Rgba32>[] frames)
+    /// <summary>
+    /// Pastes the frames into Stash's 5×5 montage and hashes it with Stash's resize. Each frame is
+    /// copied whole, in order and clipped only to the montage, as <c>imaging.Paste</c> does, rather than
+    /// blended. Its alpha is dropped: ffmpeg writes a source with an alpha channel as a 32-bit BMP with
+    /// a BITMAPINFOHEADER, whose alpha byte Go's BMP decoder ignores.
+    /// </summary>
+    private static string BuildSpritePhash(Image<Rgba32>[] frames)
     {
-        var frameWidth = frames[0].Width;
-        var frameHeight = frames[0].Height;
-        using var sprite = new Image<Rgba32>(frameWidth * SpriteColumns, frameHeight * SpriteRows);
+        var cellWidth = frames[0].Width;
+        var cellHeight = frames[0].Height;
+        using var sprite = new Image<Rgba32>(cellWidth * SpriteColumns, cellHeight * SpriteRows);
+        var canvas = sprite.Frames.RootFrame;
         for (var index = 0; index < frames.Length; index++)
         {
-            var x = frameWidth * (index % SpriteColumns);
-            var y = frameHeight * (int)Math.Floor((double)index / SpriteRows);
-            sprite.Mutate(ctx => ctx.DrawImage(frames[index], new SixLabors.ImageSharp.Point(x, y), 1f));
+            var x = cellWidth * (index % SpriteColumns);
+            var y = cellHeight * (index / SpriteRows);
+            var frame = frames[index].Frames.RootFrame;
+            var width = Math.Min(frame.Width, canvas.Width - x);
+            for (var row = 0; row < frame.Height && y + row < canvas.Height; row++)
+            {
+                var source = frame.DangerousGetPixelRowMemory(row).Span[..width];
+                var target = canvas.DangerousGetPixelRowMemory(y + row).Span.Slice(x, width);
+                for (var column = 0; column < width; column++)
+                    target[column] = source[column] with { A = 255 };
+            }
         }
-        return ComputePerceptionHash(sprite);
+        return GoImageHash.Format(StashImagePhash.ComputeNrgba(sprite));
     }
 
     private static void DisposeFrames(Image<Rgba32>?[] frames)
@@ -668,107 +620,4 @@ public class FingerprintService(
     }
 
     private string? FindFfmpeg() => FfmpegExecutableLocator.FindFfmpeg(config);
-
-    /// <summary>
-    /// DCT-II using Lee 1984 recursive algorithm, matching goimagehash's DCT1DFast64.
-    /// Operates in-place on the input span of length 64.
-    /// </summary>
-    private static void Dct1DInPlace64(Span<double> input)
-    {
-        ForwardTransform(input, stackalloc double[64], 64);
-    }
-
-    private static void ForwardTransform(Span<double> input, Span<double> temp, int len)
-    {
-        if (len == 1) return;
-
-        var halfLen = len / 2;
-        for (var i = 0; i < halfLen; i++)
-        {
-            double x = input[i], y = input[len - 1 - i];
-            temp[i] = x + y;
-            temp[i + halfLen] = (x - y) / (Math.Cos((i + 0.5) * Math.PI / len) * 2);
-        }
-
-        ForwardTransform(temp, input, halfLen);
-        ForwardTransform(temp.Slice(halfLen), input, halfLen);
-
-        for (var i = 0; i < halfLen - 1; i++)
-        {
-            input[i * 2] = temp[i];
-            input[i * 2 + 1] = temp[i + halfLen] + temp[i + halfLen + 1];
-        }
-        input[len - 2] = temp[halfLen - 1];
-        input[len - 1] = temp[len - 1];
-    }
-
-    /// <summary>
-    /// 2D DCT matching goimagehash's DCT2DFast64. Operates in-place on a flat 4096-element array.
-    /// </summary>
-    private static void Dct2DInPlace64(double[] pixels)
-    {
-        // Apply DCT to each row
-        for (var i = 0; i < DctImageSize; i++)
-        {
-            Dct1DInPlace64(pixels.AsSpan(i * DctImageSize, DctImageSize));
-        }
-
-        // Apply DCT to each column
-        Span<double> column = stackalloc double[DctImageSize];
-        for (var i = 0; i < DctImageSize; i++)
-        {
-            for (var j = 0; j < DctImageSize; j++)
-                column[j] = pixels[i + j * DctImageSize];
-
-            Dct1DInPlace64(column);
-
-            for (var j = 0; j < DctImageSize; j++)
-                pixels[i + j * DctImageSize] = column[j];
-        }
-    }
-
-    /// <summary>
-    /// Median matching Go's MedianOfPixelsFast64: quickselect to position len/2,
-    /// then average seq[k-1] and seq[k] when len is even.
-    /// </summary>
-    private static double MedianQuickSelect(double[] input)
-    {
-        var tmp = new double[input.Length];
-        Array.Copy(input, tmp, input.Length);
-        var pos = tmp.Length / 2;
-        QuickSelect(tmp, 0, tmp.Length - 1, pos);
-
-        // Go averages two middle elements for even-length arrays
-        if (tmp.Length % 2 == 0)
-            return tmp[pos - 1] / 2 + tmp[pos] / 2;
-        return tmp[pos];
-    }
-
-    private static void QuickSelect(double[] seq, int low, int hi, int k)
-    {
-        if (low == hi) return;
-
-        while (low < hi)
-        {
-            var pivot = low / 2 + hi / 2;
-            var pivotValue = seq[pivot];
-            var storeIdx = low;
-            (seq[pivot], seq[hi]) = (seq[hi], seq[pivot]);
-
-            for (var i = low; i < hi; i++)
-            {
-                if (seq[i] < pivotValue)
-                {
-                    (seq[storeIdx], seq[i]) = (seq[i], seq[storeIdx]);
-                    storeIdx++;
-                }
-            }
-            (seq[hi], seq[storeIdx]) = (seq[storeIdx], seq[hi]);
-
-            if (k <= storeIdx)
-                hi = storeIdx;
-            else
-                low = storeIdx + 1;
-        }
-    }
 }
