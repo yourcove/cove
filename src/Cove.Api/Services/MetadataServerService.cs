@@ -483,7 +483,7 @@ query Me {
                 var parent = await _db.Studios
                     .Include(s => s.RemoteIds)
                     .FirstOrDefaultAsync(s => s.RemoteIds.Any(id => id.Endpoint == box.Endpoint && id.RemoteId == remote.Parent.Id), ct)
-                    ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
+                    ?? await FindStudioByNameOrAliasAsync(remote.Parent.Name, ct);
 
                 if (parent == null)
                 {
@@ -2357,7 +2357,7 @@ query Me {
                 && _db.Entry(entity).State != EntityState.Deleted
                 && entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id))
             ?? await FindStudioByRemoteIdAsync(endpoint, remote.Id, remote.Name, ct)
-            ?? await FindStudioByIdentityAsync(remote.Name, ct);
+            ?? await FindStudioByNameOrAliasAsync(remote.Name, ct);
 
         if (studio == null && !allowCreate)
         {
@@ -2394,7 +2394,7 @@ query Me {
         if (remote.Parent != null && studio.ParentId == null)
         {
             var parent = await FindStudioByRemoteIdAsync(endpoint, remote.Parent.Id, remote.Parent.Name, ct)
-                ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
+                ?? await FindStudioByNameOrAliasAsync(remote.Parent.Name, ct);
 
             if (parent == null)
             {
@@ -2502,6 +2502,33 @@ query Me {
                 .ToListAsync(ct))
             .GroupBy(entity => EntityNameRules.StudioIdentityKey(entity.Name), StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Select(entity => entity.Id).Order().ToArray(), StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// A studio by its name, or else by an alias, the way the scraper apply and the library lookup
+    /// (RelationNameResolver.ResolveStudiosAsync) find one, so a remote studio known under another name is
+    /// linked rather than created again. Among several studios with the alias, the oldest alias row wins.
+    /// </summary>
+    private async Task<Studio?> FindStudioByNameOrAliasAsync(string name, CancellationToken ct)
+    {
+        var byName = await FindStudioByIdentityAsync(name, ct);
+        if (byName != null)
+            return byName;
+
+        var key = EntityNameRules.StudioIdentityKey(name);
+        var aliases = await _db.Set<StudioAlias>().AsNoTracking()
+            .OrderBy(alias => alias.Id)
+            .Select(alias => new { alias.StudioId, alias.Alias })
+            .ToListAsync(ct);
+        var match = aliases.FirstOrDefault(alias => EntityNameRules.StudioIdentityKey(alias.Alias) == key);
+        if (match == null)
+            return null;
+
+        return await _db.Studios
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .Include(entity => entity.Urls)
+            .SingleOrDefaultAsync(entity => entity.Id == match.StudioId, ct);
     }
 
     private async Task<Studio?> FindStudioByIdentityAsync(string name, CancellationToken ct)
@@ -3185,7 +3212,7 @@ query Me {
             .Where(studio => studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
             .Select(studio => new { studio.Id, studio.Name })
             .FirstOrDefaultAsync(ct);
-        if (local == null && await FindStudioByIdentityAsync(remoteStudio.Name, ct) is { } identityMatch)
+        if (local == null && await FindStudioByNameOrAliasAsync(remoteStudio.Name, ct) is { } identityMatch)
             local = new { identityMatch.Id, identityMatch.Name };
 
         return new MetadataServerEntityCandidateDto(remoteStudio.Id, remoteStudio.Name.Trim(), local != null, local?.Id)

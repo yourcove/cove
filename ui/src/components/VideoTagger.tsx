@@ -692,9 +692,9 @@ function buildDefaultVideoCollectionModes(
 }
 
 /**
- * A metadata server's studio its search did not find, which the lookup now finds under the same name (one
- * created since, by another row say). Only a match on the name counts: the import finds a studio by remote
- * id or name, not alias, so a studio the lookup reached through an alias would still not be set.
+ * A metadata server's studio its search did not find, which the lookup now finds (one created since, by
+ * another row say, or an alias added since). The import finds a studio by remote id, name or alias, as
+ * the lookup does, so the studio will be set.
  */
 function studioFoundSinceSearch(
   candidate: UnifiedVideoMatch["studioCandidate"],
@@ -702,9 +702,7 @@ function studioFoundSinceSearch(
 ): UnifiedVideoMatch["studioCandidate"] {
   if (!candidate || candidate.existsLocally) return candidate;
   const matched = studioMatchInfo?.[relationKey(candidate.name)];
-  return matched && relationKey(matched) === relationKey(candidate.name)
-    ? { ...candidate, existsLocally: true, localName: matched }
-    : candidate;
+  return matched ? { ...candidate, existsLocally: true, localName: matched } : candidate;
 }
 
 /** The person chose "+ Create" for this result's studio; a later search naming another studio has not. */

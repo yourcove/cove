@@ -120,6 +120,45 @@ public sealed class MetadataServerServiceTests
         Assert.All(match.PerformerCandidates.Where(candidate => !candidate.ExistsLocally), candidate => Assert.Null(candidate.LocalName));
     }
 
+    [Fact]
+    public async Task StudioKnownByAnAlias_IsMatchedBySearchAndImportInsteadOfDuplicated()
+    {
+        // The library calls the remote "Fixture Studio" "Fixture Studios Inc", with the remote name as an
+        // alias and no remote id linked yet.
+        await using var context = CreateContext();
+        var studio = new Studio { Name = "Fixture Studios Inc", Aliases = [new StudioAlias { Alias = "Fixture Studio" }] };
+        context.Studios.Add(studio);
+        var video = new Video { Title = "Local Video" };
+        video.Files.Add(new VideoFile { Duration = 118 });
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request => request.Query.Contains("query SearchVideo")
+            ? GraphQlData($$"""
+                "searchVideo": [{{RemoteVideoJson}}]
+                """)
+            : GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """)));
+        var service = CreateService(context, httpClient);
+
+        var match = Assert.Single(await service.SearchVideosAsync(video, "Remote Video", Endpoint, VideoMetadataSearchStrategy.Text, CancellationToken.None));
+        Assert.True(match.StudioCandidate?.ExistsLocally);
+        Assert.Equal("Fixture Studios Inc", match.StudioCandidate?.LocalName);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false, SetPerformers = false, SetTags = false },
+            CancellationToken.None);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Imported);
+        Assert.Equal(studio.Id, video.StudioId);
+        Assert.Single(await context.Studios.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
     // The tagger mirrors these rules client-side to filter its preview, so they are a contract: an absent
     // list filters nothing, a present one filters by normalized key, an unstated gender counts as
     // "Unknown", and a present but empty list allows no performer at all.
