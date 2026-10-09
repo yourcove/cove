@@ -242,7 +242,7 @@ describe("ExtensionLoaderProvider theme persistence", () => {
 
     await waitFor(() => expect(screen.getByTestId("readiness")).toHaveTextContent("true/false"));
     expect(importBundle).toHaveBeenCalled();
-    expect(document.documentElement).toHaveAttribute("data-theme", SELECTED_THEME_ID);
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", SELECTED_THEME_ID));
     expect(localStorage.getItem(THEME_BOOT_STORAGE_KEY)).toBeNull();
     const themeStylesheet = document.getElementById("cove-theme-css");
     expect(themeStylesheet).not.toBeNull();
