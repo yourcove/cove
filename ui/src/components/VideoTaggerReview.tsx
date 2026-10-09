@@ -350,7 +350,10 @@ function performerItems(input: TaggerReviewInput) {
       candidate: choice.candidate,
     };
   });
-  const matchedChoices = choices.filter((choice) => matched.has(choice.id));
+  // Current chips are drawn by library id, so a choice counted as current must carry one; one that does
+  // not (a match rule that does not say which library performer it is) stays with the scraped choices,
+  // where it can still be seen and toggled, rather than disappearing from both sides.
+  const matchedChoices = choices.filter((choice) => matched.has(choice.id) && choice.localId != null);
   // A current performer is represented by its scraped counterpart when one matched it, whether the
   // match came through a local id or through the same name.
   const linkedIds = new Set(matchedChoices.map((choice) => choice.localId).filter((id) => id != null));

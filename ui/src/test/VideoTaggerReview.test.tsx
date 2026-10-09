@@ -383,6 +383,25 @@ describe("VideoTaggerReview alias matches", () => {
     expect(selectorProps.at(-1)?.valueTitles).toEqual({ 2: "Scraped as “Tit Tease”" });
   });
 
+  it("keeps a performer counted as current but without a library id among the scraped ones", () => {
+    // A match rule that marks a scraped performer current without saying which library performer it is.
+    const ghost = { remoteId: "p-ghost", name: "Ghost", existsLocally: true };
+    const review = buildTaggerReview(
+      input({
+        result: { ...result, performerCandidates: [ghost] } as MetadataServerVideoMatch,
+        performerChoices: [{ key: "remote-performer:p-ghost", label: "Ghost", candidate: ghost }],
+        currentPerformerChoiceKeys: ["remote-performer:p-ghost"],
+        performerActions: { "remote-performer:p-ghost": "include" },
+      }),
+    );
+    const current = review.target.values.performers as { id: string }[];
+    const incoming = review.source.values.performers as { id: string }[];
+    // Current chips are drawn by library id, so without one it would be shown nowhere.
+    expect(current.map((entry) => entry.id)).not.toContain("remote-performer:p-ghost");
+    expect(incoming.map((entry) => entry.id)).toContain("remote-performer:p-ghost");
+    expect(review.selection.performers).toContain("remote-performer:p-ghost");
+  });
+
   it("keeps a disambiguated remote performer's label, since the library's disambiguation is not known", () => {
     const anna = {
       remoteId: "p-anna",
