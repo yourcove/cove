@@ -981,6 +981,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             if (mode == "replace")
             {
                 audio.AudioTags.Clear();
+                await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Audio, audio.Id, sourceKey, [], ct);
                 await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Audio, audio.Id, previousTagIds, [], ct);
             }
             return;
@@ -1022,7 +1023,13 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         }
 
         if (mode == "replace")
-            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Audio, audio.Id, previousTagIds, audio.AudioTags.Select(link => link.TagId), ct);
+        {
+            // Every tag this scrape recorded is linked by now, so the links are what it applied. As for a
+            // video, what this source recorded earlier and did not apply now goes, linked or not.
+            var appliedTagIds = audio.AudioTags.Select(link => link.TagId).ToArray();
+            await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Audio, audio.Id, sourceKey, appliedTagIds, ct);
+            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Audio, audio.Id, previousTagIds, appliedTagIds, ct);
+        }
     }
 
     private async Task ApplyTextTagsAsync(TextDocument textDocument, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)
@@ -1042,6 +1049,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             if (mode == "replace")
             {
                 textDocument.TextTags.Clear();
+                await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Text, textDocument.Id, sourceKey, [], ct);
                 await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Text, textDocument.Id, previousTagIds, [], ct);
             }
             return;
@@ -1083,7 +1091,13 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         }
 
         if (mode == "replace")
-            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Text, textDocument.Id, previousTagIds, textDocument.TextTags.Select(link => link.TagId), ct);
+        {
+            // Every tag this scrape recorded is linked by now, so the links are what it applied. As for a
+            // video, what this source recorded earlier and did not apply now goes, linked or not.
+            var appliedTagIds = textDocument.TextTags.Select(link => link.TagId).ToArray();
+            await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Text, textDocument.Id, sourceKey, appliedTagIds, ct);
+            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Text, textDocument.Id, previousTagIds, appliedTagIds, ct);
+        }
     }
 
     private async Task ApplyImageTagsAsync(Image image, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)

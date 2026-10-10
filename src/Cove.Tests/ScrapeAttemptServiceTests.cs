@@ -893,6 +893,57 @@ public class ScrapeAttemptServiceTests
         Assert.Equal(new[] { kept.Id, derived.Id }.Order(), shownTagIds.Order());
     }
 
+    [Theory]
+    [InlineData(AffinityHostType.Video)]
+    [InlineData(AffinityHostType.Audio)]
+    [InlineData(AffinityHostType.Text)]
+    public async Task ApplyAttemptAsync_ReplaceForgetsWhatTheSameScraperRecordedBeforeAndDoesNotApplyNow(AffinityHostType hostType)
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var kept = new Tag { Name = "Kept" };
+        var stale = new Tag { Name = "Scraped earlier" };
+        var elsewhere = new Tag { Name = "Scraped by another scraper" };
+        db.Tags.AddRange(kept, stale, elsewhere);
+        // Earlier scrapes recorded two tags the item has no link for: one from this scraper, one from another.
+        BaseEntity entity = hostType switch
+        {
+            AffinityHostType.Video => db.Videos.Add(new Video { Title = "Item", TagIds = [], PerformerIds = [] }).Entity,
+            AffinityHostType.Audio => db.Audios.Add(new Audio { Title = "Item", TagIds = [], PerformerIds = [] }).Entity,
+            _ => db.TextDocuments.Add(new TextDocument { Title = "Item", TagIds = [], PerformerIds = [] }).Entity,
+        };
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var hostId = entity.Id;
+        db.TagApplications.AddRange(
+            new TagApplication { HostType = hostType, HostId = hostId, TagId = stale.Id, SourceKey = "scraper:tests.fake-scraper/item", SourceRunId = "earlier-attempt" },
+            new TagApplication { HostType = hostType, HostId = hostId, TagId = elsewhere.Id, SourceKey = "scraper:tests.other-scraper/item", SourceRunId = "other-attempt" });
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/item",
+            EntityType = hostType switch { AffinityHostType.Video => EntityKinds.Video, AffinityHostType.Audio => EntityKinds.Audio, _ => EntityKinds.Text },
+            EntityId = hostId,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/item" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Kept" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new TagProvenanceService(db), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(ReplaceFields: [], CollectionModes: new Dictionary<string, string> { ["tags"] = "replace" }, CreateMissingTags: false),
+            CancellationToken.None);
+
+        // The replace says this scraper's tags are now only "Kept"; what another source recorded is not its to drop.
+        var shownTagIds = await EffectiveHostTagQuery.ForHostType(db, hostType)
+            .Where(row => row.HostId == hostId)
+            .Select(row => row.TagId)
+            .Distinct()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { kept.Id, elsewhere.Id }.Order(), shownTagIds.Order());
+    }
+
     [Fact]
     public async Task ApplyAttemptAsync_ReplaceKeepsTheRecordsOfATagAddedBackByHandInTheSameApply()
     {

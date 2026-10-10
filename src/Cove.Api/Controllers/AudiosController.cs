@@ -19,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.AudiosRead)]
-public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
+public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null, ITagProvenanceService? tagProvenanceService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -298,6 +298,11 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         db.Audios.Add(audio);
         await db.SaveChangesAsync(ct);
+        if (tagIds.Length > 0 && tagProvenanceService != null)
+        {
+            await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Audio, audio.Id, [], tagIds, cancellationToken: ct);
+            await db.SaveChangesAsync(ct);
+        }
 
         if (dto.GroupIds != null)
         {
@@ -376,10 +381,15 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         if (dto.TagIds != null)
         {
+            var previousTagIds = audio.AudioTags.Select(link => link.TagId).ToArray();
             var tagIds = dto.TagIds.Where(tagId => tagId > 0).Distinct().ToArray();
             if (MetadataCollectionUpdater.ReplaceIfChanged(audio.AudioTags, tagIds, item => item.TagId, tagId => new AudioTag { AudioId = id, TagId = tagId }))
                 MetadataCollectionUpdater.Touch(audio);
             audio.TagIds = tagIds;
+            // The audio shows its links plus every tag a source recorded on it, so a tag taken off here drops
+            // its records too, as the video edit form does; otherwise a scraped tag would stay on as a locked one.
+            if (tagProvenanceService != null)
+                await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Audio, id, previousTagIds, tagIds, cancellationToken: ct);
         }
 
         if (dto.PerformerIds != null)
@@ -470,6 +480,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             if (dto.Code != null) audio.Code = NormalizeOptionalText(dto.Code);
             if (dto.Details != null) audio.Details = NormalizeOptionalText(dto.Details);
 
+            var previousTagIds = dto.TagIds != null ? audio.AudioTags.Select(link => link.TagId).ToArray() : [];
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {
                 audio.AudioTags.Clear();
@@ -503,6 +514,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             }
 
             if (dto.TagIds != null) audio.TagIds = audio.AudioTags.Select(link => link.TagId).Distinct().ToArray();
+            if (dto.TagIds != null && tagProvenanceService != null)
+                await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Audio, audio.Id, previousTagIds, audio.TagIds, cancellationToken: ct);
             if (dto.PerformerIds != null) audio.PerformerIds = audio.AudioPerformers.Select(link => link.PerformerId).Distinct().ToArray();
         }
 

@@ -90,6 +90,66 @@ public sealed class LeftoverImportedTagApplicationsPostgresTests
         Assert.Equal(0, counts[imported.Id]);
     }
 
+    [Fact]
+    public async Task RemovesOnlyTheScrapeRecordsAudioAndTextEditsLeftBehind()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(database.ConnectionString, options => options.UseVector())
+            .Options);
+        var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
+        var cleanupIndex = migrations.IndexOf(MigrationId<RemoveLeftoverScrapedAudioAndTextTagApplications>());
+        Assert.True(cleanupIndex > 0);
+        await db.GetService<IMigrator>().MigrateAsync(migrations[cleanupIndex - 1], ct);
+
+        var removed = new Tag { Name = "Scraped then removed" };
+        var linked = new Tag { Name = "Still linked" };
+        var lookalike = new Tag { Name = "Recorded in a near-miss shape" };
+        var audio = new Audio { Title = "Audio", AudioTags = [new AudioTag { Tag = linked }] };
+        var text = new TextDocument { Title = "Text", TextTags = [new TextTag { Tag = linked }] };
+        var otherAudio = new Audio { Title = "Other audio" };
+        db.AddRange(removed, lookalike, audio, text, otherAudio);
+        await db.SaveChangesAsync(ct);
+
+        ScrapeAttempt Attempt(string entityType, int entityId)
+            => new() { ScraperId = "tests.fake-scraper/item", EntityType = entityType, EntityId = entityId, InputKind = "url", InputJson = "{}" };
+        var audioAttempt = Attempt("audio", audio.Id);
+        var textAttempt = Attempt("text", text.Id);
+        var otherAudioAttempt = Attempt("audio", otherAudio.Id);
+        // A video attempt whose entity id happens to be the text's.
+        var videoAttempt = Attempt("video", text.Id);
+        db.ScrapeAttempts.AddRange(audioAttempt, textAttempt, otherAudioAttempt, videoAttempt);
+        await db.SaveChangesAsync(ct);
+
+        TagApplication Record(AffinityHostType hostType, int hostId, Tag tag, string sourceKey, string sourceRunId)
+            => new() { HostType = hostType, HostId = hostId, TagId = tag.Id, SourceKey = sourceKey, SourceRunId = sourceRunId };
+        var leftovers = new[]
+        {
+            Record(AffinityHostType.Audio, audio.Id, removed, ScraperKey, audioAttempt.Id.ToString()),
+            Record(AffinityHostType.Text, text.Id, removed, ScraperKey, textAttempt.Id.ToString()),
+        };
+        var kept = new[]
+        {
+            Record(AffinityHostType.Audio, audio.Id, linked, ScraperKey, audioAttempt.Id.ToString()),
+            Record(AffinityHostType.Text, text.Id, linked, ScraperKey, textAttempt.Id.ToString()),
+            Record(AffinityHostType.Audio, audio.Id, lookalike, ScraperKey, "run-1"),
+            Record(AffinityHostType.Audio, audio.Id, lookalike, ScraperKey, otherAudioAttempt.Id.ToString()),
+            Record(AffinityHostType.Text, text.Id, lookalike, ScraperKey, videoAttempt.Id.ToString()),
+            Record(AffinityHostType.Audio, audio.Id, lookalike, "ext:ai.tagging", audioAttempt.Id.ToString()),
+            Record(AffinityHostType.Text, text.Id, lookalike, "user", ""),
+        };
+        db.TagApplications.AddRange([.. leftovers, .. kept]);
+        await db.SaveChangesAsync(ct);
+        var keptIds = kept.Select(application => application.Id).Order().ToList();
+
+        await db.Database.MigrateAsync(ct);
+
+        db.ChangeTracker.Clear();
+        var remaining = await db.TagApplications.Select(application => application.Id).OrderBy(id => id).ToListAsync(ct);
+        Assert.Equal(keptIds, remaining);
+    }
+
     private static string MigrationId<TMigration>() where TMigration : Migration
         => typeof(TMigration).GetCustomAttributes(typeof(MigrationAttribute), false).Cast<MigrationAttribute>().Single().Id;
 }

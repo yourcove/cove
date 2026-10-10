@@ -18,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TextsRead)]
-public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
+public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null, ITagProvenanceService? tagProvenanceService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -352,6 +352,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         db.TextDocuments.Add(text);
         await db.SaveChangesAsync(ct);
+        if (tagIds.Length > 0 && tagProvenanceService != null)
+        {
+            await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Text, text.Id, [], tagIds, cancellationToken: ct);
+            await db.SaveChangesAsync(ct);
+        }
 
         if (dto.GroupIds != null)
         {
@@ -452,10 +457,15 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         if (dto.TagIds != null)
         {
+            var previousTagIds = text.TextTags.Select(link => link.TagId).ToArray();
             var tagIds = dto.TagIds.Where(tagId => tagId > 0).Distinct().ToArray();
             if (MetadataCollectionUpdater.ReplaceIfChanged(text.TextTags, tagIds, item => item.TagId, tagId => new TextTag { TextDocumentId = id, TagId = tagId }))
                 MetadataCollectionUpdater.Touch(text);
             text.TagIds = tagIds;
+            // The text shows its links plus every tag a source recorded on it, so a tag taken off here drops
+            // its records too, as the video edit form does; otherwise a scraped tag would stay on as a locked one.
+            if (tagProvenanceService != null)
+                await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Text, id, previousTagIds, tagIds, cancellationToken: ct);
         }
 
         if (dto.PerformerIds != null)
@@ -519,6 +529,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             if (dto.Code != null) text.Code = NormalizeOptionalText(dto.Code);
             if (dto.Details != null) text.Details = NormalizeOptionalText(dto.Details);
 
+            var previousTagIds = dto.TagIds != null ? text.TextTags.Select(link => link.TagId).ToArray() : [];
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {
                 text.TextTags.Clear();
@@ -552,6 +563,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             }
 
             if (dto.TagIds != null) text.TagIds = text.TextTags.Select(link => link.TagId).Distinct().ToArray();
+            if (dto.TagIds != null && tagProvenanceService != null)
+                await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Text, text.Id, previousTagIds, text.TagIds, cancellationToken: ct);
             if (dto.PerformerIds != null) text.PerformerIds = text.TextPerformers.Select(link => link.PerformerId).Distinct().ToArray();
         }
 
