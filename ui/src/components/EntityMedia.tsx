@@ -25,6 +25,8 @@ export interface EntityMediaRenderProps {
 interface EntityMediaHoverProps extends Omit<EntityMediaRenderProps, "surface" | "className" | "renderDefault"> {
   children: ReactNode;
   wrapperClassName?: string;
+  /** Host-owned details shown under the media, outside the entity.media extension boundary. */
+  footer?: ReactNode;
 }
 
 interface EntityMediaPreviewProps extends Omit<EntityMediaRenderProps, "renderDefault"> {
@@ -51,10 +53,27 @@ function aspectRatioValue(aspectRatio: string) {
   return width / height;
 }
 
-export type TagMediaReference = Pick<Tag, "id" | "name"> & Partial<Pick<Tag, "imagePath" | "hasImage">>;
+export type TagMediaReference = Pick<Tag, "id" | "name"> &
+  Partial<Pick<Tag, "imagePath" | "hasImage" | "tagGroupName" | "tagGroupColor">>;
 
 export function getTagMediaImageUrl(tag: TagMediaReference) {
   return tag.imagePath || (tag.hasImage ? entityImages.tagImageUrl(tag.id) : null);
+}
+
+/** Names the tag's group, with its color, inside a tag's hover popup. Renders nothing for an ungrouped tag. */
+export function TagGroupCaption({ tag, className }: { tag: TagMediaReference; className?: string }) {
+  const name = tag.tagGroupName?.trim();
+  if (!name) return null;
+  const color = tag.tagGroupColor?.trim();
+  return (
+    <span className={["flex min-w-0 items-center gap-1.5 text-xs", className ?? ""].filter(Boolean).join(" ")}>
+      <span className="text-muted">Tag group</span>
+      {color && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(color) ? (
+        <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: color }} />
+      ) : null}
+      <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
+    </span>
+  );
 }
 
 /** Shared hover boundary for compact tag references across cards, feeds, and badges. */
@@ -76,6 +95,7 @@ export function TagMediaHover({
       fit="cover"
       loading="lazy"
       wrapperClassName={wrapperClassName}
+      footer={tag.tagGroupName?.trim() ? <TagGroupCaption tag={tag} className="px-3 py-2" /> : undefined}
     >
       {children}
     </EntityMediaHover>
@@ -162,7 +182,12 @@ export function EntityMediaPreview({ frameClassName, ...componentProps }: Entity
  * replace that image and owns any additional data fetching. With neither
  * static media nor an active override this returns the reference unchanged.
  */
-export function EntityMediaHover({ children, wrapperClassName = "inline-flex", ...mediaProps }: EntityMediaHoverProps) {
+export function EntityMediaHover({
+  children,
+  wrapperClassName = "inline-flex",
+  footer,
+  ...mediaProps
+}: EntityMediaHoverProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -198,21 +223,31 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
     const place = () => {
       const anchor = anchorRef.current?.getBoundingClientRect();
       if (!anchor) return;
-      const width = tooltipRef.current?.getBoundingClientRect().width || 288;
-      const height = width / aspectRatioValue(aspectRatio);
+      const rect = tooltipRef.current?.getBoundingClientRect();
+      const width = rect?.width || 288;
+      // Measure when rendered, since a footer adds height under the media frame.
+      const height = rect?.height || width / aspectRatioValue(aspectRatio);
       const margin = 8;
       const left = Math.min(Math.max(margin, anchor.left), window.innerWidth - width - margin);
       const top =
         anchor.top - height - margin >= margin
           ? anchor.top - height - margin
           : Math.min(anchor.bottom + margin, window.innerHeight - height - margin);
-      setPosition({ left, top: Math.max(margin, top) });
+      const next = { left, top: Math.max(margin, top) };
+      // Keep the same state when nothing moved, so scroll and resize events don't re-render needlessly.
+      setPosition((current) => (current.left === next.left && current.top === next.top ? current : next));
     };
 
     place();
+    // Media can appear, change size or fail after the popup opens (an override may still be loading);
+    // re-place so a popup that grew doesn't cover the reference.
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && tooltipRef.current ? new ResizeObserver(place) : null;
+    if (tooltipRef.current) resizeObserver?.observe(tooltipRef.current);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
@@ -238,10 +273,15 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
               ref={tooltipRef}
               role="tooltip"
               aria-label={`Media for ${mediaProps.alt}`}
-              className="pointer-events-none fixed z-[10000] block w-72 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl empty:hidden"
-              style={{ ...position, aspectRatio }}
+              // Hidden while the media frame is empty, so a footer alone never shows as a popup.
+              className="pointer-events-none fixed z-[10000] block w-72 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl has-[>[data-media-frame]:empty]:hidden"
+              style={position}
             >
-              {preview.render()}
+              {/* The frame clips the media to its aspect ratio, so an override can't push into the footer. */}
+              <div data-media-frame="" className="w-full overflow-hidden" style={{ aspectRatio }}>
+                {preview.render()}
+              </div>
+              {footer ? <div className="border-t border-border/70">{footer}</div> : null}
             </div>,
             document.body,
           )

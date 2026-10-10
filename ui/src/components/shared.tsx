@@ -12,12 +12,14 @@ export { FieldProvenanceHover } from "./FieldProvenanceHover";
 export { TagProvenanceHover } from "./TagProvenanceHover";
 import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
 
-type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> & Partial<Pick<Tag, "id" | "name" | "imagePath" | "hasImage">>;
+type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> &
+  Partial<Pick<Tag, "id" | "name" | "imagePath" | "hasImage" | "tagGroupName">>;
 export function TagBadge({
   name,
   tag,
   color,
   groupColor,
+  groupName,
   onClick,
   provenance,
   reportable,
@@ -28,6 +30,7 @@ export function TagBadge({
   tag?: TagBadgeData;
   color?: string | null;
   groupColor?: string | null;
+  groupName?: string | null;
   onClick?: () => void;
   provenance?: TagProvenance[];
   reportable?: boolean;
@@ -37,10 +40,23 @@ export function TagBadge({
   const interactive = Boolean(onClick);
   const hasMenu = Boolean(reportable && (onReportIncorrect || onAdjustThreshold));
   const resolvedGroupColor = normalizeTagColor(groupColor ?? tag?.tagGroupColor);
+  // An explicit group color that differs from the tag's own group color belongs to another group, so don't
+  // borrow the tag's group name for it.
+  const ownGroupColor =
+    groupColor == null ||
+    normalizeTagColor(groupColor)?.toLowerCase() === normalizeTagColor(tag?.tagGroupColor)?.toLowerCase();
+  const resolvedGroupName = (groupName ?? (ownGroupColor ? tag?.tagGroupName : null))?.trim();
   const resolvedColor = normalizeTagColor(color ?? tag?.color ?? groupColor ?? tag?.tagGroupColor);
   const colorStyle = resolvedColor ? getTagColorStyle(resolvedColor) : undefined;
   const mediaTag = tag?.id
-    ? { id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage }
+    ? {
+        id: tag.id,
+        name: tag.name ?? name,
+        imagePath: tag.imagePath,
+        hasImage: tag.hasImage,
+        tagGroupName: resolvedGroupName,
+        tagGroupColor: resolvedGroupColor,
+      }
     : undefined;
 
   const badgeContent = (
@@ -48,7 +64,7 @@ export function TagBadge({
       {resolvedGroupColor ? (
         <span
           className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-current/30"
-          title="Tag group"
+          title={resolvedGroupName ? `Tag group: ${resolvedGroupName}` : "Tag group"}
         >
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: resolvedGroupColor }} />
         </span>

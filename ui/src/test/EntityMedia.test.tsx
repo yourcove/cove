@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -195,7 +195,7 @@ describe("EntityMedia", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tooltip", { name: "Media for Square preview" })).toHaveStyle({ aspectRatio: "1 / 1" });
+      expect(screen.getByTestId("extension-media").parentElement).toHaveStyle({ aspectRatio: "1 / 1" });
     });
   });
 
@@ -356,5 +356,158 @@ describe("EntityMedia", () => {
 
     expect(onAdjustThreshold).toHaveBeenCalledTimes(1);
     expect(screen.getAllByText("Tag Sources").every((element) => Boolean(element.closest(".sr-only")))).toBe(true);
+  });
+});
+
+describe("tag hover popups name the tag's group", () => {
+  beforeEach(() => {
+    overrideRendererCalls.length = 0;
+    overrideRenderState.replace = false;
+    overrideRenderState.active = false;
+    overrideRenderState.aspectRatio = null;
+  });
+
+  const groupedTag = {
+    id: 17,
+    name: "Grouped tag",
+    imagePath: "/tag.jpg",
+    color: null,
+    tagGroupName: "Example group",
+    tagGroupColor: "#5f95ce",
+  };
+
+  it("shows the group under the image in a tag chip's media popup", () => {
+    render(<TagBadge name="Grouped tag" tag={groupedTag} onClick={() => {}} />);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Grouped tag" }));
+
+    const popup = screen.getByRole("tooltip", { name: "Media for Grouped tag" });
+    expect(popup).toContainElement(screen.getByRole("img", { name: "Grouped tag" }));
+    expect(popup).toHaveTextContent("Tag group");
+    expect(popup).toHaveTextContent("Example group");
+  });
+
+  it("shows the group in a sourced tag chip's provenance popup and its screen-reader copy", () => {
+    render(
+      <TagBadge
+        name="Grouped tag"
+        tag={groupedTag}
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        onClick={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Grouped tag" }));
+
+    const caption = screen.getAllByText("Example group").find((element) => !element.closest(".sr-only"));
+    expect(caption?.parentElement).toHaveTextContent("Tag group");
+    expect(screen.getByText("Tag group: Example group").closest(".sr-only")).not.toBeNull();
+  });
+
+  it("keeps the media-only popup for an ungrouped tag", () => {
+    render(
+      <TagMediaHover tag={{ id: 21, name: "Ungrouped tag", imagePath: "/tag.jpg" }}>
+        <button type="button">Tag reference</button>
+      </TagMediaHover>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
+
+    const popup = screen.getByRole("tooltip", { name: "Media for Ungrouped tag" });
+    expect(popup).not.toHaveTextContent("Tag group");
+    expect(screen.getByRole("img", { name: "Ungrouped tag" }).parentElement).toHaveStyle({ aspectRatio: "4 / 3" });
+  });
+
+  it("clips extension media to the frame and keeps the footer out of the extension's props", async () => {
+    overrideRenderState.active = true;
+    overrideRenderState.replace = true;
+    overrideRenderState.aspectRatio = "1:1";
+
+    render(
+      <TagMediaHover tag={{ id: 21, name: "Grouped tag", tagGroupName: "Example group", tagGroupColor: "#5f95ce" }}>
+        <button type="button">Tag reference</button>
+      </TagMediaHover>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
+
+    const frame = screen.getByTestId("extension-media").parentElement!;
+    await waitFor(() => expect(frame).toHaveStyle({ aspectRatio: "1 / 1" }));
+    expect(frame).toHaveClass("overflow-hidden");
+    const popup = screen.getByRole("tooltip", { name: "Media for Grouped tag" });
+    expect(popup.style.aspectRatio).toBe("");
+    expect(popup).toHaveTextContent("Example group");
+    expect(overrideRendererCalls.at(-1)?.componentProps).not.toHaveProperty("footer");
+  });
+
+  it("hides the popup while the media frame is empty, so a caption never shows alone", () => {
+    overrideRenderState.active = true;
+    overrideRenderState.replace = false;
+
+    render(
+      <TagMediaHover tag={{ id: 21, name: "Grouped tag", tagGroupName: "Example group" }}>
+        <button type="button">Tag reference</button>
+      </TagMediaHover>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
+
+    const popup = screen.getByRole("tooltip", { name: "Media for Grouped tag" });
+    const frame = popup.querySelector("[data-media-frame]");
+    expect(frame).toBeEmptyDOMElement();
+    expect(popup).toHaveClass("has-[>[data-media-frame]:empty]:hidden");
+  });
+
+  it("moves the popup above the reference when its media grows after opening", () => {
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    try {
+      render(
+        <TagMediaHover tag={{ id: 21, name: "Grouped tag", imagePath: "/tag.jpg", tagGroupName: "Example group" }}>
+          <button type="button">Tag reference</button>
+        </TagMediaHover>,
+      );
+      const anchor = screen.getByRole("button", { name: "Tag reference" }).parentElement!;
+      vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue({
+        top: 500,
+        bottom: 520,
+        left: 40,
+        right: 140,
+        width: 100,
+        height: 20,
+        x: 40,
+        y: 500,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
+      const popup = screen.getByRole("tooltip", { name: "Media for Grouped tag" });
+      // The media grows to its full height after the popup opened.
+      vi.spyOn(popup, "getBoundingClientRect").mockReturnValue({
+        top: 0,
+        bottom: 249,
+        left: 0,
+        right: 288,
+        width: 288,
+        height: 249,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+      act(() => observers.forEach((callback) => callback([], {} as ResizeObserver)));
+
+      expect(popup).toHaveStyle({ top: `${500 - 249 - 8}px` });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

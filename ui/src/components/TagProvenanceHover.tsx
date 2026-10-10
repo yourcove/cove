@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import type { TagProvenance } from "../api/types";
 import { formatDateTime } from "../utils/dateFormat";
-import { TagMediaPreview, type TagMediaReference } from "./EntityMedia";
+import { TagGroupCaption, TagMediaPreview, type TagMediaReference } from "./EntityMedia";
 
 // Hover-intent timings: the popup opens only after a deliberate pause (sweeping the cursor across a
 // tag list must not flash popups) and closes shortly after the pointer settles outside both the chip
@@ -198,6 +198,7 @@ export function TagProvenanceHover({
     >
       {children}
       <span className="sr-only">
+        {mediaTag?.tagGroupName?.trim() ? <span>Tag group: {mediaTag.tagGroupName.trim()}</span> : null}
         <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
       </span>
       {showProvenance && typeof document !== "undefined"
@@ -216,6 +217,7 @@ export function TagProvenanceHover({
                   frameClassName="mb-3 block aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/70 bg-card/70"
                 />
               ) : null}
+              {mediaTag ? <TagGroupCaption tag={mediaTag} className="mb-3" /> : null}
               <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
             </div>,
             document.body,
