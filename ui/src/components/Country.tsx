@@ -203,6 +203,11 @@ export function CountrySelect({
               );
             }
             if (event.key === "Escape") {
+              if (open) {
+                // Close only the list; the enclosing dialog keeps its edits.
+                event.preventDefault();
+                event.stopPropagation();
+              }
               setOpen(false);
               setQuery("");
               setActiveIndex(-1);

@@ -223,6 +223,56 @@ describe("BulkEditDialog", () => {
     expect(onApply).toHaveBeenLastCalledWith({ country: null, clearFields: ["country"] });
   });
 
+  it("keeps keyboard focus on a field's checkbox when it is ticked and unticked", async () => {
+    const user = userEvent.setup();
+    renderDialog(
+      <BulkEditDialog
+        open
+        onClose={vi.fn()}
+        title="Edit Videos"
+        selectedCount={2}
+        fields={VIDEO_BULK_FIELDS}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const organized = screen.getByRole("checkbox", { name: "Organized" });
+    organized.focus();
+    await user.keyboard(" ");
+    expect(screen.getByRole("checkbox", { name: "Organized" })).toBe(organized);
+    expect(organized).toBeChecked();
+    expect(organized).toHaveFocus();
+
+    await user.keyboard(" ");
+    expect(organized).not.toBeChecked();
+    expect(organized).toHaveFocus();
+  });
+
+  it("closes an open country list on Escape without closing the dialog", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderDialog(
+      <BulkEditDialog
+        open
+        onClose={onClose}
+        title="Edit Performers"
+        selectedCount={2}
+        fields={PERFORMER_BULK_FIELDS}
+        onApply={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(screen.getByRole("button", { name: "Show countries" }));
+    await screen.findByText("United States");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("United States")).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   describe("custom fields", () => {
     const baseDefinition: CustomFieldDefinition = {
       key: "review_status",

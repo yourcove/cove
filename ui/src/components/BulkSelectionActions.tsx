@@ -650,7 +650,7 @@ export function BulkSelectionActions({
         <BulkEditDialog
           open
           onClose={() => setShowBulkEdit(false)}
-          title={`Bulk Edit ${selectedIds.size} ${entityType}`}
+          title={`Edit ${entityType.charAt(0).toUpperCase()}${entityType.slice(1)}`}
           selectedCount={selectedIds.size}
           fields={fields}
           customFieldEntityType={BULK_CUSTOM_FIELD_ENTITY_TYPES[entityType]}

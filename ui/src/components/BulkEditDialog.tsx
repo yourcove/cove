@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { InteractiveRating } from "./Rating";
@@ -62,6 +62,7 @@ export function BulkEditDialog({
   const [clearedCustomFields, setClearedCustomFields] = useState<Set<string>>(new Set());
   const [customFieldMode, setCustomFieldMode] = useState<BulkUpdateMode>("ADD");
   const [invalidJsonKeys, setInvalidJsonKeys] = useState<Set<string>>(new Set());
+  const titleId = useId();
   const customFieldDefinitionsQuery = useCustomFieldDefinitions(customFieldEntityType, Boolean(customFieldEntityType));
   const customFieldDefinitions = customFieldEntityType ? (customFieldDefinitionsQuery.data ?? []) : [];
 
@@ -166,39 +167,77 @@ export function BulkEditDialog({
     return result;
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const payload = buildPayload();
   // A ticked field with nothing entered contributes nothing; do not send a request that changes nothing.
   const hasChanges = Object.values(payload).some((value) => value !== undefined);
+  const changedCount =
+    fields.filter((field) => enabledFields.has(field.key) && payload[field.key] !== undefined).length +
+    Object.keys((payload.customFields as Record<string, unknown> | undefined) ?? {}).length +
+    clearedCustomFields.size;
+  const sections = BULK_SECTIONS.map((section) => ({
+    section,
+    fields: fields.filter((field) => getBulkSection(field) === section),
+  })).filter(({ fields: sectionFields }) => sectionFields.length > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 md:p-4" onClick={onClose}>
       <div
-        className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-2xl md:h-auto md:max-h-[min(88dvh,52rem)] md:max-w-2xl md:rounded-2xl md:border"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">
-            {title} <span className="text-muted font-normal">({selectedCount} selected)</span>
-          </h2>
-          <button onClick={onClose} className="p-1 hover:bg-card rounded text-muted hover:text-foreground">
-            <X className="w-4 h-4" />
+        <div className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-4 pt-[env(safe-area-inset-top)] md:px-6 md:pt-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 id={titleId} className="truncate text-lg font-semibold text-foreground">
+              {title}
+            </h2>
+            <span className="shrink-0 rounded-full bg-card px-2 py-0.5 text-xs font-medium text-secondary">
+              {selectedCount} selected
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {fields.map((field) => (
-            <BulkFieldEditor
-              key={field.key}
-              field={field}
-              enabled={enabledFields.has(field.key)}
-              onToggle={() => toggleField(field)}
-              value={values[field.key]}
-              mode={(values[getModeKey(field)] as BulkUpdateMode) ?? "ADD"}
-              onValueChange={(v) => updateValue(field.key, v)}
-              onModeChange={(m) => updateValue(getModeKey(field), m)}
-            />
+        <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-5 md:px-6">
+          <p className="text-sm text-muted">
+            Tick a field to change it on every selected item. Unticked fields stay as they are.
+          </p>
+          {sections.map(({ section, fields: sectionFields }) => (
+            <div key={section} className="space-y-1.5">
+              <h3 className={SECTION_HEADING_CLASS}>{section}</h3>
+              {sectionFields.map((field) => (
+                <BulkFieldEditor
+                  key={field.key}
+                  field={field}
+                  enabled={enabledFields.has(field.key)}
+                  onToggle={() => toggleField(field)}
+                  value={values[field.key]}
+                  mode={(values[getModeKey(field)] as BulkUpdateMode) ?? "ADD"}
+                  onValueChange={(v) => updateValue(field.key, v)}
+                  onModeChange={(m) => updateValue(getModeKey(field), m)}
+                />
+              ))}
+            </div>
           ))}
           {customFieldDefinitions.length > 0 && (
             <CustomFieldsBulkSection
@@ -216,20 +255,29 @@ export function BulkEditDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-          <button
-            onClick={onClose}
-            className="px-3 py-1 rounded text-xs text-secondary hover:text-foreground border border-border"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onApply(payload)}
-            disabled={isPending || !hasChanges || hasInvalidCustomFieldJson}
-            className="px-4 py-1 rounded text-xs font-medium bg-accent hover:bg-accent-hover text-white disabled:opacity-50"
-          >
-            {isPending ? "Applying..." : "Apply"}
-          </button>
+        <div className="flex min-h-[4.75rem] items-center gap-3 border-t border-border px-4 pb-[env(safe-area-inset-bottom)] md:px-6 md:pb-0">
+          <span className="min-w-0 text-sm text-muted">
+            {changedCount === 0 || !hasChanges
+              ? "Nothing to change yet"
+              : `Changes ${changedCount} ${changedCount === 1 ? "field" : "fields"} on ${selectedCount} selected ${selectedCount === 1 ? "item" : "items"}`}
+          </span>
+          <div className="ml-auto flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onApply(payload)}
+              disabled={isPending || !hasChanges || hasInvalidCustomFieldJson}
+              className="min-h-11 rounded-lg bg-accent px-5 text-sm font-bold text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {isPending ? "Applying..." : "Apply"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -253,123 +301,180 @@ function BulkFieldEditor({
   onValueChange: (v: unknown) => void;
   onModeChange: (m: BulkUpdateMode) => void;
 }) {
-  return (
-    <div>
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={onToggle}
-          className="w-3.5 h-3.5 rounded border-border accent-accent"
-        />
-        <span className={`text-xs font-medium ${enabled ? "text-foreground" : "text-muted"}`}>{field.label}</span>
-      </label>
-      {enabled && (
-        <div className="ml-6 mt-1">
-          {field.type === "rating" && (
-            <div className="rounded border border-border bg-input px-3 py-2">
-              <InteractiveRating
-                value={value as number | undefined}
-                onChange={(nextValue) => onValueChange(nextValue || undefined)}
-              />
-            </div>
-          )}
-          {field.type === "number" && (
-            <input
-              type="number"
-              value={(value as number) ?? ""}
-              onChange={(e) => onValueChange(e.target.value ? Number(e.target.value) : undefined)}
-              className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-            />
-          )}
-          {field.type === "bool" && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => onValueChange(true)}
-                className={`px-3 py-1 rounded text-xs border ${value === true ? "bg-accent text-white border-accent" : "border-border text-secondary"}`}
-              >
-                True
-              </button>
-              <button
-                onClick={() => onValueChange(false)}
-                className={`px-3 py-1 rounded text-xs border ${value === false ? "bg-accent text-white border-accent" : "border-border text-secondary"}`}
-              >
-                False
-              </button>
-            </div>
-          )}
-          {field.type === "string" && (
-            <input
-              type="text"
-              value={(value as string) ?? ""}
-              onChange={(e) => onValueChange(e.target.value)}
-              className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-            />
-          )}
-          {field.type === "date" && (
-            <IsoDateInput
-              value={(value as string) ?? ""}
-              onChange={(e) => onValueChange(e.target.value)}
-              className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-            />
-          )}
-          {field.type === "country" && <CountrySelect value={(value as string) ?? ""} onChange={onValueChange} />}
-          {field.type === "select" && field.entityType === "studios" && (
-            <div className="space-y-2">
-              <StudioSelector value={value as number | undefined} onChange={(nextValue) => onValueChange(nextValue)} />
-              {field.nullable && (
-                <button
-                  type="button"
-                  onClick={() => onValueChange(undefined)}
-                  className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${value == null ? "border-accent bg-accent/10 text-accent" : "border-border text-secondary hover:text-foreground"}`}
-                >
-                  <X className="h-3 w-3" />
-                  Clear value
-                </button>
-              )}
-            </div>
-          )}
-          {field.type === "select" && field.entityType === "tagGroups" && (
-            <TagGroupBulkSelect
-              value={value as number | undefined}
-              nullable={field.nullable}
-              onValueChange={onValueChange}
-            />
-          )}
-          {field.type === "select" && field.entityType !== "studios" && field.entityType !== "tagGroups" && (
-            <select
-              value={String(value ?? "")}
-              onChange={(e) => {
-                if (!e.target.value) {
-                  onValueChange(undefined);
-                  return;
-                }
+  const clearButton = field.nullable && field.type === "select" && field.entityType !== undefined && (
+    <ClearValueButton label={field.label} clearing={value == null} onClick={() => onValueChange(undefined)} />
+  );
 
-                const selectedOption = field.options?.find((option) => String(option.value) === e.target.value);
-                onValueChange(selectedOption?.value ?? e.target.value);
-              }}
-              className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-            >
-              <option value="">Select...</option>
-              {field.options?.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          )}
-          {field.type === "multiId" && isMultiIdEntityType(field.entityType) && (
-            <MultiIdBulkEditor
-              entityType={field.entityType}
-              value={(value as number[]) ?? []}
-              mode={mode}
-              onValueChange={onValueChange}
-              onModeChange={onModeChange}
-            />
-          )}
+  return (
+    <BulkFieldShell label={field.label} enabled={enabled} onToggle={onToggle} headerAction={clearButton}>
+      {field.type === "rating" && (
+        <div className="flex min-h-11 items-center rounded-lg border border-border bg-input px-3 py-2">
+          <InteractiveRating
+            value={value as number | undefined}
+            onChange={(nextValue) => onValueChange(nextValue || undefined)}
+          />
         </div>
       )}
+      {field.type === "number" && (
+        <input
+          type="number"
+          aria-label={field.label}
+          value={(value as number) ?? ""}
+          onChange={(e) => onValueChange(e.target.value ? Number(e.target.value) : undefined)}
+          className={`${INPUT_CLASS} md:w-40`}
+        />
+      )}
+      {field.type === "bool" && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={value === true}
+            onClick={() => onValueChange(true)}
+            className={pillClass(value === true)}
+          >
+            True
+          </button>
+          <button
+            type="button"
+            aria-pressed={value === false}
+            onClick={() => onValueChange(false)}
+            className={pillClass(value === false)}
+          >
+            False
+          </button>
+        </div>
+      )}
+      {field.type === "string" && (
+        <input
+          type="text"
+          aria-label={field.label}
+          value={(value as string) ?? ""}
+          onChange={(e) => onValueChange(e.target.value)}
+          className={INPUT_CLASS}
+        />
+      )}
+      {field.type === "date" && (
+        <IsoDateInput
+          aria-label={field.label}
+          value={(value as string) ?? ""}
+          onChange={(e) => onValueChange(e.target.value)}
+          className={INPUT_CLASS}
+        />
+      )}
+      {field.type === "country" && <CountrySelect value={(value as string) ?? ""} onChange={onValueChange} />}
+      {field.type === "select" && field.entityType === "studios" && (
+        <StudioSelector
+          value={value as number | undefined}
+          onChange={(nextValue) => onValueChange(nextValue)}
+          inputClassName={INPUT_CLASS}
+        />
+      )}
+      {field.type === "select" && field.entityType === "tagGroups" && (
+        <TagGroupBulkSelect label={field.label} value={value as number | undefined} onValueChange={onValueChange} />
+      )}
+      {field.type === "select" && field.entityType !== "studios" && field.entityType !== "tagGroups" && (
+        <select
+          aria-label={field.label}
+          value={String(value ?? "")}
+          onChange={(e) => {
+            if (!e.target.value) {
+              onValueChange(undefined);
+              return;
+            }
+
+            const selectedOption = field.options?.find((option) => String(option.value) === e.target.value);
+            onValueChange(selectedOption?.value ?? e.target.value);
+          }}
+          className={INPUT_CLASS}
+        >
+          <option value="">Select...</option>
+          {field.options?.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+      {field.type === "multiId" && isMultiIdEntityType(field.entityType) && (
+        <MultiIdBulkEditor
+          entityType={field.entityType}
+          value={(value as number[]) ?? []}
+          mode={mode}
+          onValueChange={onValueChange}
+          label={field.label}
+          onModeChange={onModeChange}
+        />
+      )}
+    </BulkFieldShell>
+  );
+}
+
+/**
+ * Renders a field as a quiet row while unticked and as a card while ticked. The checkbox stays at the same place in
+ * the tree in both states, so ticking it with the keyboard does not remount it and drop focus.
+ */
+function BulkFieldShell({
+  label,
+  detail,
+  enabled,
+  onToggle,
+  headerAction,
+  children,
+}: {
+  label: string;
+  detail?: string;
+  enabled: boolean;
+  onToggle: () => void;
+  headerAction?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className={
+        enabled ? FIELD_CARD_CLASS : "rounded-lg px-3 text-secondary hover:bg-card-hover hover:text-foreground"
+      }
+    >
+      <div className={`flex items-center gap-3 ${enabled ? "min-h-10" : "min-h-11"}`}>
+        <label
+          className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch text-sm ${enabled ? "font-medium text-foreground" : ""}`}
+        >
+          <input type="checkbox" checked={enabled} onChange={onToggle} className={CHECKBOX_CLASS} />
+          {label}
+          {detail && <span className="truncate text-xs font-normal text-muted">{detail}</span>}
+        </label>
+        {enabled ? (
+          headerAction
+        ) : (
+          <span aria-hidden="true" className="shrink-0 text-xs text-muted">
+            Not changed
+          </span>
+        )}
+      </div>
+      {enabled && children}
     </div>
+  );
+}
+
+/** With nothing picked, a ticked nullable field clears the value, so that state is shown as a status, not a button. */
+function ClearValueButton({ label, clearing, onClick }: { label: string; clearing: boolean; onClick: () => void }) {
+  if (clearing) {
+    return (
+      <span className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/10 px-2.5 text-xs text-accent">
+        <X className="h-3 w-3" />
+        Clearing value
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`Clear value for ${label}`}
+      onClick={onClick}
+      className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-xs text-muted hover:bg-card-hover hover:text-foreground"
+    >
+      <X className="h-3 w-3" />
+      Clear value
+    </button>
   );
 }
 
@@ -413,59 +518,58 @@ function CustomFieldsBulkSection({
   const anyMultiValue = valuedDefinitions.some((definition) => definition.isMultiValue);
 
   return (
-    <div role="group" aria-label="Custom fields" className="border-t border-border pt-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={() => setExpanded((current) => !current)}
-          className="flex items-center gap-1 text-xs font-semibold text-secondary hover:text-foreground"
-        >
-          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          Custom fields
-          <span className="font-normal text-muted">
-            ({tickedCount > 0 ? `${tickedCount} of ${definitions.length} selected` : definitions.length})
-          </span>
-        </button>
-        {open && showMode && (
-          <fieldset className="flex gap-1">
-            <legend className="sr-only">Custom field mode</legend>
-            {(["SET", "ADD", "REMOVE"] as BulkUpdateMode[]).map((candidate) => (
-              <label
-                key={candidate}
-                className={`cursor-pointer px-2 py-0.5 rounded text-[10px] border has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-surface ${
-                  candidate === mode ? "bg-accent text-white border-accent" : "border-border text-secondary"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name={modeRadioName}
-                  value={candidate}
-                  checked={candidate === mode}
-                  onChange={() => onModeChange(candidate)}
-                  className="sr-only"
-                />
-                {BULK_MODE_LABELS[candidate]}
-              </label>
-            ))}
-          </fieldset>
-        )}
-      </div>
+    <section role="group" aria-label="Custom fields" className="space-y-1.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setExpanded((current) => !current)}
+        className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left text-muted hover:text-foreground"
+      >
+        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        <span className="text-[11px] font-semibold uppercase tracking-wider">Custom fields</span>
+        <span className="ml-auto text-xs">
+          {tickedCount > 0 ? `${tickedCount} of ${definitions.length} selected` : `${definitions.length} fields`}
+        </span>
+      </button>
       {open && (
-        <div id={bodyId} className="space-y-3">
+        <div id={bodyId} className="space-y-1.5">
           {showMode && (
-            <p className="text-[11px] text-muted">
-              {mode === "SET"
-                ? "Overwrite replaces the current value on every selected item."
-                : mode === "ADD"
-                  ? anyMultiValue
-                    ? "Add appends new entries to multi-value fields and overwrites single-value fields."
-                    : "Add overwrites single-value fields with the entered value."
-                  : anyMultiValue
-                    ? "Remove drops matching entries from multi-value fields and clears single-value fields whose value matches."
-                    : "Remove clears single-value fields whose current value matches the entered value."}
-            </p>
+            <div className="space-y-1.5 px-1 pb-1">
+              <fieldset className="flex flex-wrap items-center gap-2">
+                <legend className="sr-only">Custom field mode</legend>
+                <span aria-hidden="true" className="mr-1 text-sm font-medium text-secondary">
+                  Mode
+                </span>
+                {BULK_MODE_ORDER.map((candidate) => (
+                  <label
+                    key={candidate}
+                    className={`${pillClass(candidate === mode)} cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-surface`}
+                  >
+                    <input
+                      type="radio"
+                      name={modeRadioName}
+                      value={candidate}
+                      checked={candidate === mode}
+                      onChange={() => onModeChange(candidate)}
+                      className="sr-only"
+                    />
+                    {BULK_MODE_LABELS[candidate]}
+                  </label>
+                ))}
+              </fieldset>
+              <p className="text-xs text-muted">
+                {mode === "SET"
+                  ? "Overwrite replaces the current value on every selected item."
+                  : mode === "ADD"
+                    ? anyMultiValue
+                      ? "Add appends new entries to multi-value fields and overwrites single-value fields."
+                      : "Add overwrites single-value fields with the entered value."
+                    : anyMultiValue
+                      ? "Remove drops matching entries from multi-value fields and clears single-value fields whose value matches."
+                      : "Remove clears single-value fields whose current value matches the entered value."}
+              </p>
+            </div>
           )}
           {definitions.map((definition) => {
             const stateKey = toCustomFieldStateKey(definition.key);
@@ -475,119 +579,115 @@ function CustomFieldsBulkSection({
             // The accessible name starts with the visible text so voice control can target the button by what it shows.
             const clearText = cleared ? "Clearing value on every selected item" : "Clear value";
             return (
-              <div key={definition.key}>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={() => {
-                      if (!enabled) setExpanded(true);
-                      onToggle(definition);
-                    }}
-                    className="w-3.5 h-3.5 rounded border-border accent-accent"
+              <BulkFieldShell
+                key={definition.key}
+                label={label}
+                detail={definition.key}
+                enabled={enabled}
+                onToggle={() => {
+                  if (!enabled) setExpanded(true);
+                  onToggle(definition);
+                }}
+                headerAction={
+                  <button
+                    type="button"
+                    aria-pressed={cleared}
+                    aria-label={`${clearText} for ${label}`}
+                    onClick={() => onToggleCleared(definition)}
+                    className={`inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs ${
+                      cleared
+                        ? "border-accent/50 bg-accent/10 text-accent"
+                        : "border-transparent text-muted hover:bg-card-hover hover:text-foreground"
+                    }`}
+                  >
+                    <X className="h-3 w-3" />
+                    {cleared ? "Clearing value" : "Clear value"}
+                  </button>
+                }
+              >
+                {cleared ? (
+                  <p className="flex min-h-11 items-center rounded-lg border border-border bg-input px-3 text-sm italic text-muted">
+                    Removed from every selected item
+                  </p>
+                ) : (
+                  <ConfiguredFieldInput
+                    definition={definition}
+                    value={values[stateKey]}
+                    onChange={(nextValue) => onValueChange(definition, nextValue)}
+                    onJsonValidityChange={onJsonValidityChange}
+                    ariaLabel={label}
                   />
-                  <span className={`text-xs font-medium ${enabled ? "text-foreground" : "text-muted"}`}>{label}</span>
-                  <span className="text-[11px] text-muted">{definition.key}</span>
-                </label>
-                {enabled && (
-                  <div className="ml-6 mt-1 space-y-2">
-                    {!cleared && (
-                      <ConfiguredFieldInput
-                        definition={definition}
-                        value={values[stateKey]}
-                        onChange={(nextValue) => onValueChange(definition, nextValue)}
-                        onJsonValidityChange={onJsonValidityChange}
-                        ariaLabel={label}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      aria-pressed={cleared}
-                      aria-label={`${clearText} for ${label}`}
-                      onClick={() => onToggleCleared(definition)}
-                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${cleared ? "border-accent bg-accent/10 text-accent" : "border-border text-secondary hover:text-foreground"}`}
-                    >
-                      <X className="h-3 w-3" />
-                      {clearText}
-                    </button>
-                  </div>
                 )}
-              </div>
+              </BulkFieldShell>
             );
           })}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
 function TagGroupBulkSelect({
+  label,
   value,
-  nullable,
   onValueChange,
 }: {
+  label: string;
   value?: number;
-  nullable?: boolean;
   onValueChange: (v: unknown) => void;
 }) {
   const { data: groups = [], isLoading } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
 
   return (
-    <div className="space-y-2">
-      <select
-        value={String(value ?? "")}
-        onChange={(event) => onValueChange(event.target.value ? Number(event.target.value) : undefined)}
-        className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-      >
-        <option value="">{isLoading ? "Loading tag groups..." : "Select tag group..."}</option>
-        {groups.map((group) => (
-          <option key={group.id} value={group.id}>
-            {group.name}
-          </option>
-        ))}
-      </select>
-      {nullable && (
-        <button
-          type="button"
-          onClick={() => onValueChange(undefined)}
-          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${value == null ? "border-accent bg-accent/10 text-accent" : "border-border text-secondary hover:text-foreground"}`}
-        >
-          <X className="h-3 w-3" />
-          Clear value
-        </button>
-      )}
-    </div>
+    <select
+      aria-label={label}
+      value={String(value ?? "")}
+      onChange={(event) => onValueChange(event.target.value ? Number(event.target.value) : undefined)}
+      className={INPUT_CLASS}
+    >
+      <option value="">{isLoading ? "Loading tag groups..." : "Select tag group..."}</option>
+      {groups.map((group) => (
+        <option key={group.id} value={group.id}>
+          {group.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
 function MultiIdBulkEditor({
   entityType,
+  label,
   value,
   mode,
   onValueChange,
   onModeChange,
 }: {
   entityType: "tags" | "performers" | "studios" | "groups" | "galleries";
+  label: string;
   value: number[];
   mode: BulkUpdateMode;
   onValueChange: (v: unknown) => void;
   onModeChange: (m: BulkUpdateMode) => void;
 }) {
   return (
-    <div className="space-y-2">
-      {/* Mode selector */}
-      <div className="flex gap-1">
-        {(["SET", "ADD", "REMOVE"] as BulkUpdateMode[]).map((m) => (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`${label} mode`}>
+        <span aria-hidden="true" className="mr-1 text-sm font-medium text-secondary">
+          Mode
+        </span>
+        {BULK_MODE_ORDER.map((m) => (
           <button
             key={m}
+            type="button"
+            aria-pressed={m === mode}
             onClick={() => onModeChange(m)}
-            className={`px-2 py-0.5 rounded text-[10px] border ${
-              m === mode ? "bg-accent text-white border-accent" : "border-border text-secondary"
-            }`}
+            className={pillClass(m === mode)}
           >
             {BULK_MODE_LABELS[m]}
           </button>
         ))}
+        <span className="text-xs text-muted">{MULTI_ID_MODE_HINTS[mode](entityType)}</span>
       </div>
 
       <EntityReferenceMultiSelector
@@ -595,8 +695,8 @@ function MultiIdBulkEditor({
         values={value}
         onChange={onValueChange as (values: number[]) => void}
         placeholder={`Search ${entityType}...`}
-        inputClassName="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-        resultsMaxHeight={128}
+        inputClassName={INPUT_CLASS}
+        resultsMaxHeight={160}
       />
     </div>
   );
@@ -636,6 +736,38 @@ const BULK_MODE_LABELS: Record<BulkUpdateMode, string> = {
   ADD: "Add",
   REMOVE: "Remove",
 };
+
+/** Least destructive first, matching the default mode. */
+const BULK_MODE_ORDER: BulkUpdateMode[] = ["ADD", "REMOVE", "SET"];
+
+const MULTI_ID_MODE_HINTS: Record<BulkUpdateMode, (entityType: string) => string> = {
+  ADD: (entityType) => `Keeps existing ${entityType}`,
+  REMOVE: (entityType) => `Removes only these ${entityType}`,
+  SET: (entityType) => `Replaces all ${entityType}`,
+};
+
+// Sizing and colours follow the filter dialog so the two read as one app.
+const INPUT_CLASS =
+  "min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm";
+const CHECKBOX_CLASS = "h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-accent";
+const FIELD_CARD_CLASS = "space-y-2.5 rounded-xl border border-border bg-card px-3 pb-3 pt-1";
+const SECTION_HEADING_CLASS = "px-1 text-[11px] font-semibold uppercase tracking-wider text-muted";
+
+function pillClass(active: boolean) {
+  return `min-h-9 rounded-lg border px-3 py-1.5 text-sm ${
+    active
+      ? "border-accent bg-accent text-white"
+      : "border-border text-secondary hover:border-accent/50 hover:text-foreground"
+  }`;
+}
+
+const BULK_SECTIONS = ["Status", "Details", "Relations"] as const;
+
+function getBulkSection(field: BulkEditField): (typeof BULK_SECTIONS)[number] {
+  if (field.type === "rating" || field.type === "bool") return "Status";
+  if (field.type === "multiId") return "Relations";
+  return "Details";
+}
 
 function withoutKey(set: Set<string>, key: string) {
   if (!set.has(key)) return set;
