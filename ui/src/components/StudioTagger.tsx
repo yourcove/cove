@@ -11,7 +11,7 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { DEFAULT_COLLECTION_MODES, type CollectionMode } from "./videoScrapeUtils";
 import { MetadataDiff, scalarStatus, summarizeDiff, type DiffSelection } from "./MetadataDiff";
 import { metadataServerLabel } from "./MetadataServerLinks";
-import { MetadataDiffSummary } from "./MetadataDiffSummary";
+import { ChangeSummaryLine, MetadataDiffSummary } from "./MetadataDiffSummary";
 import { ReviewCoverPanel } from "./ReviewCoverPanel";
 import {
   applyStudioSelectionChange,
@@ -694,11 +694,7 @@ function StudioResultRow({
                   : "Apply"}
               </button>
             )}
-            {summary ? (
-              <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
-                {summary.changes.map((change) => change.text).join(" · ")}
-              </span>
-            ) : null}
+            {summary ? <ChangeSummaryLine changes={summary.changes} /> : null}
             <button
               type="button"
               aria-expanded={adjusting}

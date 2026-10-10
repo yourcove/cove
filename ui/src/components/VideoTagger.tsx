@@ -36,7 +36,7 @@ import {
 } from "./ScrapeRelationChoices";
 import { invalidateVideoMetadataQueries } from "./videoMetadataQueryInvalidation";
 import { MetadataDiff, scalarStatus, summarizeDiff, type DiffSelection } from "./MetadataDiff";
-import { MetadataDiffSummary } from "./MetadataDiffSummary";
+import { ChangeSummaryLine, MetadataDiffSummary } from "./MetadataDiffSummary";
 import { ReviewCoverPanel } from "./ReviewCoverPanel";
 import { metadataServerLabel } from "./MetadataServerLinks";
 import {
@@ -58,6 +58,9 @@ import {
   DismissibleMenu,
   LookupAnnouncementRegion,
   LookupFailureLine,
+  refetchAnsweredLookupOnFocus,
+  useLookupAnsweredSinceSearch,
+  lookupWaitingNote,
 } from "./TaggerShared";
 import {
   Search,
@@ -197,6 +200,8 @@ interface VideoSearchState {
   error?: string;
   warning?: string;
   selectedIndex?: number;
+  /** When the row last started a search: a library lookup answered before then is asked again. */
+  searchedAt?: number;
   saved?: boolean;
   excludedPerformers?: Set<string>;
   excludedTags?: Set<string>;
@@ -295,6 +300,7 @@ class TaggerPreconditionError extends Error {}
 
 /** Where a row's library lookup stands: the tags, performers, studio and Apply wait for "ready". */
 type RelationLookupState = "ready" | "waiting" | "failed";
+const relationLookupQueryKey = (names: ResolveScrapeRelationsRequest) => ["tagger-resolve-relations", names];
 
 const LOOKUP_FAILED = "The library check failed, so nothing was applied. Retry it on this row.";
 const LOOKUP_NOT_ANSWERED = "The library check has not answered yet.";
@@ -1205,6 +1211,7 @@ export function VideoTagger({
       const query = getSourceQuery(video, source);
       updateSearchState(video.id, {
         loading: true,
+        searchedAt: Date.now(),
         error: undefined,
         warning: undefined,
         results: undefined,
@@ -1279,6 +1286,7 @@ export function VideoTagger({
     async (video: Video) => {
       updateSearchState(video.id, {
         loading: true,
+        searchedAt: Date.now(),
         error: undefined,
         warning: undefined,
         results: undefined,
@@ -1312,6 +1320,7 @@ export function VideoTagger({
     async (video: Video, endpoint: string, remoteId: string) => {
       updateSearchState(video.id, {
         loading: true,
+        searchedAt: Date.now(),
         error: undefined,
         warning: undefined,
         results: undefined,
@@ -1961,6 +1970,7 @@ function TaggerVideoRow({
     }
     return { tags: [...tags], performers: [...performers], studios: [...studios] };
   }, [lookupResult]);
+  const lookupKey = useMemo(() => relationLookupQueryKey(relationNamesToResolve), [relationNamesToResolve]);
   const lookupNeeded =
     relationNamesToResolve.tags.length > 0 ||
     relationNamesToResolve.performers.length > 0 ||
@@ -1969,33 +1979,41 @@ function TaggerVideoRow({
     data: resolvedRelations,
     isError: lookupErrored,
     isFetching: lookupFetching,
-    errorUpdateCount: lookupErrorCount,
+    errorUpdatedAt: lookupFailedAt,
+    dataUpdatedAt: lookupAnsweredAt,
     refetch: retryLookup,
   } = useQuery({
-    queryKey: ["tagger-resolve-relations", relationNamesToResolve],
+    queryKey: lookupKey,
     queryFn: () => resolveRelations(relationNamesToResolve),
     enabled: lookupNeeded,
     staleTime: 30_000,
     // Offline, a paused lookup would read as still checking with nothing to do about it; failing shows
     // the Retry, and the lookup asks again by itself once the browser is back online.
     networkMode: "always",
-    // A failed lookup has no answer to keep, so a refetch on window focus would put the row back to
-    // checking, and the page would announce the same failure again, every time the window is focused.
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: refetchAnsweredLookupOnFocus,
   });
+  const lookupOutdated = useLookupAnsweredSinceSearch(state?.searchedAt, {
+    queryKey: lookupKey,
+    needed: lookupNeeded,
+    data: resolvedRelations,
+    dataUpdatedAt: lookupAnsweredAt,
+    refetch: retryLookup,
+  });
+  const lookupAnswered = resolvedRelations !== undefined && !lookupOutdated;
   // The tags, performers and studio wait for the lookup's first answer for these names (a new search
   // asks again); a refetch after a link or an apply keeps the answer it replaces, so it does not hold
   // anything up. Until then the review cannot say what is new or what an alias lands on, and Apply
   // would send a guess.
   const relationLookup: RelationLookupState =
-    !lookupNeeded || resolvedRelations !== undefined
-      ? "ready"
-      : lookupErrored && !lookupFetching
-        ? "failed"
-        : "waiting";
-  // A failed lookup being asked again. The query reads as pending again while it is, so its error count is
-  // what says it failed; the row keeps the failure, and its Retry, on screen until the answer.
-  const lookupRetrying = lookupNeeded && resolvedRelations === undefined && lookupErrorCount > 0 && lookupFetching;
+    !lookupNeeded || lookupAnswered ? "ready" : lookupErrored && !lookupFetching ? "failed" : "waiting";
+  // A failed lookup being asked again. The query reads as pending again while it is, so a failure since its
+  // last answer and the row's search is what says it failed; the row keeps the failure, and its Retry, on
+  // screen until the answer.
+  const lookupRetrying =
+    lookupNeeded &&
+    !lookupAnswered &&
+    lookupFailedAt > Math.max(lookupAnsweredAt, state?.searchedAt ?? 0) &&
+    lookupFetching;
   const { waitForLookup, lookupSettled } = useLookupWaiters(
     relationLookup,
     relationNamesToResolve,
@@ -2927,12 +2945,7 @@ function TaggerResultRow({
     forceIncludedPerformers,
     !taggerConfig.onlyExistingPerformers,
   );
-  const lookupNote =
-    relationLookup === "waiting"
-      ? "Checking your library…"
-      : relationLookup === "failed"
-        ? "Not checked against your library"
-        : undefined;
+  const lookupNote = lookupWaitingNote(relationLookup);
   const reviewInput: TaggerReviewInput = {
     video,
     result,
@@ -3132,11 +3145,7 @@ function TaggerResultRow({
                 }}
               />
             ) : null}
-            {summary ? (
-              <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
-                {summary.changes.map((change) => change.text).join(" · ")}
-              </span>
-            ) : null}
+            {summary ? <ChangeSummaryLine changes={summary.changes} /> : null}
             <div className="ml-auto flex items-center gap-3">
               <button
                 type="button"

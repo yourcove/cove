@@ -4,7 +4,6 @@ import {
   diffListItems,
   renderDiffValue,
   scalarStatus,
-  CreateSourceButton,
   isOfferedItem,
   sourceAwaitsCreate,
   WaitingNote,
@@ -13,6 +12,16 @@ import {
   type DiffSelection,
   type DiffSide,
 } from "./MetadataDiff";
+
+/** A review footer's one-line change sentence. It is cut to the row's width, so the hover holds all of it. */
+export function ChangeSummaryLine({ changes }: { changes: { text: string }[] }) {
+  const text = changes.map((change) => change.text).join(" · ");
+  return (
+    <span title={text} className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
+      {text}
+    </span>
+  );
+}
 
 /**
  * The compact reading of a `MetadataDiff` selection: one line per field that changes, a check mark
@@ -48,7 +57,7 @@ export function MetadataDiffSummary({
       if (field.kind !== "list" || diffListItems(field, source, target).length > 0)
         rows.push(
           <SummaryRow key={field.key} tone="wait" label={field.label}>
-            <WaitingNote text={field.waiting} />
+            <WaitingNote note={field.waiting} />
           </SummaryRow>,
         );
       continue;
@@ -131,7 +140,7 @@ export function MetadataDiffSummary({
     const provenance = target.provenance?.[field.key];
     const keepLabel = status === "conflict" || status === "keptOnly" ? `Keep ${kept}` : "Keep empty";
     // An incoming value the library lacks is only offered, the way a new list item is: it takes the
-    // explicit create action to land.
+    // explicit create action in the full rows to land, as a new tag or performer is decided there too.
     if (sourceAwaitsCreate(field)) {
       rows.push(
         <SummaryRow
@@ -141,7 +150,6 @@ export function MetadataDiffSummary({
           how={[provenance, status === "conflict" ? `not in your library · keeping ${kept}` : "not in your library"]
             .filter(Boolean)
             .join(" · ")}
-          action={<CreateSourceButton field={field} value={source.values[field.key]} disabled={disabled} />}
         >
           <span className="text-muted">
             <ScalarValue value={source.values[field.key]} render={(value) => render(value, "source")} />

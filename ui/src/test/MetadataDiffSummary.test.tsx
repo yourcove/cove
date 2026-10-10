@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultDiffSelection, type DiffField, type DiffRecord, type DiffSelection } from "../components/MetadataDiff";
-import { MetadataDiffSummary } from "../components/MetadataDiffSummary";
+import { ChangeSummaryLine, MetadataDiffSummary } from "../components/MetadataDiffSummary";
 
 const fields: DiffField[] = [
   { key: "title", label: "Title" },
@@ -209,5 +209,15 @@ describe("MetadataDiffSummary", () => {
     ).toHaveAttribute("data-state", "left-out");
     expect(screen.getByText("Unchanged").closest("[data-tone]")).not.toHaveTextContent("URLs");
     expect(screen.queryByText("URLs")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChangeSummaryLine", () => {
+  it("keeps the whole sentence on hover, since the line is cut to the row's width", () => {
+    render(<ChangeSummaryLine changes={[{ text: "Title filled from StashDB" }, { text: "11 tags added (4 new)" }]} />);
+    expect(screen.getByText("Title filled from StashDB · 11 tags added (4 new)")).toHaveAttribute(
+      "title",
+      "Title filled from StashDB · 11 tags added (4 new)",
+    );
   });
 });

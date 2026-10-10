@@ -218,7 +218,7 @@ describe("MetadataDiff", () => {
 
   it("holds a waiting field, leaves the others usable, and keeps it out of the summary", () => {
     const waiting = fields.map((field) =>
-      field.key === "tags" || field.key === "description" ? { ...field, waiting: "Checking…" } : field,
+      field.key === "tags" || field.key === "description" ? { ...field, waiting: { text: "Checking…" } } : field,
     );
     const value = defaultDiffSelection(waiting, source, target);
     render(<MetadataDiff fields={waiting} source={source} target={target} value={value} onChange={() => {}} />);
@@ -233,6 +233,19 @@ describe("MetadataDiff", () => {
     expect(screen.getByLabelText("Title from source")).toBeEnabled();
     const texts = summarizeDiff(waiting, source, target, value).changes.map((change) => change.text);
     expect(texts.join(" ")).not.toMatch(/tag|Description/i);
+  });
+
+  it("does not read a field whose check failed as still in progress", () => {
+    const failed = fields.map((field) =>
+      field.key === "tags" ? { ...field, waiting: { text: "Not checked", failed: true } } : field,
+    );
+    const value = defaultDiffSelection(failed, source, target);
+    render(<MetadataDiff fields={failed} source={source} target={target} value={value} onChange={() => {}} />);
+    const row = screen.getByRole("group", { name: "Tags" });
+    expect(row).not.toHaveAttribute("aria-busy");
+    expect(row.querySelector(".animate-spin")).toBeNull();
+    expect(within(row).getByText("Not checked")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use combined Tags" })).toBeDisabled();
   });
 
   it("summarises what the selection will do", () => {

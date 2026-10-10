@@ -343,6 +343,27 @@ describe("PerformerTaggerReview", () => {
       expect(screen.getByTitle("Scraped as “Big Tits”")).toHaveTextContent("Big Breasts");
     });
 
+    it("says the other spelling came as well when the scrape also returned the library name", () => {
+      const review = buildPerformerReview(
+        aliased({
+          current: [],
+          incoming: ["Big Tits", "Big Breasts"],
+          existing: ["Big Tits", "Big Breasts"],
+          actions: { "big tits": "include", "big breasts": "include" },
+        }),
+      );
+      render(
+        <MetadataDiff
+          fields={review.fields.filter((field) => field.key === "tags")}
+          source={review.source}
+          target={review.target}
+          value={review.selection}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTitle("Also scraped as “Big Tits”")).toHaveTextContent("Big Breasts");
+    });
+
     it("toggles the scraped name the apply sends when the library tag's chip is toggled", () => {
       const base = aliased({ current: [] });
       const review = buildPerformerReview(base);

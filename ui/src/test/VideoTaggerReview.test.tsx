@@ -383,6 +383,21 @@ describe("VideoTaggerReview alias matches", () => {
     expect(selectorProps.at(-1)?.valueTitles).toEqual({ 2: "Scraped as “Tit Tease”" });
   });
 
+  it("says a current tag was also scraped under another name when the scrape returned its name too", () => {
+    const review = buildTaggerReview(
+      aliased({
+        video: { ...video, tags: [...video.tags, { id: 2, name: "Tit Worship" }] } as Video,
+        currentTagNames: ["Old tag", "Tit Worship"],
+        result: { ...result, tagNames: ["Tit Worship", "Tit Tease"], tagCandidates: [] } as MetadataServerVideoMatch,
+        tagMatchInfo: { "tit tease": "Tit Worship" },
+      }),
+    );
+    selectorProps.length = 0;
+    const tags = review.fields.find((field) => field.key === "tags")!;
+    render(<>{tags.renderList!(review.selection.tags as string[], vi.fn(), false)}</>);
+    expect(selectorProps.at(-1)?.valueTitles).toEqual({ 2: "Also scraped as “Tit Tease”" });
+  });
+
   it("keeps a performer counted as current but without a library id among the scraped ones", () => {
     // A match rule that marks a scraped performer current without saying which library performer it is.
     const ghost = { remoteId: "p-ghost", name: "Ghost", existsLocally: true };
@@ -462,6 +477,7 @@ describe("VideoTaggerReview alias matches", () => {
   });
 
   it("shows the scraped spelling only on hover, and not for a match that differs only in case", () => {
+    // The scrape returned the library name too (in other cases), so the other spelling came "also".
     const review = buildTaggerReview(
       aliased({
         result: {
@@ -477,7 +493,7 @@ describe("VideoTaggerReview alias matches", () => {
     expect(merged.scrapedAs).toEqual(["Tit Tease"]);
     const { container } = render(<>{tags.renderItem!(merged)}</>);
     expect(container.textContent).toContain("Tit Worship");
-    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Scraped as “Tit Tease”");
+    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Also scraped as “Tit Tease”");
     const caseOnly = { ...merged, scrapedAs: undefined };
     expect(render(<>{tags.renderItem!(caseOnly)}</>).container.querySelector("[title]")).toBeNull();
   });
@@ -1160,16 +1176,15 @@ describe("VideoTaggerReview studio", () => {
     return review;
   };
 
-  it("is not offered as a fill, and is created only through its Create action", async () => {
-    const onCreateStudio = vi.fn();
-    const review = renderStudio(input({ studioIsNew: true, createStudio: false, onCreateStudio }));
+  it("is not offered as a fill in the summary, which leaves Create to the full rows", () => {
+    const review = renderStudio(input({ studioIsNew: true, createStudio: false, onCreateStudio: vi.fn() }));
     // The mode still says "replace", but nothing would be set: the review must not claim otherwise.
     expect(review.selection.studio).toBe("target");
     expect(screen.getByText("not in your library")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Use StashDB" })).not.toBeInTheDocument();
     expect(screen.queryByText(/fills empty/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Studio: create “Studio X” and use it" }));
-    expect(onCreateStudio).toHaveBeenCalledOnce();
+    // New tags and performers are decided in the full rows; a new studio is too.
+    expect(screen.queryByRole("button", { name: /^Studio: create/ })).not.toBeInTheDocument();
   });
 
   it("cannot be picked as the incoming side in the full rows either", async () => {

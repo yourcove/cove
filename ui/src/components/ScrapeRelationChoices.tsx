@@ -7,6 +7,14 @@ export function relationKey(name: string) {
   return name.trim().toLowerCase();
 }
 
+/**
+ * The hover on a chip for the scraped names that landed on it under other spellings. "Also" when the
+ * scrape returned the chip's own name as well, so it does not read as if the source only had the others.
+ */
+export function scrapedAsTitle(names: string[], alsoAsLabel = false) {
+  return `${alsoAsLabel ? "Also scraped" : "Scraped"} as ${names.map((name) => `“${name}”`).join(", ")}`;
+}
+
 // relationKey(scraped name) -> the existing entity's primary name. Differs from the scraped name when
 // the match was via an alias; surfaced as the ScrapeRelationChoices tooltip so a match is never a mystery.
 export function buildMatchInfo(matches?: { input: string; matchedName: string }[]): Record<string, string> {

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -269,6 +269,7 @@ describe("VideoTagger", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
     const create = await screen.findByRole("button", { name: "Studio: create “Remote Studio” and use it" });
     if (expected.create) await userEvent.click(create);
     await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
@@ -926,6 +927,58 @@ describe("VideoTagger", () => {
       expect(asked.sort()).toEqual(["Tag 301", "Tag 302", "Tag 303"]);
     });
     expect(mocks.resolveRelations.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it("asks the library again for a re-searched row without sending another row with the same names back to checking", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const videos = [401, 402].map((id) => ({
+      id,
+      title: `Local video ${id}`,
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    })) as any;
+    // Both rows ask about the same name, so they share one lookup.
+    mocks.searchMetadataServer.mockImplementation((videoId: number) =>
+      Promise.resolve([
+        {
+          ...matchFor(videoId),
+          tagNames: ["Shared Tag"],
+          tagCandidates: [{ remoteId: "shared-tag", name: "Shared Tag", existsLocally: false }],
+        },
+      ]),
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={videos} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Search all" }));
+    await waitFor(() => expect(mocks.searchMetadataServer).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Apply \d+ changes?$/ })).toHaveLength(2));
+    await waitFor(() =>
+      screen.getAllByRole("button", { name: /^Apply \d+ changes?$/ }).forEach((button) => expect(button).toBeEnabled()),
+    );
+    expect(mocks.resolveRelations).toHaveBeenCalledOnce();
+
+    let release!: () => void;
+    mocks.resolveRelations.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ tags: [{ input: "Shared Tag", matchedName: "Library Tag" }], performers: [], studios: [] });
+        }),
+    );
+    await userEvent.click(screen.getAllByRole("button", { name: "Search for this text" })[1]);
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
+    // The re-searched row waits for the new answer; the other keeps the one it shows.
+    expect(screen.getByRole("button", { name: "Checking library…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Apply \d+ changes?$/ })).toBeEnabled();
+    release();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Apply \d+ changes?$/ })).toHaveLength(2));
+    expect(mocks.resolveRelations).toHaveBeenCalledTimes(2);
   });
 
   it("reports a failed save on the row it failed for, and saves the rest of the batch", async () => {
@@ -1735,9 +1788,18 @@ describe("VideoTagger", () => {
     return mocks.applyScrapeAttempt.mock.calls[0][1];
   };
 
+  // Create sits in the full rows only, as the decisions on new tags and performers do.
+  async function createStudioInAdjust(studioName: string) {
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+    await userEvent.click(await screen.findByRole("button", { name: `Studio: create “${studioName}” and use it` }));
+    await userEvent.click(screen.getByRole("button", { name: "Done adjusting" }));
+  }
+
   it("does not create a studio the library lacks unless the person chooses Create", async () => {
     await scrapeWithStudio();
     expect(await screen.findByText("not in your library")).toBeInTheDocument();
+    // The compact row only reads the studio as new; creating it is decided in Adjust….
+    expect(screen.queryByRole("button", { name: /^Studio: create/ })).not.toBeInTheDocument();
     const request = await applyRow();
     expect(request.createMissingStudio).toBe(false);
     // The studio is left alone rather than "replaced" with nothing, so the attempt records no studio.
@@ -1746,13 +1808,14 @@ describe("VideoTagger", () => {
 
   it("does not carry a Create choice over to another studio a new search returns", async () => {
     await scrapeWithStudio();
-    await userEvent.click(await screen.findByRole("button", { name: "Studio: create “Scraped Studio” and use it" }));
+    await createStudioInAdjust("Scraped Studio");
     mocks.createScrapeAttempt.mockResolvedValue({
       ...(await mocks.createScrapeAttempt.mock.results[0].value),
       id: "attempt-2",
       resultJson: JSON.stringify({ Title: "Scraped title", Studio: "Other Studio" }),
     });
     await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
     expect(await screen.findByRole("button", { name: "Studio: create “Other Studio” and use it" })).toBeInTheDocument();
     const request = await applyRow();
     expect(request.createMissingStudio).toBe(false);
@@ -1760,12 +1823,13 @@ describe("VideoTagger", () => {
 
   it("reviews a studio whose name is also an object member", async () => {
     await scrapeWithStudio("constructor");
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
     expect(await screen.findByRole("button", { name: "Studio: create “constructor” and use it" })).toBeInTheDocument();
   });
 
   it("creates a studio the library lacks once the person chooses Create", async () => {
     await scrapeWithStudio();
-    await userEvent.click(await screen.findByRole("button", { name: "Studio: create “Scraped Studio” and use it" }));
+    await createStudioInAdjust("Scraped Studio");
     expect(await screen.findByText("fills empty · new, will be created")).toBeInTheDocument();
     const request = await applyRow();
     expect(request.createMissingStudio).toBe(true);
@@ -1784,6 +1848,130 @@ describe("VideoTagger", () => {
     expect(within(studio as HTMLElement).queryByText("not in your library")).not.toBeInTheDocument();
     const request = await applyRow();
     expect(request.createMissingStudio).toBe(false);
+  });
+
+  it("asks the library again when the row is searched again, so a studio aliased since is matched", async () => {
+    await scrapeWithStudio();
+    expect(await screen.findByText("not in your library")).toBeInTheDocument();
+    // The studio gets the scraped name as an alias elsewhere; the same search returns the same names.
+    mocks.resolveRelations.mockResolvedValue({
+      tags: [],
+      performers: [],
+      studios: [{ input: "Scraped Studio", matchedName: "Library Studio" }],
+    });
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    expect(await screen.findByText("Library Studio")).toBeInTheDocument();
+    expect(screen.queryByText("not in your library")).not.toBeInTheDocument();
+    expect(mocks.resolveRelations).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks the library again for another result chosen after a re-search, whose answer predates it", async () => {
+    const result = (id: string, title: string, tag: string) => ({
+      ...matchFor(123),
+      id,
+      title,
+      tagNames: [tag],
+      tagCandidates: [{ remoteId: tag, name: tag, existsLocally: false }],
+    });
+    mocks.findMetadataServerByIds.mockImplementation(() =>
+      Promise.resolve([
+        result("first-video-id", "First result", "Tag A"),
+        result("second-video-id", "Second result", "Tag B"),
+      ]),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+    const choose = async (name: string) => {
+      const more = screen.queryByRole("button", { name: /other match/i });
+      if (more) await userEvent.click(more);
+      await userEvent.click(await screen.findByRole("button", { name }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+    };
+    const refresh = async () => {
+      await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+    };
+    // Both results answered once, then the row is searched again on the first.
+    await refresh();
+    await choose("Use Second result");
+    await choose("Use First result");
+    expect(mocks.resolveRelations).toHaveBeenCalledTimes(2);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await refresh();
+    expect(mocks.resolveRelations).toHaveBeenCalledTimes(3);
+    // The second result's answer is from before this search too, so choosing it asks again.
+    await choose("Use Second result");
+    expect(mocks.resolveRelations).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not show a re-search's check as a retry because an earlier lookup once failed", async () => {
+    mocks.resolveRelations.mockRejectedValueOnce(new Error("lookup failed"));
+    await scrapeWithStudio();
+    const failure = await screen.findByText("Couldn't check which of these are in your library.");
+    await userEvent.click(within(failure.parentElement!).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    let answer!: () => void;
+    mocks.resolveRelations.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = () => resolve({ tags: [], performers: [], studios: [] }))),
+    );
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText("Checking your library again…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Checking library…" })).toBeDisabled();
+    answer();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+  });
+
+  it("asks the library again on window focus once its answer is old, but not after a failure", async () => {
+    await scrapeWithStudio();
+    expect(await screen.findByText("not in your library")).toBeInTheDocument();
+    const refocus = () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    };
+    try {
+      // Thirty seconds on, the answer is old, and focusing the window asks again.
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [],
+        performers: [],
+        studios: [{ input: "Scraped Studio", matchedName: "Library Studio" }],
+      });
+      refocus();
+      expect(await screen.findByText("Library Studio")).toBeInTheDocument();
+      expect(mocks.resolveRelations).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  it("does not put a failed lookup back to checking when the window is focused", async () => {
+    mocks.resolveRelations.mockRejectedValue(new Error("lookup failed"));
+    await scrapeWithStudio();
+    expect(await screen.findByText("Couldn't check which of these are in your library.")).toBeInTheDocument();
+    try {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(mocks.resolveRelations).toHaveBeenCalledOnce();
+    } finally {
+      focusManager.setFocused(undefined);
+    }
   });
 
   it("keeps a saved choice to create missing studios", async () => {

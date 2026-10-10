@@ -27,13 +27,16 @@ import {
   TaggerSettingsPanel,
   LookupAnnouncementRegion,
   LookupFailureLine,
+  refetchAnsweredLookupOnFocus,
+  useLookupAnsweredSinceSearch,
+  lookupWaitingNote,
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
 import { Search, Loader2, Check, AlertCircle, CloudUpload, Fingerprint } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { MetadataDiff, scalarStatus, summarizeDiff, type DiffSelection } from "./MetadataDiff";
-import { MetadataDiffSummary } from "./MetadataDiffSummary";
+import { ChangeSummaryLine, MetadataDiffSummary } from "./MetadataDiffSummary";
 import { metadataServerLabel } from "./MetadataServerLinks";
 import { ReviewCoverPanel } from "./ReviewCoverPanel";
 import {
@@ -63,6 +66,8 @@ interface PerformerSearchState {
   results?: UnifiedPerformerMatch[];
   error?: string;
   selectedIndex?: number;
+  /** When the row last started a search: a library lookup answered before then is asked again. */
+  searchedAt?: number;
   saved?: boolean;
   fieldStrategies?: Record<string, PerformerFieldStrategy>;
   collectionModes?: Record<string, CollectionMode>;
@@ -338,6 +343,7 @@ function buildPerformerFieldStrategies(
 
 /** Where a row's tag lookup stands: the tags row and Apply wait for "ready". */
 type PerformerTagLookup = "ready" | "waiting" | "failed";
+const tagLookupQueryKey = (names: string[]) => ["performer-tagger-resolve-relations", names];
 
 /** Each scraped tag's action: the person's own choice, else the default for the library as it stands. */
 function getPerformerTagActions(
@@ -511,6 +517,7 @@ export function PerformerTagger({
       const query = getQuery(performer);
       updateSearchState(performer.id, {
         loading: true,
+        searchedAt: Date.now(),
         error: undefined,
         results: undefined,
         saved: false,
@@ -717,30 +724,42 @@ function PerformerTaggerRow({
     () => [...new Set((state?.results ?? []).flatMap((result) => result.scraped?.tagNames ?? []))],
     [state?.results],
   );
+  const lookupKey = useMemo(() => tagLookupQueryKey(scrapedTagNames), [scrapedTagNames]);
   const lookupNeeded = scrapedTagNames.length > 0;
   const {
     data: resolvedRelations,
     isError: lookupErrored,
     isFetching: lookupFetching,
-    errorUpdateCount: lookupErrorCount,
+    errorUpdatedAt: lookupFailedAt,
+    dataUpdatedAt: lookupAnsweredAt,
+    refetch: refetchLookup,
   } = useQuery({
-    queryKey: ["performer-tagger-resolve-relations", scrapedTagNames],
+    queryKey: lookupKey,
     queryFn: () => resolveRelations({ tags: scrapedTagNames, performers: [], studios: [] }),
     enabled: lookupNeeded,
     staleTime: 30_000,
-    // As in the video tagger: offline it fails into Retry rather than reading as still checking, and a
-    // failed lookup is not put back to checking each time the window is focused.
+    // As in the video tagger: offline it fails into Retry rather than reading as still checking, and only
+    // an answered lookup is refreshed when the window is focused.
     networkMode: "always",
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: refetchAnsweredLookupOnFocus,
   });
-  // The tags row and Apply wait for the first answer for these names; a refetch after an apply keeps it.
+  const lookupOutdated = useLookupAnsweredSinceSearch(state?.searchedAt, {
+    queryKey: lookupKey,
+    needed: lookupNeeded,
+    data: resolvedRelations,
+    dataUpdatedAt: lookupAnsweredAt,
+    refetch: refetchLookup,
+  });
+  const lookupAnswered = resolvedRelations !== undefined && !lookupOutdated;
+  // The tags row and Apply wait for the first answer for these names since the search; a refetch after an
+  // apply keeps it.
   const tagLookup: PerformerTagLookup =
-    !lookupNeeded || resolvedRelations !== undefined
-      ? "ready"
-      : lookupErrored && !lookupFetching
-        ? "failed"
-        : "waiting";
-  const tagLookupRetrying = lookupNeeded && resolvedRelations === undefined && lookupErrorCount > 0 && lookupFetching;
+    !lookupNeeded || lookupAnswered ? "ready" : lookupErrored && !lookupFetching ? "failed" : "waiting";
+  const tagLookupRetrying =
+    lookupNeeded &&
+    !lookupAnswered &&
+    lookupFailedAt > Math.max(lookupAnsweredAt, state?.searchedAt ?? 0) &&
+    lookupFetching;
   const existingTagNames = useMemo(
     () => (resolvedRelations?.tags ?? []).map((match) => match.input),
     [resolvedRelations],
@@ -751,7 +770,14 @@ function PerformerTaggerRow({
   const refreshFromRemote = useCallback(
     async (endpoint: string, remoteId: string) => {
       setRefreshBusyEndpoint(endpoint);
-      onUpdateState({ loading: true, error: undefined, results: undefined, saved: false, ...CLEARED_DECISIONS });
+      onUpdateState({
+        loading: true,
+        searchedAt: Date.now(),
+        error: undefined,
+        results: undefined,
+        saved: false,
+        ...CLEARED_DECISIONS,
+      });
       try {
         const matches = await performers.findMetadataServerByIds({ endpoint, ids: [remoteId] });
         onUpdateState({
@@ -1177,12 +1203,7 @@ function PerformerResultRow({
     },
     createMissingTags,
     onCollectionModeChange,
-    tagsWaiting:
-      tagLookup === "waiting"
-        ? "Checking your library…"
-        : tagLookup === "failed"
-          ? "Not checked against your library"
-          : undefined,
+    tagsWaiting: lookupWaitingNote(tagLookup),
   };
   const review = isSelected ? buildPerformerReview(reviewInput) : null;
   const summary = review ? summarizeDiff(review.fields, review.source, review.target, review.selection) : null;
@@ -1314,11 +1335,7 @@ function PerformerResultRow({
                     : "Apply"}
               </button>
             )}
-            {summary ? (
-              <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted sm:inline">
-                {summary.changes.map((change) => change.text).join(" · ")}
-              </span>
-            ) : null}
+            {summary ? <ChangeSummaryLine changes={summary.changes} /> : null}
             <button
               type="button"
               aria-expanded={adjusting}

@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronUp, Loader2, Plus, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, CircleSlash, Loader2, Plus, X } from "lucide-react";
 
 /**
  * Generic two-sided review: the user compares a kept record against an incoming one and decides,
@@ -86,9 +86,16 @@ export interface DiffField {
   onCreateSource?: () => void;
   /**
    * The owner does not know this field's outcome yet (it is still checking something the field depends
-   * on), so the field cannot be changed, is left out of the summary, and shows this note as its outcome.
+   * on, or that check failed), so the field cannot be changed, is left out of the summary, and shows this
+   * note as its outcome.
    */
-  waiting?: string;
+  waiting?: WaitingNoteState;
+}
+
+export interface WaitingNoteState {
+  text: string;
+  /** The check stopped without an answer: nothing is in progress until it is asked again. */
+  failed?: boolean;
 }
 
 /** The incoming side of a scalar can only be reached through its create action. */
@@ -495,7 +502,7 @@ function ScalarRow({
   };
   // Nothing lands while the incoming value waits to be created, whatever the plain comparison says.
   const pill = field.waiting ? (
-    <WaitingNote text={field.waiting} />
+    <WaitingNote note={field.waiting} />
   ) : awaitsCreate ? (
     <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-muted">
       Not in your library
@@ -506,7 +513,7 @@ function ScalarRow({
   return (
     <fieldset
       disabled={disabled}
-      aria-busy={field.waiting ? true : undefined}
+      aria-busy={field.waiting && !field.waiting.failed ? true : undefined}
       className="grid grid-cols-1 gap-2 py-3 md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_190px] md:gap-3"
     >
       <legend className="sr-only">{field.label}</legend>
@@ -538,15 +545,7 @@ function ScalarRow({
 }
 
 /** The explicit way to an incoming value the library does not have yet (see `onCreateSource`). */
-export function CreateSourceButton({
-  field,
-  value,
-  disabled,
-}: {
-  field: DiffField;
-  value: unknown;
-  disabled: boolean;
-}) {
+function CreateSourceButton({ field, value, disabled }: { field: DiffField; value: unknown; disabled: boolean }) {
   const name = String(value ?? "");
   return (
     <button
@@ -710,7 +709,7 @@ function ListRow({
   return (
     <fieldset
       disabled={disabled}
-      aria-busy={field.waiting ? true : undefined}
+      aria-busy={field.waiting && !field.waiting.failed ? true : undefined}
       className="grid grid-cols-1 gap-2 py-3 md:grid-cols-[150px_minmax(0,1fr)_190px] md:gap-3"
     >
       <legend className="sr-only">{field.label}</legend>
@@ -718,7 +717,7 @@ function ListRow({
         <span className="text-sm font-semibold">{field.label}</span>
         <span className="text-[11px] text-secondary">
           {field.waiting ? (
-            <WaitingNote text={field.waiting} />
+            <WaitingNote note={field.waiting} />
           ) : counts.length ? (
             counts.map((count, index) => (
               <span key={index}>
@@ -800,11 +799,15 @@ function ListRow({
 }
 
 /** A field's outcome while its owner is still finding it out. */
-export function WaitingNote({ text }: { text: string }) {
+export function WaitingNote({ note }: { note: WaitingNoteState }) {
   return (
     <span className="inline-flex items-center gap-1 text-[11px] text-muted">
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
-      {text}
+      {note.failed ? (
+        <CircleSlash className="h-3 w-3 shrink-0" aria-hidden="true" />
+      ) : (
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
+      )}
+      {note.text}
     </span>
   );
 }

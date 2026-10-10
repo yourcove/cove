@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   AlertCircle,
   Check,
@@ -672,6 +672,54 @@ export function LookupFailureLine({
     </span>
   );
 }
+
+/**
+ * A row's library lookup is cached by the names it asks about, and rows asking about the same names share
+ * it, so a new search returning the same names would reuse an answer that misses a tag, studio or alias
+ * added since. An answer older than the row's search (`searchedAt`) is therefore no answer for that row: it
+ * asks once more, without cancelling a request already on its way, and waits as it does for a first answer.
+ * The other rows keep the answer they show until the new one arrives. It asks once per search and set of
+ * names, since choosing another result after the search can bring another outdated answer. Returns whether
+ * the row is waiting so.
+ */
+export function useLookupAnsweredSinceSearch(
+  searchedAt: number | undefined,
+  lookup: {
+    queryKey: QueryKey;
+    needed: boolean;
+    data: unknown;
+    dataUpdatedAt: number;
+    refetch: (options: { cancelRefetch: boolean }) => unknown;
+  },
+) {
+  const outdated =
+    lookup.needed && lookup.data !== undefined && searchedAt !== undefined && lookup.dataUpdatedAt < searchedAt;
+  const asking = outdated ? `${searchedAt}:${hashKey(lookup.queryKey)}` : undefined;
+  const askedFor = useRef<string | undefined>(undefined);
+  const { refetch } = lookup;
+  useEffect(() => {
+    if (!asking || askedFor.current === asking) return;
+    askedFor.current = asking;
+    void refetch({ cancelRefetch: false });
+  }, [asking, refetch]);
+  return outdated;
+}
+
+/**
+ * The lookup's refetch on window focus, so a tag, studio or alias added in another tab is seen. Only a lookup
+ * whose last request answered is refreshed, and it keeps that answer meanwhile: a failed one would go back
+ * to checking, and the page would announce the same failure again, every time the window is focused. A
+ * failed one is asked again by its Retry or the row's next search.
+ */
+export const refetchAnsweredLookupOnFocus = (query: { state: { status: string } }) => query.state.status === "success";
+
+/** The note a row waiting on its library lookup shows in place of the rows it holds. */
+export const lookupWaitingNote = (lookup: "ready" | "waiting" | "failed") =>
+  lookup === "waiting"
+    ? { text: "Checking your library…" }
+    : lookup === "failed"
+      ? { text: "Not checked against your library", failed: true }
+      : undefined;
 
 /** How long the lookups must stay quiet before the page says how checking went, so rows finishing one after another are one message. */
 const LOOKUP_ANNOUNCEMENT_DELAY_MS = 500;

@@ -1,7 +1,7 @@
-import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import { relationKey, scrapedAsTitle, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
 import { collectionPresetHooks, idsForMode, modeForSelection, presetIncomingIds, sameSet } from "./VideoTaggerReview";
-import { type DiffField, type DiffRecord, type DiffSelection } from "./MetadataDiff";
+import { type DiffField, type DiffRecord, type DiffSelection, type WaitingNoteState } from "./MetadataDiff";
 
 /**
  * Adapts the performer tagger's decision state (per-field strategies, collection modes, per-tag
@@ -52,7 +52,7 @@ export interface PerformerReviewInput {
    * Set while the tagger is still asking the server which scraped tags are in the library: the tags row
    * cannot be changed and says this instead of an outcome, since which tags are new is not known yet.
    */
-  tagsWaiting?: string;
+  tagsWaiting?: WaitingNoteState;
   /**
    * Sets a collection's mode directly, for a preset that selects exactly what another one does: the
    * selection cannot say which of them was meant.
@@ -73,6 +73,8 @@ interface ReviewItem {
   isNew: boolean;
   /** Scraped spellings that land on this library tag under another name. */
   scrapedAs?: string[];
+  /** The scrape also returned the label itself, besides the names in `scrapedAs`. */
+  scrapedAsLabelToo?: boolean;
 }
 
 const itemKey = (value: unknown) => (value as ReviewItem).id;
@@ -80,7 +82,7 @@ const itemLabel = (value: unknown) => (value as ReviewItem).label;
 const renderItem = (value: unknown) => {
   const entry = value as ReviewItem;
   if (!entry.scrapedAs) return entry.label;
-  const title = `Scraped as ${entry.scrapedAs.map((name) => `“${name}”`).join(", ")}`;
+  const title = scrapedAsTitle(entry.scrapedAs, entry.scrapedAsLabelToo);
   return (
     <span title={title}>
       {entry.label}
@@ -123,6 +125,7 @@ function tagItems(input: PerformerReviewInput) {
     label: group.label,
     isNew: !currentIds.has(id) && !group.members.some((key) => existing.has(key)),
     scrapedAs: group.scrapedAs.length > 0 ? group.scrapedAs : undefined,
+    scrapedAsLabelToo: group.scrapedAs.length > 0 && group.scrapedAs.length < group.members.length,
   }));
   const included = [...groups]
     .filter(([, group]) => group.members.some((key) => input.tags.actions[key] !== "exclude"))

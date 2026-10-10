@@ -17,7 +17,7 @@ import {
   type EntityReferenceOption,
 } from "./EntityReferenceSelector";
 import { metadataServerLabel } from "./MetadataServerLinks";
-import { relationKey, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import { relationKey, scrapedAsTitle, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import type { CollectionMode } from "./videoScrapeUtils";
 import {
   renderDiffValue,
@@ -25,6 +25,7 @@ import {
   type DiffListMode,
   type DiffRecord,
   type DiffSelection,
+  type WaitingNoteState,
 } from "./MetadataDiff";
 
 /**
@@ -68,7 +69,7 @@ export interface TaggerReviewInput {
    * The rows whose outcome the tagger cannot say yet (it is still asking the library which scraped items it
    * has), each with the note it shows instead; those rows cannot be changed meanwhile.
    */
-  relationsWaiting?: Partial<Record<"studio" | TaggerRelationshipKey, string>>;
+  relationsWaiting?: Partial<Record<"studio" | TaggerRelationshipKey, WaitingNoteState>>;
   showStudio: boolean;
   /** The scraped studio is not in the library. False while that is not known yet. */
   studioIsNew?: boolean;
@@ -162,6 +163,8 @@ export interface ReviewItem {
   isNew: boolean;
   /** The scraped names behind this item that differ from its label, which is the library entity's. */
   scrapedAs?: string[];
+  /** The scrape also returned the label itself, besides the names in `scrapedAs`. */
+  scrapedAsLabelToo?: boolean;
   /** The library entity behind this item, when known: the selector edits it by this id. */
   localId?: number;
   /** On the current side (a matched scraped item is on both). */
@@ -205,15 +208,15 @@ const item = (id: string, label: string, isNew = false, scrapedAs?: string[], lo
 const itemKey = (value: unknown) => (value as ReviewItem).id;
 const itemLabel = (value: unknown) => (value as ReviewItem).label;
 const itemIsNew = (value: unknown) => (value as ReviewItem).isNew;
-const scrapedAsTitle = (entry: ReviewItem) =>
-  entry.scrapedAs ? `Scraped as ${entry.scrapedAs.map((name) => `“${name}”`).join(", ")}` : undefined;
+const itemScrapedAsTitle = (entry: ReviewItem) =>
+  entry.scrapedAs ? scrapedAsTitle(entry.scrapedAs, entry.scrapedAsLabelToo) : undefined;
 // The library name is the tag the video gets; the scraped spelling stays out of the way, on hover.
 const renderItem = (value: unknown) => {
   const entry = value as ReviewItem;
   return entry.scrapedAs ? (
-    <span title={scrapedAsTitle(entry)}>
+    <span title={itemScrapedAsTitle(entry)}>
       {entry.label}
-      <span className="sr-only"> ({scrapedAsTitle(entry)})</span>
+      <span className="sr-only"> ({itemScrapedAsTitle(entry)})</span>
     </span>
   ) : (
     entry.label
@@ -291,19 +294,24 @@ function tagItems(input: TaggerReviewInput) {
   }
   // A tag the video has, which the scrape also returned under another name, says so on hover too.
   const currentWithScrapedAs = current.map((tag) => {
-    const scrapedAs = groups.get(tag.id)?.names.filter((name) => relationKey(name) !== tag.id);
-    return scrapedAs?.length ? { ...tag, scrapedAs } : tag;
+    const names = groups.get(tag.id)?.names ?? [];
+    const scrapedAs = names.filter((name) => relationKey(name) !== tag.id);
+    return scrapedAs.length ? { ...tag, scrapedAs, scrapedAsLabelToo: scrapedAs.length < names.length } : tag;
   });
   const incoming = byLabel(
     [...groups].map(([id, { label, names }]) => {
       const localId = names.map((name) => candidates.get(relationKey(name))?.localId).find((value) => value != null);
-      return item(
-        id,
-        label,
-        !currentIds.has(id) && !names.some((name) => existing.has(relationKey(name))),
-        names.filter((name) => relationKey(name) !== id),
-        localId ?? localIds.get(id),
-      );
+      const scrapedAs = names.filter((name) => relationKey(name) !== id);
+      return {
+        ...item(
+          id,
+          label,
+          !currentIds.has(id) && !names.some((name) => existing.has(relationKey(name))),
+          scrapedAs,
+          localId ?? localIds.get(id),
+        ),
+        scrapedAsLabelToo: scrapedAs.length > 0 && scrapedAs.length < names.length,
+      };
     }),
   );
   const nameIncluded = (name: string) => input.tagActions[relationKey(name)] !== "exclude";
@@ -482,7 +490,7 @@ function RelationshipEditor({
   const lockedIds = current.filter((entry) => entry.locked).map((entry) => entry.localId!);
   const valueTitles = Object.fromEntries(
     current.flatMap((entry) => {
-      const title = scrapedAsTitle(entry);
+      const title = itemScrapedAsTitle(entry);
       return title ? [[entry.localId!, title]] : [];
     }),
   );

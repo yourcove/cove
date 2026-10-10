@@ -269,6 +269,23 @@ describe("PerformerTagger", () => {
       expect(mocks.applyScraped.mock.calls[0][1].scraped.tagNames).toEqual(["Brand New"]);
     });
 
+    it("asks the server again when the row is searched again, so a tag aliased since is matched", async () => {
+      mocks.resolveRelations.mockResolvedValue({ tags: [], performers: [], studios: [] });
+      await search();
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [{ input: "Big Tits", matchedName: "Big Breasts" }],
+        performers: [],
+        studios: [],
+      });
+      await userEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+      await waitFor(() => expect(mocks.resolveRelations).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Apply/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole("button", { name: /^Apply/ }));
+      await waitFor(() => expect(mocks.applyScraped).toHaveBeenCalledOnce());
+      expect(mocks.applyScraped.mock.calls[0][1].scraped.tagNames).toContain("Big Tits");
+    });
+
     it("holds Apply until the server answers, and offers Retry when it fails", async () => {
       let fail!: (error: Error) => void;
       mocks.resolveRelations.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
