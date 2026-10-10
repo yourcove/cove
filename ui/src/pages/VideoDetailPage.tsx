@@ -55,7 +55,7 @@ import {
   CloudUpload,
   Glasses,
 } from "lucide-react";
-import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense, type CSSProperties } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoveVideoFileDialog } from "../components/MoveVideoFileDialog";
 import { VideoAlignmentDialog } from "../components/VideoAlignmentDialog";
@@ -1283,9 +1283,21 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
       })()
     ) : null;
 
+  // Below lg the media column stacks above the details, so size the player to the file instead of a
+  // fixed viewport share; otherwise a landscape video leaves an empty black band under it. The 70vh cap
+  // keeps portrait videos from pushing the details off screen. The ratio goes through a CSS variable
+  // because an inline aspect-ratio cannot be limited to a breakpoint. The player is pinned inside the
+  // box rather than relying on h-full resolving against an aspect-ratio height.
+  const playerAspectRatio = file?.width && file?.height ? `${file.width} / ${file.height}` : "16 / 9";
   const videoMedia = (
     <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
-      <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
+      <div
+        className={`flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black ${
+          file ? "max-lg:relative max-lg:aspect-(--video-aspect-ratio) max-lg:max-h-[70vh]" : ""
+        }`}
+        style={file ? ({ "--video-aspect-ratio": playerAspectRatio } as CSSProperties) : undefined}
+        data-testid="video-detail-player-area"
+      >
         {alternateFileId != null && (
           <div className="absolute z-20 flex w-full items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-black">
             <span>Playing alternate file. Timed overlays are hidden because they use the primary timeline.</span>
@@ -1295,61 +1307,63 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
           </div>
         )}
         {file ? (
-          <VideoPlayer
-            // Intentionally NOT keyed by id: the player stays mounted across queue advances so the
-            // fullscreen container (containerRef lives inside VideoPlayer) survives, keeping fullscreen
-            // when you hit next. The player resets its per-video state on the videoId change and the
-            // source-change effect calls video.load() (releasing the old stream); on unmount the cleanup
-            // effect fully tears the connection down.
-            streamUrl={streamUrl}
-            posterUrl={alternateFileId == null ? videos.screenshotUrl(video.id, video.updatedAt) : undefined}
-            format={file.format}
-            duration={file.duration}
-            videoCodec={file.videoCodec}
-            audioCodec={file.audioCodec}
-            resumeTime={alternateFileId == null ? effectiveVideoResumeTime : undefined}
-            seekTo={alternateFileId == null ? initialSeekTo : undefined}
-            clip={
-              alternateFileId == null && video.parentVideoId != null
-                ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false }
-                : undefined
-            }
-            videoId={video.id}
-            fileId={alternateFileId ?? undefined}
-            extensionSurface="detail"
-            detections={alternateFileId == null ? detections : []}
-            segments={alternateFileId == null ? segments : []}
-            faces={videoFaces.map(({ face }) => face)}
-            captions={file.captions}
-            videoStyle={videoStyle}
-            vr={video.vr}
-            vrTitle={video.title || file.basename}
-            onSeekRegister={(fn) => {
-              seekRef.current = fn;
-            }}
-            onTimeUpdate={setVideoTime}
-            autostart={config?.ui.autostartVideo}
-            showAbLoop={config?.ui.showAbLoopControls}
-            trackingEnabled={trackPlaybackActivity && alternateFileId == null}
-            suspended={alignmentDialogOpen}
-            onEnded={() => {
-              if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo();
-            }}
-            onPrev={
-              queueSyncedToVideo && hasPrev
-                ? () => {
-                    void navigatePreviousVideo();
-                  }
-                : undefined
-            }
-            onNext={
-              queueSyncedToVideo && hasNext
-                ? () => {
-                    void navigateNextVideo();
-                  }
-                : undefined
-            }
-          />
+          <div className="flex min-h-0 min-w-0 flex-1 max-lg:absolute max-lg:inset-0">
+            <VideoPlayer
+              // Intentionally NOT keyed by id: the player stays mounted across queue advances so the
+              // fullscreen container (containerRef lives inside VideoPlayer) survives, keeping fullscreen
+              // when you hit next. The player resets its per-video state on the videoId change and the
+              // source-change effect calls video.load() (releasing the old stream); on unmount the cleanup
+              // effect fully tears the connection down.
+              streamUrl={streamUrl}
+              posterUrl={alternateFileId == null ? videos.screenshotUrl(video.id, video.updatedAt) : undefined}
+              format={file.format}
+              duration={file.duration}
+              videoCodec={file.videoCodec}
+              audioCodec={file.audioCodec}
+              resumeTime={alternateFileId == null ? effectiveVideoResumeTime : undefined}
+              seekTo={alternateFileId == null ? initialSeekTo : undefined}
+              clip={
+                alternateFileId == null && video.parentVideoId != null
+                  ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false }
+                  : undefined
+              }
+              videoId={video.id}
+              fileId={alternateFileId ?? undefined}
+              extensionSurface="detail"
+              detections={alternateFileId == null ? detections : []}
+              segments={alternateFileId == null ? segments : []}
+              faces={videoFaces.map(({ face }) => face)}
+              captions={file.captions}
+              videoStyle={videoStyle}
+              vr={video.vr}
+              vrTitle={video.title || file.basename}
+              onSeekRegister={(fn) => {
+                seekRef.current = fn;
+              }}
+              onTimeUpdate={setVideoTime}
+              autostart={config?.ui.autostartVideo}
+              showAbLoop={config?.ui.showAbLoopControls}
+              trackingEnabled={trackPlaybackActivity && alternateFileId == null}
+              suspended={alignmentDialogOpen}
+              onEnded={() => {
+                if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo();
+              }}
+              onPrev={
+                queueSyncedToVideo && hasPrev
+                  ? () => {
+                      void navigatePreviousVideo();
+                    }
+                  : undefined
+              }
+              onNext={
+                queueSyncedToVideo && hasNext
+                  ? () => {
+                      void navigateNextVideo();
+                    }
+                  : undefined
+              }
+            />
+          </div>
         ) : (
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
         )}
@@ -1587,6 +1601,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         media={videoMedia}
         mediaAspectRatio="auto"
         mediaFullBleed
+        mediaSizesItselfOnMobile
         mediaSticky={false}
         tabs={tabs}
         activeTab={activeTab}

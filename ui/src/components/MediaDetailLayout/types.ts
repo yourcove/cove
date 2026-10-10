@@ -59,6 +59,10 @@ export interface MediaDetailLayoutProps {
   // without an aspect-ratio container. Use for video players that should fill
   // the available column height naturally.
   mediaFullBleed?: boolean;
+  // When true, the stacked (below lg) layout does not reserve a minimum media
+  // height. Use when the media node sizes itself, e.g. to its aspect ratio, so
+  // the column does not leave empty space below it.
+  mediaSizesItselfOnMobile?: boolean;
   // Optional content rendered above the title (e.g., studio logo).
   headerImage?: ReactNode;
   tabs?: MediaDetailTab[];

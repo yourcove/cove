@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoDetailPage } from "../pages/VideoDetailPage";
@@ -56,6 +56,7 @@ vi.mock("../components/CoverImageDialog", () => ({
 vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
   const MockMediaDetailLayout = ({
     media,
+    mediaSizesItselfOnMobile,
     actions,
     tabs,
     activeTab,
@@ -63,6 +64,7 @@ vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
     children,
   }: {
     media: ReactElement<{ children?: ReactNode }>;
+    mediaSizesItselfOnMobile?: boolean;
     actions?: ReactNode;
     tabs: { key: string; label: string }[];
     activeTab: string;
@@ -80,7 +82,9 @@ vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
           ))}
         </div>
         {actions}
-        {mediaChildren[0]}
+        <div data-testid="video-detail-media" data-sizes-itself-on-mobile={String(Boolean(mediaSizesItselfOnMobile))}>
+          {mediaChildren[0]}
+        </div>
         {activeTab === "edit" || activeTab === "file-info" ? children : null}
       </>
     );
@@ -270,6 +274,66 @@ describe("VideoDetailPage media-player extension surface", () => {
         extensionSurface: "detail",
       }),
     );
+  });
+
+  it("sizes the mobile player area to the playing file's aspect ratio", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Portrait video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{ format: "mp4", duration: 120, width: 1080, height: 1920, frameRate: 30, captions: [] }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    const media = await screen.findByTestId("video-detail-media");
+    expect(media).toHaveAttribute("data-sizes-itself-on-mobile", "true");
+    const playerArea = await screen.findByTestId("video-detail-player-area");
+    expect(playerArea.style.getPropertyValue("--video-aspect-ratio")).toBe("1080 / 1920");
+    expect(playerArea).toHaveClass("max-lg:aspect-(--video-aspect-ratio)");
+    expect(within(playerArea).getByTestId("video-detail-player").parentElement).toHaveClass("max-lg:absolute");
+  });
+
+  it("falls back to a 16:9 mobile player area when the file has no dimensions", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Unprobed video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{ format: "mp4", duration: 120, width: 0, height: 0, frameRate: 30, captions: [] }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    const playerArea = await screen.findByTestId("video-detail-player-area");
+    expect(playerArea.style.getPropertyValue("--video-aspect-ratio")).toBe("16 / 9");
+  });
+
+  it("does not size the mobile player area when there is no file", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Missing media",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    const playerArea = await screen.findByTestId("video-detail-player-area");
+    expect(playerArea).toHaveTextContent("No video file available");
+    expect(playerArea).not.toHaveClass("max-lg:aspect-(--video-aspect-ratio)");
+    expect(playerArea.style.getPropertyValue("--video-aspect-ratio")).toBe("");
   });
 
   it("constrains sub-video playback to its parent clip range", async () => {

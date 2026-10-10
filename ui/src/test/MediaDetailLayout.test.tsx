@@ -208,6 +208,52 @@ describe("MediaDetailLayout", () => {
     expect(screen.getByTestId("media-detail-layout-media")).toHaveClass("xl:sticky");
   });
 
+  it("reserves a minimum mobile media height by default", () => {
+    render(
+      <MediaDetailLayout title="Video Title" media={<div>Player Surface</div>} mediaAspectRatio="auto">
+        <MediaDetailLayout.Content>
+          <div>Body content</div>
+        </MediaDetailLayout.Content>
+      </MediaDetailLayout>,
+    );
+
+    expect(screen.getByTestId("media-detail-layout-media")).toHaveClass("min-h-[45vh]");
+  });
+
+  it("lets media that sizes itself skip the minimum mobile height", () => {
+    render(
+      <MediaDetailLayout
+        title="Video Title"
+        media={<div>Player Surface</div>}
+        mediaAspectRatio="auto"
+        mediaSizesItselfOnMobile
+      >
+        <MediaDetailLayout.Content>
+          <div>Body content</div>
+        </MediaDetailLayout.Content>
+      </MediaDetailLayout>,
+    );
+
+    expect(screen.getByTestId("media-detail-layout-media")).not.toHaveClass("min-h-[45vh]");
+  });
+
+  it("lets square media that sizes itself skip the minimum mobile height", () => {
+    render(
+      <MediaDetailLayout
+        title="Image Title"
+        media={<div>Image Surface</div>}
+        mediaAspectRatio="square"
+        mediaSizesItselfOnMobile
+      >
+        <MediaDetailLayout.Content>
+          <div>Body content</div>
+        </MediaDetailLayout.Content>
+      </MediaDetailLayout>,
+    );
+
+    expect(screen.getByTestId("media-detail-layout-media")).not.toHaveClass("min-h-[70vw]");
+  });
+
   it("frames video media with the shared bounded aspect container", () => {
     render(
       <MediaDetailLayout title="Segment Title" media={<div>Player Surface</div>} mediaAspectRatio="video">

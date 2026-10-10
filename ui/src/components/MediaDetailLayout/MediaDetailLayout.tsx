@@ -272,6 +272,7 @@ function MediaDetailLayoutRoot({
   media,
   mediaAspectRatio,
   mediaFullBleed,
+  mediaSizesItselfOnMobile = false,
   mediaSticky = false,
   tabs = [],
   activeTab,
@@ -562,7 +563,11 @@ function MediaDetailLayoutRoot({
         media ? "order-1 lg:order-2" : "",
         isCompactMedia ? "overflow-visible p-4 sm:p-6 lg:p-8" : "overflow-hidden",
         hasFramedMedia ? "items-center justify-center bg-black/95 p-3 sm:p-4" : "",
-        isCompactMedia ? "" : mediaAspectRatio === "square" ? "min-h-[70vw]" : "min-h-[45vh]",
+        isCompactMedia || mediaSizesItselfOnMobile
+          ? ""
+          : mediaAspectRatio === "square"
+            ? "min-h-[70vw]"
+            : "min-h-[45vh]",
         mediaFullBleed ? "bg-black" : "",
         "lg:min-h-0",
         mediaSticky ? "xl:sticky xl:top-0 xl:self-start" : "",
