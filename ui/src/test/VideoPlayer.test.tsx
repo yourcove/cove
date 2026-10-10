@@ -2222,6 +2222,7 @@ describe("VideoPlayer seek-bar preview", () => {
     imageUrl: "/api/stream/video/1/sprite",
     sheetWidth: 640,
     sheetHeight: 270,
+    capturedMidTile: false,
   };
 
   // The player itself measures at the jsdom default top of 0, so `barTop` is the room above the bar.

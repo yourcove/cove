@@ -1,6 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { findSpriteIndex, parseSpriteVtt, spriteTileStyle, useVideoSprites } from "../hooks/useVideoSprites";
+import {
+  findSpriteIndex,
+  isCoveSpriteVtt,
+  parseSpriteVtt,
+  spriteCaptureTime,
+  spriteTileStyle,
+  useVideoSprites,
+} from "../hooks/useVideoSprites";
 import { serverAwareFetch } from "../state/serverAvailability";
 
 vi.mock("../state/serverAvailability", () => ({ serverAwareFetch: vi.fn() }));
@@ -36,7 +43,7 @@ describe("sprite VTT helpers", () => {
 
   it("scales one tile and the whole sheet to the requested width", () => {
     const entries = parseSpriteVtt(VTT);
-    const sprites = { entries, imageUrl: "/sprite.jpg", sheetWidth: 320, sheetHeight: 180 };
+    const sprites = { entries, imageUrl: "/sprite.jpg", sheetWidth: 320, sheetHeight: 180, capturedMidTile: false };
     expect(spriteTileStyle(sprites, entries[2], 80)).toEqual({
       width: 80,
       height: 45,
@@ -44,6 +51,23 @@ describe("sprite VTT helpers", () => {
       backgroundPosition: "-0px -45px",
       backgroundSize: "160px 90px",
     });
+  });
+});
+
+describe("sprite capture times", () => {
+  it("tells Cove sprite sheets from ones copied over from Stash", () => {
+    expect(isCoveSpriteVtt(VTT.replaceAll("abc", "1189"))).toBe(true);
+    expect(isCoveSpriteVtt(VTT.replaceAll("abc", "9452bc8abe8d6656"))).toBe(false);
+    expect(isCoveSpriteVtt(VTT.replaceAll("abc", "0123456789012345"))).toBe(false);
+    expect(isCoveSpriteVtt(VTT.replaceAll("abc", "d41d8cd98f00b204e9800998ecf8427e"))).toBe(false);
+    expect(isCoveSpriteVtt("WEBVTT\n")).toBe(false);
+  });
+
+  it("uses the middle of a Cove tile and the start of a Stash tile", () => {
+    const entries = parseSpriteVtt(VTT);
+    const sprites = { entries, imageUrl: "/sprite.jpg", sheetWidth: 320, sheetHeight: 180 };
+    expect(spriteCaptureTime({ ...sprites, capturedMidTile: true }, entries[1])).toBe(32.402);
+    expect(spriteCaptureTime({ ...sprites, capturedMidTile: false }, entries[1])).toBe(21.601);
   });
 });
 
@@ -55,6 +79,15 @@ describe("useVideoSprites", () => {
     fetchMock.mockReset();
   });
 
+  it("records that Cove captured the tiles of a sheet named after the video", async () => {
+    fetchMock.mockResolvedValue(new Response(VTT.replaceAll("abc", "7")));
+
+    const { result } = renderHook(() => useVideoSprites(7));
+
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current?.capturedMidTile).toBe(true);
+  });
+
   it("loads the sprite sheet and its size for a video", async () => {
     fetchMock.mockResolvedValue(new Response(VTT));
 
@@ -62,7 +95,12 @@ describe("useVideoSprites", () => {
 
     await waitFor(() => expect(result.current).not.toBeNull());
     expect(fetchMock).toHaveBeenCalledWith("/api/stream/video/7/vtt/thumbs");
-    expect(result.current).toMatchObject({ imageUrl: "/api/stream/video/7/sprite", sheetWidth: 320, sheetHeight: 180 });
+    expect(result.current).toMatchObject({
+      imageUrl: "/api/stream/video/7/sprite",
+      sheetWidth: 320,
+      sheetHeight: 180,
+      capturedMidTile: false,
+    });
     expect(result.current?.entries).toHaveLength(3);
   });
 

@@ -16,6 +16,11 @@ export interface VideoSprites {
   /** Full sprite sheet size in source pixels, used to scale tiles to a display width. */
   sheetWidth: number;
   sheetHeight: number;
+  /**
+   * Cove captures each tile at, or at the keyframe just before, the middle of its interval. Stash, whose sprites
+   * the Stash import copies over unchanged, captures each tile at the start of its interval.
+   */
+  capturedMidTile: boolean;
 }
 
 function parseVttTime(timeStr: string): number {
@@ -46,6 +51,23 @@ export function parseSpriteVtt(text: string): VideoSpriteEntry[] {
     }
   }
   return entries;
+}
+
+/**
+ * Whether Cove made a sprite sheet. Cove names the image after the video id; Stash names it after a 16- or
+ * 32-character file hash, and the Stash import copies its sprite files unchanged. A Stash hash can be all digits,
+ * so only ids shorter than 16 digits count as Cove names.
+ */
+export function isCoveSpriteVtt(text: string): boolean {
+  const imageName = text.match(/^\s*(\S+?)#xywh=/m)?.[1];
+  return imageName != null && /^\d{1,15}_sprite\.jpg$/i.test(imageName);
+}
+
+/** The media time a tile's frame was captured at. */
+export function spriteCaptureTime(sprites: VideoSprites, entry: VideoSpriteEntry): number {
+  // Round the middle to milliseconds to keep float noise out of URLs; it stays well inside the tile. A start is
+  // returned exactly, since the server matches it against the same tile.
+  return sprites.capturedMidTile ? Math.round(((entry.start + entry.end) / 2) * 1000) / 1000 : entry.start;
 }
 
 /** Returns the index of the last tile that starts at or before `time`; earlier times use the first tile. */
@@ -95,6 +117,7 @@ export function useVideoSprites(videoId: number | null): VideoSprites | null {
                 imageUrl,
                 sheetWidth: Math.max(...entries.map((entry) => entry.x + entry.w)),
                 sheetHeight: Math.max(...entries.map((entry) => entry.y + entry.h)),
+                capturedMidTile: isCoveSpriteVtt(text),
               }
             : null;
         setLoaded({ videoId, sprites });

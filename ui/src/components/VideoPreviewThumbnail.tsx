@@ -4,6 +4,7 @@ import type { Video } from "../api/types";
 import { EntityMedia, type EntityMediaFit, type EntityMediaSurface } from "./EntityMedia";
 import { formatDuration } from "./shared";
 import { isPlainPrimaryClick } from "./cardNavigation";
+import { findSpriteIndex, spriteCaptureTime, useVideoSprites } from "../hooks/useVideoSprites";
 import { VideoCoverImage } from "./VideoCoverImage";
 
 function NativeVideoPreview({
@@ -91,32 +92,53 @@ export function VideoPreviewThumbnail({
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, coverWidth);
   const previewUrl = videos.previewUrl(video.id);
   const coverAlt = video.imagePath ? video.title || "" : "";
-  const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
+  // The pointer's media time; the time shown and opened is derived from it during render.
+  const [hoveredSeconds, setHoveredSeconds] = useState<number | null>(null);
+  // Load the sprite list on a card's first hover only, so a grid does not fetch one per card.
+  const [spritesRequestedFor, setSpritesRequestedFor] = useState<number | null>(null);
+  const sprites = useVideoSprites(spritesRequestedFor === video.id ? video.id : null);
+  const clipStart = video.clipStartSec ?? 0;
+
+  // The frame shown while scrubbing is the sprite tile covering the hovered time, so open the video at the moment
+  // that tile was captured. Keep the time inside a clip and short of its end so playback does not stop at once.
+  // Some Stash sprite lists have cue times that do not match the video; their tiles do not cover the hovered time,
+  // so fall back to it. Without sprites, round down so the far right edge stays inside the video.
+  const shownSecondsFor = (hovered: number) => {
+    if (sprites) {
+      const entry = sprites.entries[findSpriteIndex(sprites.entries, hovered)];
+      const tileLength = entry.end - entry.start;
+      if (tileLength > 0 && hovered < entry.end + tileLength) {
+        const captured = spriteCaptureTime(sprites, entry);
+        return Math.min(Math.max(clipStart, captured), Math.max(clipStart, clipStart + duration - 1));
+      }
+    }
+    return Math.floor(hovered);
+  };
+
+  const scrubSeconds = hoveredSeconds != null ? shownSecondsFor(hoveredSeconds) : null;
   const scrubPercent =
     duration > 0 && scrubSeconds != null
-      ? Math.min(100, Math.max(0, ((scrubSeconds - (video.clipStartSec ?? 0)) / duration) * 100))
+      ? Math.min(100, Math.max(0, ((scrubSeconds - clipStart) / duration) * 100))
       : 0;
   const scrubTimestamp = scrubSeconds != null ? formatDuration(scrubSeconds) : null;
   const scrubTimestampPercent = scrubSeconds != null ? Math.min(88, Math.max(12, scrubPercent)) : 0;
   const scrubImageUrl = scrubSeconds != null ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds) : null;
 
-  const scrubSecondsAt = useCallback(
+  const hoveredSecondsAt = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       const rect = event.currentTarget.getBoundingClientRect();
       const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
-      // Round down so the far right edge stays inside the video rather than landing on its very end.
-      return Math.floor((video.clipStartSec ?? 0) + percent * duration);
+      return clipStart + percent * duration;
     },
-    [duration, video.clipStartSec],
+    [clipStart, duration],
   );
 
   const updateScrubPreview = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       if (duration <= 0) return;
-      const nextSeconds = scrubSecondsAt(event);
-      setScrubSeconds((current) => (current === nextSeconds ? current : nextSeconds));
+      setHoveredSeconds(hoveredSecondsAt(event));
     },
-    [duration, scrubSecondsAt],
+    [duration, hoveredSecondsAt],
   );
 
   return (
@@ -147,15 +169,18 @@ export function VideoPreviewThumbnail({
       {canScrub ? (
         <div
           className="absolute inset-x-0 bottom-0 z-[9] h-10 cursor-ew-resize"
-          onMouseEnter={updateScrubPreview}
+          onMouseEnter={(event) => {
+            setSpritesRequestedFor(video.id);
+            updateScrubPreview(event);
+          }}
           onMouseMove={updateScrubPreview}
-          onMouseLeave={() => setScrubSeconds(null)}
+          onMouseLeave={() => setHoveredSeconds(null)}
           onClick={(event) => {
             // Keep an enclosing link or card from also handling the click.
             event.preventDefault();
             event.stopPropagation();
             // Modifier clicks would replace the list in this tab instead of opening a new one, so ignore them.
-            if (isPlainPrimaryClick(event)) onScrubClick?.(scrubSecondsAt(event));
+            if (isPlainPrimaryClick(event)) onScrubClick?.(shownSecondsFor(hoveredSecondsAt(event)));
           }}
           aria-hidden="true"
         >
