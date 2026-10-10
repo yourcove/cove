@@ -3,6 +3,7 @@ import { entityImages, videos } from "../api/client";
 import type { Video } from "../api/types";
 import { EntityMedia, type EntityMediaFit, type EntityMediaSurface } from "./EntityMedia";
 import { formatDuration } from "./shared";
+import { isPlainPrimaryClick } from "./cardNavigation";
 import { VideoCoverImage } from "./VideoCoverImage";
 
 function NativeVideoPreview({
@@ -63,6 +64,7 @@ export function VideoPreviewThumbnail({
   surface = "card",
   coverWidth = 1280,
   enableScrubbing = true,
+  onScrubClick,
   className = "",
   children,
 }: {
@@ -71,6 +73,8 @@ export function VideoPreviewThumbnail({
   surface?: EntityMediaSurface;
   coverWidth?: number;
   enableScrubbing?: boolean;
+  /** Called with the media time under the pointer when the scrub bar is clicked. */
+  onScrubClick?: (seconds: number) => void;
   className?: string;
   children?: ReactNode;
 }) {
@@ -80,6 +84,10 @@ export function VideoPreviewThumbnail({
       ? Math.max(0, video.clipEndSec - video.clipStartSec)
       : undefined;
   const duration = clipDuration ?? file?.duration ?? 0;
+  // Touch screens have no hover to scrub with, and iOS Safari turns a tap on a hover-reactive strip into a
+  // hover that never clicks. Without a precise hover pointer the strip is left out and taps open the card.
+  const canScrub =
+    enableScrubbing && duration > 0 && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches !== false;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, coverWidth);
   const previewUrl = videos.previewUrl(video.id);
   const coverAlt = video.imagePath ? video.title || "" : "";
@@ -92,15 +100,23 @@ export function VideoPreviewThumbnail({
   const scrubTimestampPercent = scrubSeconds != null ? Math.min(88, Math.max(12, scrubPercent)) : 0;
   const scrubImageUrl = scrubSeconds != null ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds) : null;
 
+  const scrubSecondsAt = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
+      // Round down so the far right edge stays inside the video rather than landing on its very end.
+      return Math.floor((video.clipStartSec ?? 0) + percent * duration);
+    },
+    [duration, video.clipStartSec],
+  );
+
   const updateScrubPreview = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       if (duration <= 0) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
-      const nextSeconds = Math.round((video.clipStartSec ?? 0) + percent * duration);
+      const nextSeconds = scrubSecondsAt(event);
       setScrubSeconds((current) => (current === nextSeconds ? current : nextSeconds));
     },
-    [duration, video.clipStartSec],
+    [duration, scrubSecondsAt],
   );
 
   return (
@@ -128,15 +144,18 @@ export function VideoPreviewThumbnail({
         />
       ) : null}
       {children}
-      {duration > 0 && enableScrubbing ? (
+      {canScrub ? (
         <div
           className="absolute inset-x-0 bottom-0 z-[9] h-10 cursor-ew-resize"
           onMouseEnter={updateScrubPreview}
           onMouseMove={updateScrubPreview}
           onMouseLeave={() => setScrubSeconds(null)}
           onClick={(event) => {
+            // Keep an enclosing link or card from also handling the click.
             event.preventDefault();
             event.stopPropagation();
+            // Modifier clicks would replace the list in this tab instead of opening a new one, so ignore them.
+            if (isPlainPrimaryClick(event)) onScrubClick?.(scrubSecondsAt(event));
           }}
           aria-hidden="true"
         >

@@ -124,6 +124,16 @@ describe("VideoPreviewThumbnail", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("leaves out the scrub surface on devices without precise hover", () => {
+    const matchMedia = vi.fn(() => ({ matches: false }));
+    vi.stubGlobal("matchMedia", matchMedia);
+
+    const { container } = render(<VideoPreviewThumbnail video={video} fit="cover" />);
+
+    expect(matchMedia).toHaveBeenCalledWith("(hover: hover) and (pointer: fine)");
+    expect(container.querySelector(".cursor-ew-resize")).not.toBeInTheDocument();
+  });
+
   it("can disable the scrub surface for selection mode", () => {
     const { container } = render(<VideoPreviewThumbnail video={video} fit="cover" enableScrubbing={false} />);
 

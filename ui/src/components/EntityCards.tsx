@@ -1332,7 +1332,14 @@ export function VideoCard({
         disabled={selecting}
         selectionSafeZone={selected !== undefined || selecting}
       />
-      <VideoPreviewThumbnail video={video} fit={videoPreviewObjectFit} enableScrubbing={!selecting}>
+      <VideoPreviewThumbnail
+        video={video}
+        fit={videoPreviewObjectFit}
+        enableScrubbing={!selecting}
+        onScrubClick={
+          onNavigate ? (seconds) => onNavigate({ page: "video", id: video.id, seekTo: seconds }) : undefined
+        }
+      >
         {(selected !== undefined || selecting) && (
           <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         )}

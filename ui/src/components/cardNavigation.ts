@@ -2,7 +2,7 @@ import type { MouseEventHandler } from "react";
 import type { Route } from "../router/location";
 import { buildRouteUrl, navigateToUrl, resolveContextualDetailRoute } from "../router/location";
 
-function isPlainPrimaryClick(event: {
+export function isPlainPrimaryClick(event: {
   button: number;
   ctrlKey: boolean;
   metaKey: boolean;
