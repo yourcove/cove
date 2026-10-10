@@ -876,7 +876,11 @@ export const segmentLibrary = {
     updatedAt2?: string;
     updatedAtModifier?: string;
     includeAggregate?: boolean;
-  }) => request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`),
+  }) => request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`, {
+    // A broad raw-segment search can require a full-library pass. Keep the request alive while
+    // the page shows its loading state rather than aborting an otherwise successful query.
+    timeoutMs: null,
+  }),
   get: (id: number) => requestOptional<SegmentRecord>(`/segments/${id}`),
   removeTag: (data: { tagId: number; ids: number[] }) =>
     request<{ count: number }>("/segments/bulk/remove-tag", { method: "POST", body: JSON.stringify(data) }),
@@ -1745,7 +1749,12 @@ export const segmentDisplayProfiles = {
 
 export const segmentSpans = {
   search: (data: SegmentSpanSearchRequest) =>
-    request<SegmentSpanSearchResponse>("/segments/spans/search", { method: "POST", body: JSON.stringify(data) }),
+    request<SegmentSpanSearchResponse>("/segments/spans/search", {
+      method: "POST",
+      body: JSON.stringify(data),
+      // A library-wide span sort or raw-row filter may need to visit every video.
+      timeoutMs: null,
+    }),
   // Exact span total for a filter set, computed/cached server-side. Independent of page/sort/direction.
   count: (data: SegmentSpanSearchRequest) =>
     request<SegmentSpanCountResponse>("/segments/spans/count", {

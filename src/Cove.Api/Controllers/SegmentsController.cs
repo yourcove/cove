@@ -210,6 +210,57 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         if (TryParseDateTime(updatedAt, out var updatedAtValue))
             segmentQuery = ApplyDateTimeCriterion(segmentQuery, updatedAtValue, updatedAt2, updatedAtModifier, segment => segment.UpdatedAt);
 
+        if (!string.IsNullOrWhiteSpace(videoTitle))
+        {
+            var normalizedVideoTitle = videoTitle.Trim().ToLowerInvariant();
+            segmentQuery = segmentQuery.Where(segment => db.Videos.Any(video => video.Id == segment.HostId
+                && video.Title != null && video.Title.ToLower().Contains(normalizedVideoTitle)));
+        }
+
+        var parsedPerformerIds = ParseIdList(performerIds);
+        if (parsedPerformerIds.Count > 0)
+        {
+            var matchingFaceIds = await db.Faces.AsNoTracking()
+                .Where(face => face.PerformerId.HasValue && parsedPerformerIds.Contains(face.PerformerId.Value))
+                .Select(face => (long)face.Id).ToListAsync(cancellationToken);
+            var directIds = parsedPerformerIds.Select(id => (long)id).ToList();
+            segmentQuery = segmentQuery.Where(segment => segment.RefId.HasValue &&
+                (matchingFaceIds.Contains(segment.RefId.Value) ||
+                 segment.Kind != null && segment.Kind.ToLower() == "performer" && directIds.Contains(segment.RefId.Value)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var normalizedTerm = q.Trim().ToLowerInvariant();
+            // Resolve names from the small related tables first. An OR across every display join
+            // makes PostgreSQL join millions of segments before it can test a search term.
+            var matchingTagIds = await db.Tags.AsNoTracking()
+                .Where(tag => tag.Name.ToLower().Contains(normalizedTerm)
+                    || db.Set<TagAlias>().Any(alias => alias.TagId == tag.Id && alias.Alias.ToLower().Contains(normalizedTerm)))
+                .Select(tag => tag.Id).ToListAsync(cancellationToken);
+            var matchingVideoIds = await db.Videos.AsNoTracking()
+                .Where(video => video.Title != null && video.Title.ToLower().Contains(normalizedTerm))
+                .Select(video => video.Id).ToListAsync(cancellationToken);
+            var matchingPerformerIds = await db.Performers.AsNoTracking()
+                .Where(performer => performer.Name.ToLower().Contains(normalizedTerm)
+                    || db.Set<PerformerAlias>().Any(alias => alias.PerformerId == performer.Id && alias.Alias.ToLower().Contains(normalizedTerm)))
+                .Select(performer => performer.Id).ToListAsync(cancellationToken);
+            var matchingFaceIds = await db.Faces.AsNoTracking()
+                .Where(face => face.PerformerId.HasValue && matchingPerformerIds.Contains(face.PerformerId.Value)
+                    || !face.PerformerId.HasValue && face.Label != null && face.Label.ToLower().Contains(normalizedTerm))
+                .Select(face => (long)face.Id).ToListAsync(cancellationToken);
+            var matchingDirectIds = matchingPerformerIds.Select(id => (long)id).ToList();
+            segmentQuery = segmentQuery.Where(segment =>
+                segment.Title != null && segment.Title.ToLower().Contains(normalizedTerm)
+                || segment.Kind != null && segment.Kind.ToLower().Contains(normalizedTerm)
+                || segment.SourceKey.ToLower().Contains(normalizedTerm)
+                || segment.TagId.HasValue && matchingTagIds.Contains(segment.TagId.Value)
+                || matchingVideoIds.Contains(segment.HostId)
+                || segment.RefId.HasValue && matchingFaceIds.Contains(segment.RefId.Value)
+                || segment.RefId.HasValue && segment.Kind != null && segment.Kind.ToLower() == "performer"
+                    && matchingDirectIds.Contains(segment.RefId.Value));
+        }
+
         // Now add the display joins. Every join key is the target table's primary key, so none of them
         // can fan out a segment into multiple rows — the row count of `query` equals the row count of
         // `segmentQuery` restricted to segments whose host video still exists.
@@ -237,64 +288,37 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
                 PerformerName = segment.Kind != null && segment.Kind!.ToLower() == "performer" && directPerformer != null ? directPerformer!.Name : facePerformer != null ? facePerformer!.Name : null,
             };
 
-        // The three filters below read joined columns, so they can only be applied after the join and
-        // they force the COUNT onto the joined query.
-        var requiresJoinedCount = false;
-
-        if (!string.IsNullOrWhiteSpace(videoTitle))
-        {
-            var normalizedVideoTitle = videoTitle.Trim().ToLowerInvariant();
-            query = query.Where(item => item.VideoTitle != null && item.VideoTitle.ToLower().Contains(normalizedVideoTitle));
-            requiresJoinedCount = true;
-        }
-
-        var parsedPerformerIds = ParseIdList(performerIds);
-        if (parsedPerformerIds.Count > 0)
-        {
-            query = query.Where(item =>
-                (item.DirectPerformerId.HasValue && parsedPerformerIds.Contains(item.DirectPerformerId.Value)) ||
-                (item.FacePerformerId.HasValue && parsedPerformerIds.Contains(item.FacePerformerId.Value)));
-            requiresJoinedCount = true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(q))
-        {
-            requiresJoinedCount = true;
-            var term = q.Trim();
-            var normalizedTerm = term.ToLowerInvariant();
-            query = query.Where(item =>
-                (item.Segment.Title != null && item.Segment.Title.ToLower().Contains(normalizedTerm)) ||
-                (item.Segment.Kind != null && item.Segment.Kind.ToLower().Contains(normalizedTerm)) ||
-                (item.TagName != null && item.TagName.ToLower().Contains(normalizedTerm)) ||
-                (item.Segment.TagId.HasValue && db.Set<TagAlias>().Any(alias => alias.TagId == item.Segment.TagId.Value && alias.Alias.ToLower().Contains(normalizedTerm))) ||
-                (item.RefLabel != null && item.RefLabel.ToLower().Contains(normalizedTerm)) ||
-                (item.PerformerName != null && item.PerformerName.ToLower().Contains(normalizedTerm)) ||
-                (item.FacePerformerId.HasValue && db.Set<PerformerAlias>().Any(alias => alias.PerformerId == item.FacePerformerId.Value && alias.Alias.ToLower().Contains(normalizedTerm))) ||
-                (item.DirectPerformerId.HasValue && db.Set<PerformerAlias>().Any(alias => alias.PerformerId == item.DirectPerformerId.Value && alias.Alias.ToLower().Contains(normalizedTerm))) ||
-                (item.VideoTitle != null && item.VideoTitle.ToLower().Contains(normalizedTerm)) ||
-                item.Segment.SourceKey.ToLower().Contains(normalizedTerm));
-        }
-
-        // When no join-dependent filter is active the joins cannot change the row count, so the COUNT
-        // runs against segments alone with an existence check standing in for the inner join to videos.
-        // That is the difference between a multi-second count and a single index scan on large libraries.
-        var totalCount = requiresJoinedCount
-            ? await query.CountAsync(cancellationToken)
-            : await segmentQuery
-                .Where(segment => db.Videos.Any(video => video.Id == segment.HostId))
-                .CountAsync(cancellationToken);
+        // Every predicate is now on the narrow segment query. The display joins cannot make a
+        // segment appear more than once, so counting them would only add work.
+        var totalCount = await segmentQuery
+            .Where(segment => db.Videos.Any(video => video.Id == segment.HostId))
+            .CountAsync(cancellationToken);
         double? aggregateDuration = includeAggregate
-            ? await query.SumAsync(
-                item => Math.Max(0, (item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec),
-                cancellationToken)
+            ? await segmentQuery.Where(segment => db.Videos.Any(video => video.Id == segment.HostId))
+                .SumAsync(segment => Math.Max(0, (segment.EndSec ?? segment.StartSec) - segment.StartSec),
+                    cancellationToken)
             : null;
 
 
-        var orderedQuery = ApplyOrdering(query, sortKey, descending, seed);
-        var items = await orderedQuery
-            .Skip((page - 1) * perPage)
-            .Take(perPage)
+        // Page over IDs first. Materializing full SegmentLibraryRow objects while sorting millions
+        // of rows pulls the display joins and wide segment columns into the expensive query.
+        // Walking backwards from the end also avoids a multi-million-row OFFSET for Last page.
+        var pageStart = (long)(page - 1) * perPage;
+        var pageLength = (int)Math.Min(perPage, Math.Max(0, (long)totalCount - pageStart));
+        var fromEnd = pageStart > totalCount / 2L;
+        var offset = fromEnd ? Math.Max(0, (long)totalCount - pageStart - pageLength) : pageStart;
+        var orderedIds = await ApplyOrdering(query, sortKey, fromEnd ? !descending : descending, seed)
+            .Skip((int)Math.Min(offset, int.MaxValue))
+            .Take(pageLength)
+            .Select(item => item.Segment.Id)
             .ToListAsync(cancellationToken);
+        if (fromEnd)
+            orderedIds.Reverse();
+
+        var pageRows = await query.Where(item => orderedIds.Contains(item.Segment.Id))
+            .ToListAsync(cancellationToken);
+        var rowsById = pageRows.ToDictionary(item => item.Segment.Id);
+        var items = orderedIds.Select(id => rowsById[id]).ToList();
 
         return Ok(new PaginatedResponse<SegmentRecordDto>(items.Select(item => MapToDto(item)).ToList(), totalCount, page, perPage, aggregateDuration));
     }
@@ -702,6 +726,10 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         CancellationToken ct)
     {
         using var relativeDates = RelativeDateEvaluation.Begin();
+        var hasRelativeDates = RelativeDateEvaluation.IsRelativeExpression(request.CreatedAt)
+            || RelativeDateEvaluation.IsRelativeExpression(request.CreatedAt2)
+            || RelativeDateEvaluation.IsRelativeExpression(request.UpdatedAt)
+            || RelativeDateEvaluation.IsRelativeExpression(request.UpdatedAt2);
         request = ResolveRelativeTimestamps(request);
         request = await ExpandSpanTagFiltersAsync(request, ct);
         var page = Math.Max(1, request.Page ?? 1);
@@ -799,19 +827,119 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             return Ok(new SegmentSpanSearchResponseDto(pageItems, exactTotal, page, perPage, HasMore: earlyTerminated));
         }
 
-        // 3. Full path (segment-row filters or span-level sort): resolve all in-scope spans, filter, sort,
-        //    and page. The total is exact here because the whole matching set is materialized.
-        var (allItems, segmentRows) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
+        // 3. Span-level sorts and segment-row filters need to visit the whole scope. Keep only the
+        //    requested prefix, rather than millions of DTOs and their raw rows in process memory.
+        var finalOffset = (long)(page - 1) * perPage;
+        var canCacheCount = request.VideoTagIds is not { Length: > 0 } && !hasRelativeDates;
+        var fullCountKey = canCacheCount ? await GetSpanCountCacheKeyAsync(request, profileId, ct) : null;
+        int? knownTotal = null;
+        if (fullCountKey is not null && memoryCache.TryGetValue<SpanCountCacheEntry>(fullCountKey, out var knownEntry))
+            knownTotal = knownEntry?.Aggregate.TotalCount;
+        // Deep pages select from the other end. If no count has been cached yet, calculate one
+        // first rather than retaining millions of ranked DTOs for a direct Last-page URL.
+        if (finalOffset > 100_000 && knownTotal is null)
+        {
+            var counted = await CountSpans(request with { Sort = null }, ct);
+            knownTotal = (counted.Result as OkObjectResult)?.Value is SegmentSpanCountResponseDto aggregate
+                ? aggregate.TotalCount : null;
+        }
+        var fromEnd = knownTotal.HasValue && finalOffset > knownTotal.Value / 2L;
+        var keepCount = (int)Math.Min(int.MaxValue, fromEnd
+            ? Math.Max(perPage * 2L, (long)knownTotal!.Value - finalOffset)
+            : finalOffset + perPage);
+        var spanLevelSort = IsSpanLevelSort(sort);
+        var rankDescending = (spanLevelSort && descending) ^ fromEnd;
+        var videoPositions = spanLevelSort ? null : videoList.Select((video, index) => (video.Id, index))
+            .ToDictionary(pair => pair.Id, pair => pair.index);
+        var worstFirst = Comparer<RankedSpan>.Create((left, right) => -CompareRankedSpans(left, right, rankDescending));
+        var best = new PriorityQueue<RankedSpan, RankedSpan>(worstFirst);
+        var totalCount = 0;
+        var totalDuration = 0d;
+        long ordinal = 0;
+        var needsRows = NeedsSegmentRows(request);
+        for (var i = 0; i < videoList.Count; i += SpanResolveBatchSize)
+        {
+            var batchVideos = videoList.Skip(i).Take(SpanResolveBatchSize).ToList();
+            var batchMap = batchVideos.ToDictionary(video => video.Id);
+            var batchItems = new List<SegmentSpanSearchResultItemDto>();
+            foreach (var (videoId, spans) in await ResolveSpanBatchAsync(
+                batchVideos.Select(video => video.Id).ToList(), profileId, derivedQueryRequest, ct, cacheNewResults: false))
+            {
+                if (!batchMap.TryGetValue(videoId, out var video)) continue;
+                foreach (var span in spans)
+                    batchItems.Add(new SegmentSpanSearchResultItemDto(
+                        span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+            }
+            if (batchItems.Count == 0) continue;
 
-        if (IsSpanLevelSort(sort))
-            allItems = ApplySpanOrdering(allItems, sort, descending, segmentRows, request.Seed).ToList();
+            IReadOnlyDictionary<int, SegmentSearchRow> segmentRows = needsRows
+                ? await LoadSpanSegmentRowsAsync(batchItems.SelectMany(item => item.Span.SegmentIds), ct)
+                : new Dictionary<int, SegmentSearchRow>();
+            foreach (var item in batchItems)
+            {
+                if (needsRows && !MatchesSpanSearchRequest(item, request, segmentRows)) continue;
+                totalCount++;
+                totalDuration += Math.Max(0, item.Span.EndSec - item.Span.StartSec);
+                var ranked = new RankedSpan(item,
+                    spanLevelSort ? SpanSortKey(item, sort, segmentRows, request.Seed) : videoPositions![item.VideoId],
+                    ordinal++);
+                if (best.Count < keepCount)
+                    best.Enqueue(ranked, ranked);
+                else if (best.TryPeek(out var worst, out _) && CompareRankedSpans(ranked, worst, rankDescending) < 0)
+                {
+                    best.Dequeue();
+                    best.Enqueue(ranked, ranked);
+                }
+            }
+        }
 
-        var totalCount = allItems.Count;
-        var finalOffset = (page - 1) * perPage;
-        var finalPageItems = allItems.Skip(finalOffset).Take(perPage).ToList();
-
+        if (fullCountKey is not null)
+            memoryCache.Set(fullCountKey, new SpanCountCacheEntry(
+                new SegmentSpanCountResponseDto(totalCount, totalDuration), null), TimeSpan.FromMinutes(30));
+        var retained = best.UnorderedItems.Select(entry => entry.Element);
+        var resultDescending = spanLevelSort && descending;
+        var finalPageItems = retained
+            .OrderBy(entry => entry, Comparer<RankedSpan>.Create((left, right) => CompareRankedSpans(left, right, resultDescending)))
+            .Skip((int)Math.Min(fromEnd ? Math.Max(0, finalOffset - (totalCount - best.Count)) : finalOffset, int.MaxValue))
+            .Take(perPage).Select(entry => entry.Item).ToList();
         return Ok(new SegmentSpanSearchResponseDto(finalPageItems, totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
     }
+
+    private sealed record RankedSpan(SegmentSpanSearchResultItemDto Item, IComparable SortKey, long Ordinal);
+
+    private static int CompareRankedSpans(RankedSpan left, RankedSpan right, bool descending)
+    {
+        var key = left.SortKey.CompareTo(right.SortKey);
+        if (key == 0) key = left.Item.VideoId.CompareTo(right.Item.VideoId);
+        if (key == 0) key = left.Item.Span.StartSec.CompareTo(right.Item.Span.StartSec);
+        if (key != 0) return descending ? -key : key;
+        return left.Ordinal.CompareTo(right.Ordinal);
+    }
+
+    private static IComparable SpanSortKey(
+        SegmentSpanSearchResultItemDto item, string sort,
+        IReadOnlyDictionary<int, SegmentSearchRow> rows, int? seed)
+        => sort switch
+        {
+            "random" => SeededRandomKey(item.Span.SegmentIds.FirstOrDefault(), seed),
+            "start_sec" or "span_start" => item.Span.StartSec,
+            "end_sec" or "span_end" => item.Span.EndSec,
+            "duration" or "span_duration" => item.Span.EndSec - item.Span.StartSec,
+            "kind" or "segment_kind" => item.Span.Kind ?? string.Empty,
+            "source_key" or "segment_source_key" => item.Span.SourceKey ?? string.Empty,
+            "tag_name" or "segment_tag_name" => item.Span.TagName ?? string.Empty,
+            "segment_count" => item.Span.SegmentIds.Count,
+            "segment_confidence" or "confidence" => MaxSpanConfidence(item, rows),
+            "segment_created_at" => EarliestSpanDateKey(item, rows, row => row.CreatedAt),
+            "segment_updated_at" => LatestSpanDateKey(item, rows, row => row.UpdatedAt),
+            "source_run_id" or "segment_source_run_id" => SpanTextKey(item, rows, row => row.SourceRunId),
+            "performer" or "segment_performer" => SpanTextKey(item, rows, row => row.PerformerName),
+            "ref" or "segment_ref" => SpanTextKey(item, rows, row => row.RefLabel ?? row.PerformerName),
+            "host_title" => item.VideoTitle ?? string.Empty,
+            "host_type" => item.Span.HostType.ToString(),
+            "host_id" => item.Span.HostId,
+            _ => item.VideoUpdatedAt ?? string.Empty,
+        };
 
     private const int SpanResolveBatchSize = 400;
 

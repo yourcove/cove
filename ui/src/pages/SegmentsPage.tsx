@@ -657,7 +657,9 @@ export function SegmentsPage({ onNavigate }: Props) {
     appliedQuery,
     derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
     rawFilter: combinedRawSegmentFilter,
-    enabled: derivedQueryEnabled,
+    // A span-level sort already scans the full matching set and returns its exact total.
+    // Running a second library-wide count beside it doubles the first-load work.
+    enabled: derivedQueryEnabled && ["updated_at", "created_at", "title"].includes(sort),
   });
 
   const rawSegmentsQuery = useRawSegmentsQuery({
@@ -691,7 +693,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     excludeVideoIds: videoSelection.excludeIds,
     rawSegmentIds,
     rawFilter: combinedRawSegmentFilter,
-    enabled: rawQueryEnabled,
+    enabled: rawQueryEnabled && rawSegmentsQuery.isSuccess,
     includeAggregate: true,
   });
 
