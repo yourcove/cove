@@ -47,6 +47,7 @@ import {
 import { useMediaRecoveryController } from "./useMediaRecoveryController";
 import { serverAwareFetch } from "../state/serverAvailability";
 import { useKeySequence } from "../hooks/useKeySequence";
+import { findSpriteIndex, spriteTileStyle, type VideoSprites } from "../hooks/useVideoSprites";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
@@ -56,6 +57,11 @@ const MUTED_KEY = "cove-video-player-muted";
 const FACE_OVERLAY_KEY = "cove.player.faceOverlay";
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const CLIP_BOUNDARY_TOLERANCE_SEC = 0.05;
+/** Seek-bar preview tiles fit inside this box, and inside the room above the bar. */
+const SEEK_PREVIEW_BOX = { width: 160, height: 90 };
+const SEEK_PREVIEW_COMPACT_BOX = { width: 120, height: 68 };
+/** Vertical space the preview needs besides its tile: margin above the bar, time label and border. */
+const SEEK_PREVIEW_CHROME_PX = 30;
 const SOURCE_PROBE_TIMEOUT_MS = 5_000;
 
 function useMediaQuery(query: string) {
@@ -221,6 +227,7 @@ export function VideoPlayer({
   keyboardShortcutsEnabled = true,
   vr,
   vrTitle,
+  seekPreviewSprites,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -268,6 +275,8 @@ export function VideoPlayer({
   vr?: VrDescriptor | null;
   /** Shown on the in-headset timeline during immersive playback. */
   vrTitle?: string;
+  /** Sprite sheet shown as a frame preview while hovering the seek bar. Times are on the media's own timeline. */
+  seekPreviewSprites?: VideoSprites | null;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -297,6 +306,7 @@ export function VideoPlayer({
   const [showCursor, setShowCursor] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showSpeed, setShowSpeed] = useState(false);
+  const [seekHover, setSeekHover] = useState<{ fraction: number; maxTileHeight: number } | null>(null);
   const [rate, setRate] = useState(1);
   const [pip, setPip] = useState(false);
   const [loop, setLoop] = useState(() => !!clip?.loop);
@@ -1692,6 +1702,19 @@ export function VideoPlayer({
     }
   };
 
+  const updateSeekHover = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Touch has no hover; a tap seeks straight away.
+    if (!seekPreviewSprites || event.pointerType === "touch") return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const playerTop = containerRef.current?.getBoundingClientRect().top ?? 0;
+    setSeekHover({
+      fraction: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      // The player clips its content, so a short player gets a smaller tile.
+      maxTileHeight: rect.top - playerTop - SEEK_PREVIEW_CHROME_PX,
+    });
+  };
+
   const seekTo = (event: React.MouseEvent<HTMLDivElement>) => {
     const v = videoRef.current;
     if (!v) return;
@@ -1995,6 +2018,24 @@ export function VideoPlayer({
     }
   };
 
+  const seekPreviewEntry =
+    seekHover && seekPreviewSprites
+      ? seekPreviewSprites.entries[
+          findSpriteIndex(seekPreviewSprites.entries, timelineStart + seekHover.fraction * timelineDuration)
+        ]
+      : undefined;
+  // Fit the tile's own aspect ratio inside the box, so portrait tiles stay small too.
+  const seekPreviewBox = compactControls ? SEEK_PREVIEW_COMPACT_BOX : SEEK_PREVIEW_BOX;
+  const seekPreviewWidth =
+    seekHover && seekPreviewEntry
+      ? Math.floor(
+          Math.min(
+            seekPreviewBox.width,
+            Math.min(seekPreviewBox.height, seekHover.maxTileHeight) * (seekPreviewEntry.w / seekPreviewEntry.h),
+          ),
+        )
+      : 0;
+
   const fmtTime = (value: number) => {
     if (!isFinite(value)) return "0:00";
     const h = Math.floor(value / 3600);
@@ -2004,6 +2045,24 @@ export function VideoPlayer({
       ? `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`
       : `${m}:${sec.toString().padStart(2, "0")}`;
   };
+
+  // clamp() keeps the preview (tile plus 1px border) inside the seek bar near either end.
+  const seekPreview =
+    seekPreviewSprites && seekPreviewEntry && seekHover && seekPreviewWidth >= 32 ? (
+      <div
+        className="pointer-events-none absolute bottom-full mb-2 -translate-x-1/2 overflow-hidden rounded border border-white/30 bg-black shadow-lg"
+        style={{
+          left: `clamp(${seekPreviewWidth / 2 + 1}px, ${seekHover.fraction * 100}%, calc(100% - ${seekPreviewWidth / 2 + 1}px))`,
+        }}
+        aria-hidden="true"
+        data-testid="seek-preview"
+      >
+        <div style={spriteTileStyle(seekPreviewSprites, seekPreviewEntry, seekPreviewWidth)} />
+        <div className="bg-black/80 py-0.5 text-center text-[11px] font-medium text-white tabular-nums">
+          {fmtTime(seekHover.fraction * timelineDuration)}
+        </div>
+      </div>
+    ) : null;
 
   const mediaPlayerExtensionContext = useMemo<MediaPlayerExtensionContext | null>(
     () =>
@@ -2339,7 +2398,13 @@ export function VideoPlayer({
         style={{ padding: "40px 0 0 0" }}
       >
         <div className="px-3">
-          <div className="relative h-4 flex items-center cursor-pointer group/seek" onClick={seekTo}>
+          <div
+            className="relative h-4 flex items-center cursor-pointer group/seek"
+            onClick={seekTo}
+            onPointerMove={updateSeekHover}
+            onPointerLeave={() => setSeekHover(null)}
+          >
+            {seekPreview}
             <div className="w-full h-1 bg-white/20 rounded-full group-hover/seek:h-1.5 transition-all relative">
               <div
                 className="absolute top-0 left-0 h-full bg-white/30 rounded-full"

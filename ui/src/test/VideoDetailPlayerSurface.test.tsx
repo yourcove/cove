@@ -27,6 +27,15 @@ const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock, cov
     coverDialogMock: vi.fn(),
   }));
 
+const { videoSpritesMock } = vi.hoisted(() => ({
+  videoSpritesMock: vi.fn((_videoId: number | null) => null as unknown),
+}));
+
+vi.mock("../hooks/useVideoSprites", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks/useVideoSprites")>()),
+  useVideoSprites: (videoId: number | null) => videoSpritesMock(videoId),
+}));
+
 vi.mock("../api/client", () => ({
   entityImages: { studioImageUrl: vi.fn() },
   faces: { get: vi.fn() },
@@ -223,6 +232,8 @@ describe("VideoDetailPage media-player extension surface", () => {
     visualAvailabilityMock.available = false;
     visualAvailabilityMock.loading = false;
     coverDialogMock.mockReset();
+    videoSpritesMock.mockReset();
+    videoSpritesMock.mockReturnValue(null);
     appConfigMock.config = { ui: {} };
   });
 
@@ -334,6 +345,50 @@ describe("VideoDetailPage media-player extension surface", () => {
     expect(playerArea).toHaveTextContent("No video file available");
     expect(playerArea).not.toHaveClass("max-lg:aspect-(--video-aspect-ratio)");
     expect(playerArea.style.getPropertyValue("--video-aspect-ratio")).toBe("");
+  });
+
+  it("gives the player the video's sprites for the seek-bar preview", async () => {
+    const sprites = {
+      entries: [{ start: 0, end: 10, x: 0, y: 0, w: 160, h: 90 }],
+      imageUrl: "/api/stream/video/14/sprite",
+      sheetWidth: 160,
+      sheetHeight: 90,
+    };
+    videoSpritesMock.mockImplementation((videoId) => (videoId === 14 ? sprites : null));
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Sprite video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{ format: "mp4", duration: 120, width: 1920, height: 1080, frameRate: 30, captions: [] }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenLastCalledWith(expect.objectContaining({ seekPreviewSprites: sprites }));
+  });
+
+  it("does not load sprites for a video without files", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Missing media",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    expect(await screen.findByTestId("video-detail-player-area")).toBeInTheDocument();
+    expect(videoSpritesMock).toHaveBeenCalledWith(null);
+    expect(videoSpritesMock).not.toHaveBeenCalledWith(14);
   });
 
   it("constrains sub-video playback to its parent clip range", async () => {
