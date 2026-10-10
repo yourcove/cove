@@ -209,6 +209,38 @@ public sealed class MetadataServerServiceTests
         Assert.Equal(expected, applied);
     }
 
+    [Fact]
+    public async Task MergeVideoWithWarningsAsync_ImportedTagRemovedByHandInTheSameImportLeavesTheVideo()
+    {
+        await using var context = CreateContext();
+        var action = new Tag { Name = "Action" };
+        var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = action }] };
+        context.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "findVideo": {{RemoteVideoJson}}
+            """)));
+        var service = CreateService(context, httpClient, tagProvenance: new TagProvenanceService(context));
+
+        // "Action" is on the video and imported again; the review takes it off by hand.
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false, SetPerformers = false, SetStudio = false, RemovedTagIds = [action.Id] },
+            CancellationToken.None);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Imported);
+        // The tags a video shows are its links plus every tag a source recorded on it.
+        var shownTagIds = await Cove.Data.Services.EffectiveHostTagQuery.ForHostType(context, AffinityHostType.Video)
+            .Where(row => row.HostId == video.Id)
+            .Select(row => row.TagId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(action.Id, shownTagIds);
+    }
+
     // The tagger's preview drops a filtered performer and then sends the surviving ones as overrides, so
     // the gender filter has to outrank an override that asks for one of the dropped performers by name.
     [Theory]

@@ -92,6 +92,35 @@ public sealed class TagProvenanceServiceTests
     }
 
     [Fact]
+    public async Task SyncTagSetAsync_UserRemovalAlsoDropsASourceRecordedEarlierInTheSameSave()
+    {
+        await using var context = CreateContext();
+
+        var video = new Video { Title = "Tagged Video" };
+        var removedTag = new Tag { Name = "Removed" };
+        var keptTag = new Tag { Name = "Kept" };
+        context.AddRange(video, removedTag, keptTag);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        ITagProvenanceService service = new TagProvenanceService(context);
+
+        // A scrape records its tags, then the same save takes one off by hand before anything is written.
+        await service.RecordAsync(AffinityHostType.Video, video.Id, removedTag, "scraper:tests.fake-scraper/video", sourceRunId: "run-1", cancellationToken: TestContext.Current.CancellationToken);
+        await service.RecordAsync(AffinityHostType.Video, video.Id, keptTag, "scraper:tests.fake-scraper/video", sourceRunId: "run-1", cancellationToken: TestContext.Current.CancellationToken);
+        await service.RecordAsync(AffinityHostType.Video, video.Id, removedTag, "ext:ai.tagging", sourceRunId: "run-2", cancellationToken: TestContext.Current.CancellationToken);
+        await service.SyncTagSetAsync(AffinityHostType.Video, video.Id, [removedTag.Id, keptTag.Id], [keptTag.Id], cancellationToken: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var applications = await context.TagApplications
+            .Where(application => application.HostType == AffinityHostType.Video && application.HostId == video.Id)
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(applications, application => application.TagId == removedTag.Id && application.SourceKey.StartsWith("scraper:", StringComparison.Ordinal));
+        Assert.Contains(applications, application => application.TagId == removedTag.Id && application.SourceKey == "ext:ai.tagging");
+        Assert.Contains(applications, application => application.TagId == keptTag.Id && application.SourceKey.StartsWith("scraper:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RecordAsync_UpdatesExistingConfidenceForMatchingSource()
     {
         await using var context = CreateContext();

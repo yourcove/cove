@@ -98,6 +98,17 @@ public sealed partial class TagProvenanceService(
                     && application.ContextId == null
                     && removedTagIds.Contains(application.TagId))
                 .ToListAsync(cancellationToken);
+            // A source recorded earlier in the same save (a scrape that attached the tag before a hand edit
+            // took it off) is not in the database yet, so the query above cannot see it. Left in place it
+            // would be saved and keep the tag on the host as a derived tag.
+            candidateApplications.AddRange(_db.ChangeTracker.Entries<TagApplication>()
+                .Where(entry => entry.State == EntityState.Added)
+                .Select(entry => entry.Entity)
+                .Where(application => application.HostType == hostType
+                    && application.HostId == hostId
+                    && application.ContextType == null
+                    && application.ContextId == null
+                    && removedTagIds.Contains(application.TagId)));
             var removedApplications = candidateApplications
                 .Where(application => application.SourceKey == normalizedSourceKey
                     || (normalizedSourceKey == "user"

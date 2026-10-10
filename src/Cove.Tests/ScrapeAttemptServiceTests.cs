@@ -5,6 +5,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -787,6 +788,57 @@ public class ScrapeAttemptServiceTests
             .Select(item => item.ValueJson)
             .SingleAsync(TestContext.Current.CancellationToken);
         Assert.Equal(["Kept"], JsonSerializer.Deserialize<string[]>(history!));
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_ScrapedTagRemovedByHandInTheSameApplyLeavesTheVideo()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var kept = new Tag { Name = "Kept" };
+        var removed = new Tag { Name = "Removed" };
+        db.Tags.AddRange(kept, removed);
+        var video = new Video { Title = "Current Video", VideoTags = [new VideoTag { Tag = removed }], TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Kept", "Removed" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new TagProvenanceService(db), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        // "Removed" is on the video and scraped again; the review takes it off by hand.
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "merge" },
+                CreateMissingTags: false,
+                TagSelections:
+                [
+                    new ScrapeCollectionItemSelectionDto("Kept", "include"),
+                    new ScrapeCollectionItemSelectionDto("Removed", "include"),
+                ])
+            {
+                RemovedTagIds = [removed.Id],
+            },
+            CancellationToken.None);
+
+        // The tags a video shows are its links plus every tag a source recorded on it, so the scrape's
+        // record of "Removed" must go with the link.
+        var shownTagIds = await EffectiveHostTagQuery.ForHostType(db, AffinityHostType.Video)
+            .Where(row => row.HostId == video.Id)
+            .Select(row => row.TagId)
+            .Distinct()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal([kept.Id], shownTagIds);
     }
 
     [Fact]
