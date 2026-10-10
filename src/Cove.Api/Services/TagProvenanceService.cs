@@ -245,6 +245,11 @@ public sealed partial class TagProvenanceService(
                         && candidate.ModelKey == normalizedModelKey,
                     cancellationToken);
             }
+
+            // The query hands back the tracked row even when this save already marked it for deletion (a
+            // replace dropped the tag, then the same save applies it again), so keep it instead.
+            if (application is not null && _db.Entry(application).State == EntityState.Deleted)
+                _db.Entry(application).State = EntityState.Unchanged;
         }
         else
         {

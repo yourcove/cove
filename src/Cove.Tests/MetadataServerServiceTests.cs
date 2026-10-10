@@ -241,6 +241,51 @@ public sealed class MetadataServerServiceTests
         Assert.DoesNotContain(action.Id, shownTagIds);
     }
 
+    [Fact]
+    public async Task MergeVideoWithWarningsAsync_OverwriteTakesOffATagItDropsWhateverRecordedIt()
+    {
+        await using var context = CreateContext();
+        var handAdded = new Tag { Name = "Added by hand" };
+        var derived = new Tag { Name = "Added by an extension" };
+        var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = handAdded }] };
+        context.AddRange(derived, video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.TagApplications.AddRange(
+            new TagApplication { HostType = AffinityHostType.Video, HostId = video.Id, TagId = handAdded.Id, SourceKey = "user" },
+            new TagApplication { HostType = AffinityHostType.Video, HostId = video.Id, TagId = derived.Id, SourceKey = "ext:ai.tagging", SourceRunId = "run-1" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "findVideo": {{RemoteVideoJson}}
+            """)));
+        var service = CreateService(context, httpClient, tagProvenance: new TagProvenanceService(context));
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto
+            {
+                SetCoverImage = false,
+                SetPerformers = false,
+                SetStudio = false,
+                FieldStrategies = new Dictionary<string, string> { ["tags"] = "overwrite" },
+            },
+            CancellationToken.None);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Imported);
+        // Overwrite leaves the remote "Action"; the hand-added tag's record must go with its link or it keeps
+        // the tag shown. The extension's tag was never linked and stays.
+        var action = await context.Tags.SingleAsync(tag => tag.Name == "Action", TestContext.Current.CancellationToken);
+        var shownTagIds = await Cove.Data.Services.EffectiveHostTagQuery.ForHostType(context, AffinityHostType.Video)
+            .Where(row => row.HostId == video.Id)
+            .Select(row => row.TagId)
+            .Distinct()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { action.Id, derived.Id }.Order(), shownTagIds.Order());
+    }
+
     // The tagger's preview drops a filtered performer and then sends the surviving ones as overrides, so
     // the gender filter has to outrank an override that asks for one of the dropped performers by name.
     [Theory]

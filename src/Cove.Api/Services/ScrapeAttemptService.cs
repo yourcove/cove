@@ -974,11 +974,15 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (tagNames.Count == 0)
             return;
 
+        var previousTagIds = audio.AudioTags.Select(link => link.TagId).ToArray();
         var selectedTagNames = ResolveSelectedRelationNames(tagNames, selections, createMissing);
         if (selectedTagNames.Count == 0)
         {
             if (mode == "replace")
+            {
                 audio.AudioTags.Clear();
+                await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Audio, audio.Id, previousTagIds, [], ct);
+            }
             return;
         }
 
@@ -1016,6 +1020,9 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
             audio.AudioTags.Add(new AudioTag { AudioId = audio.Id, TagId = tag.Id, Tag = tag });
         }
+
+        if (mode == "replace")
+            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Audio, audio.Id, previousTagIds, audio.AudioTags.Select(link => link.TagId), ct);
     }
 
     private async Task ApplyTextTagsAsync(TextDocument textDocument, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)
@@ -1028,11 +1035,15 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (tagNames.Count == 0)
             return;
 
+        var previousTagIds = textDocument.TextTags.Select(link => link.TagId).ToArray();
         var selectedTagNames = ResolveSelectedRelationNames(tagNames, selections, createMissing);
         if (selectedTagNames.Count == 0)
         {
             if (mode == "replace")
+            {
                 textDocument.TextTags.Clear();
+                await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Text, textDocument.Id, previousTagIds, [], ct);
+            }
             return;
         }
 
@@ -1070,6 +1081,9 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
             textDocument.TextTags.Add(new TextTag { TextDocumentId = textDocument.Id, TagId = tag.Id, Tag = tag });
         }
+
+        if (mode == "replace")
+            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Text, textDocument.Id, previousTagIds, textDocument.TextTags.Select(link => link.TagId), ct);
     }
 
     private async Task ApplyImageTagsAsync(Image image, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, string sourceKey, string sourceRunId, CancellationToken ct)
@@ -1636,6 +1650,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (tagNames.Count == 0)
             return AppliedRelationNames.None;
 
+        var previousTagIds = video.VideoTags.Select(link => link.TagId).ToArray();
         var selectedTagNames = ResolveSelectedRelationNames(tagNames, selections, createMissing);
         if (selectedTagNames.Count == 0)
         {
@@ -1643,6 +1658,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             {
                 video.VideoTags.Clear();
                 await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, [], ct);
+                await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Video, video.Id, previousTagIds, [], ct);
             }
             return AppliedRelationNames.None;
         }
@@ -1688,7 +1704,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         }
 
         if (mode == "replace")
+        {
             await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, appliedTagIds, ct);
+            await ReplacedTagLinks.ForgetDroppedAsync(tagProvenanceService, AffinityHostType.Video, video.Id, previousTagIds, appliedTagIds, ct);
+        }
 
         await ApplyTagHierarchyAsync(root, tagLookup, selections == null && createMissing, appliedTagNames, ct);
         return new AppliedRelationNames(attachedScrapedNames, missed);

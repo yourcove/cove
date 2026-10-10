@@ -1407,6 +1407,7 @@ query Me {
         var tagsStrategy = GetMetadataFieldStrategy(fieldStrategies, "tags", MetadataFieldStrategy.Merge);
         if (setTags && tagsStrategy != MetadataFieldStrategy.Ignore)
         {
+            var previousTagIds = video.VideoTags.Select(link => link.TagId).Where(id => id > 0).ToArray();
             if (tagsStrategy == MetadataFieldStrategy.Overwrite)
                 video.VideoTags.Clear();
 
@@ -1444,9 +1445,13 @@ query Me {
             }
 
             // Overwrite clears the manual VideoTags; also drop this source's stale provenance rows for
-            // tags no longer applied, or they'd linger as "derived" effective tags (see ApplyTagsAsync).
+            // tags no longer applied, and every other non-extension row of the tags it dropped, or they'd
+            // linger as "derived" effective tags (see ApplyTagsAsync).
             if (tagsStrategy == MetadataFieldStrategy.Overwrite)
+            {
                 await _tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, appliedTagIds, ct);
+                await ReplacedTagLinks.ForgetDroppedAsync(_tagProvenanceService, AffinityHostType.Video, video.Id, previousTagIds, appliedTagIds, ct);
+            }
 
             if (appliedTagNames.Count > 0)
                 fieldProvenance["tags"] = appliedTagNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();

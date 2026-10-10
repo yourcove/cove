@@ -841,6 +841,102 @@ public class ScrapeAttemptServiceTests
         Assert.Equal([kept.Id], shownTagIds);
     }
 
+    [Theory]
+    [InlineData(AffinityHostType.Video)]
+    [InlineData(AffinityHostType.Audio)]
+    [InlineData(AffinityHostType.Text)]
+    public async Task ApplyAttemptAsync_ReplaceTakesOffATagItDropsWhateverRecordedIt(AffinityHostType hostType)
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var kept = new Tag { Name = "Kept" };
+        var dropped = new Tag { Name = "Added by hand" };
+        var derived = new Tag { Name = "Added by an extension" };
+        db.Tags.AddRange(kept, dropped, derived);
+        // The item has two linked tags and one an extension recorded without a link.
+        BaseEntity entity = hostType switch
+        {
+            AffinityHostType.Video => db.Videos.Add(new Video { Title = "Item", VideoTags = [new VideoTag { Tag = kept }, new VideoTag { Tag = dropped }], TagIds = [], PerformerIds = [] }).Entity,
+            AffinityHostType.Audio => db.Audios.Add(new Audio { Title = "Item", AudioTags = [new AudioTag { Tag = kept }, new AudioTag { Tag = dropped }], TagIds = [], PerformerIds = [] }).Entity,
+            _ => db.TextDocuments.Add(new TextDocument { Title = "Item", TextTags = [new TextTag { Tag = kept }, new TextTag { Tag = dropped }], TagIds = [], PerformerIds = [] }).Entity,
+        };
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var hostId = entity.Id;
+        db.TagApplications.AddRange(
+            new TagApplication { HostType = hostType, HostId = hostId, TagId = dropped.Id, SourceKey = "user" },
+            new TagApplication { HostType = hostType, HostId = hostId, TagId = derived.Id, SourceKey = "ext:ai.tagging", SourceRunId = "run-1" });
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/item",
+            EntityType = hostType switch { AffinityHostType.Video => EntityKinds.Video, AffinityHostType.Audio => EntityKinds.Audio, _ => EntityKinds.Text },
+            EntityId = hostId,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/item" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Kept" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new TagProvenanceService(db), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(ReplaceFields: [], CollectionModes: new Dictionary<string, string> { ["tags"] = "replace" }, CreateMissingTags: false),
+            CancellationToken.None);
+
+        // The replace drops the hand-added tag; its record must go with the link or it keeps the tag shown.
+        // The extension's tag was never linked and stays, as it does after a removal in the edit form.
+        var shownTagIds = await EffectiveHostTagQuery.ForHostType(db, hostType)
+            .Where(row => row.HostId == hostId)
+            .Select(row => row.TagId)
+            .Distinct()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { kept.Id, derived.Id }.Order(), shownTagIds.Order());
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_ReplaceKeepsTheRecordsOfATagAddedBackByHandInTheSameApply()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var kept = new Tag { Name = "Kept" };
+        var readded = new Tag { Name = "Added by hand" };
+        db.Tags.AddRange(kept, readded);
+        var video = new Video { Title = "Item", VideoTags = [new VideoTag { Tag = kept }, new VideoTag { Tag = readded }], TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.TagApplications.AddRange(
+            new TagApplication { HostType = AffinityHostType.Video, HostId = video.Id, TagId = kept.Id, SourceKey = "user" },
+            new TagApplication { HostType = AffinityHostType.Video, HostId = video.Id, TagId = readded.Id, SourceKey = "user" });
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/item" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Kept" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new TagProvenanceService(db), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        // The replace drops "Added by hand", and the same apply adds it back through the review's search.
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(ReplaceFields: [], CollectionModes: new Dictionary<string, string> { ["tags"] = "replace" }, CreateMissingTags: false)
+            {
+                AddedTagIds = [readded.Id],
+            },
+            CancellationToken.None);
+
+        var userRecords = await db.TagApplications
+            .Where(application => application.HostType == AffinityHostType.Video && application.HostId == video.Id && application.SourceKey == "user")
+            .Select(application => application.TagId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { kept.Id, readded.Id }.Order(), userRecords.Order());
+        Assert.Equal(new[] { kept.Id, readded.Id }.Order(), video.VideoTags.Select(link => link.TagId).Order());
+    }
+
     [Fact]
     public async Task ApplyAttemptAsync_VideoWithoutSelectionsDoesNotCountAnUncreatedNameAsMissed()
     {
