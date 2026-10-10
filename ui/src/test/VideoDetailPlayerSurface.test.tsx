@@ -27,8 +27,10 @@ const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock, cov
     coverDialogMock: vi.fn(),
   }));
 
-const { videoSpritesMock } = vi.hoisted(() => ({
+const { videoSpritesMock, layoutMock } = vi.hoisted(() => ({
   videoSpritesMock: vi.fn((_videoId: number | null) => null as unknown),
+  // Most tests only need the player row; timeline tests also render the scrubber below it.
+  layoutMock: { renderWholeMediaColumn: false },
 }));
 
 vi.mock("../hooks/useVideoSprites", async (importOriginal) => ({
@@ -92,7 +94,7 @@ vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
         </div>
         {actions}
         <div data-testid="video-detail-media" data-sizes-itself-on-mobile={String(Boolean(mediaSizesItselfOnMobile))}>
-          {mediaChildren[0]}
+          {layoutMock.renderWholeMediaColumn ? mediaChildren : mediaChildren[0]}
         </div>
         {activeTab === "edit" || activeTab === "file-info" ? children : null}
       </>
@@ -233,6 +235,7 @@ describe("VideoDetailPage media-player extension surface", () => {
     visualAvailabilityMock.loading = false;
     coverDialogMock.mockReset();
     videoSpritesMock.mockReset();
+    layoutMock.renderWholeMediaColumn = false;
     videoSpritesMock.mockReturnValue(null);
     appConfigMock.config = { ui: {} };
   });
@@ -347,14 +350,15 @@ describe("VideoDetailPage media-player extension surface", () => {
     expect(playerArea.style.getPropertyValue("--video-aspect-ratio")).toBe("");
   });
 
-  it("gives the player the video's sprites for the seek-bar preview", async () => {
-    const sprites = {
-      entries: [{ start: 0, end: 10, x: 0, y: 0, w: 160, h: 90 }],
-      imageUrl: "/api/stream/video/14/sprite",
-      sheetWidth: 160,
-      sheetHeight: 90,
-    };
-    videoSpritesMock.mockImplementation((videoId) => (videoId === 14 ? sprites : null));
+  const spriteSheet = {
+    entries: [{ start: 0, end: 10, x: 0, y: 0, w: 160, h: 90 }],
+    imageUrl: "/api/stream/video/14/sprite",
+    sheetWidth: 160,
+    sheetHeight: 90,
+  };
+
+  function mockSpriteVideo() {
+    videoSpritesMock.mockImplementation((videoId) => (videoId === 14 ? spriteSheet : null));
     mockVideos.get.mockResolvedValue({
       id: 14,
       title: "Sprite video",
@@ -365,11 +369,37 @@ describe("VideoDetailPage media-player extension surface", () => {
       tags: [],
       contextTagApplications: [],
     });
+  }
+
+  it("gives the player the video's sprites for the seek-bar preview", async () => {
+    mockSpriteVideo();
 
     renderVideoDetail();
 
     expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenLastCalledWith(expect.objectContaining({ seekPreviewSprites: sprites }));
+    expect(videoPlayerMock).toHaveBeenLastCalledWith(expect.objectContaining({ seekPreviewSprites: spriteSheet }));
+  });
+
+  it("shows the sprite strip below the player by default", async () => {
+    mockSpriteVideo();
+    layoutMock.renderWholeMediaColumn = true;
+
+    renderVideoDetail();
+
+    expect(await screen.findByTestId("video-sprite-strip")).toBeInTheDocument();
+  });
+
+  it("hides the sprite strip but keeps the seek-bar preview when scrubber sprites are turned off", async () => {
+    mockSpriteVideo();
+    layoutMock.renderWholeMediaColumn = true;
+    appConfigMock.config = { ui: { showScrubberSprites: false } };
+
+    renderVideoDetail();
+
+    // The strip renders in the same pass as the player, so its absence here is not a timing artifact.
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+    expect(screen.queryByTestId("video-sprite-strip")).not.toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenLastCalledWith(expect.objectContaining({ seekPreviewSprites: spriteSheet }));
   });
 
   it("does not load sprites for a video without files", async () => {

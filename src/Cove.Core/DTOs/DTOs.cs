@@ -1560,6 +1560,7 @@ public record UiConfigDto
     public double PlayerVideoStartMinDuration { get; init; }
     public bool ContinuePlaylistDefault { get; init; }
     public bool ShowAbLoopControls { get; init; } = true;
+    public bool ShowScrubberSprites { get; init; } = true;
     public bool SortSearchesByRelevance { get; init; } = true;
     public bool SoundOnPreview { get; init; }
     public double PreviewSegmentDuration { get; init; } = 0.75;

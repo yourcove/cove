@@ -1389,7 +1389,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
       ) : null}
       {file && video.parentVideoId == null && alternateFileId == null ? (
         <VideoScrubber
-          sprites={sprites}
+          // The setting hides only this strip; the seek-bar preview keeps its sprites.
+          sprites={config?.ui.showScrubberSprites === false ? null : sprites}
           duration={file.duration}
           spans={resolvedSpans}
           rawSegments={segments}
@@ -2942,7 +2943,7 @@ function VideoScrubber({
       )}
 
       {sprites ? (
-        <div className="relative flex overflow-hidden" ref={containerRef}>
+        <div className="relative flex overflow-hidden" ref={containerRef} data-testid="video-sprite-strip">
           <button
             onClick={() => scroll(-1)}
             className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-r border-border z-10"
