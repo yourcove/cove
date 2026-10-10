@@ -11,6 +11,37 @@ namespace Cove.Tests;
 public sealed class TagMergeServiceTests
 {
     [Fact]
+    public async Task SegmentPayloadPrefilter_IgnoresUnrelatedIdsButKeepsTagReferenceShapes()
+    {
+        await using var db = CreateContext();
+        db.Segments.AddRange(
+            new Segment { HostType = SegmentHostType.Video, HostId = 1,
+                Payload = JsonSerializer.SerializeToDocument(new { stashSceneId = 51, stashSpanId = 15151 }) },
+            new Segment { HostType = SegmentHostType.Video, HostId = 1,
+                Payload = JsonSerializer.SerializeToDocument(new { nested = new { secondaryTagIds = new[] { 51 } } }) },
+            new Segment { HostType = SegmentHostType.Video, HostId = 1,
+                Payload = JsonSerializer.SerializeToDocument(new { custom = new { type = "tag", value = 51 } }) },
+            new Segment { HostType = SegmentHostType.Video, HostId = 1,
+                Payload = JsonSerializer.SerializeToDocument(new { tagId = 52 }) });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var candidates = await StoredJsonReferenceScan.PrefilterTagBearingSegmentPayloads(
+                db.Segments, [51])
+            .AsNoTracking()
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, candidates.Count);
+        Assert.Contains(candidates, segment => segment.Payload!.RootElement.TryGetProperty("nested", out _));
+        Assert.Contains(candidates, segment => segment.Payload!.RootElement.TryGetProperty("custom", out _));
+
+        var multipleSources = await StoredJsonReferenceScan.PrefilterTagBearingSegmentPayloads(
+                db.Segments, [51, 52])
+            .AsNoTracking()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, multipleSources.Count);
+    }
+
+    [Fact]
     public async Task MergeAsync_StopsBeforeMutationWhenExtensionReferencesCannotBeTransferred()
     {
         await using var db = CreateContext();

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Services;
@@ -14,6 +15,36 @@ namespace Cove.Data.Services;
 /// </summary>
 internal static class StoredJsonReferenceScan
 {
+    // TagReferenceJsonRewriter only interprets IDs under these shapes. Segment payloads often
+    // contain unrelated IDs (run IDs, frame IDs, imported scene/span IDs), so the ordinary
+    // numeric substring prefilter can materialize millions of false positives for a small tag.
+    // Keep this a superset of the rewriter's recognized shapes, including nested filters and
+    // custom fields; the rewriter remains responsible for confirming the actual reference.
+    private static readonly string[] SegmentTagReferenceKeys =
+    [
+        "tagid", "tagids", "secondarytagids", "tagscriterion", "performertagscriterion",
+        "videotagscriterion", "rawtagscriterion", "objectfilter", "type",
+    ];
+
+    public static IQueryable<TEntity> PrefilterTagBearingSegmentPayloads<TEntity>(
+        DbSet<TEntity> source,
+        IReadOnlyCollection<int> sourceIds)
+        where TEntity : class
+    {
+        if (sourceIds.Count == 0)
+            return source.Where(entity => false);
+
+        const string payloadText = "CAST(\"Payload\" AS TEXT)";
+        var idCondition = string.Join(" OR ", sourceIds.Select((_, index) =>
+            $"{payloadText} LIKE {{{index}}}"));
+        var keyCondition = string.Join(" OR ", SegmentTagReferenceKeys.Select(key =>
+            $"LOWER({payloadText}) LIKE '%\"{key}\"%'"));
+        var sql = FormattableStringFactory.Create(
+            $"SELECT * FROM segments WHERE ({idCondition}) AND ({keyCondition})",
+            sourceIds.Select(id => (object)$"%{id}%").ToArray());
+        return source.FromSql(sql);
+    }
+
     public static IQueryable<TEntity> PrefilterBySourceIds<TEntity>(
         DbSet<TEntity> source,
         string table,

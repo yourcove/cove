@@ -762,8 +762,8 @@ public sealed class TagMergeService(
         foreach (var interval in playbackIntervals)
             interval.Context = TagReferenceJsonRewriter.Rewrite(interval.Context, tagIdMap);
 
-        var payloadSegments = await StoredJsonReferenceScan.PrefilterBySourceIds(
-            db.Segments, "segments", "Payload", sourceIds).ToListAsync(ct);
+        var payloadSegments = await StoredJsonReferenceScan.PrefilterTagBearingSegmentPayloads(
+            db.Segments, sourceIds).ToListAsync(ct);
         foreach (var segment in payloadSegments)
             segment.Payload = TagReferenceJsonRewriter.Rewrite(segment.Payload, tagIdMap);
 
