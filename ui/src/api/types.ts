@@ -2624,6 +2624,8 @@ export interface ApplyVideoScrapeAttemptRequest {
   removedTagIds?: number[];
   addedPerformerIds?: number[];
   removedPerformerIds?: number[];
+  /** A library studio linked to the scraped one for this video alone, set in its place. */
+  linkedStudioId?: number;
 }
 
 export type ApplyScrapeAttemptRequest = ApplyVideoScrapeAttemptRequest;

@@ -1411,6 +1411,9 @@ export const studios = {
   create: (data: StudioCreate) => request<Studio>("/studios", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: StudioUpdate) =>
     request<Studio>(`/studios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  /** Appends one alias on the server; a name the studio already has is a no-op, another studio's a 409. */
+  addAlias: (id: number, alias: string) =>
+    request<Studio>(`/studios/${id}/aliases`, { method: "POST", body: JSON.stringify({ alias }) }),
   bulkUpdate: (data: BulkStudioUpdate) =>
     request<void>("/studios/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/studios/${id}`, { method: "DELETE" }),

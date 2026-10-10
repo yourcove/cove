@@ -13,12 +13,14 @@ const mocks = vi.hoisted(() => ({
   createScrapeAttempt: vi.fn(),
   resolveRelations: vi.fn(),
   applyScrapeAttempt: vi.fn(),
+  addStudioAlias: vi.fn(),
   videoObjectFit: "cover" as "cover" | "contain",
 }));
 
 vi.mock("../api/client", () => ({
   entityImages: { videoCoverUrl: vi.fn(() => "/video-cover.jpg") },
   system: { listScrapers: mocks.listScrapers },
+  studios: { addAlias: mocks.addStudioAlias },
   scrapeAttempts: {
     create: mocks.createScrapeAttempt,
     resolveRelations: mocks.resolveRelations,
@@ -32,6 +34,20 @@ vi.mock("../api/client", () => ({
     searchMetadataServer: mocks.searchMetadataServer,
     submitMetadataServerDraft: mocks.submitMetadataServerDraft,
   },
+}));
+
+// The link panel's library search, which a test answers with one studio.
+vi.mock("../components/EntityReferenceSelector", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../components/EntityReferenceSelector")>()),
+  EntityReferenceSelector: ({
+    onChange,
+  }: {
+    onChange: (id: number, option: { id: number; label: string }) => void;
+  }) => (
+    <button type="button" onClick={() => onChange(77, { id: 77, label: "Library Studio" })}>
+      Pick Library Studio
+    </button>
+  ),
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
@@ -279,6 +295,51 @@ describe("VideoTagger", () => {
     expect(request.setStudio).toBe(expected.setStudio);
     expect(request.onlyExistingStudio).toBe(true);
     expect(request.studioOverride).toEqual(expected.studioOverride);
+  });
+
+  it("imports a provider studio linked to a library one for this video as that studio", async () => {
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      {
+        ...matchFor(123),
+        id: "first-video-id",
+        studioName: "Remote Studio",
+        studioCandidate: { remoteId: "remote-studio", name: "Remote Studio", existsLocally: false },
+      },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Studio: link “Remote Studio” to one in your library" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Pick Library Studio" }));
+    await userEvent.click(screen.getByLabelText(/Remember “Remote Studio” as an alias/));
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Apply/ }));
+
+    await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledOnce());
+    const request = mocks.importFromMetadataServer.mock.calls[0][1];
+    expect(request.setStudio).toBe(true);
+    expect(request.studioOverride).toEqual({
+      remoteId: "remote-studio",
+      name: "Remote Studio",
+      action: "existing",
+      localId: 77,
+    });
   });
 
   it("shows a metadata-server match under the library name it lands on and folds it into the tag the video has", async () => {
@@ -1972,6 +2033,78 @@ describe("VideoTagger", () => {
     } finally {
       focusManager.setFocused(undefined);
     }
+  });
+
+  async function linkStudio(rememberAlias: boolean) {
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Studio: link “Scraped Studio” to one in your library" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Pick Library Studio" }));
+    if (!rememberAlias) await userEvent.click(screen.getByLabelText(/Remember “Scraped Studio” as an alias/));
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+  }
+
+  it("uses a library studio linked for this video alone, without saving an alias", async () => {
+    await scrapeWithStudio();
+    await linkStudio(false);
+    expect(mocks.addStudioAlias).not.toHaveBeenCalled();
+    // The row now reads the library studio as the one the video gets, with the scraped name on hover.
+    expect(await screen.findByTitle("Scraped as “Scraped Studio”")).toHaveTextContent("Library Studio");
+    await userEvent.click(screen.getByRole("button", { name: "Done adjusting" }));
+    const request = await applyRow();
+    expect(request.linkedStudioId).toBe(77);
+    expect(request.collectionModes.studio).toBe("replace");
+    expect(request.createMissingStudio).toBe(false);
+  });
+
+  it("hands focus back to the studio's Link when its panel is cancelled", async () => {
+    await scrapeWithStudio();
+    await userEvent.click(await screen.findByRole("button", { name: "Adjust…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Studio: link “Scraped Studio” to one in your library" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Studio: link “Scraped Studio” to one in your library" }),
+      ).toHaveFocus(),
+    );
+  });
+
+  it("does not carry a studio linked for this video over to another studio a new search returns", async () => {
+    await scrapeWithStudio();
+    await linkStudio(false);
+    mocks.createScrapeAttempt.mockResolvedValue({
+      ...(await mocks.createScrapeAttempt.mock.results[0].value),
+      id: "attempt-2",
+      resultJson: JSON.stringify({ Title: "Scraped title", Studio: "Other Studio" }),
+    });
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+    expect(await screen.findByText("Other Studio")).toBeInTheDocument();
+    const request = await applyRow();
+    expect(request.linkedStudioId).toBeUndefined();
+    expect(request.collectionModes.studio).toBe("skip");
+  });
+
+  it("remembers the scraped studio as an alias, and the library lookup then matches it", async () => {
+    mocks.addStudioAlias.mockImplementation(async () => {
+      mocks.resolveRelations.mockResolvedValue({
+        tags: [],
+        performers: [],
+        studios: [{ input: "Scraped Studio", matchedName: "Library Studio" }],
+      });
+      return {};
+    });
+    await scrapeWithStudio();
+    await linkStudio(true);
+    expect(mocks.addStudioAlias).toHaveBeenCalledWith(77, "Scraped Studio");
+    expect(await screen.findByTitle("Scraped as “Scraped Studio”")).toHaveTextContent("Library Studio");
+    await userEvent.click(screen.getByRole("button", { name: "Done adjusting" }));
+    const request = await applyRow();
+    // Matched by its new alias, so the apply looks it up as any other.
+    expect(request.linkedStudioId).toBeUndefined();
+    expect(request.collectionModes.studio).toBe("replace");
   });
 
   it("keeps a saved choice to create missing studios", async () => {

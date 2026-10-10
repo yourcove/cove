@@ -69,6 +69,7 @@ public class ScrapeAttemptsController(ScrapeAttemptService scrapeAttemptService,
     }
 
     [HttpPost("{id:guid}/apply")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "LinkedStudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ScrapeAttemptDto>> Apply(Guid id, [FromBody] ApplyVideoScrapeAttemptDto dto, CancellationToken ct)
     {
         var existingAttempt = await scrapeAttemptService.GetAttemptAsync(id, ct);

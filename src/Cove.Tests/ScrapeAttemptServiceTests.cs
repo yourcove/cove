@@ -945,6 +945,42 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ApplyAttemptAsync_SetsTheStudioTheReviewLinkedInsteadOfLookingTheScrapedOneUp()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var library = new Studio { Name = "Library Studio" };
+        db.Studios.Add(library);
+        var video = new Video { Title = "Item", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/item" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Studio"] = "Scraped Studio" }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new ScrapeAttemptService(db, null!, null!, null!, new TagProvenanceService(db), null!, new EventBus(), NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(ReplaceFields: [], CollectionModes: new Dictionary<string, string> { ["studio"] = "replace" }, CreateMissingStudio: false)
+            {
+                LinkedStudioId = library.Id,
+            },
+            CancellationToken.None);
+
+        var updated = await db.Videos.AsNoTracking().SingleAsync(item => item.Id == video.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(library.Id, updated.StudioId);
+        Assert.False(await db.Studios.AnyAsync(studio => studio.Name == "Scraped Studio", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ApplyAttemptAsync_ReplaceKeepsTheRecordsOfATagAddedBackByHandInTheSameApply()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";

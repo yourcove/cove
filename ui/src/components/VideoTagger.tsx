@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { videos, scrapeAttempts, system, tags } from "../api/client";
+import { videos, scrapeAttempts, studios, system, tags } from "../api/client";
 import type {
   ApplyVideoScrapeAttemptRequest,
   Video,
@@ -209,6 +209,8 @@ interface VideoSearchState {
   forceIncludedTags?: Set<string>;
   // The key of the scraped studio the person chose to create with "+ Create".
   createdStudio?: string;
+  // A library studio the person linked the scraped one to for this video alone, by the scraped name's key.
+  linkedStudio?: LinkedStudio;
   fieldStrategies?: Record<string, VideoFieldStrategy>;
   collectionModes?: Record<string, CollectionMode>;
   // Hand edits made in the review beside the scrape, as the edit form would make them.
@@ -711,6 +713,29 @@ function studioFoundSinceSearch(
   return matched ? { ...candidate, existsLocally: true, localName: matched } : candidate;
 }
 
+interface LinkedStudio {
+  key: string;
+  id: number;
+  name: string;
+}
+
+/** The studio linked for this video, when it is this result's; a later search naming another studio has none. */
+function linkedStudioFor(result: Pick<UnifiedVideoMatch, "studioName">, linked: LinkedStudio | undefined) {
+  return result.studioName && linked?.key === relationKey(result.studioName) ? linked : undefined;
+}
+
+/** A studio linked for this video is the one the video gets, as if the library had matched it. */
+function withLinkedStudio(
+  result: UnifiedVideoMatch,
+  candidate: UnifiedVideoMatch["studioCandidate"],
+  linked: LinkedStudio | undefined,
+): UnifiedVideoMatch["studioCandidate"] {
+  const studio = linkedStudioFor(result, linked);
+  return candidate && studio
+    ? { ...candidate, existsLocally: true, localId: studio.id, localName: studio.name }
+    : candidate;
+}
+
 /** The person chose "+ Create" for this result's studio; a later search naming another studio has not. */
 function isStudioChosenForCreate(result: Pick<UnifiedVideoMatch, "studioName">, createdStudio: string | undefined) {
   return Boolean(result.studioName) && createdStudio === relationKey(result.studioName ?? "");
@@ -905,6 +930,8 @@ function buildScraperVideoApplyRequest(
           }))
         : undefined,
     ...relationshipEditFields(state, taggerConfig),
+    // Only when the studio is set at all, so a studio this apply leaves alone is not checked for access.
+    linkedStudioId: collectionModes.studio === "skip" ? undefined : linkedStudioFor(result, state?.linkedStudio)?.id,
   };
 }
 
@@ -2050,7 +2077,11 @@ function TaggerVideoRow({
             tagCandidates: r.tagCandidates.map((c) =>
               c.existsLocally || !existingTagKeys.has(relationKey(c.name)) ? c : { ...c, existsLocally: true },
             ),
-            studioCandidate: studioFoundSinceSearch(r.studioCandidate, studioMatchInfo),
+            studioCandidate: withLinkedStudio(
+              r,
+              studioFoundSinceSearch(r.studioCandidate, studioMatchInfo),
+              state?.linkedStudio,
+            ),
           }
         : {
             ...r,
@@ -2063,16 +2094,19 @@ function TaggerVideoRow({
               existsLocally: existingPerformerKeys.has(relationKey(c.name)),
             })),
             // Until the lookup answers, whether the library has the studio is unknown, not "no".
-            studioCandidate:
+            studioCandidate: withLinkedStudio(
+              r,
               r.studioCandidate && studioMatchInfo
                 ? {
                     ...r.studioCandidate,
                     existsLocally: Object.hasOwn(studioMatchInfo, relationKey(r.studioCandidate.name)),
                   }
                 : undefined,
+              state?.linkedStudio,
+            ),
           },
     );
-  }, [state?.results, existingTagKeys, existingPerformerKeys, studioMatchInfo, allowedGenderKeys]);
+  }, [state?.results, existingTagKeys, existingPerformerKeys, studioMatchInfo, allowedGenderKeys, state?.linkedStudio]);
   const selectedResult = enrichedResults?.[state?.selectedIndex ?? 0];
   const coverComparison = useCoverComparison(video, selectedResult?.imageUrl);
   const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () =>
@@ -2156,14 +2190,23 @@ function TaggerVideoRow({
           .filter((t) => tagActions[relationKey(t.name)] === "create")
           .map((t) => ({ remoteId: t.remoteId, name: t.name, action: "create" }))
       : undefined;
-    const studioOverride =
-      selectedResult.studioCandidate && isStudioChosenForCreate(selectedResult, state?.createdStudio)
+    const linkedStudio = linkedStudioFor(selectedResult, state?.linkedStudio);
+    const studioOverride = !selectedResult.studioCandidate
+      ? undefined
+      : linkedStudio
         ? {
             remoteId: selectedResult.studioCandidate.remoteId,
             name: selectedResult.studioCandidate.name,
-            action: "create",
+            action: "existing",
+            localId: linkedStudio.id,
           }
-        : undefined;
+        : isStudioChosenForCreate(selectedResult, state?.createdStudio)
+          ? {
+              remoteId: selectedResult.studioCandidate.remoteId,
+              name: selectedResult.studioCandidate.name,
+              action: "create",
+            }
+          : undefined;
 
     const importReq: MetadataServerVideoImportRequest = {
       endpoint: selectedResult.endpoint,
@@ -2578,6 +2621,7 @@ function TaggerVideoRow({
                         forceIncludedPerformers: undefined,
                         forceIncludedTags: undefined,
                         createdStudio: undefined,
+                        linkedStudio: undefined,
                         tagEdits: undefined,
                         performerEdits: undefined,
                       },
@@ -2662,6 +2706,23 @@ function TaggerVideoRow({
                   },
                 });
               }}
+              onLinkStudio={async (studio, rememberAlias) => {
+                const scrapedName = selectedResult?.studioName;
+                if (!scrapedName) return;
+                if (rememberAlias) {
+                  // Appended on the server, as a tag's alias is; the lookup then matches the studio for every row.
+                  await studios.addAlias(studio.id, scrapedName);
+                  void queryClient.invalidateQueries({ queryKey: ["studios"] });
+                  void queryClient.invalidateQueries({ queryKey: ["studio", studio.id] });
+                }
+                onUpdateState((latest) => ({
+                  linkedStudio: rememberAlias
+                    ? latest?.linkedStudio
+                    : { key: relationKey(scrapedName), id: studio.id, name: studio.label },
+                  collectionModes: { ...latest?.collectionModes, studio: "replace" },
+                }));
+                if (rememberAlias) await queryClient.invalidateQueries({ queryKey: ["tagger-resolve-relations"] });
+              }}
               tagEdits={state.tagEdits}
               performerEdits={state.performerEdits}
               onRelationshipEditsChange={(key, edits) =>
@@ -2729,6 +2790,7 @@ interface TaggerResultsProps {
   onToggleTag: (names: string | string[]) => void;
   onLinkTag?: TaggerReviewInput["onLinkTag"];
   onCreateStudio: () => void;
+  onLinkStudio: NonNullable<TaggerReviewInput["onLinkStudio"]>;
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
   onRelationshipEditsChange: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
@@ -2765,6 +2827,7 @@ function TaggerResults({
   onToggleTag,
   onLinkTag,
   onCreateStudio,
+  onLinkStudio,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,
@@ -2806,6 +2869,7 @@ function TaggerResults({
       onToggleTag={i === current ? onToggleTag : undefined}
       onLinkTag={i === current ? onLinkTag : undefined}
       onCreateStudio={i === current ? onCreateStudio : undefined}
+      onLinkStudio={i === current ? onLinkStudio : undefined}
       tagEdits={tagEdits}
       performerEdits={performerEdits}
       onRelationshipEditsChange={i === current ? onRelationshipEditsChange : undefined}
@@ -2860,6 +2924,7 @@ function TaggerResultRow({
   onToggleTag,
   onLinkTag,
   onCreateStudio,
+  onLinkStudio,
   tagEdits,
   performerEdits,
   onRelationshipEditsChange,
@@ -2894,6 +2959,7 @@ function TaggerResultRow({
   onToggleTag?: (names: string | string[]) => void;
   onLinkTag?: TaggerReviewInput["onLinkTag"];
   onCreateStudio?: () => void;
+  onLinkStudio?: TaggerReviewInput["onLinkStudio"];
   tagEdits?: TaggerRelationshipEdits;
   performerEdits?: TaggerRelationshipEdits;
   onRelationshipEditsChange?: (key: TaggerRelationshipKey, edits: TaggerRelationshipEdits) => void;
@@ -2907,6 +2973,7 @@ function TaggerResultRow({
   // Accept-all is the common case, so the review opens as a list of facts; the full side-by-side
   // rows are one click away for per-item chips and hand edits.
   const [adjusting, setAdjusting] = useState(false);
+  const [linkingStudio, setLinkingStudio] = useState(false);
   // When the failure line goes while its Retry has focus, focus moves on to Apply rather than dropping to
   // the page with the button that had it.
   const applyButtonRef = useRef<HTMLButtonElement>(null);
@@ -2971,6 +3038,9 @@ function TaggerResultRow({
     createStudio: willCreateStudio(result, createdStudio, taggerConfig),
     studioMatchName: resultStudioMatchName(result, studioMatchInfo),
     onCreateStudio,
+    onLinkStudio,
+    linkingStudio,
+    onLinkingStudioChange: setLinkingStudio,
     showTags: taggerConfig.setTags,
     showPerformers: taggerConfig.setPerformers,
     createMissingTags: !taggerConfig.onlyExistingTags,

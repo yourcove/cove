@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronUp, CircleSlash, Loader2, Plus, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, CircleSlash, Link2, Loader2, Plus, X } from "lucide-react";
 
 /**
  * Generic two-sided review: the user compares a kept record against an incoming one and decides,
@@ -84,6 +84,13 @@ export interface DiffField {
    * as it is, and this asks, as the "+" on a new list item does.
    */
   onCreateSource?: () => void;
+  /**
+   * Beside the create action: use an entity the library already has for the incoming value instead. The
+   * owner shows its own way of choosing it as `linkPanel`.
+   */
+  onLinkSource?: () => void;
+  /** Shown under the incoming value while the person links it (see `onLinkSource`). */
+  linkPanel?: ReactNode;
   /**
    * The owner does not know this field's outcome yet (it is still checking something the field depends
    * on, or that check failed), so the field cannot be changed, is left out of the summary, and shows this
@@ -528,6 +535,9 @@ function ScalarRow({
             <span className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
               Not in your library
               <CreateSourceButton field={field} value={source.values[field.key]} disabled={disabled} />
+              {field.onLinkSource && !field.linkPanel ? (
+                <LinkSourceButton field={field} value={source.values[field.key]} disabled={disabled} />
+              ) : null}
             </span>
           ) : chosen === "source" ? (
             <span className="text-[11px] text-amber-300">Not in your library yet; will be created</span>
@@ -540,7 +550,26 @@ function ScalarRow({
       )}
       {option("target", target)}
       <div className="hidden items-start justify-end md:flex md:pt-2.5">{pill}</div>
+      {awaitsCreate && field.linkPanel ? <div className="md:col-span-3 md:col-start-2">{field.linkPanel}</div> : null}
     </fieldset>
+  );
+}
+
+/** Opens the owner's way to use a library entity for an incoming value the library lacks (see `onLinkSource`). */
+function LinkSourceButton({ field, value, disabled }: { field: DiffField; value: unknown; disabled: boolean }) {
+  const name = String(value ?? "");
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={field.onLinkSource}
+      aria-label={`${field.label}: link “${name}” to one in your library`}
+      title={`Use one you already have for “${name}”`}
+      className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground hover:border-accent/60 disabled:opacity-60"
+    >
+      <Link2 className="h-3 w-3" />
+      Link
+    </button>
   );
 }
 

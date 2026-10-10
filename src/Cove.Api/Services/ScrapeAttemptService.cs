@@ -264,7 +264,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         var appliedPerformers = await ApplyPerformersAsync(video, root, collectionModes, dto.CreateMissingPerformers, performerSelections, ct);
         if (dto.HydratePerformers)
             await HydratePerformersAsync(root, dto.CreateMissingPerformers, dto.CreateMissingTags, performerSelections, appliedPerformers.CreatedIds, ct);
-        await ApplyStudioAsync(video, root, collectionModes, dto.CreateMissingStudio, ct);
+        await ApplyStudioAsync(video, root, collectionModes, dto.CreateMissingStudio, dto.LinkedStudioId, ct);
         await VideoRelationshipEdits.ApplyAsync(db, video, dto.AddedTagIds, dto.RemovedTagIds, dto.AddedPerformerIds, dto.RemovedPerformerIds, tagProvenanceService, ct);
 
         // Recorded after the hand edits, so a scraped name the person took off in the same apply is not listed.
@@ -1893,7 +1893,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         return new AppliedPerformers(attachedScrapedNames, missed, createdPerformerIds);
     }
 
-    private async Task ApplyStudioAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, CancellationToken ct)
+    private async Task ApplyStudioAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, int? linkedStudioId, CancellationToken ct)
     {
         var mode = GetMode(collectionModes, "studio");
         if (mode == "skip")
@@ -1903,7 +1903,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (string.IsNullOrWhiteSpace(studioName))
             return;
 
-        var studio = await ResolveStudioAsync(studioName, createMissing, ct);
+        // The review linked the scraped studio to a library one for this video; nothing is looked up or created.
+        var studio = linkedStudioId.HasValue
+            ? await db.Studios.FirstOrDefaultAsync(item => item.Id == linkedStudioId.Value, ct)
+            : await ResolveStudioAsync(studioName, createMissing, ct);
         if (studio != null)
         {
             video.Studio = studio;

@@ -79,6 +79,13 @@ export interface TaggerReviewInput {
   studioMatchName?: string;
   /** Chooses to create a new studio and use it. */
   onCreateStudio?: () => void;
+  /**
+   * Uses a library studio for a scraped one the library lacks: as an alias of it from now on, or for this
+   * video alone. Shown while `linkingStudio`, which `onLinkingStudioChange` opens and closes.
+   */
+  onLinkStudio?: (studio: EntityReferenceOption, rememberAlias: boolean) => Promise<void>;
+  linkingStudio?: boolean;
+  onLinkingStudioChange?: (linking: boolean) => void;
   showTags: boolean;
   showPerformers: boolean;
   /**
@@ -605,7 +612,8 @@ function RelationshipEditor({
         </div>
       ) : null}
       {linking && onLinkTag && unknown.some((entry) => entry.id === linking.id) ? (
-        <TagLinkPanel
+        <ScrapedNameLinkPanel
+          entityType="tag"
           scrapedName={linking.label}
           disabled={disabled}
           onCancel={() => closeLink(linking)}
@@ -642,33 +650,35 @@ function RelationshipEditor({
 }
 
 /**
- * Links a scraped tag that matched nothing to a tag the library already has. Remembering the scraped
- * name as an alias changes the library tag, not just this video, so it takes effect at once and every
- * later scrape matches it; without that, the library tag is added to this video alone.
+ * Links a scraped tag or studio that matched nothing to one the library already has. Remembering the
+ * scraped name as an alias changes the library entity, not just this video, so it takes effect at once and
+ * every later scrape matches it; without that, the library one is used for this video alone.
  */
-function TagLinkPanel({
+export function ScrapedNameLinkPanel({
+  entityType,
   scrapedName,
   disabled,
   onLink,
   onCancel,
 }: {
+  entityType: "tag" | "studio";
   scrapedName: string;
   disabled: boolean;
-  onLink: (tag: EntityReferenceOption, rememberAlias: boolean) => Promise<void>;
+  onLink: (entity: EntityReferenceOption, rememberAlias: boolean) => Promise<void>;
   onCancel: () => void;
 }) {
   const inputId = useId();
-  const [tag, setTag] = useState<EntityReferenceOption | null>(null);
+  const [entity, setEntity] = useState<EntityReferenceOption | null>(null);
   const [rememberAlias, setRememberAlias] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => document.getElementById(inputId)?.focus(), [inputId]);
   const link = async () => {
-    if (!tag) return;
+    if (!entity) return;
     setBusy(true);
     setError(null);
     try {
-      await onLink(tag, rememberAlias);
+      await onLink(entity, rememberAlias);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Cove couldn’t save the alias. Please try again.");
       setBusy(false);
@@ -678,21 +688,21 @@ function TagLinkPanel({
     <div
       role="group"
       aria-label={`Link “${scrapedName}”`}
-      // The tag search handles Escape itself while its results are open.
+      // The search handles Escape itself while its results are open.
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) onCancel();
       }}
       className="flex flex-col gap-2 rounded border border-border p-2"
     >
       <label htmlFor={inputId} className="text-xs text-foreground">
-        Use a tag you already have for “{scrapedName}”
+        Use a {entityType} you already have for “{scrapedName}”
       </label>
       <EntityReferenceSelector
-        entityType="tag"
-        value={tag?.id}
-        onChange={(_, option) => setTag(option ?? null)}
+        entityType={entityType}
+        value={entity?.id}
+        onChange={(_, option) => setEntity(option ?? null)}
         inputId={inputId}
-        placeholder="Search tags..."
+        placeholder={entityType === "tag" ? "Search tags..." : "Search studios..."}
         allowCreate={false}
         creatable={false}
         disabled={disabled || busy}
@@ -706,11 +716,11 @@ function TagLinkPanel({
           aria-describedby={rememberAlias ? `${inputId}-note` : undefined}
           className="rounded border-border"
         />
-        Remember “{scrapedName}” as an alias{tag ? ` of ${tag.label}` : ""}
+        Remember “{scrapedName}” as an alias{entity ? ` of ${entity.label}` : ""}
       </label>
       {rememberAlias ? (
         <p id={`${inputId}-note`} className="text-[11px] text-muted">
-          The alias is saved to the tag right away, even if you don’t apply.
+          The alias is saved to the {entityType} right away, even if you don’t apply.
         </p>
       ) : null}
       {error ? (
@@ -722,7 +732,7 @@ function TagLinkPanel({
         <button
           type="button"
           onClick={link}
-          disabled={!tag || disabled || busy}
+          disabled={!entity || disabled || busy}
           className="rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
         >
           {busy ? "Linking…" : "Link"}
@@ -739,6 +749,10 @@ function TagLinkPanel({
     </div>
   );
 }
+
+/** Focus goes to the control named so once the panel that had it has gone and the row has redrawn. */
+const focusOnceShown = (label: string) =>
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(`[aria-label="${CSS.escape(label)}"]`)?.focus());
 
 export function buildTaggerReview(input: TaggerReviewInput) {
   const { video, result } = input;
@@ -791,6 +805,29 @@ export function buildTaggerReview(input: TaggerReviewInput) {
       waiting: input.relationsWaiting?.studio,
       sourceIsNew: input.studioIsNew,
       onCreateSource: awaitsCreate ? input.onCreateStudio : undefined,
+      onLinkSource:
+        awaitsCreate && input.onLinkStudio && input.onLinkingStudioChange
+          ? () => input.onLinkingStudioChange?.(true)
+          : undefined,
+      linkPanel:
+        awaitsCreate && input.onLinkStudio && input.linkingStudio ? (
+          <ScrapedNameLinkPanel
+            entityType="studio"
+            scrapedName={scrapedStudio}
+            // The row's fieldset disables the panel with the rest of the review.
+            disabled={false}
+            onCancel={() => {
+              input.onLinkingStudioChange?.(false);
+              focusOnceShown(`Studio: link “${scrapedStudio}” to one in your library`);
+            }}
+            onLink={async (studio, rememberAlias) => {
+              await input.onLinkStudio?.(studio, rememberAlias);
+              input.onLinkingStudioChange?.(false);
+              // The studio now lands; its incoming side is where the row continues.
+              focusOnceShown("Studio from source");
+            }}
+          />
+        ) : undefined,
       // The studio the video gets is the library's; the scraped spelling stays on hover.
       render:
         matchName && relationKey(matchName) !== relationKey(scrapedStudio)

@@ -161,6 +161,49 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }
 
+    /// <summary>
+    /// Adds one alias, so a scrape that names the studio this way matches it from now on. Appended here rather
+    /// than through a whole-list update, which could drop an alias saved meanwhile. A name the studio already
+    /// has is a no-op; one another studio has (as its name or an alias) is a conflict, since lookups would keep
+    /// finding that studio.
+    /// </summary>
+    [HttpPost("{id:int}/aliases")]
+    [RequiresPermission(Permissions.StudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosWrite)]
+    public async Task<ActionResult<StudioDto>> AddAlias(int id, [FromBody] StudioAliasAddDto dto, CancellationToken ct)
+    {
+        var alias = dto.Alias?.Trim();
+        if (string.IsNullOrEmpty(alias))
+            return BadRequest(new { message = "An alias needs a name." });
+
+        var studio = await db.Studios.Include(item => item.Aliases).FirstOrDefaultAsync(item => item.Id == id, ct);
+        if (studio == null) return NotFound();
+
+        var key = EntityNameRules.StudioIdentityKey(alias);
+        var alreadyNamed = EntityNameRules.StudioIdentityKey(studio.Name) == key
+            || studio.Aliases.Any(existing => EntityNameRules.StudioIdentityKey(existing.Alias) == key);
+        if (!alreadyNamed)
+        {
+            Dictionary<string, Studio> named;
+            try
+            {
+                named = await RelationNameResolver.ResolveStudiosAsync(db, [alias], ct);
+            }
+            catch (EntityNameConflictException exception)
+            {
+                return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
+            }
+            if (named.TryGetValue(alias, out var other) && other.Id != id)
+                return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = $"“{other.Name}” already goes by “{alias}”." });
+            studio.Aliases.Add(new StudioAlias { Alias = alias, StudioId = id });
+            MetadataCollectionUpdater.Touch(studio);
+            await db.SaveChangesAsync(ct);
+        }
+
+        var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);
+        return Ok(await MapToDetailDtoAsync(updated!, ct));
+    }
+
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.StudiosDelete)]
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete)]

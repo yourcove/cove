@@ -329,6 +329,12 @@ public record TagAliasAddDto
     public string Alias { get; init; } = string.Empty;
 }
 
+/// <summary>One alias to add to a studio, appended on the server so a concurrent change to its other aliases is kept.</summary>
+public record StudioAliasAddDto
+{
+    public string Alias { get; init; } = string.Empty;
+}
+
 public record TagUpdateDto(
     string? Name,
     string? SortName,
@@ -1952,6 +1958,11 @@ public record ApplyVideoScrapeAttemptDto(
     public List<int>? RemovedTagIds { get; init; }
     public List<int>? AddedPerformerIds { get; init; }
     public List<int>? RemovedPerformerIds { get; init; }
+    /// <summary>
+    /// A library studio the review linked the scraped studio to for this video alone; set in place of
+    /// looking the scraped name up, when the studio mode is not "skip".
+    /// </summary>
+    public int? LinkedStudioId { get; init; }
 }
 
 public record ScrapeCollectionItemSelectionDto(string? Name, string? Action);
