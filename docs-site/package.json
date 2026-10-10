@@ -41,7 +41,7 @@
     "@playwright/test": "^1.63.0",
     "ajv": "^8.20.0",
     "parse5": "^8.0.1",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "typescript": "^6.0.3"
   }
 }
