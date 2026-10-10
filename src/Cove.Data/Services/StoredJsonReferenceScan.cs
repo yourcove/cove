@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Services;
@@ -34,10 +35,14 @@ internal static class StoredJsonReferenceScan
             return source.Where(entity => false);
 
         const string payloadText = "CAST(\"Payload\" AS TEXT)";
-        var idCondition = string.Join(" OR ", sourceIds.Select(id => $"{payloadText} LIKE '%{id}%'"));
+        var idCondition = string.Join(" OR ", sourceIds.Select((_, index) =>
+            $"{payloadText} LIKE {{{index}}}"));
         var keyCondition = string.Join(" OR ", SegmentTagReferenceKeys.Select(key =>
             $"LOWER({payloadText}) LIKE '%\"{key}\"%'"));
-        return source.FromSqlRaw($"SELECT * FROM segments WHERE ({idCondition}) AND ({keyCondition})");
+        var sql = FormattableStringFactory.Create(
+            $"SELECT * FROM segments WHERE ({idCondition}) AND ({keyCondition})",
+            sourceIds.Select(id => (object)$"%{id}%").ToArray());
+        return source.FromSql(sql);
     }
 
     public static IQueryable<TEntity> PrefilterBySourceIds<TEntity>(

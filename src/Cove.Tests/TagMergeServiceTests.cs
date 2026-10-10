@@ -33,6 +33,12 @@ public sealed class TagMergeServiceTests
         Assert.Equal(2, candidates.Count);
         Assert.Contains(candidates, segment => segment.Payload!.RootElement.TryGetProperty("nested", out _));
         Assert.Contains(candidates, segment => segment.Payload!.RootElement.TryGetProperty("custom", out _));
+
+        var multipleSources = await StoredJsonReferenceScan.PrefilterTagBearingSegmentPayloads(
+                db.Segments, [51, 52])
+            .AsNoTracking()
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, multipleSources.Count);
     }
 
     [Fact]
