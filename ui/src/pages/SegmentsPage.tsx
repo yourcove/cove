@@ -693,7 +693,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     excludeVideoIds: videoSelection.excludeIds,
     rawSegmentIds,
     rawFilter: combinedRawSegmentFilter,
-    enabled: rawQueryEnabled && rawSegmentsQuery.isSuccess,
+    enabled: rawQueryEnabled && (infinitePageSize || rawSegmentsQuery.isSuccess),
     includeAggregate: true,
   });
 
