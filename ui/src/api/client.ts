@@ -876,11 +876,12 @@ export const segmentLibrary = {
     updatedAt2?: string;
     updatedAtModifier?: string;
     includeAggregate?: boolean;
-  }) => request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`, {
-    // A broad raw-segment search can require a full-library pass. Keep the request alive while
-    // the page shows its loading state rather than aborting an otherwise successful query.
-    timeoutMs: null,
-  }),
+  }) =>
+    request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`, {
+      // A broad raw-segment search can require a full-library pass. Keep the request alive while
+      // the page shows its loading state rather than aborting an otherwise successful query.
+      timeoutMs: null,
+    }),
   get: (id: number) => requestOptional<SegmentRecord>(`/segments/${id}`),
   removeTag: (data: { tagId: number; ids: number[] }) =>
     request<{ count: number }>("/segments/bulk/remove-tag", { method: "POST", body: JSON.stringify(data) }),
