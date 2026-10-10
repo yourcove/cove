@@ -2207,3 +2207,120 @@ describe("VideoPlayer source lifecycle", () => {
     });
   });
 });
+
+describe("VideoPlayer seek-bar preview", () => {
+  // Twelve 10-second tiles laid out four per row on a 640x270 sheet.
+  const sprites = {
+    entries: Array.from({ length: 12 }, (_, i) => ({
+      start: i * 10,
+      end: (i + 1) * 10,
+      x: (i % 4) * 160,
+      y: Math.floor(i / 4) * 90,
+      w: 160,
+      h: 90,
+    })),
+    imageUrl: "/api/stream/video/1/sprite",
+    sheetWidth: 640,
+    sheetHeight: 270,
+    capturedMidTile: false,
+  };
+
+  // The player itself measures at the jsdom default top of 0, so `barTop` is the room above the bar.
+  function renderWithSeekBar(props: Partial<React.ComponentProps<typeof VideoPlayer>> = {}, barTop = 500) {
+    const result = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        seekPreviewSprites={sprites}
+        {...props}
+      />,
+    );
+    const seekBar = result.container.querySelector(".group\\/seek") as HTMLDivElement;
+    vi.spyOn(seekBar, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: barTop,
+      right: 400,
+      bottom: barTop + 16,
+      width: 400,
+      height: 16,
+      x: 0,
+      y: barTop,
+      toJSON: () => ({}),
+    });
+    return { ...result, seekBar };
+  }
+
+  it("shows the sprite tile and time under the pointer and hides it on leave", () => {
+    const { seekBar } = renderWithSeekBar();
+
+    fireEvent.pointerMove(seekBar, { pointerType: "mouse", clientX: 300 });
+
+    const preview = screen.getByTestId("seek-preview");
+    expect(preview).toHaveTextContent("1:30");
+    const tile = preview.firstElementChild as HTMLElement;
+    // 90s is tile 9: column 1, row 2.
+    expect(tile.style.backgroundPosition).toBe("-160px -180px");
+    expect(tile.style.backgroundImage).toContain("/api/stream/video/1/sprite");
+
+    fireEvent.pointerLeave(seekBar);
+    expect(screen.queryByTestId("seek-preview")).not.toBeInTheDocument();
+  });
+
+  it("maps clip timelines to the media's own sprite times", () => {
+    const { seekBar } = renderWithSeekBar({ clip: { start: 60, end: 120 } });
+
+    fireEvent.pointerMove(seekBar, { pointerType: "mouse", clientX: 200 });
+
+    const preview = screen.getByTestId("seek-preview");
+    expect(preview).toHaveTextContent("0:30");
+    expect((preview.firstElementChild as HTMLElement).style.backgroundPosition).toBe("-160px -180px");
+  });
+
+  it("shrinks the preview to fit a short player", () => {
+    // 100px above the bar leaves 70px for the tile once the label and margin are taken out.
+    const { seekBar } = renderWithSeekBar({}, 100);
+
+    fireEvent.pointerMove(seekBar, { pointerType: "mouse", clientX: 300 });
+
+    const tile = screen.getByTestId("seek-preview").firstElementChild as HTMLElement;
+    expect(tile.style.width).toBe("124px");
+    expect(tile.style.height).toBe("70px");
+  });
+
+  it("keeps portrait tiles within the preview box height", () => {
+    const portrait = {
+      ...sprites,
+      entries: sprites.entries.map((entry, i) => ({
+        ...entry,
+        x: (i % 4) * 90,
+        y: Math.floor(i / 4) * 160,
+        w: 90,
+        h: 160,
+      })),
+      sheetWidth: 360,
+      sheetHeight: 480,
+    };
+    const { seekBar } = renderWithSeekBar({ seekPreviewSprites: portrait });
+
+    fireEvent.pointerMove(seekBar, { pointerType: "mouse", clientX: 300 });
+
+    const tile = screen.getByTestId("seek-preview").firstElementChild as HTMLElement;
+    expect(tile.style.width).toBe("50px");
+    expect(tile.style.height).toBe("89px");
+  });
+
+  it("does not show a preview for touch or without sprites", () => {
+    const { seekBar, unmount } = renderWithSeekBar();
+    fireEvent.pointerMove(seekBar, { pointerType: "touch", clientX: 300 });
+    expect(screen.queryByTestId("seek-preview")).not.toBeInTheDocument();
+    unmount();
+
+    const { seekBar: plainSeekBar } = renderWithSeekBar({ seekPreviewSprites: null });
+    fireEvent.pointerMove(plainSeekBar, { pointerType: "mouse", clientX: 300 });
+    expect(screen.queryByTestId("seek-preview")).not.toBeInTheDocument();
+  });
+});

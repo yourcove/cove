@@ -58,4 +58,53 @@ public sealed class ConfigServiceTests
                 Directory.Delete(tempRoot, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task UiUpdate_PersistsHiddenScrubberSprites()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "cove-config.json");
+        var configuration = new CoveConfiguration();
+        var service = new ConfigService(
+            configuration,
+            NullLogger<ConfigService>.Instance,
+            configPath);
+
+        try
+        {
+            Assert.True(configuration.Ui.ShowScrubberSprites);
+
+            await service.UpdateUiConfigAsync(ui => ui with { ShowScrubberSprites = false });
+
+            var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
+                JsonOptions);
+            Assert.False(configuration.Ui.ShowScrubberSprites);
+            Assert.NotNull(persisted);
+            Assert.False(persisted.Ui.ShowScrubberSprites);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SavedConfigWithoutScrubberSpriteSetting_ShowsScrubberSprites()
+    {
+        // Config files written before the setting existed have no key for it.
+        var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
+            """{ "ui": { "showAbLoopControls": false } }""",
+            JsonOptions);
+
+        Assert.NotNull(persisted);
+        Assert.False(persisted.Ui.ShowAbLoopControls);
+        Assert.True(persisted.Ui.ShowScrubberSprites);
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
 }

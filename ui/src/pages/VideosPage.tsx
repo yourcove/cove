@@ -1226,7 +1226,7 @@ export function VideosPage({ onNavigate }: Props) {
                   video={video}
                   engagement={engagementById.get(video.id)}
                   onClick={(toggleOptions) => (selecting ? toggle(video.id, toggleOptions) : navigateToVideo(video.id))}
-                  onNavigate={onNavigate}
+                  onNavigate={navigateFromVideoList}
                   selected={selectedIds.has(video.id)}
                   onSelect={(toggleOptions) => toggle(video.id, toggleOptions)}
                   selecting={selecting}
@@ -1251,7 +1251,7 @@ export function VideosPage({ onNavigate }: Props) {
                     onClick={(toggleOptions) =>
                       selecting ? toggle(entry.video!.id, toggleOptions) : navigateToVideo(entry.video!.id)
                     }
-                    onNavigate={onNavigate}
+                    onNavigate={navigateFromVideoList}
                     selected={selectedIds.has(entry.video.id)}
                     onSelect={(toggleOptions) => toggle(entry.video!.id, toggleOptions)}
                     selecting={selecting}

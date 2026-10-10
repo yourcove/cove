@@ -522,6 +522,7 @@ public class ConfigService
             PlayerVideoStartMinDuration = ui.PlayerVideoStartMinDuration,
             ContinuePlaylistDefault = ui.ContinuePlaylistDefault,
             ShowAbLoopControls = ui.ShowAbLoopControls,
+            ShowScrubberSprites = ui.ShowScrubberSprites,
             SortSearchesByRelevance = ui.SortSearchesByRelevance,
             SoundOnPreview = ui.SoundOnPreview,
             PreviewSegmentDuration = ui.PreviewSegmentDuration,
@@ -573,6 +574,7 @@ public class ConfigService
         ui.PlayerVideoStartMinDuration = Math.Max(0, dto.PlayerVideoStartMinDuration);
         ui.ContinuePlaylistDefault = dto.ContinuePlaylistDefault;
         ui.ShowAbLoopControls = dto.ShowAbLoopControls;
+        ui.ShowScrubberSprites = dto.ShowScrubberSprites;
         ui.SortSearchesByRelevance = dto.SortSearchesByRelevance;
         ui.SoundOnPreview = dto.SoundOnPreview;
         ui.PreviewSegmentDuration = dto.PreviewSegmentDuration;

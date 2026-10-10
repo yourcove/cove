@@ -97,7 +97,7 @@ import { ExtensionEntityActions } from "../components/ExtensionEntityActions";
 import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
-import { serverAwareFetch } from "../state/serverAvailability";
+import { findSpriteIndex, spriteTileStyle, useVideoSprites, type VideoSprites } from "../hooks/useVideoSprites";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { useAuth } from "../auth/AuthContext";
@@ -359,6 +359,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     placeholderData: keepPreviousData,
   });
   const videoLoadError = getLoadError(video?.id === id ? video : undefined, videoError);
+  // Shared by the timeline strip and the player's seek-bar hover preview.
+  const sprites = useVideoSprites(video && video.files.length > 0 ? video.id : null);
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
   const {
@@ -1337,6 +1339,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
               videoStyle={videoStyle}
               vr={video.vr}
               vrTitle={video.title || file.basename}
+              seekPreviewSprites={alternateFileId == null ? sprites : null}
               onSeekRegister={(fn) => {
                 seekRef.current = fn;
               }}
@@ -1386,7 +1389,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
       ) : null}
       {file && video.parentVideoId == null && alternateFileId == null ? (
         <VideoScrubber
-          videoId={video.id}
+          // The setting hides only this strip; the seek-bar preview keeps its sprites.
+          sprites={config?.ui.showScrubberSprites === false ? null : sprites}
           duration={file.duration}
           spans={resolvedSpans}
           rawSegments={segments}
@@ -2553,7 +2557,7 @@ function isRawDataLabel(value: string) {
 
 // Video Scrubber / Timeline Component
 function VideoScrubber({
-  videoId,
+  sprites,
   duration,
   spans,
   rawSegments,
@@ -2567,7 +2571,7 @@ function VideoScrubber({
   filterContext,
   onClearFilter,
 }: {
-  videoId: number;
+  sprites: VideoSprites | null;
   duration: number;
   spans: Pick<
     ResolvedSpan,
@@ -2586,15 +2590,6 @@ function VideoScrubber({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [spriteData, setSpriteData] = useState<{
-    entries: { start: number; end: number; x: number; y: number; w: number; h: number }[];
-    imageUrl: string;
-  } | null>(null);
-  const [spriteError, setSpriteError] = useState(false);
-  const [spriteLoadSettled, setSpriteLoadSettled] = useState(false);
-
-  const spriteVttUrl = `/api/stream/video/${videoId}/vtt/thumbs`;
-  const spriteImageUrl = `/api/stream/video/${videoId}/sprite`;
   const [showAllResolvedLanes, setShowAllResolvedLanes] = useState(false);
   const [showAllFaceLanes, setShowAllFaceLanes] = useState(false);
   const [overlaysCollapsed, setOverlaysCollapsed] = usePersistedFlag("cove.timeline.overlaysCollapsed", false);
@@ -2606,70 +2601,8 @@ function VideoScrubber({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  // Drop the previous video's sprites as soon as the video changes, before its own load starts.
-  const [prevVideoId, setPrevVideoId] = useState(videoId);
-  if (videoId !== prevVideoId) {
-    setPrevVideoId(videoId);
-    setSpriteData(null);
-    setSpriteError(false);
-    setSpriteLoadSettled(false);
-  }
-
-  // Load and parse VTT sprite data
-  useEffect(() => {
-    let cancelled = false;
-
-    serverAwareFetch(spriteVttUrl)
-      .then((r) => {
-        if (!r.ok) throw new Error("VTT not found");
-        return r.text();
-      })
-      .then((text) => {
-        if (cancelled) return;
-        const entries: typeof spriteData extends null ? never : NonNullable<typeof spriteData>["entries"] = [];
-        const blocks = text.split(/\n\n+/);
-        for (const block of blocks) {
-          const lines = block.trim().split("\n");
-          for (let i = 0; i < lines.length; i++) {
-            const timeMatch = lines[i].match(/(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})/);
-            if (timeMatch && lines[i + 1]) {
-              const xywhMatch = lines[i + 1].match(/#xywh=(\d+),(\d+),(\d+),(\d+)/);
-              if (xywhMatch) {
-                entries.push({
-                  start: parseVttTime(timeMatch[1]),
-                  end: parseVttTime(timeMatch[2]),
-                  x: parseInt(xywhMatch[1]),
-                  y: parseInt(xywhMatch[2]),
-                  w: parseInt(xywhMatch[3]),
-                  h: parseInt(xywhMatch[4]),
-                });
-              }
-            }
-          }
-        }
-        if (entries.length > 0) {
-          setSpriteData({ entries, imageUrl: spriteImageUrl });
-        } else {
-          setSpriteError(true);
-        }
-        setSpriteLoadSettled(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSpriteError(true);
-        setSpriteLoadSettled(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [videoId, spriteVttUrl, spriteImageUrl]);
-
-  const thumbCount = spriteData ? spriteData.entries.length : 0;
   const thumbWidth = 160;
-  const thumbHeight = spriteData?.entries[0]
-    ? Math.round(thumbWidth * (spriteData.entries[0].h / spriteData.entries[0].w))
-    : 0;
+  const thumbHeight = sprites ? Math.round(thumbWidth * (sprites.entries[0].h / sprites.entries[0].w)) : 0;
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
   const performersById = useMemo(
     () => new Map((performers ?? []).map((performer) => [performer.id, performer])),
@@ -2815,15 +2748,9 @@ function VideoScrubber({
 
   // Determine which thumbnail index is active based on current video time
   const activeIndex = useMemo(() => {
-    if (currentTime == null || currentTime <= 0) return -1;
-    if (spriteData) {
-      for (let i = spriteData.entries.length - 1; i >= 0; i--) {
-        if (currentTime >= spriteData.entries[i].start) return i;
-      }
-      return 0;
-    }
-    return -1;
-  }, [currentTime, spriteData]);
+    if (currentTime == null || currentTime <= 0 || !sprites) return -1;
+    return findSpriteIndex(sprites.entries, currentTime);
+  }, [currentTime, sprites]);
 
   // Auto-scroll to active thumbnail
   useEffect(() => {
@@ -3015,8 +2942,8 @@ function VideoScrubber({
         </div>
       )}
 
-      {spriteData && spriteLoadSettled && !spriteError ? (
-        <div className="relative flex overflow-hidden" ref={containerRef}>
+      {sprites ? (
+        <div className="relative flex overflow-hidden" ref={containerRef} data-testid="video-sprite-strip">
           <button
             onClick={() => scroll(-1)}
             className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-r border-border z-10"
@@ -3025,9 +2952,8 @@ function VideoScrubber({
           </button>
 
           <div ref={scrollRef} className="flex-1 flex overflow-x-auto scrollbar-thin scrollbar-thumb-border">
-            {Array.from({ length: thumbCount }).map((_, i) => {
-              const entry = spriteData.entries[i];
-              const time = entry?.start ?? 0;
+            {sprites.entries.map((entry, i) => {
+              const time = entry.start;
               const isActive = i === activeIndex;
               return (
                 <div
@@ -3037,17 +2963,7 @@ function VideoScrubber({
                   onClick={() => onSeek?.(time)}
                 >
                   <div className="bg-surface" style={{ width: thumbWidth, height: thumbHeight }}>
-                    {entry ? (
-                      <div
-                        style={{
-                          width: thumbWidth,
-                          height: thumbHeight,
-                          backgroundImage: `url(${spriteData!.imageUrl})`,
-                          backgroundPosition: `-${entry.x * (thumbWidth / entry.w)}px -${entry.y * (thumbHeight / entry.h)}px`,
-                          backgroundSize: `${spriteData!.entries[0].w * Math.ceil(Math.sqrt(thumbCount)) * (thumbWidth / entry.w)}px auto`,
-                        }}
-                      />
-                    ) : null}
+                    <div style={spriteTileStyle(sprites, entry, thumbWidth)} />
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-white bg-black/70 py-0.5">
                     {formatTime(time)}
@@ -3116,11 +3032,6 @@ function isFaceResolvedSpan(
       return segment ? isFaceTimelineSegment(segment) : false;
     })
   );
-}
-
-function parseVttTime(timeStr: string): number {
-  const parts = timeStr.split(":");
-  return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
 }
 
 function formatTimelineTime(seconds: number) {

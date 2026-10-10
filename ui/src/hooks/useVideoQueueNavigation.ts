@@ -46,7 +46,7 @@ export function useVideoQueueNavigation({
   const autoplay = appConfig?.config?.ui.continuePlaylistDefault ?? false;
 
   const openVideo = useCallback(
-    (videoId: number) => {
+    (videoId: number, seekTo?: number) => {
       const ids = items.map((video) => video.id);
       if (ids.length > 0 && setQueue) {
         const pageSize = filter.perPage ?? 40;
@@ -93,7 +93,7 @@ export function useVideoQueueNavigation({
             : { autoplay },
         );
       }
-      onNavigate({ page: "video", id: videoId });
+      onNavigate(seekTo == null ? { page: "video", id: videoId } : { page: "video", id: videoId, seekTo });
     },
     [autoplay, filter, infinitePageSize, items, onNavigate, queryPage, setQueue, totalCount],
   );
@@ -101,7 +101,7 @@ export function useVideoQueueNavigation({
   const navigateFromList = useCallback(
     (route: any) => {
       if (route?.page === "video" && typeof route.id === "number") {
-        openVideo(route.id);
+        openVideo(route.id, typeof route.seekTo === "number" ? route.seekTo : undefined);
         return;
       }
       onNavigate(route);

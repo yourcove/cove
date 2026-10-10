@@ -52,6 +52,33 @@ describe("useVideoQueueNavigation", () => {
     expect(result.current.queue.currentId).toBe(30);
   });
 
+  it("keeps the list queue when opening a video at a requested time", () => {
+    const onNavigate = vi.fn();
+    const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
+    const { result } = renderHook(
+      () => ({
+        navigation: useVideoQueueNavigation({
+          items: [video(10, "First"), video(20, "Second")],
+          filter: { page: 1, perPage: 2 },
+          totalCount: 2,
+          infinitePageSize: false,
+          queryPage: vi.fn(),
+          onNavigate,
+        }),
+        queue: useVideoQueue(),
+      }),
+      { wrapper },
+    );
+
+    act(() => result.current.navigation.openVideo(20, 42));
+    expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 20, seekTo: 42 });
+    expect(result.current.queue.currentPosition).toBe(2);
+
+    act(() => result.current.navigation.navigateFromList({ page: "video", id: 10, seekTo: 7 }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ page: "video", id: 10, seekTo: 7 });
+    expect(result.current.queue.currentPosition).toBe(1);
+  });
+
   // The Videos list can open a video before its separately loaded total arrives.
   it("follows a full page into the next one while the list total is still unknown", async () => {
     const queryPage = vi

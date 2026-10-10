@@ -530,6 +530,8 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
     "lightbox",
     "slideshow",
     "ab loop",
+    "scrubber sprites",
+    "thumbnail strip",
   ],
   "my-lists-wall": ["lists", "cards", "wall", "image fit", "video preview fit", "cover", "contain"],
   "library-scanning": [
@@ -3534,6 +3536,14 @@ export function SettingsPage() {
                       checked={draft.ui.continuePlaylistDefault}
                       onChange={(checked) =>
                         updateDraft((d) => ({ ...d, ui: { ...d.ui, continuePlaylistDefault: checked } }))
+                      }
+                    />
+                    <CheckboxLabel
+                      label="Show scrubber sprites below the player"
+                      description="Shows the row of thumbnails under the video for jumping to a point. When this is off, hovering the seek bar with a mouse still previews frames."
+                      checked={draft.ui.showScrubberSprites ?? true}
+                      onChange={(checked) =>
+                        updateDraft((d) => ({ ...d, ui: { ...d.ui, showScrubberSprites: checked } }))
                       }
                     />
                     <CheckboxLabel

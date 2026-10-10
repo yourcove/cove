@@ -312,24 +312,13 @@ describe("VideoCard navigation", () => {
     expect(screen.queryByRole("button", { name: "Favorite" })).not.toBeInTheDocument();
   });
 
-  it("shows the hovered absolute timestamp above the video scrub preview bar", () => {
-    const { container } = render(
-      <VideoCard
-        video={
-          {
-            ...baseVideo,
-            clipStartSec: 35,
-            clipEndSec: 95,
-          } as any
-        }
-        onClick={vi.fn()}
-      />,
-    );
+  const clipVideo = { ...baseVideo, clipStartSec: 35, clipEndSec: 95 } as any;
 
-    const scrubZone = container.querySelector(".cursor-ew-resize") as HTMLDivElement | null;
+  // The scrub zone is 100px wide, so clientX is the percentage along the video.
+  function getScrubZone(container: HTMLElement) {
+    const scrubZone = container.querySelector(".cursor-ew-resize") as HTMLDivElement;
     expect(scrubZone).not.toBeNull();
-
-    vi.spyOn(scrubZone!, "getBoundingClientRect").mockReturnValue({
+    vi.spyOn(scrubZone, "getBoundingClientRect").mockReturnValue({
       x: 0,
       y: 0,
       left: 0,
@@ -340,14 +329,50 @@ describe("VideoCard navigation", () => {
       height: 40,
       toJSON: () => ({}),
     } as DOMRect);
+    return scrubZone;
+  }
 
-    fireEvent.mouseEnter(scrubZone!, { clientX: 50 });
+  it("shows the hovered absolute timestamp above the video scrub preview bar", () => {
+    const { container } = render(<VideoCard video={clipVideo} onClick={vi.fn()} />);
+    const scrubZone = getScrubZone(container);
 
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
     expect(screen.getByText("1:05")).toBeInTheDocument();
 
-    fireEvent.mouseLeave(scrubZone!);
-
+    fireEvent.mouseLeave(scrubZone);
     expect(screen.queryByText("1:05")).not.toBeInTheDocument();
+  });
+
+  it("opens the video at the clicked scrub time", () => {
+    const onClick = vi.fn();
+    const onNavigate = vi.fn();
+    const { container } = render(<VideoCard video={clipVideo} onClick={onClick} onNavigate={onNavigate} />);
+    const scrubZone = getScrubZone(container);
+
+    fireEvent.mouseMove(scrubZone, { clientX: 50 });
+    fireEvent.click(scrubZone, { clientX: 50 });
+
+    expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 42, seekTo: 65 });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("ignores modifier clicks on the scrub bar", () => {
+    const onNavigate = vi.fn();
+    const { container } = render(<VideoCard video={clipVideo} onClick={vi.fn()} onNavigate={onNavigate} />);
+
+    fireEvent.click(getScrubZone(container), { clientX: 50, ctrlKey: true });
+
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps scrub times inside the video at the far right edge", () => {
+    const onNavigate = vi.fn();
+    // A 60 second clip: 99.5% along is 59.7 seconds in, which must not round up to the clip end.
+    const { container } = render(<VideoCard video={clipVideo} onClick={vi.fn()} onNavigate={onNavigate} />);
+
+    fireEvent.click(getScrubZone(container), { clientX: 99.5 });
+
+    expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 42, seekTo: 94 });
   });
 });
 
