@@ -90,6 +90,8 @@ export interface ListPageProps {
   filter: FindFilter;
   onFilterChange: (f: FindFilter) => void;
   totalCount: number;
+  /** The list has more pages, but its exact total has not been computed yet. */
+  totalCountUnknown?: boolean;
   isLoading?: boolean;
   summaryLoading?: boolean;
   /**
@@ -155,7 +157,7 @@ export interface ListPageProps {
     isFetchingNextPage?: boolean;
     onLoadMore: () => void;
     loadedCount: number;
-    totalCount: number;
+    totalCount?: number;
   };
   showAutoScrollControls?: boolean;
   showPagingControls?: boolean;
@@ -272,6 +274,7 @@ export function ListPage({
   filter,
   onFilterChange,
   totalCount,
+  totalCountUnknown = false,
   isLoading = false,
   summaryLoading = false,
   totalCountPending = false,
@@ -893,7 +896,7 @@ export function ListPage({
               : resolvedLoadState.status === "error"
                 ? "Unavailable"
                 : shownTotalCount > 0
-                  ? `${start.toLocaleString()}-${end.toLocaleString()} of ${shownTotalCount.toLocaleString()}`
+                  ? `${start.toLocaleString()}-${end.toLocaleString()} of ${totalCountUnknown ? "more" : shownTotalCount.toLocaleString()}`
                   : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
@@ -902,7 +905,9 @@ export function ListPage({
               : resolvedLoadState.status === "error"
                 ? "—"
                 : shownTotalCount > 0
-                  ? shownTotalCount.toLocaleString()
+                  ? totalCountUnknown
+                    ? `${end.toLocaleString()}+`
+                    : shownTotalCount.toLocaleString()
                   : "0"}
           </span>
           {!summaryPending && metadataByline}
@@ -1274,7 +1279,7 @@ export function ListPage({
       {/* Top pager: rendered outside the load gate so it survives page changes */}
       {showPagingControls && resolvedLoadState.status !== "error" && totalPages > 1 && (
         <div className="mx-1 mt-1 flex flex-wrap items-center justify-center gap-1 py-1">
-          <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
+          <PaginationControls page={page} totalPages={totalPages} totalPagesKnown={!totalCountUnknown} goTo={goTo} />
         </div>
       )}
 
@@ -1304,14 +1309,19 @@ export function ListPage({
                   isLoading={Boolean(infiniteScroll.isFetchingNextPage)}
                   onLoadMore={infiniteScroll.onLoadMore}
                   loadedCount={infiniteScroll.loadedCount}
-                  totalCount={infiniteScroll.totalCount}
+                  totalCount={totalCountUnknown ? undefined : infiniteScroll.totalCount}
                 />
               )}
             </div>
           </ListPageCardSizeContext.Provider>
           {showPagingControls && totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-center gap-1 py-4">
-              <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
+              <PaginationControls
+                page={page}
+                totalPages={totalPages}
+                totalPagesKnown={!totalCountUnknown}
+                goTo={goTo}
+              />
             </div>
           )}
         </>

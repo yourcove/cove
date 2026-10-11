@@ -657,7 +657,9 @@ export function SegmentsPage({ onNavigate }: Props) {
     appliedQuery,
     derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
     rawFilter: combinedRawSegmentFilter,
-    enabled: derivedQueryEnabled,
+    // A span-level sort already scans the full matching set and returns its exact total.
+    // Running a second library-wide count beside it doubles the first-load work.
+    enabled: derivedQueryEnabled && ["updated_at", "created_at", "title"].includes(sort),
   });
 
   const rawSegmentsQuery = useRawSegmentsQuery({
@@ -691,7 +693,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     excludeVideoIds: videoSelection.excludeIds,
     rawSegmentIds,
     rawFilter: combinedRawSegmentFilter,
-    enabled: rawQueryEnabled,
+    enabled: rawQueryEnabled && (infinitePageSize || rawSegmentsQuery.isSuccess),
     includeAggregate: true,
   });
 
@@ -784,6 +786,8 @@ export function SegmentsPage({ onNavigate }: Props) {
   const spansTotalCount =
     spansCountQuery.data?.totalCount ??
     (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
+  const spansTotalCountUnknown =
+    spansCountQuery.data == null && (infinitePageSize ? derivedInfiniteQuery.hasNextPage : spansPageTotal < 0);
   const totalCount = isRawView
     ? infinitePageSize
       ? rawInfiniteQuery.totalCount
@@ -985,6 +989,7 @@ export function SegmentsPage({ onNavigate }: Props) {
         filter={filter}
         onFilterChange={setFilter}
         totalCount={totalCount}
+        totalCountUnknown={!isRawView && spansTotalCountUnknown}
         isLoading={isLoading}
         error={firstQueryError}
         onRetry={retryFailedQueries}
@@ -1021,10 +1026,10 @@ export function SegmentsPage({ onNavigate }: Props) {
         metadataByline={
           <MediaAggregateMetadata
             duration={isRawView ? rawAggregateQuery.data?.duration : spansCountQuery.data?.duration}
-            loading={false}
+            loading={!isRawView && spansCountQuery.isLoading}
           />
         }
-        summaryLoading={isRawView ? rawAggregateQuery.isLoading : spansCountQuery.isLoading}
+        summaryLoading={isRawView ? rawAggregateQuery.isLoading : false}
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">

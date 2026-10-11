@@ -27,10 +27,12 @@ const MOBILE_ORDER = {
 export function PaginationControls({
   page,
   totalPages,
+  totalPagesKnown = true,
   goTo,
 }: {
   page: number;
   totalPages: number;
+  totalPagesKnown?: boolean;
   goTo: (page: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -107,16 +109,18 @@ export function PaginationControls({
       >
         <ChevronRight className="w-3.5 h-3.5" />
       </button>
-      <button
-        type="button"
-        aria-label="Last page"
-        title="Last page"
-        onClick={() => goTo(totalPages)}
-        disabled={page >= totalPages}
-        className={`${ARROW_CLASSES} ${MOBILE_ORDER.last}`}
-      >
-        <ChevronsRight className="w-3.5 h-3.5" />
-      </button>
+      {totalPagesKnown && (
+        <button
+          type="button"
+          aria-label="Last page"
+          title="Last page"
+          onClick={() => goTo(totalPages)}
+          disabled={page >= totalPages}
+          className={`${ARROW_CLASSES} ${MOBILE_ORDER.last}`}
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      )}
       {totalPages > VISIBLE_SLOTS &&
         (editing ? (
           <form
