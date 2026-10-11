@@ -77,12 +77,13 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
 
         // Path substrings have no index to test them on the video row, and an OR with a files subquery
         // stops PostgreSQL combining the indexed arms. Find the videos with a file containing every
-        // term once, so the search can test Id = ANY like the related-name matches.
+        // term once, so the search can test Id = ANY like the related-name matches. The cap lookups
+        // only count rows, so their order is irrelevant; it keeps EF from warning about an unordered Take.
         var matchingFiles = db.VideoFiles.AsNoTracking().Where(file => file.VideoId != null);
         foreach (var token in tokens)
             matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
         var pathVideos = await matchingFiles.Select(file => file.VideoId!.Value).Distinct()
-            .Take(pathSubqueryThreshold + 1).ToArrayAsync(ct);
+            .OrderBy(videoId => videoId).Take(pathSubqueryThreshold + 1).ToArrayAsync(ct);
 
         // Use the original token order (including repeated words) for phrase recognition.
         var normalizedQuery = " " + NormalizeWords(search) + " ";
@@ -110,7 +111,7 @@ internal sealed class VideoTextSearch(CoveContext db, string search, IReadOnlyLi
     {
         if (ownerIds.Length == 0)
             return Enumerable.Empty<MemberRow>().ToLookup(row => row.OwnerId, row => row.VideoId);
-        var rows = await members.Take(threshold + 1).ToListAsync(ct);
+        var rows = await members.OrderBy(row => row.OwnerId).Take(threshold + 1).ToListAsync(ct);
         return rows.Count > threshold ? null : rows.ToLookup(row => row.OwnerId, row => row.VideoId);
     }
 

@@ -6,6 +6,7 @@ using Cove.Data.Auth;
 using Cove.Data.Repositories;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 
 namespace Cove.Tests;
@@ -192,6 +193,44 @@ public sealed class VideoSearchScoringTests
 
         Assert.Matches("FROM \"?files\"?", query.ToQueryString());
         Assert.Equal(matching.Select(video => video.Id).Order(), ids.Order());
+    }
+
+    // The member and path lookups only test whether a cap was passed, but an unordered limit still
+    // logs EF's row-limiting warning on every search.
+    [Fact]
+    public async Task CandidateCapLookups_AreOrderedBeforeLimiting()
+    {
+        await using var fixture = await SearchFixture.CreateAsync();
+        var db = fixture.Db;
+        var folder = new Folder { Path = "/library" };
+        var gallery = new Gallery { Title = "Orchard" };
+        var group = new Group { Name = "Orchard Season" };
+        db.AddRange(folder, gallery, group);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var video = new Video
+        {
+            Title = "Unrelated",
+            VideoGalleries = [new() { Gallery = gallery }],
+            Files = { new VideoFile { Basename = "orchard.mp4", Path = "/library/orchard.mp4", ParentFolderId = folder.Id, Format = "mp4" } },
+        };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.Add(new GroupItem { GroupId = group.Id, Kind = GroupItemKind.Video, HostType = "video", HostId = video.Id, VideoId = video.Id });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var connection = db.Database.GetDbConnection();
+        var options = new DbContextOptionsBuilder<CoveContext>();
+        if (db.Database.IsNpgsql())
+            options.UseNpgsql(connection, npgsql => npgsql.UseVector());
+        else
+            options.UseSqlite(connection);
+        options.ConfigureWarnings(warnings => warnings.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning));
+        await using var strict = new CoveContext(options.Options);
+
+        var search = await VideoTextSearch.CreateAsync(strict, "orchard", TestContext.Current.CancellationToken);
+        var ids = await search.Apply(strict.Videos.AsNoTracking()).Select(row => row.Id).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal([video.Id], ids);
     }
 
     [Fact]
