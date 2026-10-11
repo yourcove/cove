@@ -64,6 +64,14 @@ export type { EntityReferenceOption, EntityReferenceType } from "./EntityReferen
 // ─── Players / Viewers ────────────────────────────────────────────────────
 export { VideoPlayer } from "./VideoPlayer";
 export type { VideoPlayerPlaybackControls, VideoPlayerSeek } from "./VideoPlayer";
+export { VIDEO_ENGINE_TARGET } from "./VideoEngine";
+export type {
+  VideoEngineCapabilities,
+  VideoEngineComponent,
+  VideoEngineElement,
+  VideoEngineProps,
+  VideoStreamKind,
+} from "./VideoEngine";
 export { AudioPlayer } from "./AudioPlayer";
 export { APP_FLOATING_UI_SLOT } from "./AppFloatingUI";
 export { MEDIA_PLAYER_ACTIONS_SLOT, MEDIA_PLAYER_OVERLAY_SLOT } from "./MediaPlayerExtension";

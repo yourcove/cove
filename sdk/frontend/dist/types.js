@@ -15,3 +15,11 @@ export const ENTITY_MEDIA_TARGET = "entity.media";
 export const MEDIA_PLAYER_ACTIONS_SLOT = "media-player-actions";
 /** Stable extension slot positioned over the displayed media content. */
 export const MEDIA_PLAYER_OVERLAY_SLOT = "media-player-overlay";
+// ── Video engine contract ──────────────────────────────────────────────────────
+/**
+ * Component override target for the element that plays a video. Register a component for it with
+ * `UIManifestBuilder.OverrideComponent("video.engine", ...)` and give it a static `videoEngine`.
+ * Cove's player keeps its controls and renders the engine in place of `<video>` for every stream
+ * kind the engine accepts, falling back to `<video>` for the rest.
+ */
+export const VIDEO_ENGINE_TARGET = "video.engine";

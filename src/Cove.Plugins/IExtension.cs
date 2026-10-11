@@ -881,9 +881,10 @@ public record UIFeatureDefinition(
     Dictionary<string, string>? Options = null
 );
 
-/// <summary>Override a host component by stable key (selectors, cards, toolbars, list rows, etc.).</summary>
+/// <summary>Override a host component by stable key. Overrides of a key are layered by descending priority.</summary>
 public record UIComponentOverride(
-    /// <summary>Host-defined component key (e.g. "video.selector", "performer.card", "search.bar").</summary>
+    /// <summary>Host-defined component key. Implemented keys: "entity.media" (an entity's primary media) and
+    /// "video.engine" (the element that plays video inside Cove's player).</summary>
     string TargetComponent,
     string ExtensionId,
     string ComponentName,

@@ -119,6 +119,46 @@ export interface MediaPlayerExtensionContext {
     setPlaybackRate?(rate: number): void;
     acquireInteractionMode(options?: MediaPlayerInteractionModeOptions): () => void;
 }
+/**
+ * Component override target for the element that plays a video. Register a component for it with
+ * `UIManifestBuilder.OverrideComponent("video.engine", ...)` and give it a static `videoEngine`.
+ * Cove's player keeps its controls and renders the engine in place of `<video>` for every stream
+ * kind the engine accepts, falling back to `<video>` for the rest.
+ */
+export declare const VIDEO_ENGINE_TARGET: "video.engine";
+/** Direct file with byte ranges, server transcode as piped fragmented MP4, or as an HLS playlist. */
+export type VideoStreamKind = "direct" | "transcode-mp4" | "hls";
+export interface VideoEngineCapabilities {
+    /** Stream kinds the engine can load. Cove plays every other kind with the browser's `<video>`. */
+    streams: VideoStreamKind[];
+    /**
+     * Containers the engine plays directly (for example "avi"), or "any". When set, the engine only
+     * takes direct streams of these containers, and Cove plays them directly instead of moving formats
+     * browsers cannot play to a transcode. When omitted, the engine takes every direct stream.
+     */
+    directFormats?: "any" | string[];
+    /** Platform features the element supports. Controls for unsupported features are hidden. */
+    features?: {
+        pictureInPicture?: boolean;
+        airplay?: boolean;
+        vr?: boolean;
+    };
+}
+/**
+ * The media surface Cove drives through its element ref. The element behaves like `<video>`: it
+ * dispatches the standard media events, selects a resource from `<source>` children (firing `error`
+ * on a `<source>` it cannot open and ending in `NETWORK_NO_SOURCE`), and exposes `<track>` children
+ * through `textTracks`.
+ */
+export type VideoEngineElement = HTMLElement & Pick<HTMLVideoElement, "src" | "currentSrc" | "currentTime" | "duration" | "paused" | "ended" | "seeking" | "readyState" | "networkState" | "buffered" | "volume" | "muted" | "playbackRate" | "videoWidth" | "videoHeight" | "error" | "textTracks" | "play" | "pause" | "load">;
+/** What Cove would give a `<video>`: forward all of it to the element, like `<video {...props} />`. */
+export type VideoEngineProps = Omit<React.ComponentPropsWithRef<"video">, "ref"> & {
+    ref?: React.Ref<VideoEngineElement>;
+};
+/** A video engine component: renders the element and declares what it plays. */
+export type VideoEngineComponent = React.ComponentType<VideoEngineProps> & {
+    videoEngine: VideoEngineCapabilities;
+};
 export interface FindFilter {
     page?: number;
     perPage?: number;
@@ -159,6 +199,41 @@ export interface ListSortContribution {
 export interface UIManifestListContributions {
     listFilters?: ListFilterContribution[];
     listSorts?: ListSortContribution[];
+}
+export type KeyboardShortcutSurface = "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+export interface KeyboardActionScope {
+    surface: KeyboardShortcutSurface;
+    page?: string;
+    entityType?: EntityType | string;
+    tab?: string;
+}
+export interface KeyboardActionContribution {
+    id: string;
+    label: string;
+    extensionId: string;
+    defaultBindings: string[];
+    scopes: KeyboardActionScope[];
+    description?: string;
+    group?: string;
+    handlerName?: string;
+    apiEndpoint?: string;
+    order?: number;
+    repeatable?: boolean;
+    allowInEditable?: boolean;
+    requiredPermission?: string;
+}
+export interface KeyboardShortcutPresetContribution {
+    schemaVersion: 1;
+    id: string;
+    name: string;
+    extensionId: string;
+    unmappedActions: "action-defaults" | "unbound";
+    bindings: Record<string, string[]>;
+    description?: string;
+    author?: string;
+    version?: string;
+    basePresetId?: string;
+    order?: number;
 }
 export interface DashboardWidgetContribution {
     id: string;

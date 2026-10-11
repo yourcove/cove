@@ -4,6 +4,8 @@ interface Props {
   extensionId?: string;
   fallback?: ReactNode;
   fallbackRender?: () => ReactNode;
+  /** Called once the boundary has caught an error, after it is logged. */
+  onError?: (error: Error) => void;
   resetKey?: unknown;
   children: ReactNode;
 }
@@ -38,6 +40,7 @@ export class ExtensionErrorBoundary extends Component<Props, State> {
       error,
       errorInfo.componentStack,
     );
+    this.props.onError?.(error);
   }
 
   render() {

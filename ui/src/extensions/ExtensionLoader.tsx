@@ -241,6 +241,32 @@ export function useExtensions() {
   return useContext(ExtensionContext);
 }
 
+/** A component override whose bundle has registered its component, with that bundle's revision. */
+export interface ResolvedComponentOverride {
+  contribution: ExtensionComponentOverride;
+  Component: ExtensionComponent;
+  revision: number;
+}
+
+/** Component overrides for a host target in priority order, skipping those whose component is not loaded. */
+export function useResolvedComponentOverrides(targetComponent: string): ResolvedComponentOverride[] {
+  const { getComponentOverrides, resolveComponent, getExtensionRevision } = useExtensions();
+  return getComponentOverrides(targetComponent).flatMap((contribution) => {
+    const Component = resolveComponent(contribution.extensionId, contribution.componentName);
+    return Component ? [{ contribution, Component, revision: getExtensionRevision(contribution.extensionId) }] : [];
+  });
+}
+
+/**
+ * True once the extension runtime has applied its manifest and imported its bundles, so contributions
+ * are final. Also true where no runtime is mounted, since nothing will arrive there.
+ */
+export function useExtensionRuntimeSettled(): boolean {
+  const registry = useContext(ExtensionComponentRegistryContext);
+  const { loaded } = useExtensions();
+  return registry === null || loaded;
+}
+
 interface ExtensionComponentOverrideRendererProps<TProps extends object> {
   targetComponent: string;
   componentProps: TProps;

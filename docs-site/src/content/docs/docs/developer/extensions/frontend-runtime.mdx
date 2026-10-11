@@ -213,6 +213,13 @@ return cleanup, which Cove runs before replacing that control generation and whe
 unmounts. These controls operate the reusable `VideoPlayer`; media-player slot contributions should
 use the bounded controls in `MediaPlayerExtensionContext`.
 
+### Video engines
+
+`VIDEO_ENGINE_TARGET` and the `VideoEngine*` types describe a component that replaces the element
+playing video inside Cove's player, including a reusable `VideoPlayer` rendered by an extension.
+See [Video engines override](../ui-extension-points/#video-engines-override) for the element contract, the declared
+capabilities, and how Cove chooses streams and falls back to `<video>`.
+
 ## Compatibility
 
 Runtime modules are a host contract, not dependencies embedded in the extension archive. Set `minCoveVersion` to the oldest Cove release on which every imported runtime export has been tested. Adding an import introduced by a newer Cove release raises that practical compatibility floor even when the extension's backend contract is unchanged.

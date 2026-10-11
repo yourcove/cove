@@ -255,7 +255,7 @@ Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown bod
 
 ## Entity media overrides
 
-`UIComponentOverride` currently supports the stable target `entity.media`. Use `UIManifestBuilder.OverrideComponent("entity.media", componentName, priority)` and export that component from the owning extension's frontend bundle. The frontend SDK exports `ENTITY_MEDIA_TARGET` for code that needs the same target string.
+A `UIComponentOverride` with the target `entity.media` replaces an entity's primary media, the image or preview that cards, heroes, and similar surfaces show. Use `UIManifestBuilder.OverrideComponent("entity.media", componentName, priority)` and export that component from the owning extension's frontend bundle. The frontend SDK exports `ENTITY_MEDIA_TARGET` for code that needs the same target string.
 
 The component receives `EntityMediaRenderProps`: the entity type and id, surface, native image URL, alt text, fit, loading hint, class name, and `renderDefault`. Surfaces currently include `card`, `hero`, `list`, `picker`, `recommendation`, `dialog`, and `hover`. Call `renderDefault()` when the extension does not handle the entity or surface. That delegates to the next lower-priority override and eventually Cove's native media.
 
@@ -264,6 +264,52 @@ Cove orders overrides by descending priority and isolates every layer in an erro
 An extension that shows an entity's primary media itself, such as a dashboard widget that features a tag, can render the same boundary with `EntityMedia` from `@cove/runtime/components`. Pass the props a native card would pass, including a `renderDefault` that draws the static image, so that media contributed by other extensions, such as animated previews, also appears there. Frame it the way the matching native surface does: Cove's cards keep their own 16:9 media frame, and only a hover-style frame follows the `data-entity-media-aspect-ratio` declaration described below. `EntityMedia` is not in older hosts' runtimes, so import the barrel as a namespace and fall back to your own image when it is missing. An `entity.media` override itself must call `renderDefault()` to show the native media, never `EntityMedia` for the same entity and surface, which would render the override again.
 
 Hover previews use a `4:3` frame by default. When contributed hover media has another intrinsic shape, put `data-entity-media-aspect-ratio="width:height"` on an element rendered by the override. Cove validates positive numeric values and uses the declaration to size its host-owned hover frame.
+
+## Video engines override
+
+A `UIComponentOverride` with the target `video.engine` replaces the element that plays video, while Cove's player stays around it: controls, keyboard shortcuts, watch tracking, resume, overlays, media-player slots, and the quality menu keep working. Use `UIManifestBuilder.OverrideComponent("video.engine", componentName, priority)` and export that component from the owning extension's frontend bundle. The frontend SDK exports `VIDEO_ENGINE_TARGET` for code that needs the same target string; it and the types below also come from `@cove/runtime/components`.
+
+Use an engine to play formats or protocols the browser cannot, such as through a WebAssembly decoder or an HLS library.
+
+The component must carry a static `videoEngine` declaration of type `VideoEngineCapabilities`. Cove ignores a contribution without one.
+
+```tsx
+import type { VideoEngineComponent } from "@cove/extension-sdk";
+
+export const WasmEngine: VideoEngineComponent = Object.assign(
+  ({ children, ...props }) => (
+    <wasm-video {...props}>
+      {children}
+    </wasm-video>
+  ),
+  {
+    videoEngine: {
+      streams: ["direct"],
+      directFormats: "any",
+      features: { pictureInPicture: false },
+    },
+  },
+);
+```
+
+The component receives exactly what Cove would give a `<video>` (`VideoEngineProps`): the ref, the attributes and handlers, and the `<source>` and `<track>` children. Forward all of it to the element, like `<video {...props} />`. The element must behave like `<video>` (`VideoEngineElement`):
+
+- implement the media properties and methods Cove uses, including `currentTime`, `paused`, `readyState`, `networkState`, `buffered`, `videoWidth`, `videoHeight`, `error`, `textTracks`, `play()`, `pause()`, and `load()`
+- dispatch the standard media events on itself, such as `loadedmetadata`, `play`, `timeupdate`, `seeked`, `waiting`, `ended`, and `error`
+- select its resource from the `<source>` children when `load()` is called: fire `error` on a `<source>` it cannot open, and end with `networkState` set to `NETWORK_NO_SOURCE` and `error` left `null` when no source remains
+- expose `<track>` children through `textTracks` and show the cues of tracks whose `mode` is `showing`
+
+`VideoEngineCapabilities` decides where the engine is used:
+
+| Field | Effect |
+| --- | --- |
+| `streams` | Stream kinds the engine can load: `direct` (the original file, served with byte ranges), `transcode-mp4` (a server transcode piped as fragmented MP4 without byte ranges; seeking restarts it), and `hls` (a server transcode as an HLS playlist, which Cove uses on browsers with native HLS). Cove plays every other kind with the browser's `<video>`. |
+| `directFormats` | Containers the engine plays directly, matched against the file's format, or `"any"`. When set, the engine takes only direct streams of those containers, and Cove plays them directly instead of moving formats the browser cannot play, such as AVI, WMV, or files with AC-3 audio, to a transcode. When omitted, the engine takes every direct stream and Cove's transcode choices are unchanged. |
+| `features` | `pictureInPicture`, `airplay`, and `vr`. Cove hides the matching controls for an engine that does not declare them. Captions are not optional, because `<track>` support is required. |
+
+For each source, Cove uses the highest-priority engine whose capabilities accept it. When the engine reports a decode or unsupported-source error, rejects a reachable `<source>` twice, or throws while rendering, Cove stops using that engine for the current video and file. The next engine, or the browser's `<video>`, then resumes from the same position and play state. If that also fails, Cove's usual fallback to a server transcode applies. Choosing a transcode quality in the player picks the renderer for that stream kind in the same way.
+
+Engines arrive with their extension's bundle. Before the extension runtime has loaded, Cove holds a file the browser cannot play rather than moving it to a transcode that an engine might make unnecessary.
 
 ## Page overrides
 
@@ -276,7 +322,7 @@ Prefer additive pages, tabs, and slots when possible. An override owns the whole
 The public manifest also contains these declarations, but Cove does not currently render them:
 
 - `UIPaneContribution`
-- `UIComponentOverride` targets other than `entity.media`
+- `UIComponentOverride` targets other than `entity.media` and `video.engine`
 - `UISelectorOverride`
 - `UIDialogOverride`
 - `UIPageDefinition.DetailRoute`
@@ -300,6 +346,7 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Add in-app help | `UITutorialTopic` |
 | Advertise a host-known capability | `UIFeatureDefinition` |
 | Replace primary entity media | `UIComponentOverride` targeting `entity.media` |
+| Play video through another decoder or protocol | `UIComponentOverride` targeting `video.engine` |
 | Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
 
 After choosing the contribution, see [Frontend runtime API](../frontend-runtime/) for supported imports, [Packaging](../packaging/) for the asset layout, and [Permissions](../permissions/) for access design.

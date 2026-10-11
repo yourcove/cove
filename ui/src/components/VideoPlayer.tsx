@@ -28,9 +28,12 @@ import {
   VolumeX,
 } from "lucide-react";
 import { videos } from "../api/client";
-import { supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
+import { HLS_MIME_TYPE, supportsNativeHls, transcodeSource } from "../utils/transcodeSource";
 import type { Detection, Face, Segment, VrDescriptor } from "../api/types";
 import { EnterVrButton } from "./EnterVrButton";
+import { ExtensionErrorBoundary } from "./ExtensionErrorBoundary";
+import { playsDirectFormat, type VideoEngineElement, type VideoEngineProps, type VideoStreamKind } from "./VideoEngine";
+import { useVideoEngines, type ResolvedVideoEngine } from "./useVideoEngines";
 import { FLAT_VR } from "../vr/immersiveVideo";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
@@ -63,6 +66,22 @@ const SEEK_PREVIEW_COMPACT_BOX = { width: 120, height: 68 };
 /** Vertical space the preview needs besides its tile: margin above the bar, time label and border. */
 const SEEK_PREVIEW_CHROME_PX = 30;
 const SOURCE_PROBE_TIMEOUT_MS = 5_000;
+const MEDIA_EVENT_TYPES = [
+  "loadedmetadata",
+  "loadeddata",
+  "error",
+  "waiting",
+  "stalled",
+  "canplay",
+  "playing",
+  "play",
+  "pause",
+  "seeking",
+  "seeked",
+  "timeupdate",
+  "progress",
+  "ended",
+] as const;
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(
@@ -289,6 +308,8 @@ export function VideoPlayer({
   const effectiveResumeTime = automaticResumeEnabled ? resumeTime : undefined;
   const effectiveStartTime = navigationSeekTo ?? effectiveResumeTime;
   const videoRef = useRef<HTMLVideoElement>(null);
+  // The mounted media element (see attachMediaElement); videoRef always points at it.
+  const [mediaElement, setMediaElement] = useState<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeTrackRef = useRef<HTMLDivElement>(null);
   const mobileOptionsButtonRef = useRef<HTMLButtonElement>(null);
@@ -354,17 +375,34 @@ export function VideoPlayer({
   const selectedQualityRef = useRef("Direct");
   // Safari cannot play the piped fragmented MP4 transcode; it gets the same encode as an HLS playlist.
   const nativeHlsSupported = useMemo(() => supportsNativeHls(), []);
-  const compatibilityRequired =
+  // Video engines contributed by extensions replace the <video> element for the stream kinds they
+  // declare. An engine that fails for this video and file is skipped until a different one is shown.
+  const { engines: videoEngines, settled: videoEnginesSettled } = useVideoEngines();
+  const playbackIdentity = `${videoId}:${fileId ?? "primary"}`;
+  const [failedEngines, setFailedEngines] = useState<{ identity: string; keys: string[] }>({
+    identity: playbackIdentity,
+    keys: [],
+  });
+  const failedEngineKeys = failedEngines.identity === playbackIdentity ? failedEngines.keys : [];
+  const availableEngines = videoEngines.filter((engine) => !failedEngineKeys.includes(engine.key));
+  // An engine that declares this container as directly playable makes the browser's limits irrelevant,
+  // so the file is not moved to a transcode up front.
+  const directFormatEngine = availableEngines.find((engine) => playsDirectFormat(engine.Component.videoEngine, format));
+  const mediaPrefersTranscode =
     prefersTranscodedVideoFormat(format) ||
     prefersTranscodedVideoCodec(videoCodec, nativeHlsSupported) ||
     !isBrowserCompatibleAudio(audioCodec);
-  const compatibilityIdentity = `${videoId}:${fileId ?? "primary"}:${format?.trim().toLowerCase()}:${videoCodec?.trim().toLowerCase()}:${audioCodec?.trim().toLowerCase()}`;
+  const compatibilityRequired = mediaPrefersTranscode && !directFormatEngine;
+  const compatibilityIdentity = `${videoId}:${fileId ?? "primary"}:${format?.trim().toLowerCase()}:${videoCodec?.trim().toLowerCase()}:${audioCodec?.trim().toLowerCase()}:${directFormatEngine?.key ?? ""}`;
   const [compatibilityLookup, setCompatibilityLookup] = useState(() => ({
     identity: compatibilityIdentity,
     pending: compatibilityRequired,
   }));
+  // Until the extension runtime has loaded, an engine that plays this file may still arrive, so a file
+  // the browser cannot play waits rather than committing to a transcode.
   const compatibilityLookupPending =
-    compatibilityLookup.identity === compatibilityIdentity ? compatibilityLookup.pending : compatibilityRequired;
+    (mediaPrefersTranscode && !videoEnginesSettled) ||
+    (compatibilityLookup.identity === compatibilityIdentity ? compatibilityLookup.pending : compatibilityRequired);
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
   const [compatibilityFallbackReason, setCompatibilityFallbackReason] = useState<
@@ -698,7 +736,7 @@ export function VideoPlayer({
   });
   useEffect(() => {
     applyInitialVolume();
-  }, []);
+  }, [mediaElement]);
 
   const toAbsoluteTime = useCallback(
     (mediaTime: number) => (selectedQuality === "Direct" ? mediaTime : transcodeStartSec + mediaTime),
@@ -710,6 +748,33 @@ export function VideoPlayer({
       selectedQuality === "Direct" ? absoluteTime : Math.max(0, absoluteTime - transcodeStartSec),
     [selectedQuality, transcodeStartSec],
   );
+
+  // The mounted media element: the browser's <video> or an engine's element. Effects bound to the
+  // element depend on it, so they move over when an engine falls back to <video>. Leaving an element
+  // that had started records its position, so the next one resumes there.
+  const toAbsoluteTimeRef = useRef(toAbsoluteTime);
+  useLayoutEffect(() => {
+    toAbsoluteTimeRef.current = toAbsoluteTime;
+  }, [toAbsoluteTime]);
+  const attachMediaElement = useCallback((attached: VideoEngineElement | null) => {
+    // An engine's element implements the media surface the player uses (VideoEngineElement); features
+    // beyond it, such as Picture-in-Picture, are only offered when the engine declares them.
+    const element = attached as HTMLVideoElement | null;
+    const previous = videoRef.current;
+    if (element === previous) return;
+    if (previous && !element && previous.currentTime > 0.01 && !sourceRestoreRef.current) {
+      sourceRestoreRef.current = {
+        time: toAbsoluteTimeRef.current(previous.currentTime),
+        shouldPlay: !previous.paused,
+      };
+    }
+    videoRef.current = element;
+    if (element) {
+      lastLoadedSourceRef.current = null;
+      metadataHandledGenerationRef.current = null;
+    }
+    setMediaElement(element);
+  }, []);
 
   const handleRecoveryPlayFailed = useCallback(() => {
     setPlaying(false);
@@ -848,7 +913,7 @@ export function VideoPlayer({
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateVideoBox);
     };
-  }, [videoId, selectedQuality, streamUrl, updateVideoBox]);
+  }, [mediaElement, videoId, selectedQuality, streamUrl, updateVideoBox]);
 
   const faceLabelsById = useMemo(() => {
     const labels = new Map<number, FaceOverlayInfo>();
@@ -989,6 +1054,36 @@ export function VideoPlayer({
   // source before any request, which browsers do for the correct type of several containers we serve.
   const effectiveSourceType = transcode ? transcode.type : undefined;
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
+  const sourceKind: VideoStreamKind = !transcode
+    ? "direct"
+    : transcode.type === HLS_MIME_TYPE
+      ? "hls"
+      : "transcode-mp4";
+  // The highest-priority engine that takes this kind of stream renders the media element; without one
+  // the browser's <video> does. An engine limited to some containers only takes direct streams of those.
+  const activeEngine: ResolvedVideoEngine | null =
+    availableEngines.find((engine) => {
+      const capabilities = engine.Component.videoEngine;
+      if (!capabilities.streams.includes(sourceKind)) return false;
+      return (
+        sourceKind !== "direct" || capabilities.directFormats === undefined || playsDirectFormat(capabilities, format)
+      );
+    }) ?? null;
+  const activeEngineFeatures = activeEngine?.Component.videoEngine.features;
+  const pictureInPictureAvailable = !activeEngine || activeEngineFeatures?.pictureInPicture === true;
+  const airplayAvailable = !activeEngine || activeEngineFeatures?.airplay === true;
+  const vrAvailable = !activeEngine || activeEngineFeatures?.vr === true;
+  const activeEngineKey = activeEngine?.key ?? null;
+
+  // Gives up on the active engine for this video and file. The next engine for the stream, or the
+  // browser's <video>, takes over and resumes from the same position (see attachMediaElement).
+  const failActiveEngine = useCallback(() => {
+    if (!activeEngineKey) return;
+    setFailedEngines((current) => ({
+      identity: playbackIdentity,
+      keys: [...(current.identity === playbackIdentity ? current.keys : []), activeEngineKey],
+    }));
+  }, [activeEngineKey, playbackIdentity]);
 
   const suspendedPlaybackRef = useRef<{ time: number; resume: boolean } | null>(null);
   useLayoutEffect(() => {
@@ -1196,7 +1291,7 @@ export function VideoPlayer({
     };
     v.addEventListener("webkitcurrentplaybacktargetchanged" as never, onTargetChanged as EventListener);
     return () => v.removeEventListener("webkitcurrentplaybacktargetchanged" as never, onTargetChanged as EventListener);
-  }, []);
+  }, [mediaElement]);
 
   useEffect(() => {
     if (abLoop.a == null || abLoop.b == null) return;
@@ -1209,7 +1304,7 @@ export function VideoPlayer({
     };
     v.addEventListener("timeupdate", handler);
     return () => v.removeEventListener("timeupdate", handler);
-  }, [abLoop, seekToAbsoluteTime, toAbsoluteTime]);
+  }, [abLoop, mediaElement, seekToAbsoluteTime, toAbsoluteTime]);
 
   useEffect(() => {
     if (journalFlushed.current) {
@@ -1337,6 +1432,7 @@ export function VideoPlayer({
     clipStart,
     flushInterval,
     loop,
+    mediaElement,
     onEndedProp,
     onTimeUpdateProp,
     seekToAbsoluteTime,
@@ -1428,17 +1524,22 @@ export function VideoPlayer({
     for (let i = 0; i < v.textTracks.length; i++) {
       v.textTracks[i].mode = showCaptions ? "showing" : "hidden";
     }
-  }, [showCaptions]);
+  }, [mediaElement, showCaptions]);
 
+  const plannedDirectEngine = directFormatEngine?.key ?? null;
   useEffect(() => {
+    // Decided once the extension runtime has loaded (see compatibilityLookupPending).
+    if (mediaPrefersTranscode && !videoEnginesSettled) return;
     let cancelled = false;
-    const fallbackReason = prefersTranscodedVideoFormat(format)
-      ? "video format"
-      : prefersTranscodedVideoCodec(videoCodec, nativeHlsSupported)
-        ? "video codec"
-        : !isBrowserCompatibleAudio(audioCodec)
-          ? "audio codec"
-          : null;
+    const fallbackReason = plannedDirectEngine
+      ? null
+      : prefersTranscodedVideoFormat(format)
+        ? "video format"
+        : prefersTranscodedVideoCodec(videoCodec, nativeHlsSupported)
+          ? "video codec"
+          : !isBrowserCompatibleAudio(audioCodec)
+            ? "audio codec"
+            : null;
     // Moves a source the browser cannot play directly onto a transcode. An empty `resolutions`
     // means no ladder rung is known, which selects a transcode at the source resolution.
     const applyCompatibilityFallback = (resolutions: string[]) => {
@@ -1479,7 +1580,18 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
     };
-  }, [audioCodec, compatibilityIdentity, fileId, format, nativeHlsSupported, videoCodec, videoId]);
+  }, [
+    audioCodec,
+    compatibilityIdentity,
+    fileId,
+    format,
+    mediaPrefersTranscode,
+    nativeHlsSupported,
+    plannedDirectEngine,
+    videoCodec,
+    videoEnginesSettled,
+    videoId,
+  ]);
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -1827,6 +1939,10 @@ export function VideoPlayer({
         } else if (directRetriedGenerationRef.current !== generation) {
           directRetriedGenerationRef.current = generation;
           recordMediaNetworkError(video, playIntent, false);
+        } else if (activeEngineKey) {
+          // The engine cannot open this file; let the next engine or the browser's <video> try it
+          // before giving up on direct playback.
+          failActiveEngine();
         } else {
           fallbackToTranscode();
         }
@@ -1834,7 +1950,8 @@ export function VideoPlayer({
   };
 
   useEffect(() => {
-    if (compatibilityLookupPending || suspended) return;
+    // Runs once the mounted element is tracked, and again for a new element (see attachMediaElement).
+    if (compatibilityLookupPending || suspended || !mediaElement) return;
     const video = videoRef.current;
     if (!video) {
       return;
@@ -1955,6 +2072,7 @@ export function VideoPlayer({
     effectiveSourceType,
     effectiveStreamUrl,
     hasClip,
+    mediaElement,
     mediaIdentity,
     navigationSeekTo,
     playerVideoStartMinDuration,
@@ -1965,13 +2083,14 @@ export function VideoPlayer({
     videoId,
   ]);
 
-  // Release the media element's network connection when the player unmounts. Without this, leaving a
+  // Release the media element's network connection when the player unmounts or moves to another
+  // element (an engine falling back to <video>). Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
   // leaves the browser holding the open stream/transcode connection until GC. That pins a server-side
   // transcode slot and, after several videos, can exhaust the browser's per-host connection pool so
   // subsequent requests — including the next video's metadata fetch — stall, leaving a blank page.
   useEffect(() => {
-    const video = videoRef.current;
+    const video = mediaElement;
     return () => {
       if (!video) return;
       try {
@@ -1987,7 +2106,7 @@ export function VideoPlayer({
         // Ignore — element may already be detached.
       }
     };
-  }, []);
+  }, [mediaElement]);
 
   const togglePip = async () => {
     const v = videoRef.current;
@@ -2140,6 +2259,226 @@ export function VideoPlayer({
     [acquireOwnerInteractionMode, interactionGeneration, releaseOwner],
   );
 
+  // The media element's handlers. Attached with addEventListener (below) rather than React props,
+  // because React only wires media events on native <video> and an engine renders its own element.
+  const mediaEventHandlers: Record<string, (event: Event) => void> = {
+    loadedmetadata: () => {
+      directRetriedGenerationRef.current = null;
+      handleVideoMetricsReady();
+      recordMediaMetadataLoaded();
+    },
+    loadeddata: handleVideoMetricsReady,
+    error: (event) => {
+      const video = event.currentTarget as HTMLVideoElement;
+      const code = video.error?.code;
+      // An intentional unload while compatibility lookup is pending may emit ABORTED. It is
+      // not a playback failure and must not start media recovery for the previous resource.
+      if (compatibilityLookupPending || suspended) return;
+      // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
+      // server transcode. MEDIA_ERR_NETWORK (2) / MEDIA_ERR_ABORTED (1) are transient buffering
+      // stalls — recover in place at the same position rather than reloading from 0.
+      if (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+        // An engine that cannot play the stream hands it to the next engine or the browser's
+        // <video> first; only a failure there moves direct playback to a transcode.
+        if (activeEngineKey) failActiveEngine();
+        else if (selectedQuality === "Direct") fallbackToTranscode();
+      } else if (code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_ABORTED) {
+        recordMediaNetworkError(
+          video,
+          playing || !video.paused ? "play" : "pause",
+          code === MediaError.MEDIA_ERR_NETWORK,
+        );
+      }
+    },
+    waiting: (event) => {
+      const video = event.currentTarget as HTMLVideoElement;
+      recordMediaWaiting(video, playing || !video.paused ? "play" : "pause");
+    },
+    stalled: (event) => {
+      const video = event.currentTarget as HTMLVideoElement;
+      recordMediaWaiting(video, playing || !video.paused ? "play" : "pause");
+    },
+    canplay: (event) => {
+      recordMediaCanPlay(event.currentTarget as HTMLVideoElement);
+    },
+    playing: () => {
+      recordMediaPlaying();
+    },
+    play: () => {
+      navigationAutostartSuppressedRef.current = false;
+      setPlaying(true);
+      onPlaybackStateChange?.(true);
+      pendingAutostartRef.current = false;
+      const currentPos = prepareClipForPlayback();
+      if (!interactionSnapshotRef.current.pauseTracking) {
+        pendingTrackingStartRef.current = null;
+        startTrackedInterval(currentPos);
+      }
+      if (!playTriggered.current) {
+        playTriggered.current = true;
+        onPlay?.();
+      }
+    },
+    pause: () => {
+      setPlaying(false);
+      onPlaybackStateChange?.(false);
+      onPause?.();
+      if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+        startTrackedInterval(pendingTrackingStartRef.current);
+      }
+      pendingTrackingStartRef.current = null;
+      flushInterval("paused");
+      intervalStart.current = null;
+      trackPlayerInteraction("pause", { positionSec: lastSeenTime.current });
+    },
+    seeking: () => {
+      if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+        startTrackedInterval(pendingTrackingStartRef.current);
+      }
+      pendingTrackingStartRef.current = null;
+      if (intervalStart.current !== null) {
+        flushInterval("active");
+        intervalStart.current = null;
+      }
+      const video = videoRef.current;
+      const seekTarget = video ? toAbsoluteTime(video.currentTime) : undefined;
+      if (video && seekTarget != null && Number.isFinite(seekTarget)) recordMediaUserSeek(video);
+      trackPlayerInteraction("seek", {
+        fromSec: lastSeenTime.current,
+        toSec: seekTarget != null ? roundPlaybackTime(seekTarget) : undefined,
+      });
+    },
+    seeked: () => {
+      if (mediaRecoveryPhase === "healthy") setIsBuffering(false);
+      const video = videoRef.current;
+      if (video && !video.paused && !interactionSnapshotRef.current.pauseTracking) {
+        const time = roundPlaybackTime(toAbsoluteTime(video.currentTime));
+        startTrackedInterval(time);
+      }
+    },
+    timeupdate: () => {
+      const v = videoRef.current;
+      if (v) recordMediaProgress(v);
+      const time = roundPlaybackTime(v ? toAbsoluteTime(v.currentTime) : 0);
+      setCurTime(time);
+      onTimeUpdateProp?.(time);
+      // Don't accrue watch time while the tab is backgrounded: a <video> can keep playing and
+      // firing timeupdate in a hidden tab, and counting that pollutes engagement/watch data.
+      if (document.hidden) return;
+      if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+        startTrackedInterval(pendingTrackingStartRef.current);
+      }
+      pendingTrackingStartRef.current = null;
+      const now = Date.now();
+      if (trackingEnabled && intervalStart.current !== null) {
+        const wallDt = lastTickAt.current > 0 ? (now - lastTickAt.current) / 1000 : 0;
+        const rate = v?.playbackRate ?? 1;
+        // Max contiguous media-time advance since the last tick (+ tolerance for jitter/buffering).
+        const maxAdvance = Math.max(1, wallDt * rate + 1);
+        const advance = time - lastSeenTime.current;
+        if (advance >= -0.5 && advance <= maxAdvance) {
+          // Contiguous playback → extend the watched interval.
+          lastSeenTime.current = time;
+          if (now - lastKeepaliveSentAt.current >= 10000) {
+            lastKeepaliveSentAt.current = now;
+            flushInterval("active");
+            intervalStart.current = time;
+          }
+        } else {
+          // Discontinuity (a seek): close the interval at the real last-watched position and reopen at
+          // the new one, so the skipped span is never counted as watched.
+          flushInterval("active");
+          startTrackedInterval(time);
+        }
+      } else {
+        lastSeenTime.current = time;
+      }
+      lastTickAt.current = now;
+    },
+    progress: () => {
+      const v = videoRef.current;
+      if (v && v.buffered.length > 0)
+        setBuffered(Math.min(duration, toAbsoluteTime(v.buffered.end(v.buffered.length - 1))));
+    },
+    ended: () => {
+      recordMediaEnded();
+      if (loop) {
+        flushInterval("active");
+        intervalStart.current = null;
+        seekToAbsoluteTime(timelineStart, true);
+        return;
+      }
+      // A native ended event is authoritative even if the browser's final timeupdate landed a
+      // little before the media boundary. Report the configured end so completed playback clears
+      // its resume position instead of reopening at the last fraction of a second.
+      lastSeenTime.current = roundPlaybackTime(duration || toAbsoluteTime(videoRef.current?.currentTime ?? 0));
+      setPlaying(false);
+      flushInterval("ended");
+      intervalStart.current = null;
+      onEndedProp?.();
+    },
+  };
+  const handleMediaEvent = useEffectEvent((event: Event) => {
+    mediaEventHandlers[event.type]?.(event);
+  });
+  // A layout effect, so these run before the timeupdate listeners of the clip boundary and A-B loop
+  // effects, as React's own media props did.
+  useLayoutEffect(() => {
+    if (!mediaElement) return;
+    const listener = (event: Event) => handleMediaEvent(event);
+    for (const type of MEDIA_EVENT_TYPES) mediaElement.addEventListener(type, listener);
+    return () => {
+      for (const type of MEDIA_EVENT_TYPES) mediaElement.removeEventListener(type, listener);
+    };
+  }, [mediaElement]);
+
+  // What the browser's <video> and an engine's element both receive: the same attributes, and the same
+  // <source> and <track> children, which an engine handles like <video> does.
+  const mediaElementProps: VideoEngineProps = {
+    className: "w-full h-full object-contain cursor-pointer",
+    style: showCursor ? videoStyle : { ...videoStyle, cursor: "none" },
+    preload: "metadata",
+    poster: posterUrl,
+    playsInline: true,
+    onClick: interactionSnapshot.active ? undefined : togglePlay,
+    onDoubleClick: interactionSnapshot.active ? undefined : toggleFullscreen,
+    ...(airplayAvailable ? ({ "x-webkit-airplay": "allow" } as Record<string, string>) : {}),
+  };
+  const mediaElementChildren = (
+    <>
+      <source
+        ref={sourceRef}
+        src={compatibilityLookupPending || suspended ? undefined : effectiveStreamUrl}
+        type={effectiveSourceType}
+        onError={(e) => {
+          // A source the browser cannot demux fails during resource selection, which fires
+          // `error` on the <source> and leaves video.error null — so the element's error handler
+          // never sees it and the player sits dead with no message. Containers such as flv,
+          // mpegts and mpeg-ps reach the user this way, but so does a failed request.
+          if (compatibilityLookupPending || suspended) return;
+          if (selectedQuality !== "Direct") return;
+          // Teardown clears the src to abort in-flight downloads; that is not a playback failure.
+          const src = e.currentTarget.getAttribute("src");
+          if (!src) return;
+          const video = videoRef.current;
+          if (video?.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE) return;
+          handleDirectSourceRejected(video, src);
+        }}
+      />
+      {captions?.map((cap, idx) => (
+        <track
+          key={cap.id}
+          kind="captions"
+          src={videos.captionUrl(videoId, cap.id)}
+          srcLang={cap.languageCode === "00" ? "en" : cap.languageCode}
+          label={cap.languageCode === "00" ? cap.filename : cap.languageCode.toUpperCase()}
+          default={idx === 0 && showCaptions}
+        />
+      ))}
+    </>
+  );
+  const EngineComponent = activeEngine?.Component;
+
   return (
     <div
       ref={containerRef}
@@ -2148,200 +2487,22 @@ export function VideoPlayer({
       onMouseMove={resetHideTimer}
       onMouseLeave={() => playing && !interactionSnapshotRef.current.active && setShowControls(false)}
     >
-      <video
-        ref={videoRef}
-        className="w-full h-full object-contain cursor-pointer"
-        style={showCursor ? videoStyle : { ...videoStyle, cursor: "none" }}
-        preload="metadata"
-        poster={posterUrl}
-        playsInline
-        {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
-        onLoadedMetadata={() => {
-          directRetriedGenerationRef.current = null;
-          handleVideoMetricsReady();
-          recordMediaMetadataLoaded();
-        }}
-        onLoadedData={handleVideoMetricsReady}
-        onError={(e) => {
-          const code = e.currentTarget.error?.code;
-          // An intentional unload while compatibility lookup is pending may emit ABORTED. It is
-          // not a playback failure and must not start media recovery for the previous resource.
-          if (compatibilityLookupPending || suspended) return;
-          // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
-          // server transcode. MEDIA_ERR_NETWORK (2) / MEDIA_ERR_ABORTED (1) are transient buffering
-          // stalls — recover in place at the same position rather than reloading from 0.
-          if (
-            selectedQuality === "Direct" &&
-            (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)
-          ) {
-            fallbackToTranscode();
-          } else if (code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_ABORTED) {
-            const video = e.currentTarget;
-            recordMediaNetworkError(
-              video,
-              playing || !video.paused ? "play" : "pause",
-              code === MediaError.MEDIA_ERR_NETWORK,
-            );
-          }
-        }}
-        onClick={interactionSnapshot.active ? undefined : togglePlay}
-        onDoubleClick={interactionSnapshot.active ? undefined : toggleFullscreen}
-        onWaiting={(event) => {
-          recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
-        }}
-        onStalled={(event) => {
-          recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
-        }}
-        onCanPlay={(event) => {
-          recordMediaCanPlay(event.currentTarget);
-        }}
-        onPlaying={() => {
-          recordMediaPlaying();
-        }}
-        onPlay={() => {
-          navigationAutostartSuppressedRef.current = false;
-          setPlaying(true);
-          onPlaybackStateChange?.(true);
-          pendingAutostartRef.current = false;
-          const currentPos = prepareClipForPlayback();
-          if (!interactionSnapshotRef.current.pauseTracking) {
-            pendingTrackingStartRef.current = null;
-            startTrackedInterval(currentPos);
-          }
-          if (!playTriggered.current) {
-            playTriggered.current = true;
-            onPlay?.();
-          }
-        }}
-        onPause={() => {
-          setPlaying(false);
-          onPlaybackStateChange?.(false);
-          onPause?.();
-          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
-            startTrackedInterval(pendingTrackingStartRef.current);
-          }
-          pendingTrackingStartRef.current = null;
-          flushInterval("paused");
-          intervalStart.current = null;
-          trackPlayerInteraction("pause", { positionSec: lastSeenTime.current });
-        }}
-        onSeeking={() => {
-          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
-            startTrackedInterval(pendingTrackingStartRef.current);
-          }
-          pendingTrackingStartRef.current = null;
-          if (intervalStart.current !== null) {
-            flushInterval("active");
-            intervalStart.current = null;
-          }
-          const video = videoRef.current;
-          const seekTarget = video ? toAbsoluteTime(video.currentTime) : undefined;
-          if (video && seekTarget != null && Number.isFinite(seekTarget)) recordMediaUserSeek(video);
-          trackPlayerInteraction("seek", {
-            fromSec: lastSeenTime.current,
-            toSec: seekTarget != null ? roundPlaybackTime(seekTarget) : undefined,
-          });
-        }}
-        onSeeked={() => {
-          if (mediaRecoveryPhase === "healthy") setIsBuffering(false);
-          const video = videoRef.current;
-          if (video && !video.paused && !interactionSnapshotRef.current.pauseTracking) {
-            const time = roundPlaybackTime(toAbsoluteTime(video.currentTime));
-            startTrackedInterval(time);
-          }
-        }}
-        onTimeUpdate={() => {
-          const v = videoRef.current;
-          if (v) recordMediaProgress(v);
-          const time = roundPlaybackTime(v ? toAbsoluteTime(v.currentTime) : 0);
-          setCurTime(time);
-          onTimeUpdateProp?.(time);
-          // Don't accrue watch time while the tab is backgrounded: a <video> can keep playing and
-          // firing timeupdate in a hidden tab, and counting that pollutes engagement/watch data.
-          if (document.hidden) return;
-          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
-            startTrackedInterval(pendingTrackingStartRef.current);
-          }
-          pendingTrackingStartRef.current = null;
-          const now = Date.now();
-          if (trackingEnabled && intervalStart.current !== null) {
-            const wallDt = lastTickAt.current > 0 ? (now - lastTickAt.current) / 1000 : 0;
-            const rate = v?.playbackRate ?? 1;
-            // Max contiguous media-time advance since the last tick (+ tolerance for jitter/buffering).
-            const maxAdvance = Math.max(1, wallDt * rate + 1);
-            const advance = time - lastSeenTime.current;
-            if (advance >= -0.5 && advance <= maxAdvance) {
-              // Contiguous playback → extend the watched interval.
-              lastSeenTime.current = time;
-              if (now - lastKeepaliveSentAt.current >= 10000) {
-                lastKeepaliveSentAt.current = now;
-                flushInterval("active");
-                intervalStart.current = time;
-              }
-            } else {
-              // Discontinuity (a seek): close the interval at the real last-watched position and reopen at
-              // the new one, so the skipped span is never counted as watched.
-              flushInterval("active");
-              startTrackedInterval(time);
-            }
-          } else {
-            lastSeenTime.current = time;
-          }
-          lastTickAt.current = now;
-        }}
-        onProgress={() => {
-          const v = videoRef.current;
-          if (v && v.buffered.length > 0)
-            setBuffered(Math.min(duration, toAbsoluteTime(v.buffered.end(v.buffered.length - 1))));
-        }}
-        onEnded={() => {
-          recordMediaEnded();
-          if (loop) {
-            flushInterval("active");
-            intervalStart.current = null;
-            seekToAbsoluteTime(timelineStart, true);
-            return;
-          }
-          // A native ended event is authoritative even if the browser's final timeupdate landed a
-          // little before the media boundary. Report the configured end so completed playback clears
-          // its resume position instead of reopening at the last fraction of a second.
-          lastSeenTime.current = roundPlaybackTime(duration || toAbsoluteTime(videoRef.current?.currentTime ?? 0));
-          setPlaying(false);
-          flushInterval("ended");
-          intervalStart.current = null;
-          onEndedProp?.();
-        }}
-      >
-        <source
-          ref={sourceRef}
-          src={compatibilityLookupPending || suspended ? undefined : effectiveStreamUrl}
-          type={effectiveSourceType}
-          onError={(e) => {
-            // A source the browser cannot demux fails during resource selection, which fires
-            // `error` on the <source> and leaves video.error null — so the <video> onError below
-            // never sees it and the player sits dead with no message. Containers such as flv,
-            // mpegts and mpeg-ps reach the user this way, but so does a failed request.
-            if (compatibilityLookupPending || suspended) return;
-            if (selectedQuality !== "Direct") return;
-            // Teardown clears the src to abort in-flight downloads; that is not a playback failure.
-            const src = e.currentTarget.getAttribute("src");
-            if (!src) return;
-            const video = videoRef.current;
-            if (video?.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE) return;
-            handleDirectSourceRejected(video, src);
-          }}
-        />
-        {captions?.map((cap, idx) => (
-          <track
-            key={cap.id}
-            kind="captions"
-            src={videos.captionUrl(videoId, cap.id)}
-            srcLang={cap.languageCode === "00" ? "en" : cap.languageCode}
-            label={cap.languageCode === "00" ? cap.filename : cap.languageCode.toUpperCase()}
-            default={idx === 0 && showCaptions}
-          />
-        ))}
-      </video>
+      {activeEngine && EngineComponent ? (
+        <ExtensionErrorBoundary
+          key={`${activeEngine.key}:${activeEngine.revision}`}
+          extensionId={activeEngine.extensionId}
+          fallbackRender={() => null}
+          onError={failActiveEngine}
+        >
+          <EngineComponent {...mediaElementProps} ref={attachMediaElement}>
+            {mediaElementChildren}
+          </EngineComponent>
+        </ExtensionErrorBoundary>
+      ) : (
+        <video {...mediaElementProps} ref={attachMediaElement}>
+          {mediaElementChildren}
+        </video>
+      )}
 
       {activeDetections.length > 0 && videoBox.width > 0 && videoBox.height > 0 ? (
         <div className="pointer-events-none absolute inset-0 z-[2]">
@@ -2590,13 +2751,15 @@ export function VideoPlayer({
                         <Repeat1 className="h-4 w-4" />
                         {loop ? "Disable video loop" : "Loop video"}
                       </button>
-                      <button
-                        onClick={togglePip}
-                        className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
-                      >
-                        <PictureInPicture2 className="h-4 w-4" />
-                        Picture-in-Picture
-                      </button>
+                      {pictureInPictureAvailable ? (
+                        <button
+                          onClick={togglePip}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                        >
+                          <PictureInPicture2 className="h-4 w-4" />
+                          Picture-in-Picture
+                        </button>
+                      ) : null}
                       {captions && captions.length > 0 ? (
                         <button
                           onClick={() => setShowCaptions((visible) => !visible)}
@@ -2713,13 +2876,15 @@ export function VideoPlayer({
               <Repeat1 className="w-4 h-4" />
             </button>
 
-            <button
-              onClick={togglePip}
-              className={`hidden hover:text-accent p-1 md:inline-flex ${pip ? "text-accent" : ""}`}
-              title="Picture-in-Picture"
-            >
-              <PictureInPicture2 className="w-4 h-4" />
-            </button>
+            {pictureInPictureAvailable ? (
+              <button
+                onClick={togglePip}
+                className={`hidden hover:text-accent p-1 md:inline-flex ${pip ? "text-accent" : ""}`}
+                title="Picture-in-Picture"
+              >
+                <PictureInPicture2 className="w-4 h-4" />
+              </button>
+            ) : null}
 
             {captions && captions.length > 0 && (
               <button
@@ -2743,7 +2908,7 @@ export function VideoPlayer({
               </button>
             ) : null}
 
-            {extensionSurface === "detail" ? (
+            {extensionSurface === "detail" && vrAvailable ? (
               <EnterVrButton
                 videoRef={videoRef}
                 vr={vr ?? FLAT_VR}

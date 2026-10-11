@@ -33,6 +33,11 @@ export type {
   MediaPlayerContentRect,
   MediaPlayerInteractionModeOptions,
   MediaPlayerExtensionContext,
+  VideoStreamKind,
+  VideoEngineCapabilities,
+  VideoEngineElement,
+  VideoEngineProps,
+  VideoEngineComponent,
   FindFilter,
   ListFilterOption,
   ListFilterContribution,
@@ -48,6 +53,7 @@ export {
   ENTITY_MEDIA_TARGET,
   MEDIA_PLAYER_ACTIONS_SLOT,
   MEDIA_PLAYER_OVERLAY_SLOT,
+  VIDEO_ENGINE_TARGET,
 } from "./types";
 
 // Extension definition helper
