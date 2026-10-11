@@ -158,20 +158,6 @@ export function EntityReferenceSelector({
   const labels = getEntityReferenceLabel(entityType);
   const queryClient = useQueryClient();
 
-  const cachedOptions = useMemo(
-    () => getCachedEntityReferenceOptions(queryClient, entityType),
-    [entityType, queryClient],
-  );
-  const cachedSearchOptions = useMemo(() => {
-    if (!trimmedSearch || cachedOptions == null) return undefined;
-
-    const needle = trimmedSearch.toLowerCase();
-    return rankSearchOptions(
-      cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)),
-      trimmedSearch,
-    ).slice(0, 25);
-  }, [cachedOptions, trimmedSearch]);
-
   const {
     data: searchResults,
     isLoading,
@@ -179,14 +165,16 @@ export function EntityReferenceSelector({
   } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
-    enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
+    enabled: !disabled && trimmedSearch.length >= 1,
     staleTime: 60_000,
     placeholderData: (previousData) => previousData,
   });
 
+  // Always searched on the server: a list of every entity already in the cache (the filter chips' first 5,000
+  // by name, say) may hold only part of the library.
   const searchOptions = useMemo(
-    () => cachedSearchOptions ?? rankSearchOptions(searchResults ?? [], trimmedSearch).slice(0, 25),
-    [cachedSearchOptions, searchResults, trimmedSearch],
+    () => rankSearchOptions(searchResults ?? [], trimmedSearch).slice(0, 25),
+    [searchResults, trimmedSearch],
   );
   const selectedSearchOption = searchOptions.find((option) => option.id === value);
   const { data: selectedOption, isLoading: selectedLoading } = useQuery({
@@ -234,6 +222,8 @@ export function EntityReferenceSelector({
       onChange(result.id, { id: result.id, label: entityName });
       setSearchText("");
       queryClient.invalidateQueries({ queryKey: [labels.plural] });
+      // Searches made before the create would offer it as new again.
+      queryClient.invalidateQueries({ queryKey: ["entity-reference-selector", entityType] });
     },
   });
 
@@ -438,15 +428,6 @@ export function EntityReferenceMultiSelector({
     () => getCachedEntityReferenceOptions(queryClient, entityType),
     [entityType, queryClient],
   );
-  const cachedSearchOptions = useMemo(() => {
-    if (!trimmedSearch || cachedOptions == null) return undefined;
-
-    const needle = trimmedSearch.toLowerCase();
-    return rankSearchOptions(
-      cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)),
-      trimmedSearch,
-    ).slice(0, 25);
-  }, [cachedOptions, trimmedSearch]);
 
   const {
     data: searchResults,
@@ -455,14 +436,16 @@ export function EntityReferenceMultiSelector({
   } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
-    enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
+    enabled: !disabled && trimmedSearch.length >= 1,
     staleTime: 60_000,
     placeholderData: (previousData) => previousData,
   });
 
+  // Always searched on the server: a list of every entity already in the cache (the filter chips' first 5,000
+  // by name, say) may hold only part of the library.
   const searchOptions = useMemo(
-    () => cachedSearchOptions ?? rankSearchOptions(searchResults ?? [], trimmedSearch).slice(0, 25),
-    [cachedSearchOptions, searchResults, trimmedSearch],
+    () => rankSearchOptions(searchResults ?? [], trimmedSearch).slice(0, 25),
+    [searchResults, trimmedSearch],
   );
   // Resolve chip labels from options we already have in memory before falling back to per-id fetches:
   // caller-provided seeds (parent entity payload), the warm "all" list, then the current search results.
@@ -508,6 +491,8 @@ export function EntityReferenceMultiSelector({
       onChange([...values, result.id]);
       setSearchText("");
       queryClient.invalidateQueries({ queryKey: [labels.plural] });
+      // Searches made before the create would offer it as new again.
+      queryClient.invalidateQueries({ queryKey: ["entity-reference-selector", entityType] });
     },
   });
 

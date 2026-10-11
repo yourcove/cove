@@ -42,6 +42,15 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
+// The tag search asks the server; this one finds the tags a test seeded under ["tags", "all"] by name.
+function searchTagsInCache(client: QueryClient) {
+  tagsFind.mockImplementation(async (filter: { q?: string }) => ({
+    items: (client.getQueryData<{ id: number; name: string }[]>(["tags", "all"]) ?? []).filter((tag) =>
+      tag.name.toLowerCase().includes((filter.q ?? "").toLowerCase()),
+    ),
+  }));
+}
+
 function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   setup?.(client);
@@ -2448,19 +2457,20 @@ describe("FilterDialog", () => {
     );
   });
 
-  it("does not apply a tag duration filter until a threshold is entered", () => {
+  it("does not apply a tag duration filter until a threshold is entered", async () => {
     const onApply = vi.fn();
 
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
       (client) => {
+        searchTagsInCache(client);
         client.setQueryData(["tags", "all"], [{ id: 1, name: "Action", tagGroupName: "Acts" }]);
       },
     );
 
     fireEvent.click(screen.getByText("Tag Duration"));
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("option", { name: "Action" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Action" }));
 
     expect(screen.queryByRole("button", { name: "Remove Tag Duration filter chip" })).not.toBeInTheDocument();
 
@@ -2469,12 +2479,13 @@ describe("FilterDialog", () => {
     expect(onApply).toHaveBeenCalledWith({});
   });
 
-  it("uses time and percent controls for tag duration filters without context mode choices", () => {
+  it("uses time and percent controls for tag duration filters without context mode choices", async () => {
     const onApply = vi.fn();
 
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
       (client) => {
+        searchTagsInCache(client);
         client.setQueryData(["tags", "all"], [{ id: 1, name: "Action", tagGroupName: "Acts" }]);
       },
     );
@@ -2483,7 +2494,7 @@ describe("FilterDialog", () => {
     expect(screen.queryByRole("option", { name: "Any" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("option", { name: "Action" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Action" }));
     fireEvent.change(screen.getByLabelText("Tag duration time"), { target: { value: "1:30" } });
     fireEvent.blur(screen.getByLabelText("Tag duration time"));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -2539,12 +2550,13 @@ describe("FilterDialog", () => {
     );
   });
 
-  it("allows multiple tag duration clauses in one filter", () => {
+  it("allows multiple tag duration clauses in one filter", async () => {
     const onApply = vi.fn();
 
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
       (client) => {
+        searchTagsInCache(client);
         client.setQueryData(
           ["tags", "all"],
           [
@@ -2557,14 +2569,14 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByText("Tag Duration"));
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("option", { name: "Action" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Action" }));
     fireEvent.change(screen.getByLabelText("Tag duration time"), { target: { value: "0:30" } });
     fireEvent.blur(screen.getByLabelText("Tag duration time"));
     fireEvent.click(screen.getByRole("button", { name: "Add tag duration" }));
 
     const searchInputs = screen.getAllByPlaceholderText("Search tags");
     fireEvent.change(searchInputs[1], { target: { value: "Mood" } });
-    fireEvent.click(screen.getByRole("option", { name: "Mood" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Mood" }));
     fireEvent.change(screen.getAllByLabelText("Tag duration unit")[1], { target: { value: "percent" } });
     fireEvent.change(screen.getByLabelText("Tag duration percent"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));

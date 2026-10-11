@@ -557,3 +557,67 @@ describe("EntityReferenceSelector", () => {
     expect(screen.queryByRole("option", { name: "Create “Restricted”" })).not.toBeInTheDocument();
   });
 });
+
+// The video list's filter chips keep the first 5,000 tags by name under ["tags", "all"]; a library with more
+// tags than that must still be searched on the server.
+describe("searching with a partial list of every tag in the cache", () => {
+  const partialList = [{ id: 1, name: "Group Makeup Specific: Solo" }];
+  const serverResults = { items: [{ id: 2, name: "Solo" }, { id: 3, name: "Solo Female" }, ...partialList] };
+
+  function renderWithCachedList(selector: React.ReactElement) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["tags", "all"], partialList);
+    render(<QueryClientProvider client={queryClient}>{selector}</QueryClientProvider>);
+  }
+
+  it("finds a tag the cached list does not hold in the multi selector", async () => {
+    mocks.tagsFind.mockResolvedValue(serverResults);
+    const onChange = vi.fn();
+    renderWithCachedList(<EntityReferenceMultiSelector entityType="tag" values={[]} onChange={onChange} />);
+
+    await userEvent.type(screen.getByPlaceholderText("Search tags..."), "Solo");
+
+    await userEvent.click(await screen.findByRole("option", { name: "Solo Female" }));
+    expect(mocks.tagsFind).toHaveBeenCalledWith(expect.objectContaining({ q: "Solo" }), expect.anything());
+    expect(onChange).toHaveBeenCalledWith([3]);
+  });
+
+  it("finds a tag the cached list does not hold in the single selector", async () => {
+    mocks.tagsFind.mockResolvedValue(serverResults);
+    const onChange = vi.fn();
+    renderWithCachedList(<EntityReferenceSelector entityType="tag" onChange={onChange} />);
+
+    await userEvent.type(screen.getByPlaceholderText("Search tags..."), "Solo");
+
+    expect(await screen.findByRole("option", { name: "Solo" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Create/ })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("option", { name: "Solo" }));
+    expect(onChange).toHaveBeenCalledWith(2, expect.objectContaining({ label: "Solo" }));
+  });
+});
+
+describe("searching again after creating", () => {
+  it("offers the created tag rather than creating it again", async () => {
+    mocks.tagsFind.mockResolvedValue({ items: [] });
+    // From the create on, the server finds the new tag.
+    mocks.tagsCreate.mockImplementation(async () => {
+      mocks.tagsFind.mockResolvedValue({ items: [{ id: 9, name: "Fresh Tag" }] });
+      return { id: 9, name: "Fresh Tag" };
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    const input = screen.getByPlaceholderText("Search tags...");
+    await userEvent.type(input, "Fresh Tag");
+    await userEvent.click(await screen.findByRole("option", { name: /Create/ }));
+    await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledOnce());
+
+    await userEvent.type(input, "Fresh Tag");
+
+    expect(await screen.findByRole("option", { name: "Fresh Tag" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Create/ })).not.toBeInTheDocument();
+  });
+});
