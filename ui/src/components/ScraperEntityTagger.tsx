@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { scrapeAttempts, system } from "../api/client";
 import type {
@@ -15,10 +15,11 @@ import {
   buildMatchInfo,
   buildRelationActionMap,
   buildRelationSelectionPayload,
-  relationKey,
   ScrapeRelationChoices,
+  useRelationActions,
   type ScrapeRelationActionMap,
 } from "./ScrapeRelationChoices";
+import { WaitingNote } from "./MetadataDiff";
 import {
   DEFAULT_COLLECTION_MODES,
   listsEqual,
@@ -34,9 +35,14 @@ import {
   CompactListValue,
   CompactScalarDecision,
   DEFAULT_TAGGER_DENYLIST,
+  LookupAnnouncementRegion,
+  LookupFailureLine,
   TaggerSettingsPanel,
   TaggerToolbar,
   cleanTaggerQueryString,
+  lookupWaitingNote,
+  useScrapeRelationLookup,
+  type RelationLookupState,
 } from "./TaggerShared";
 import { AlertCircle, Check, FileQuestion, Loader2, Search } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
@@ -423,6 +429,8 @@ function buildDefaultApplyPlan(
   };
 }
 
+const relationLookupQueryKey = (names: ResolveScrapeRelationsRequest) => ["scraper-tagger-resolve-relations", names];
+
 function buildApplyRequest(
   result: ScraperResultMatch,
   replaceFields: string[],
@@ -569,6 +577,7 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({
 
   return (
     <div className="space-y-0">
+      <LookupAnnouncementRegion queryKey="scraper-tagger-resolve-relations" itemsLabel="items" />
       <TaggerToolbar
         sources={scrapers.map((scraper) => ({ value: scraper.id, label: scraper.name }))}
         selectedSource={selectedScraper?.id ?? ""}
@@ -690,12 +699,11 @@ function ScraperEntityTaggerRow({
     () => ({ tags: applyPlan.scrapedData?.tags ?? [], performers: applyPlan.scrapedData?.performers ?? [] }),
     [applyPlan.scrapedData?.tags, applyPlan.scrapedData?.performers],
   );
-  const { data: resolvedRelations } = useQuery({
-    queryKey: ["scraper-tagger-resolve-relations", scrapedRelationNames],
-    queryFn: () => resolveRelations(scrapedRelationNames),
-    enabled: scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0,
-    staleTime: 30_000,
-  });
+  const {
+    data: resolvedRelations,
+    state: relationLookup,
+    retrying: lookupRetrying,
+  } = useScrapeRelationLookup(relationLookupQueryKey(scrapedRelationNames), scrapedRelationNames, resolveRelations);
   const existingTagNames = useMemo(
     () => (resolvedRelations?.tags ?? []).map((match) => match.input),
     [resolvedRelations],
@@ -710,53 +718,50 @@ function ScraperEntityTaggerRow({
   const [collectionModes, setCollectionModes] = useState<Record<string, CollectionMode>>({
     ...DEFAULT_COLLECTION_MODES,
   });
-  const [tagActions, setTagActions] = useState<ScrapeRelationActionMap>({});
-  const [performerActions, setPerformerActions] = useState<ScrapeRelationActionMap>({});
+  const queryClient = useQueryClient();
   const itemLinkProps = route ? createNestedRouteLinkProps<HTMLAnchorElement>(route) : undefined;
 
-  // Reset the apply choices whenever the plan or its inputs change (starting with the first render).
-  const planSource = {
-    applyPlan,
-    existingPerformerNames,
-    existingTagNames,
-    createMissingPerformers: preferences.createMissingPerformers,
-    createMissingTags: preferences.createMissingTags,
-    selectedResult,
-  };
+  // Start the field and list choices over from the plan whenever another result is chosen (starting with the
+  // first render). An item changed elsewhere meanwhile keeps them. The tag and performer
+  // choices follow the library lookup instead, keeping those made by hand.
+  const planSource = { itemId: item.id, selectedResult };
   const [appliedPlanSource, setAppliedPlanSource] = useState<typeof planSource | null>(null);
   if (
     appliedPlanSource === null ||
-    (Object.keys(planSource) as Array<keyof typeof planSource>).some(
-      (key) => appliedPlanSource[key] !== planSource[key],
-    )
+    appliedPlanSource.itemId !== item.id ||
+    appliedPlanSource.selectedResult !== selectedResult
   ) {
     setAppliedPlanSource(planSource);
     if (!selectedResult || !applyPlan.scrapedData) {
       setReplaceFields([]);
       setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
-      setTagActions({});
-      setPerformerActions({});
     } else {
       setReplaceFields([...applyPlan.replaceFields]);
       setCollectionModes({ ...applyPlan.collectionModes });
-      setTagActions(
-        buildRelationActionMap(
-          applyPlan.scrapedData.tags,
-          applyPlan.currentData.tags,
-          existingTagNames,
-          preferences.createMissingTags,
-        ),
-      );
-      setPerformerActions(
-        buildRelationActionMap(
-          applyPlan.scrapedData.performers,
-          applyPlan.currentData.performers,
-          existingPerformerNames,
-          preferences.createMissingPerformers,
-        ),
-      );
     }
   }
+  const tagDefaults = useMemo(
+    () =>
+      buildRelationActionMap(
+        applyPlan.scrapedData?.tags ?? [],
+        applyPlan.currentData.tags,
+        existingTagNames,
+        preferences.createMissingTags,
+      ),
+    [applyPlan, existingTagNames, preferences.createMissingTags],
+  );
+  const performerDefaults = useMemo(
+    () =>
+      buildRelationActionMap(
+        applyPlan.scrapedData?.performers ?? [],
+        applyPlan.currentData.performers,
+        existingPerformerNames,
+        preferences.createMissingPerformers,
+      ),
+    [applyPlan, existingPerformerNames, preferences.createMissingPerformers],
+  );
+  const [tagActions, chooseTagAction] = useRelationActions(tagDefaults, [item.id, selectedResult]);
+  const [performerActions, choosePerformerAction] = useRelationActions(performerDefaults, [item.id, selectedResult]);
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -769,6 +774,8 @@ function ScraperEntityTaggerRow({
     onSuccess: () => {
       onUpdateState({ saved: true });
       onApplied();
+      // The save may have created tags or performers, which the other rows' cached answers would still call new.
+      void queryClient.invalidateQueries({ queryKey: ["scraper-tagger-resolve-relations"] });
     },
   });
 
@@ -866,11 +873,17 @@ function ScraperEntityTaggerRow({
                   onCollectionModeChange={(field, mode) =>
                     setCollectionModes((current) => ({ ...current, [field]: mode }))
                   }
-                  onTagActionChange={(name, action) =>
-                    setTagActions((current) => ({ ...current, [relationKey(name)]: action }))
-                  }
-                  onPerformerActionChange={(name, action) =>
-                    setPerformerActions((current) => ({ ...current, [relationKey(name)]: action }))
+                  onTagActionChange={chooseTagAction}
+                  onPerformerActionChange={choosePerformerAction}
+                  relationLookup={relationLookup}
+                  lookupRetrying={lookupRetrying}
+                  // One failed request fails every row that shared it, so Retry asks again for all of them.
+                  onRetryLookup={() =>
+                    void queryClient.refetchQueries({
+                      queryKey: ["scraper-tagger-resolve-relations"],
+                      type: "active",
+                      predicate: (query) => query.state.status === "error",
+                    })
                   }
                   onClick={() => onUpdateState({ selectedIndex: index })}
                   onSave={index === (state.selectedIndex ?? 0) ? () => importMut.mutate() : undefined}
@@ -909,6 +922,9 @@ function ScraperResultRow({
   onCollectionModeChange,
   onTagActionChange,
   onPerformerActionChange,
+  relationLookup,
+  lookupRetrying,
+  onRetryLookup,
   onClick,
   onSave,
   saving,
@@ -930,11 +946,23 @@ function ScraperResultRow({
   onCollectionModeChange: (field: string, mode: CollectionMode) => void;
   onTagActionChange: (name: string, action: "include" | "create" | "exclude") => void;
   onPerformerActionChange: (name: string, action: "include" | "create" | "exclude") => void;
+  relationLookup: RelationLookupState;
+  lookupRetrying: boolean;
+  onRetryLookup: () => void;
   onClick: () => void;
   onSave?: () => void;
   saving?: boolean;
   saved?: boolean;
 }) {
+  // When the failure line goes while its Retry has focus, focus moves on to Save rather than dropping to the
+  // page with the button that had it.
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const focusSave = useRef(false);
+  useEffect(() => {
+    if (!focusSave.current) return;
+    focusSave.current = false;
+    saveButtonRef.current?.focus();
+  });
   const scalarRows = [
     {
       key: entityType === "group" ? "name" : "title",
@@ -975,6 +1003,7 @@ function ScraperResultRow({
       ? []
       : [{ key: "performers", label: "Performers", current: currentData.performers, scraped: result.performerNames }]),
   ].filter((row) => row.scraped.length > 0);
+  const lookupNote = lookupWaitingNote(relationLookup);
 
   return (
     <div
@@ -1015,16 +1044,34 @@ function ScraperResultRow({
               event.stopPropagation();
               onSave();
             }}
-            disabled={saving}
+            ref={saveButtonRef}
+            // Until the library answers, the review cannot tell which scraped names it has, and Save would
+            // leave out every one not already on the item.
+            disabled={saving || relationLookup !== "ready"}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            Save
+            {saving || relationLookup === "waiting" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}
+            {relationLookup === "waiting" ? "Checking library…" : "Save"}
           </button>
         )}
       </div>
       {isSelected && !saved && (
         <div className="border-t border-border px-3 py-2.5 space-y-2">
+          {onSave && (relationLookup === "failed" || lookupRetrying) ? (
+            <div onClick={(event) => event.stopPropagation()}>
+              <LookupFailureLine
+                retrying={lookupRetrying}
+                onRetry={onRetryLookup}
+                onFocusedRemoval={() => {
+                  focusSave.current = true;
+                }}
+              />
+            </div>
+          ) : null}
           {scalarRows.map((row) => (
             <CompactScalarDecision
               key={row.key}
@@ -1062,7 +1109,11 @@ function ScraperResultRow({
                 mode={collectionModes[row.key]}
                 onModeChange={(mode) => onCollectionModeChange(row.key, mode)}
                 scraped={
-                  isTags || isPerformers ? (
+                  (isTags || isPerformers) && lookupNote ? (
+                    <div aria-busy={!lookupNote.failed || undefined}>
+                      <WaitingNote note={lookupNote} />
+                    </div>
+                  ) : isTags || isPerformers ? (
                     <div onClick={(event) => event.stopPropagation()}>
                       <ScrapeRelationChoices
                         names={row.scraped}

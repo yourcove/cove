@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { hashKey, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   AlertCircle,
   Check,
@@ -13,6 +13,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
+import type { ResolveScrapeRelationsRequest, ResolveScrapeRelationsResult } from "../api/types";
 import type { CollectionMode } from "./videoScrapeUtils";
 
 // Reduce an endpoint to its registrable domain (last two labels, "www." dropped) so a remote id stored
@@ -712,6 +713,37 @@ export function useLookupAnsweredSinceSearch(
  * failed one is asked again by its Retry or the row's next search.
  */
 export const refetchAnsweredLookupOnFocus = (query: { state: { status: string } }) => query.state.status === "success";
+
+export type RelationLookupState = "ready" | "waiting" | "failed";
+
+/**
+ * A scrape review's library lookup of its scraped tag and performer names. Until it first answers for these
+ * names the review cannot tell which ones the library has, so its chips and Apply wait (`state`); a refetch
+ * keeps the answer it replaces and holds nothing up. A failed one being asked again reads as pending again,
+ * so a failure since its last answer is what says it is `retrying`; the review keeps its failure line, and
+ * Retry, until the answer.
+ */
+export function useScrapeRelationLookup(
+  queryKey: QueryKey,
+  names: ResolveScrapeRelationsRequest,
+  resolve: (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>,
+) {
+  const needed = names.tags.length > 0 || names.performers.length > 0;
+  const { data, isError, isFetching, errorUpdatedAt, dataUpdatedAt, refetch } = useQuery({
+    queryKey,
+    queryFn: () => resolve(names),
+    enabled: needed,
+    staleTime: 30_000,
+    // Offline, a paused lookup would read as still checking with nothing to do about it; failing shows
+    // the Retry, and the lookup asks again by itself once the browser is back online.
+    networkMode: "always",
+    refetchOnWindowFocus: refetchAnsweredLookupOnFocus,
+  });
+  const state: RelationLookupState =
+    !needed || data !== undefined ? "ready" : isError && !isFetching ? "failed" : "waiting";
+  const retrying = needed && data === undefined && isFetching && errorUpdatedAt > dataUpdatedAt;
+  return { data, state, retrying, refetch };
+}
 
 /** The note a row waiting on its library lookup shows in place of the rows it holds. */
 export const lookupWaitingNote = (lookup: "ready" | "waiting" | "failed") =>

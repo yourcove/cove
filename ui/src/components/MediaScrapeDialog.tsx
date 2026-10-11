@@ -1,18 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2, Search, Sparkles, X } from "lucide-react";
 import { scrapeAttempts, system } from "../api/client";
-import type { ScrapeAttempt, ScraperSummary } from "../api/types";
+import type { ResolveScrapeRelationsRequest, ScrapeAttempt, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { formatDateTime } from "../utils/dateFormat";
 import {
   buildMatchInfo,
   buildRelationActionMap,
   buildRelationSelectionPayload,
-  relationKey,
   ScrapeRelationChoices,
-  type ScrapeRelationActionMap,
+  useRelationActions,
 } from "./ScrapeRelationChoices";
+import { WaitingNote } from "./MetadataDiff";
+import { LookupFailureLine, lookupWaitingNote, useScrapeRelationLookup } from "./TaggerShared";
 import type { CollectionMode, InputKind, ScrapeApplyPreferences } from "./videoScrapeUtils";
 import {
   DEFAULT_COLLECTION_MODES,
@@ -221,6 +222,8 @@ function normalizeSnapshot(
   };
 }
 
+const relationLookupQueryKey = (names: ResolveScrapeRelationsRequest) => ["scrape-dialog-resolve-relations", names];
+
 function buildDefaultApplyPlan(
   entity: MediaScrapeEntity,
   entityType: MediaEntityType,
@@ -360,9 +363,16 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   const [collectionModes, setCollectionModes] = useState<Record<string, CollectionMode>>({
     ...DEFAULT_COLLECTION_MODES,
   });
-  const [tagActions, setTagActions] = useState<ScrapeRelationActionMap>({});
-  const [performerActions, setPerformerActions] = useState<ScrapeRelationActionMap>({});
   const [error, setError] = useState<string | null>(null);
+  // When the failure line goes while its Retry has focus, focus moves on to Apply rather than dropping to the
+  // page with the button that had it.
+  const applyButtonRef = useRef<HTMLButtonElement>(null);
+  const focusApply = useRef(false);
+  useEffect(() => {
+    if (!focusApply.current) return;
+    focusApply.current = false;
+    applyButtonRef.current?.focus();
+  });
 
   const { data: scrapers = [] } = useQuery({
     queryKey: ["scrapers"],
@@ -417,12 +427,16 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     () => ({ tags: scrapedData?.tags ?? [], performers: scrapedData?.performers ?? [] }),
     [scrapedData?.tags, scrapedData?.performers],
   );
-  const { data: resolvedRelations } = useQuery({
-    queryKey: ["scrape-dialog-resolve-relations", scrapedRelationNames],
-    queryFn: () => scrapeAttempts.resolveRelations(scrapedRelationNames),
-    enabled: open && (scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0),
-    staleTime: 30_000,
-  });
+  const {
+    data: resolvedRelations,
+    state: relationLookup,
+    retrying: lookupRetrying,
+    refetch: retryLookup,
+  } = useScrapeRelationLookup(
+    relationLookupQueryKey(scrapedRelationNames),
+    scrapedRelationNames,
+    scrapeAttempts.resolveRelations,
+  );
   const existingTagNames = useMemo(
     () => (resolvedRelations?.tags ?? []).map((match) => match.input),
     [resolvedRelations],
@@ -438,29 +452,31 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     () => JSON.stringify(applyPlan.collectionModes),
     [applyPlan.collectionModes],
   );
-  const relationDefaultsKey = useMemo(
+  const tagDefaults = useMemo(
     () =>
-      JSON.stringify({
-        tags: scrapedData?.tags ?? [],
-        performers: scrapedData?.performers ?? [],
-        currentTags: currentData.tags,
-        currentPerformers: currentData.performers,
-        existingTags: existingTagNames,
-        existingPerformers: existingPerformerNames,
-        createMissingTags: preferences.createMissingTags,
-        createMissingPerformers: preferences.createMissingPerformers,
-      }),
-    [
-      currentData.performers,
-      currentData.tags,
-      existingPerformerNames,
-      existingTagNames,
-      preferences.createMissingPerformers,
-      preferences.createMissingTags,
-      scrapedData?.performers,
-      scrapedData?.tags,
-    ],
+      buildRelationActionMap(
+        scrapedData?.tags ?? [],
+        currentData.tags,
+        existingTagNames,
+        preferences.createMissingTags,
+      ),
+    [currentData.tags, existingTagNames, preferences.createMissingTags, scrapedData?.tags],
   );
+  const performerDefaults = useMemo(
+    () =>
+      buildRelationActionMap(
+        scrapedData?.performers ?? [],
+        currentData.performers,
+        existingPerformerNames,
+        preferences.createMissingPerformers,
+      ),
+    [currentData.performers, existingPerformerNames, preferences.createMissingPerformers, scrapedData?.performers],
+  );
+  // Each scraped tag and performer defaults to link, create or skip from the library lookup, which keeps the
+  // choices made by hand as it answers or changes. They start over when the dialog opens or another result is chosen.
+  const relationResetKeys = [open, entity.id, selectedAttempt?.id, selectedCandidate] as const;
+  const [tagActions, chooseTagAction] = useRelationActions(tagDefaults, relationResetKeys);
+  const [performerActions, choosePerformerAction] = useRelationActions(performerDefaults, relationResetKeys);
 
   // Reload the saved apply preferences each time the dialog opens.
   const [prevOpen, setPrevOpen] = useState(open);
@@ -475,15 +491,18 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     saveScrapeApplyPreferences(preferences);
   }, [preferences]);
 
-  // Reset the form whenever the dialog opens or the entity or its initial source URL changes while open.
-  const [resetKey, setResetKey] = useState({ open: false, entity, entityType, initialSourceUrl });
+  // Reset the form whenever the dialog opens or another entity or initial source URL is shown while open. The
+  // pages build the entity afresh on each render, so it is told apart by its id, not by the object: a page
+  // re-rendering (a refetch when the window is focused again, say) keeps the choices made.
+  const entityId = entity.id;
+  const [resetKey, setResetKey] = useState({ open: false, entityId, entityType, initialSourceUrl });
   if (
     resetKey.open !== open ||
-    resetKey.entity !== entity ||
+    resetKey.entityId !== entityId ||
     resetKey.entityType !== entityType ||
     resetKey.initialSourceUrl !== initialSourceUrl
   ) {
-    setResetKey({ open, entity, entityType, initialSourceUrl });
+    setResetKey({ open, entityId, entityType, initialSourceUrl });
     if (open) {
       setSelectedSourceUrl(initialSourceUrl);
       setUrl(initialSourceUrl);
@@ -493,8 +512,6 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
       setSelectedCandidateIndex(0);
       setReplaceFields([]);
       setCollectionModes({ ...DEFAULT_COLLECTION_MODES });
-      setTagActions({});
-      setPerformerActions({});
       setError(null);
     }
   }
@@ -538,11 +555,12 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     }
   }
 
-  // Suggest which fields to replace and how to merge collections whenever the scraped data changes.
+  // Suggest which fields to replace and how to merge collections whenever another result is chosen or the
+  // suggestion itself changes; the scraped data is rebuilt with the entity object on every page render.
   const applyPlanKey = {
     entityId: entity.id,
     attemptId: selectedAttempt?.id,
-    scrapedData,
+    selectedCandidate,
     suggestedCollectionModesKey,
     suggestedReplaceKey,
   };
@@ -551,7 +569,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     !prevApplyPlanKey ||
     prevApplyPlanKey.entityId !== applyPlanKey.entityId ||
     prevApplyPlanKey.attemptId !== applyPlanKey.attemptId ||
-    prevApplyPlanKey.scrapedData !== applyPlanKey.scrapedData ||
+    prevApplyPlanKey.selectedCandidate !== applyPlanKey.selectedCandidate ||
     prevApplyPlanKey.suggestedCollectionModesKey !== applyPlanKey.suggestedCollectionModesKey ||
     prevApplyPlanKey.suggestedReplaceKey !== applyPlanKey.suggestedReplaceKey
   ) {
@@ -562,40 +580,6 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     } else {
       setReplaceFields([...applyPlan.replaceFields]);
       setCollectionModes({ ...applyPlan.collectionModes });
-    }
-  }
-
-  // Default each scraped tag and performer to link, create or skip whenever the scraped data or matches change.
-  const relationActionsKey = {
-    entityId: entity.id,
-    attemptId: selectedAttempt?.id,
-    scrapedData,
-    relationDefaultsKey,
-  };
-  const [prevRelationActionsKey, setPrevRelationActionsKey] = useState<typeof relationActionsKey | null>(null);
-  if (
-    !prevRelationActionsKey ||
-    prevRelationActionsKey.entityId !== relationActionsKey.entityId ||
-    prevRelationActionsKey.attemptId !== relationActionsKey.attemptId ||
-    prevRelationActionsKey.scrapedData !== relationActionsKey.scrapedData ||
-    prevRelationActionsKey.relationDefaultsKey !== relationActionsKey.relationDefaultsKey
-  ) {
-    setPrevRelationActionsKey(relationActionsKey);
-    if (!scrapedData) {
-      setTagActions({});
-      setPerformerActions({});
-    } else {
-      setTagActions(
-        buildRelationActionMap(scrapedData.tags, currentData.tags, existingTagNames, preferences.createMissingTags),
-      );
-      setPerformerActions(
-        buildRelationActionMap(
-          scrapedData.performers,
-          currentData.performers,
-          existingPerformerNames,
-          preferences.createMissingPerformers,
-        ),
-      );
     }
   }
 
@@ -673,6 +657,9 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
         queryClient.invalidateQueries({ queryKey: [ENTITY_LIST_KEYS[entityType]] }),
         queryClient.invalidateQueries({ queryKey: ["scrape-attempts", entityType, entity.id] }),
       ]);
+      // The apply may have created tags or performers, which the cached answers would still call new. Not
+      // waited for: the dialog closes without asking the library again.
+      void queryClient.invalidateQueries({ queryKey: ["scrape-dialog-resolve-relations"] });
       onClose();
     },
     onError: (mutationError: Error) => {
@@ -686,6 +673,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
 
   const canRun = Boolean(selectedScraper) && supportsScrapeKind(selectedScraper, inputKind);
   const canApply = Boolean(selectedAttempt && scrapedData && selectedAttempt.status.toLowerCase() !== "failure");
+  const lookupNote = lookupWaitingNote(relationLookup);
   const entityLabel = getEntityLabel(entityType, entity);
   const collectionChangeCount = Object.values(collectionModes).filter((mode) => mode !== "skip").length;
   const rawPayload = selectedCandidate?.raw
@@ -1089,7 +1077,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                       const isTags = row.key === "tags";
                       const isPerformers = row.key === "performers";
                       const relationActions = isTags ? tagActions : performerActions;
-                      const setRelationActions = isTags ? setTagActions : setPerformerActions;
+                      const chooseRelationAction = isTags ? chooseTagAction : choosePerformerAction;
                       const existingNames = isTags ? existingTagNames : existingPerformerNames;
                       const matchInfo = isTags ? tagMatchInfo : performerMatchInfo;
                       const showRelationChoices = isTags || isPerformers;
@@ -1137,7 +1125,11 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                               <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
                                 Scraped
                               </div>
-                              {showRelationChoices ? (
+                              {showRelationChoices && lookupNote ? (
+                                <div className="mt-2" aria-busy={!lookupNote.failed || undefined}>
+                                  <WaitingNote note={lookupNote} />
+                                </div>
+                              ) : showRelationChoices ? (
                                 <ScrapeRelationChoices
                                   names={row.scraped}
                                   currentNames={row.current}
@@ -1145,9 +1137,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                                   matchInfo={matchInfo}
                                   actions={relationActions}
                                   disabled={collectionModes[row.key] === "skip"}
-                                  onActionChange={(name, action) =>
-                                    setRelationActions((current) => ({ ...current, [relationKey(name)]: action }))
-                                  }
+                                  onActionChange={chooseRelationAction}
                                 />
                               ) : (
                                 <div className="mt-2 text-sm text-foreground">{row.scraped.join(", ")}</div>
@@ -1232,7 +1222,24 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                   </pre>
                 </details>
 
-                <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
+                {/* The failure line is not a live region, so the dialog says once that its check failed. */}
+                <div role="status" className="sr-only">
+                  {canApply && relationLookup === "failed"
+                    ? "Couldn't check which of these are in your library. Retry is beside Apply."
+                    : null}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-2">
+                  {canApply && (relationLookup === "failed" || lookupRetrying) ? (
+                    <div className="mr-auto">
+                      <LookupFailureLine
+                        retrying={lookupRetrying}
+                        onRetry={() => void retryLookup()}
+                        onFocusedRemoval={() => {
+                          focusApply.current = true;
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   <button
                     onClick={onClose}
                     className="rounded-xl px-4 py-2 text-sm text-secondary hover:text-foreground"
@@ -1241,15 +1248,20 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                   </button>
                   <button
                     onClick={() => applyMutation.mutate()}
-                    disabled={!canApply || applyMutation.isPending || runMutation.isPending}
+                    ref={applyButtonRef}
+                    // Until the library answers, the review cannot tell which scraped names it has, and Apply
+                    // would leave out every one not already on the item.
+                    disabled={
+                      !canApply || relationLookup !== "ready" || applyMutation.isPending || runMutation.isPending
+                    }
                     className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                   >
-                    {applyMutation.isPending ? (
+                    {applyMutation.isPending || (canApply && relationLookup === "waiting") ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <ExternalLink className="h-4 w-4" />
                     )}
-                    Apply Selected Fields
+                    {canApply && relationLookup === "waiting" ? "Checking library…" : "Apply Selected Fields"}
                   </button>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState } from "react";
 import { Check, Minus, Plus } from "lucide-react";
 import type { ScrapeCollectionItemAction, ScrapeCollectionItemSelection } from "../api/types";
 
@@ -166,3 +167,32 @@ function getRelationChipClass(action: ScrapeCollectionItemAction, existsLocally:
 
   return "border-green-600/20 bg-green-600/10 text-green-300 hover:border-green-500/40";
 }
+
+/**
+ * Each scraped name's choice: what it defaults to from the library lookup and the Create missing setting,
+ * with the choices made by hand on top. The defaults follow the lookup, so its answer arriving or changing
+ * never undoes a choice; the hand choices start over when any of `resetKeys` changes (another result, say).
+ */
+export function useRelationActions(defaults: ScrapeRelationActionMap, resetKeys: readonly unknown[]) {
+  const [chosen, setChosen] = useState<{ keys: readonly unknown[]; actions: ScrapeRelationActionMap }>({
+    keys: resetKeys,
+    actions: {},
+  });
+  const reset =
+    chosen.keys.length !== resetKeys.length || chosen.keys.some((key, index) => !Object.is(key, resetKeys[index]));
+  if (reset) setChosen({ keys: resetKeys, actions: {} });
+  const handChosen = reset ? NO_ACTIONS : chosen.actions;
+  const actions = useMemo(() => {
+    const merged: ScrapeRelationActionMap = { ...defaults };
+    for (const key of Object.keys(defaults)) {
+      if (Object.hasOwn(handChosen, key)) merged[key] = handChosen[key];
+    }
+    return merged;
+  }, [defaults, handChosen]);
+  const choose = useCallback((name: string, action: ScrapeCollectionItemAction) => {
+    setChosen((current) => ({ ...current, actions: { ...current.actions, [relationKey(name)]: action } }));
+  }, []);
+  return [actions, choose] as const;
+}
+
+const NO_ACTIONS: ScrapeRelationActionMap = {};
