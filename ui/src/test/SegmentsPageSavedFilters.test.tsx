@@ -8,7 +8,10 @@ const useRawSegmentsQueryMock = vi.hoisted(() =>
   vi.fn(() => ({ data: { items: [], totalCount: 0, duration: 3600 }, isLoading: false })),
 );
 const useDerivedSpansQueryMock = vi.hoisted(() =>
-  vi.fn(() => ({ data: { items: [], totalCount: 0 }, isLoading: false })),
+  vi.fn(() => ({ data: { items: [], totalCount: 0 }, isLoading: false, isSuccess: false })),
+);
+const useDerivedSpansCountQueryMock = vi.hoisted(() =>
+  vi.fn(() => ({ data: { totalCount: 0, duration: 0 }, isLoading: false })),
 );
 
 vi.mock("../api/client", () => ({
@@ -64,7 +67,7 @@ vi.mock("../hooks/usePaginatedInfiniteQuery", () => ({
 }));
 vi.mock("../pages/segments/useDerivedSpansQuery", () => ({
   useDerivedSpansQuery: useDerivedSpansQueryMock,
-  useDerivedSpansCountQuery: () => ({ data: { totalCount: 0, duration: 0 }, isLoading: false }),
+  useDerivedSpansCountQuery: useDerivedSpansCountQueryMock,
 }));
 vi.mock("../pages/segments/useRawSegmentsQuery", () => ({
   useRawSegmentsQuery: useRawSegmentsQueryMock,
@@ -77,6 +80,12 @@ describe("SegmentsPage saved-filter modes", () => {
   beforeEach(() => {
     useRawSegmentsQueryMock.mockClear();
     useDerivedSpansQueryMock.mockClear();
+    useDerivedSpansCountQueryMock.mockClear();
+    useDerivedSpansQueryMock.mockReturnValue({
+      data: { items: [], totalCount: 0 },
+      isLoading: false,
+      isSuccess: false,
+    });
     localStorage.clear();
     window.history.replaceState({}, "", "/segments");
   });
@@ -99,6 +108,29 @@ describe("SegmentsPage saved-filter modes", () => {
           seed: 2468,
         }),
       ),
+    );
+  });
+
+  it("starts the exact span count only after the page finishes", async () => {
+    window.history.replaceState({}, "", "/segments?profile=11&q=face");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <SegmentsPage onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(useDerivedSpansCountQueryMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false })),
+    );
+    useDerivedSpansQueryMock.mockReturnValue({ data: { items: [], totalCount: 0 }, isLoading: false, isSuccess: true });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SegmentsPage onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(useDerivedSpansCountQueryMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true })),
     );
   });
 

@@ -1,3 +1,4 @@
+using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -104,6 +105,77 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
     [Fact]
     [CoversEndpoint("POST", "/api/segments/spans/search")]
     [CoversEndpoint("POST", "/api/segments/spans/count")]
+    public async Task GivenSegmentTagFaceAndPerformerFilters_WhenSearchingSpans_ThenCandidateVideosKeepExactResults()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var profile = await AsUser(ApiTestUsers.Eva).CreateSegmentDisplayProfileAsync(
+            new SegmentDisplayProfileCreateDto($"Candidate profile {suffix}", null, false),
+            TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Candidate tag {suffix}", TestContext.Current.CancellationToken);
+        var otherTag = await owner.CreateTagAsync($"Other candidate tag {suffix}", TestContext.Current.CancellationToken);
+        var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Candidate performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var face = await owner.CreateFaceAsync(new FaceCreateDto($"Candidate face {suffix}", performer.Id, false, null), TestContext.Current.CancellationToken);
+        var faceVideo = await owner.CreateVideoAsync($"Face candidate {suffix}", TestContext.Current.CancellationToken);
+        var directVideo = await owner.CreateVideoAsync($"Direct candidate {suffix}", TestContext.Current.CancellationToken);
+        var performerVideo = await owner.CreateVideoAsync($"Video performer candidate {suffix}", TestContext.Current.CancellationToken);
+        var unrelatedVideo = await owner.CreateVideoAsync($"Unrelated candidate {suffix}", TestContext.Current.CancellationToken);
+        await owner.UpdateVideoAsync(performerVideo.Id, new { performerIds = new[] { performer.Id } }, TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(faceVideo,
+            Segment(1, 4, tag.Id, "chapter", "user", "Face") with { RefId = face.Id },
+            TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(directVideo,
+            Segment(5, 8, tag.Id, "performer", "candidate", "Direct") with
+                { RefId = performer.Id, SourceRunId = "RUN" },
+            TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(performerVideo,
+            Segment(8, 9, tag.Id, "chapter", "candidate", "Video performer only"),
+            TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(unrelatedVideo,
+            Segment(9, 12, otherTag.Id, "chapter", "candidate", "Other"),
+            TestContext.Current.CancellationToken);
+
+        var request = new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "updated_at", "desc",
+            null, null, null, null) with { TagIds = [tag.Id] };
+        var search = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var count = await AsUser(ApiTestUsers.Eva).CountResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        search.Items.Select(item => item.VideoId).Should().BeEquivalentTo([faceVideo.Id, directVideo.Id, performerVideo.Id]);
+        search.TotalCount.Should().Be(3);
+        count.TotalCount.Should().Be(3);
+
+        var performerRequest = request with { PerformerIds = [performer.Id] };
+        var performerSearch = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(
+            performerRequest, TestContext.Current.CancellationToken);
+        var performerCount = await AsUser(ApiTestUsers.Eva).CountResolvedSpansAsync(
+            performerRequest, TestContext.Current.CancellationToken);
+        performerSearch.Items.Should().ContainSingle().Which.VideoId.Should().Be(performerVideo.Id);
+        performerCount.TotalCount.Should().Be(1);
+
+        var faceSearch = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(
+            request with { RefIds = [face.Id], Kind = "chapter" }, TestContext.Current.CancellationToken);
+        faceSearch.Items.Should().ContainSingle().Which.VideoId.Should().Be(faceVideo.Id);
+
+        var directSearch = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(
+            request with { Kind = "PERFORMER", SourceKey = "CANDIDATE", SourceRunId = "run",
+                SourceRunIdModifier = "EQUALS" }, TestContext.Current.CancellationToken);
+        directSearch.Items.Should().ContainSingle().Which.VideoId.Should().Be(directVideo.Id);
+
+        var userSearch = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(
+            request with { SourceCategory = "user" }, TestContext.Current.CancellationToken);
+        userSearch.Items.Should().ContainSingle().Which.VideoId.Should().Be(faceVideo.Id);
+
+        // Derived spans use the operator as their kind and "derived" as their source. Neither value needs to exist
+        // on a raw segment, so the raw kind/source candidate filters must not exclude them.
+        var derivedSearch = await AsUser(ApiTestUsers.Eva).SearchResolvedSpansAsync(
+            request with { DerivedQuery = new SegmentSpanDerivedQueryDto("union",
+                [new SegmentSpanOperandDto("user", "chapter", [tag.Id], null)], 0, 0),
+                Kind = "union", SourceKey = "derived" }, TestContext.Current.CancellationToken);
+        derivedSearch.Items.Should().ContainSingle().Which.VideoId.Should().Be(faceVideo.Id);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/segments/spans/search")]
+    [CoversEndpoint("POST", "/api/segments/spans/count")]
     public async Task GivenScopedResolvedSpans_WhenMemberSearchesAndCounts_ThenExactSetAndDurationAreReturned()
     {
         var eva = AsUser(ApiTestUsers.Eva);
@@ -128,6 +200,108 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         search.Items.Select(item => item.VideoId).Should().Equal(firstVideo.Id, secondVideo.Id);
         search.Items.Select(item => (item.Span.StartSec, item.Span.EndSec)).Should().Equal((1, 4), (10, 16));
         count.Should().Be(new SegmentSpanCountResponseDto(2, 9));
+
+        // A count must stay exact without row filters even when the list uses a segment-level sort.
+        // This exercises the bounded count path without loading segment-row details for sorting.
+        var unfilteredCount = await eva.CountResolvedSpansAsync(
+            request with { Kind = null, SourceKey = null, Sort = "segment_confidence" },
+            TestContext.Current.CancellationToken);
+        unfilteredCount.Should().Be(new SegmentSpanCountResponseDto(2, 9));
+
+        // The bounded search must agree with its full two-item ordering for every UI sort,
+        // including sorts whose keys come from raw segment rows.
+        var spanSorts = new[] { "updated_at", "created_at", "title", "random", "start_sec", "end_sec",
+            "span_duration", "kind", "source_key", "tag_name", "segment_count", "segment_confidence",
+            "segment_created_at", "segment_updated_at", "source_run_id", "performer", "ref", "host_title",
+            "host_type", "host_id" };
+        foreach (var spanSort in spanSorts)
+        foreach (var direction in new[] { "asc", "desc" })
+        {
+            var sortRequest = request with { Sort = spanSort, Direction = direction, Seed = 7 };
+            var full = await eva.SearchResolvedSpansAsync(sortRequest, TestContext.Current.CancellationToken);
+            var first = await eva.SearchResolvedSpansAsync(sortRequest with { PerPage = 1 }, TestContext.Current.CancellationToken);
+            var last = await eva.SearchResolvedSpansAsync(sortRequest with { PerPage = 1, Page = 2 }, TestContext.Current.CancellationToken);
+            first.Items.Should().ContainSingle().Which.VideoId.Should().Be(full.Items[0].VideoId);
+            last.Items.Should().ContainSingle().Which.VideoId.Should().Be(full.Items[1].VideoId);
+            first.TotalCount.Should().Be(2);
+            last.TotalCount.Should().Be(2);
+        }
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/segments/spans/search")]
+    [CoversEndpoint("POST", "/api/segments/spans/count")]
+    public async Task GivenCachedCount_WhenMemberOpensLastSpanPage_ThenThePageAndTotalAreExact()
+    {
+        var eva = AsUser(ApiTestUsers.Eva);
+        var suffix = Guid.NewGuid().ToString("N");
+        var profile = await eva.CreateSegmentDisplayProfileAsync(
+            new SegmentDisplayProfileCreateDto($"Paged span profile {suffix}", null, false),
+            TestContext.Current.CancellationToken);
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id,
+            new SegmentDisplayRuleCreateDto($"paged-{suffix}", "chapter", null, null,
+                SegmentHostType.Video, true, null, null, 0, false, null, 1, 100),
+            TestContext.Current.CancellationToken);
+
+        var videoIds = new List<int>();
+        for (var i = 0; i < 3; i++)
+        {
+            var video = await AsUser().CreateVideoAsync($"Paged span {suffix} {i}", TestContext.Current.CancellationToken);
+            videoIds.Add(video.Id);
+            await AsUser().CreateVideoSegmentAsync(video,
+                Segment(i, i + 2, null, "chapter", $"paged-{suffix}", $"Span {i}"),
+                TestContext.Current.CancellationToken);
+        }
+
+        var request = new SegmentSpanSearchRequestDto(profile.Id, null, 3, 1, "updated_at", "desc",
+            null, $"Paged span {suffix}", null, null);
+        var count = await eva.CountResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var lastPage = await eva.SearchResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var pastLastPage = await eva.SearchResolvedSpansAsync(request with { Page = 4 }, TestContext.Current.CancellationToken);
+
+        count.Should().Be(new SegmentSpanCountResponseDto(3, 6));
+        lastPage.TotalCount.Should().Be(3);
+        lastPage.Items.Should().ContainSingle();
+        videoIds.Should().Contain(lastPage.Items[0].VideoId);
+        lastPage.HasMore.Should().BeFalse();
+        pastLastPage.Items.Should().BeEmpty();
+        pastLastPage.TotalCount.Should().Be(3);
+        pastLastPage.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    [CoversEndpoint("GET", "/api/segments")]
+    public async Task GivenRawSegments_WhenSortingAndPaging_ThenEverySortReturnsTheSameLastPage()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var video = await owner.CreateVideoAsync($"Raw browse {suffix}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Raw browse tag {suffix}", TestContext.Current.CancellationToken);
+        var first = await owner.CreateVideoSegmentAsync(video, Segment(1, 2, tag.Id, "chapter", "user", $"Alpha {suffix}"), TestContext.Current.CancellationToken);
+        var second = await owner.CreateVideoSegmentAsync(video, Segment(4, 9, tag.Id, "chapter", "user", $"Beta {suffix}"), TestContext.Current.CancellationToken);
+        var third = await owner.CreateVideoSegmentAsync(video, Segment(12, 14, tag.Id, "chapter", "user", $"Gamma {suffix}"), TestContext.Current.CancellationToken);
+        var expectedIds = new HashSet<int> { first.Id, second.Id, third.Id };
+        var sorts = new[] { "confidence", "created_at", "duration", "end_sec", "ref", "kind", "title",
+            "performer", "random", "source_key", "start_sec", "tag_name", "updated_at", "video_title" };
+
+        foreach (var sort in sorts)
+        foreach (var direction in new[] { "asc", "desc" })
+        {
+            var scope = $"videoId={video.Id}&sort={sort}&direction={direction}&seed=7";
+            var all = await owner.BrowseRawSegmentsAsync($"{scope}&page=1&perPage=3", TestContext.Current.CancellationToken);
+            var firstPage = await owner.BrowseRawSegmentsAsync($"{scope}&page=1&perPage=1", TestContext.Current.CancellationToken);
+            var lastPage = await owner.BrowseRawSegmentsAsync($"{scope}&page=3&perPage=1", TestContext.Current.CancellationToken);
+            all.TotalCount.Should().Be(3);
+            all.Items.Select(item => item.Id).Should().BeEquivalentTo(expectedIds);
+            firstPage.Items.Should().ContainSingle().Which.Id.Should().Be(all.Items[0].Id);
+            lastPage.Items.Should().ContainSingle().Which.Id.Should().Be(all.Items[2].Id);
+        }
+
+        var searched = await owner.BrowseRawSegmentsAsync(
+            $"videoId={video.Id}&q={Uri.EscapeDataString(suffix)}&tagIds={tag.Id}&durationSec=2&durationModifier=GREATER_THAN&perPage=10",
+            TestContext.Current.CancellationToken);
+        searched.TotalCount.Should().Be(1);
+        searched.Items.Should().ContainSingle().Which.Id.Should().Be(second.Id);
     }
 
     private static SegmentCreateDto Segment(double start, double end, int? tagId, string kind, string sourceKey, string title)

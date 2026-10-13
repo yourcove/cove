@@ -4,6 +4,10 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<PaginatedResponse<SegmentRecordDto>> BrowseRawSegmentsAsync(string query, CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<SegmentRecordDto>>(HttpMethod.Get,
+            WithCacheNonce($"/api/segments?{query}"), null, cancellationToken);
+
     public Task<VideoResolvedSpansDto> GetVideoResolvedSpansAsync(VideoDto video, int profileId, CancellationToken cancellationToken = default)
         => SendAsync<VideoResolvedSpansDto>(HttpMethod.Get, WithCacheNonce($"/api/videos/{video.Id}/segments/spans?profile={profileId}"), null, cancellationToken);
 

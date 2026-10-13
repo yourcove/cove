@@ -639,27 +639,6 @@ export function SegmentsPage({ onNavigate }: Props) {
     enabled: derivedQueryEnabled && !infinitePageSize,
   });
 
-  // Exact span total (cached, async). Kept independent of page/sort/direction so it's fetched once per
-  // filter set and reused while paging — the search response itself only carries -1 on the fast path.
-  const spansCountQuery = useDerivedSpansCountQuery({
-    activeProfileId,
-    pageNumber,
-    perPage,
-    q,
-    videoTitle,
-    videoTagIds,
-    videoTagDepth,
-    sort,
-    direction,
-    seed,
-    includeVideoIds: videoSelection.includeIds,
-    excludeVideoIds: videoSelection.excludeIds,
-    appliedQuery,
-    derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
-    rawFilter: combinedRawSegmentFilter,
-    enabled: derivedQueryEnabled,
-  });
-
   const rawSegmentsQuery = useRawSegmentsQuery({
     pageNumber,
     perPage,
@@ -691,7 +670,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     excludeVideoIds: videoSelection.excludeIds,
     rawSegmentIds,
     rawFilter: combinedRawSegmentFilter,
-    enabled: rawQueryEnabled,
+    enabled: rawQueryEnabled && (infinitePageSize || rawSegmentsQuery.isSuccess),
     includeAggregate: true,
   });
 
@@ -716,6 +695,34 @@ export function SegmentsPage({ onNavigate }: Props) {
     queryFn: queryDerivedSpansPage,
     enabled: derivedQueryEnabled && infinitePageSize,
     chunkSize: defaultPerPage,
+  });
+
+  // Let the page finish before requesting the exact aggregate. Row-level filters already make the
+  // page resolve every candidate span and populate the server count cache; starting both requests
+  // together would resolve the same library twice. Unfiltered browse still shows its first page
+  // promptly, then computes the exact total in the background.
+  const spansCountQuery = useDerivedSpansCountQuery({
+    activeProfileId,
+    pageNumber,
+    perPage,
+    q,
+    videoTitle,
+    videoTagIds,
+    videoTagDepth,
+    sort,
+    direction,
+    seed,
+    includeVideoIds: videoSelection.includeIds,
+    excludeVideoIds: videoSelection.excludeIds,
+    appliedQuery,
+    derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
+    rawFilter: combinedRawSegmentFilter,
+    enabled:
+      derivedQueryEnabled &&
+      ["updated_at", "created_at", "title"].includes(sort) &&
+      (infinitePageSize
+        ? derivedInfiniteQuery.isSuccess && !derivedInfiniteQuery.isPlaceholderData
+        : segmentsWindowQuery.isSuccess),
   });
 
   const rawInfiniteQuery = usePaginatedInfiniteQuery<RawSegmentItem>({
@@ -784,6 +791,8 @@ export function SegmentsPage({ onNavigate }: Props) {
   const spansTotalCount =
     spansCountQuery.data?.totalCount ??
     (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
+  const spansTotalCountUnknown =
+    spansCountQuery.data == null && (infinitePageSize ? derivedInfiniteQuery.hasNextPage : spansPageTotal < 0);
   const totalCount = isRawView
     ? infinitePageSize
       ? rawInfiniteQuery.totalCount
@@ -985,6 +994,7 @@ export function SegmentsPage({ onNavigate }: Props) {
         filter={filter}
         onFilterChange={setFilter}
         totalCount={totalCount}
+        totalCountUnknown={!isRawView && spansTotalCountUnknown}
         isLoading={isLoading}
         error={firstQueryError}
         onRetry={retryFailedQueries}
@@ -1021,10 +1031,10 @@ export function SegmentsPage({ onNavigate }: Props) {
         metadataByline={
           <MediaAggregateMetadata
             duration={isRawView ? rawAggregateQuery.data?.duration : spansCountQuery.data?.duration}
-            loading={false}
+            loading={!isRawView && spansCountQuery.isLoading}
           />
         }
-        summaryLoading={isRawView ? rawAggregateQuery.isLoading : spansCountQuery.isLoading}
+        summaryLoading={isRawView ? rawAggregateQuery.isLoading : false}
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">
