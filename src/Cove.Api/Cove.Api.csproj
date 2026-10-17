@@ -79,9 +79,9 @@
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.2.0" />
     <PackageReference Include="VersOne.Epub" Version="3.3.6" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.0" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
