@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../App";
 import { useDocumentTitle } from "../components/extension-shared";
@@ -76,7 +76,8 @@ describe("extension page titles", () => {
     );
 
     expect(await screen.findByText("Studio page")).toBeInTheDocument();
-    expect(document.title).toBe("Studio | Cove");
+    // The title is set in an effect that can land a tick after the page content renders.
+    await waitFor(() => expect(document.title).toBe("Studio | Cove"));
 
     rerender(
       <ExtensionLoaderProvider importBundle={importBundle}>
@@ -84,6 +85,6 @@ describe("extension page titles", () => {
       </ExtensionLoaderProvider>,
     );
 
-    expect(document.title).toBe("Item 7 | Studio | Cove");
+    await waitFor(() => expect(document.title).toBe("Item 7 | Studio | Cove"));
   });
 });
