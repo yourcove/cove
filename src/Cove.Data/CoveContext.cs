@@ -286,6 +286,7 @@ public partial class CoveContext : DbContext
         var isNpgsql = Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true;
         ConfigureVectorStorage(modelBuilder, isNpgsql);
         NaturalSort.Configure(modelBuilder, isNpgsql);
+        WindowCount.Configure(modelBuilder);
 
         if (isNpgsql)
         {

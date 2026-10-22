@@ -1,3 +1,4 @@
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 
 namespace Cove.Data.Repositories;
@@ -18,16 +19,71 @@ public static class FilterExpressionQuery
     public static bool Contains<TFilter>(FilterExpression<TFilter>? expression, Func<TFilter, bool> predicate) where TFilter : class
         => expression?.Children?.Any(node => node != null && (node.Filter != null ? predicate(node.Filter) : Contains(node.Group, predicate))) == true;
 
+    /// <summary>Whether the expression holds an OR, NOT or just-one group anywhere, rather than only AND groups.</summary>
+    internal static bool HasSetOperation<TFilter>(FilterExpression<TFilter>? expression) where TFilter : class
+        => expression != null
+            && (expression.Operator != FilterExpressionOperator.And
+                || expression.Children.Any(node => node?.Group != null && HasSetOperation(node.Group)));
+
     public static async Task<IQueryable<TEntity>> ApplyAsync<TEntity, TFilter>(
         IQueryable<TEntity> input,
         FilterExpression<TFilter>? expression,
         Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
         Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope = null)
-        where TEntity : class
+        where TEntity : BaseEntity
         where TFilter : class
     {
         if (!TryValidate(expression, out var error)) throw new ArgumentException(error, nameof(expression));
         if (expression == null || expression.Children.Count == 0) return input;
+        return await ApplyGroupAsync(input, input, expression, applyLeaf, applyDistinctScope);
+    }
+
+    /// <summary>
+    /// Rows of <paramref name="input"/> that match at least one branch. Branches are compared by id, so the
+    /// database unions narrow id lists instead of whole rows; build each branch from the expression's root
+    /// rather than from <paramref name="input"/>, so it does not repeat every condition already applied.
+    /// </summary>
+    internal static IQueryable<TEntity> MatchingAny<TEntity>(IQueryable<TEntity> input, IEnumerable<IQueryable<TEntity>> branches)
+        where TEntity : BaseEntity
+    {
+        IQueryable<int>? ids = null;
+        foreach (var branch in branches)
+        {
+            var branchIds = branch.Select(entity => entity.Id);
+            ids = ids == null ? branchIds : ids.Union(branchIds);
+        }
+        return ids == null ? input : input.Where(entity => ids.Any(id => id == entity.Id));
+    }
+
+    /// <summary>Rows of <paramref name="input"/> that are not in <paramref name="excluded"/>, compared by id.</summary>
+    internal static IQueryable<TEntity> MatchingNone<TEntity>(IQueryable<TEntity> input, IQueryable<TEntity> excluded)
+        where TEntity : BaseEntity
+        => input.Where(entity => !excluded.Any(match => match.Id == entity.Id));
+
+    /// <summary>Rows of <paramref name="input"/> that match exactly one branch, compared by id.</summary>
+    internal static IQueryable<TEntity> MatchingExactlyOne<TEntity>(IQueryable<TEntity> input, IEnumerable<IQueryable<TEntity>> branches)
+        where TEntity : BaseEntity
+    {
+        IQueryable<int>? ids = null;
+        foreach (var branch in branches)
+        {
+            var branchIds = branch.Select(entity => entity.Id).Distinct();
+            ids = ids == null ? branchIds : ids.Concat(branchIds);
+        }
+        if (ids == null) return input;
+        var once = ids.GroupBy(id => id).Where(group => group.Count() == 1).Select(group => group.Key);
+        return input.Where(entity => once.Any(id => id == entity.Id));
+    }
+
+    private static async Task<IQueryable<TEntity>> ApplyGroupAsync<TEntity, TFilter>(
+        IQueryable<TEntity> root,
+        IQueryable<TEntity> input,
+        FilterExpression<TFilter> expression,
+        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
+        Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope)
+        where TEntity : BaseEntity
+        where TFilter : class
+    {
         if (expression.Operator == FilterExpressionOperator.And)
         {
             if (expression.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct)
@@ -41,55 +97,32 @@ public static class FilterExpressionQuery
             }
             var current = input;
             foreach (var child in expression.Children)
-                current = await ApplyNodeAsync(current, child, applyLeaf, applyDistinctScope);
+                current = await ApplyNodeAsync(root, current, child, applyLeaf, applyDistinctScope);
             return current;
         }
 
         if (expression.Operator == FilterExpressionOperator.Not)
-        {
-            var excluded = await ApplyNodeAsync(input, expression.Children[0], applyLeaf, applyDistinctScope);
-            return input.Except(excluded);
-        }
+            return MatchingNone(input, await ApplyNodeAsync(root, root, expression.Children[0], applyLeaf, applyDistinctScope));
 
-        if (expression.Operator == FilterExpressionOperator.JustOne)
-        {
-            IQueryable<TEntity>? seen = null;
-            IQueryable<TEntity>? exactlyOne = null;
-            foreach (var child in expression.Children)
-            {
-                var branch = await ApplyNodeAsync(input, child, applyLeaf, applyDistinctScope);
-                if (seen == null)
-                {
-                    seen = branch;
-                    exactlyOne = branch;
-                    continue;
-                }
-
-                exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
-                seen = seen.Union(branch);
-            }
-            return exactlyOne ?? input;
-        }
-
-        IQueryable<TEntity>? union = null;
+        var branches = new List<IQueryable<TEntity>>(expression.Children.Count);
         foreach (var child in expression.Children)
-        {
-            var branch = await ApplyNodeAsync(input, child, applyLeaf, applyDistinctScope);
-            union = union == null ? branch : union.Union(branch);
-        }
-        return union ?? input;
+            branches.Add(await ApplyNodeAsync(root, root, child, applyLeaf, applyDistinctScope));
+        return expression.Operator == FilterExpressionOperator.JustOne
+            ? MatchingExactlyOne(input, branches)
+            : MatchingAny(input, branches);
     }
 
     private static Task<IQueryable<TEntity>> ApplyNodeAsync<TEntity, TFilter>(
+        IQueryable<TEntity> root,
         IQueryable<TEntity> input,
         FilterExpressionNode<TFilter> node,
         Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
         Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope)
-        where TEntity : class
+        where TEntity : BaseEntity
         where TFilter : class
         => node.Filter != null
             ? applyLeaf(input, node.Filter)
-            : ApplyAsync(input, node.Group, applyLeaf, applyDistinctScope);
+            : ApplyGroupAsync(root, input, node.Group!, applyLeaf, applyDistinctScope);
 
     private static bool ValidateGroup<TFilter>(FilterExpression<TFilter> group, int depth, ref int leaves, ref string? error) where TFilter : class
     {
