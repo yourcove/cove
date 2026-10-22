@@ -43,6 +43,88 @@ public sealed class FilterExpressionQueryShapeTests
     }
 
     [Fact]
+    public async Task PerformerAndTextBranches_StartFromTheLibraryAndCompareIds()
+    {
+        await using var db = CreatePostgresContext();
+        static FilterExpression<TFilter> Expression<TFilter>(Func<string, TFilter> leaf) where TFilter : class => new()
+        {
+            Children =
+            [
+                new() { Group = new() { Operator = FilterExpressionOperator.Or, Children = [new() { Filter = leaf("alpha") }, new() { Filter = leaf("beta") }] } },
+                new() { Group = new() { Operator = FilterExpressionOperator.Not, Children = [new() { Filter = leaf("delta") }] } },
+            ],
+        };
+        static StringCriterion Includes(string value) => new() { Modifier = CriterionModifier.Includes, Value = value };
+
+        var performers = await new PerformerRepository(db).BuildFilteredQueryAsync(
+            new PerformerFilter { NameCriterion = Includes("prefix") },
+            null,
+            allowReadScopeOptimization: false,
+            ct: TestContext.Current.CancellationToken,
+            expression: Expression(value => new PerformerFilter { NameCriterion = Includes(value) }));
+        var texts = await TextDocumentFilterQuery.BuildAsync(
+            db,
+            new TextDocumentFilter { TitleCriterion = Includes("prefix") },
+            null,
+            ct: TestContext.Current.CancellationToken,
+            expression: Expression(value => new TextDocumentFilter { TitleCriterion = Includes(value) }));
+
+        foreach (var sql in new[] { performers.Select(performer => performer.Id).ToQueryString(), texts.Select(text => text.Id).ToQueryString() })
+        {
+            // The top-level condition is applied once, not again inside every branch.
+            foreach (var value in new[] { "prefix", "alpha", "beta", "delta" })
+                Assert.Equal(1, sql.Split(value).Length - 1);
+            Assert.DoesNotContain("INTERSECT", sql, StringComparison.Ordinal);
+            Assert.DoesNotContain("EXCEPT", sql, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task PerformerAndTextBranches_KeepToWhatTheConditionsAndSearchBeforeThemMatch()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        string[] names = ["prefix alpha", "prefix beta", "prefix alpha beta", "prefix alpha delta", "other alpha", "other beta"];
+        foreach (var name in names)
+        {
+            db.Performers.Add(new Performer { Name = name });
+            db.TextDocuments.Add(new TextDocument { Title = name });
+        }
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        static StringCriterion Includes(string value) => new() { Modifier = CriterionModifier.Includes, Value = value };
+        static FilterExpression<TFilter> Expression<TFilter>(Func<string, TFilter> leaf, FilterExpressionOperator branches) where TFilter : class => new()
+        {
+            Children =
+            [
+                new() { Group = new() { Operator = branches, Children = [new() { Filter = leaf("alpha") }, new() { Filter = leaf("beta") }] } },
+                new() { Group = new() { Operator = FilterExpressionOperator.Not, Children = [new() { Filter = leaf("delta") }] } },
+            ],
+        };
+        var repository = new PerformerRepository(db);
+        async Task<string[]> Performers(PerformerFilter? filter, string? q, FilterExpressionOperator branches)
+            => (await (await repository.BuildFilteredQueryAsync(
+                    filter, new FindFilter { Q = q }, allowReadScopeOptimization: false, ct: TestContext.Current.CancellationToken,
+                    expression: Expression(value => new PerformerFilter { NameCriterion = Includes(value) }, branches)))
+                .Select(performer => performer.Name).ToListAsync(TestContext.Current.CancellationToken)).Order().ToArray();
+        async Task<string[]> Texts(TextDocumentFilter? filter, string? q, FilterExpressionOperator branches)
+            => (await (await TextDocumentFilterQuery.BuildAsync(
+                    db, filter, new FindFilter { Q = q }, ct: TestContext.Current.CancellationToken,
+                    expression: Expression(value => new TextDocumentFilter { TitleCriterion = Includes(value) }, branches)))
+                .Select(text => text.Title!).ToListAsync(TestContext.Current.CancellationToken)).Order().ToArray();
+        string[] anyOf = ["prefix alpha", "prefix alpha beta", "prefix beta"];
+        string[] justOne = ["prefix alpha", "prefix beta"];
+
+        Assert.Equal(anyOf, await Performers(new PerformerFilter { NameCriterion = Includes("prefix") }, null, FilterExpressionOperator.Or));
+        Assert.Equal(anyOf, await Performers(null, "prefix", FilterExpressionOperator.Or));
+        Assert.Equal(justOne, await Performers(new PerformerFilter { NameCriterion = Includes("prefix") }, null, FilterExpressionOperator.JustOne));
+        Assert.Equal(anyOf, await Texts(new TextDocumentFilter { TitleCriterion = Includes("prefix") }, null, FilterExpressionOperator.Or));
+        Assert.Equal(anyOf, await Texts(null, "prefix", FilterExpressionOperator.Or));
+        Assert.Equal(justOne, await Texts(new TextDocumentFilter { TitleCriterion = Includes("prefix") }, null, FilterExpressionOperator.JustOne));
+    }
+
+    [Fact]
     public async Task FindAsync_ReadsThePageAndItsTotalInOneQuery()
     {
         var commands = new CommandRecorder();

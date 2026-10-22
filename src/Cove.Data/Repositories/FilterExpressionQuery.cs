@@ -25,7 +25,25 @@ public static class FilterExpressionQuery
             && (expression.Operator != FilterExpressionOperator.And
                 || expression.Children.Any(node => node?.Group != null && HasSetOperation(node.Group)));
 
-    public static async Task<IQueryable<TEntity>> ApplyAsync<TEntity, TFilter>(
+    public static Task<IQueryable<TEntity>> ApplyAsync<TEntity, TFilter>(
+        IQueryable<TEntity> input,
+        FilterExpression<TFilter>? expression,
+        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
+        Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope = null)
+        where TEntity : BaseEntity
+        where TFilter : class
+        => ApplyAsync(input, input, expression, applyLeaf, applyDistinctScope);
+
+    /// <summary>
+    /// Applies <paramref name="expression"/> to <paramref name="input"/>, starting OR, NOT and just-one branches
+    /// from <paramref name="root"/>. Pass the unfiltered, read-scoped query as the root when the leaves build their
+    /// own queries, so each branch does not repeat the conditions already applied to the input.
+    /// <paramref name="input"/> must be narrowed from <paramref name="root"/>, and the leaf and distinct-scope
+    /// callbacks may only narrow their source by conditions that do not depend on it; otherwise a NOT could keep
+    /// rows that its branch, built from the root, failed to match.
+    /// </summary>
+    internal static async Task<IQueryable<TEntity>> ApplyAsync<TEntity, TFilter>(
+        IQueryable<TEntity> root,
         IQueryable<TEntity> input,
         FilterExpression<TFilter>? expression,
         Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
@@ -35,7 +53,7 @@ public static class FilterExpressionQuery
     {
         if (!TryValidate(expression, out var error)) throw new ArgumentException(error, nameof(expression));
         if (expression == null || expression.Children.Count == 0) return input;
-        return await ApplyGroupAsync(input, input, expression, applyLeaf, applyDistinctScope);
+        return await ApplyGroupAsync(root, input, expression, applyLeaf, applyDistinctScope);
     }
 
     /// <summary>
