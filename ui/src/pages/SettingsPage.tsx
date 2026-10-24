@@ -5918,6 +5918,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                         roots={selectablePaths.map((path) => ({ name: path, path, hasChildren: true }))}
                         selected={scanSelectedPaths}
                         onToggle={toggleScanPath}
+                        probeChildren={false}
                         emptyHint="No library paths configured."
                       />
                     </div>
@@ -6038,6 +6039,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                         roots={selectablePaths.map((path) => ({ name: path, path, hasChildren: true }))}
                         selected={genSelectedPaths}
                         onToggle={toggleGenPath}
+                        probeChildren={false}
                         emptyHint="No library paths configured."
                       />
                     </div>
