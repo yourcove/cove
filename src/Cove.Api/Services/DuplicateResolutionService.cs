@@ -112,7 +112,6 @@ public sealed class DuplicateResolutionService(
                 "Resolving duplicate videos",
                 CreateWorker(scopeFactory, config, searchId, claim, jobIdSource.Task, SnapshotPrincipal(principal)),
                 $"/duplicates?search={searchId:D}",
-                // Resolution must feel immediate; it should not wait behind a long scan in the exclusive queue.
                 exclusive: false);
         }
         catch

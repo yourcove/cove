@@ -2285,15 +2285,27 @@ export function SettingsPage() {
               resolvedActiveTab === "operations-jobs" && canWriteSystemSettings ? (
                 <SectionCard
                   title="Job Limits"
-                  description="Control how many background jobs Cove can run at the same time."
+                  description="Control simultaneous background jobs and parallel work within each job."
                 >
                   <NumberField
-                    label="Max parallel tasks (-1 = all CPU threads)"
+                    label="Max CPU threads for a single job (-1 = all CPU threads)"
                     value={draft.maxParallelTasks}
                     min={-1}
                     max={128}
                     onChange={(value) =>
                       updateDraft((current) => ({ ...current, maxParallelTasks: value ?? current.maxParallelTasks }))
+                    }
+                  />
+                  <NumberField
+                    label="Max simultaneous jobs"
+                    value={draft.maxSimultaneousJobs ?? 1}
+                    min={1}
+                    max={128}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        maxSimultaneousJobs: value ?? current.maxSimultaneousJobs ?? 1,
+                      }))
                     }
                   />
                 </SectionCard>

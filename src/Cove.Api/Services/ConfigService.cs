@@ -124,6 +124,7 @@ public class ConfigService
             Port = cfg.Port,
             DatabaseCacheMb = cfg.Postgres.SharedBuffersMb,
             MaxParallelTasks = cfg.MaxParallelTasks,
+            MaxSimultaneousJobs = cfg.MaxSimultaneousJobs,
             MaxConcurrentDownloads = cfg.MaxConcurrentDownloads,
             MaxDownloadHeight = cfg.MaxDownloadHeight,
             DownloaderPathOverrides = cfg.DownloaderPathOverrides
@@ -452,6 +453,7 @@ public class ConfigService
         cfg.Port = dto.Port;
         cfg.Postgres.SharedBuffersMb = Math.Clamp(dto.DatabaseCacheMb, PostgresConfig.MinSharedBuffersMb, PostgresConfig.MaxSharedBuffersMb);
         cfg.MaxParallelTasks = dto.MaxParallelTasks;
+        cfg.MaxSimultaneousJobs = Math.Clamp(dto.MaxSimultaneousJobs, 1, 128);
         cfg.MaxConcurrentDownloads = dto.MaxConcurrentDownloads > 0 ? dto.MaxConcurrentDownloads : cfg.MaxConcurrentDownloads;
         cfg.MaxDownloadHeight = Math.Max(0, dto.MaxDownloadHeight);
         cfg.DownloaderPathOverrides = dto.DownloaderPathOverrides

@@ -10,6 +10,41 @@ namespace Cove.Tests;
 public sealed class ConfigServiceTests
 {
     [Fact]
+    public void MissingSimultaneousJobSetting_DefaultsToOneWithoutChangingParallelTasks()
+    {
+        var dto = JsonSerializer.Deserialize<CoveConfigDto>("""{"maxParallelTasks":2}""", JsonOptions)!;
+        Assert.Equal(1, dto.MaxSimultaneousJobs);
+        Assert.Equal(2, dto.MaxParallelTasks);
+        Assert.Equal(1, new CoveConfiguration().MaxSimultaneousJobs);
+    }
+
+    [Theory]
+    [InlineData(2, 2)]
+    [InlineData(0, 1)]
+    [InlineData(-1, 1)]
+    [InlineData(129, 128)]
+    public async Task SimultaneousJobLimit_IsAppliedPersistedAndReadBack(int requested, int expected)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-job-config-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "cove-config.json");
+        var configuration = new CoveConfiguration { MaxParallelTasks = 2 };
+        var service = new ConfigService(configuration, NullLogger<ConfigService>.Instance, configPath);
+        try
+        {
+            await service.UpdateConfigAsync(dto => dto with { MaxSimultaneousJobs = requested });
+            Assert.Equal(expected, configuration.MaxSimultaneousJobs);
+            Assert.Equal(2, configuration.MaxParallelTasks);
+            Assert.Equal(expected, service.GetConfig().MaxSimultaneousJobs);
+            var persisted = JsonSerializer.Deserialize<CoveConfigDto>(await File.ReadAllTextAsync(configPath), JsonOptions)!;
+            Assert.Equal(expected, persisted.MaxSimultaneousJobs);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task UiUpdate_DoesNotReplayStaleNonUiConfiguration()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");

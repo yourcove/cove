@@ -14,6 +14,146 @@ namespace Cove.Tests;
 
 public class JobServiceTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task SimultaneousLimit_BoundsBothLegacyJobModesAndStartsNextAfterCompletion(int limit)
+    {
+        var config = new CoveConfiguration { MaxParallelTasks = 12, MaxSimultaneousJobs = limit };
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance, config: config);
+        var started = Enumerable.Range(0, 4).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var releases = Enumerable.Range(0, 4).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var ids = Enumerable.Range(0, 4).Select(i => service.Enqueue(
+            i == 0 ? "tagging" : "delete", $"Job {i}",
+            async (_, ct) => { started[i].SetResult(); await releases[i].Task.WaitAsync(ct); },
+            exclusive: i % 2 == 0)).ToArray();
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await Task.WhenAll(started.Take(limit).Select(gate => gate.Task)).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.All(ids.Take(limit), id => Assert.Equal(JobStatus.Running, service.GetJob(id)!.Status));
+            Assert.All(ids.Skip(limit), id => Assert.Equal(JobStatus.Pending, service.GetJob(id)!.Status));
+            Assert.False(started[limit].Task.IsCompleted);
+
+            releases[0].SetResult();
+            await started[limit].Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Pending, service.GetJob(ids[limit + 1])!.Status);
+        }
+        finally
+        {
+            foreach (var release in releases) release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task StopAsync_WaitsForRunningJobsAndDoesNotStartPendingWork()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unwinding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Enqueue("tagging", "Tagging", async (_, ct) =>
+        {
+            started.SetResult();
+            try { await Task.Delay(Timeout.Infinite, ct); }
+            finally { unwinding.SetResult(); await release.Task; }
+        });
+        var pending = service.Enqueue("delete", "Delete", (_, _) => throw new InvalidOperationException("Must not start"));
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var stop = service.StopAsync(CancellationToken.None);
+            await unwinding.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(stop.IsCompleted);
+            Assert.Equal(JobStatus.Pending, service.GetJob(pending)!.Status);
+            release.SetResult();
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Pending, service.GetJob(pending)!.Status);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task SimultaneousLimit_RuntimeIncreaseAndDecreasePreserveRunningJobs()
+    {
+        var config = new CoveConfiguration { MaxSimultaneousJobs = 1 };
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance, config: config);
+        var started = Enumerable.Range(0, 4).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var releases = Enumerable.Range(0, 4).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var ids = Enumerable.Range(0, 4).Select(i => service.Enqueue("work", $"Job {i}",
+            async (_, ct) => { started[i].SetResult(); await releases[i].Task.WaitAsync(ct); })).ToArray();
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await started[0].Task.WaitAsync(TimeSpan.FromSeconds(5));
+            config.MaxSimultaneousJobs = 2;
+            await started[1].Task.WaitAsync(TimeSpan.FromSeconds(5));
+            config.MaxSimultaneousJobs = 1;
+            releases[0].SetResult();
+            await WaitForTerminalStateAsync(service, ids[0], TimeSpan.FromSeconds(5));
+            // Give the dispatcher a settings-recheck interval after the first slot is released.
+            await Task.Delay(350);
+            Assert.Equal(JobStatus.Running, service.GetJob(ids[1])!.Status);
+            Assert.Equal(JobStatus.Pending, service.GetJob(ids[2])!.Status);
+            releases[1].SetResult();
+            await started[2].Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Pending, service.GetJob(ids[3])!.Status);
+        }
+        finally
+        {
+            foreach (var release in releases) release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task SimultaneousLimit_FailureCancellationAndReorderingDoNotStrandSlots()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unwinding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var order = new ConcurrentQueue<string>();
+        var first = service.Enqueue("tagging", "Tagging", async (_, ct) =>
+        {
+            firstStarted.SetResult();
+            try { await Task.Delay(Timeout.Infinite, ct); }
+            finally { unwinding.SetResult(); await release.Task; }
+        });
+        var cancelled = service.Enqueue("delete", "Cancelled pending job", (_, _) => throw new InvalidOperationException("Must not run"));
+        var failed = service.Enqueue("delete", "Failing job", (_, _) => { order.Enqueue("failure"); throw new InvalidOperationException("Expected"); });
+        var next = service.Enqueue("delete", "Following job", (_, _) => { order.Enqueue("next"); return Task.CompletedTask; });
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(service.Cancel(cancelled));
+            Assert.True(service.ReorderQueued(next, failed));
+            Assert.True(service.Cancel(first));
+            await unwinding.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Running, service.GetJob(first)!.Status);
+            Assert.Equal(JobStatus.Pending, service.GetJob(next)!.Status);
+            release.SetResult();
+            await WaitForTerminalStateAsync(service, failed, TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Cancelled, service.GetJob(first)!.Status);
+            Assert.Equal(JobStatus.Cancelled, service.GetJob(cancelled)!.Status);
+            Assert.Equal(JobStatus.Failed, service.GetJob(failed)!.Status);
+            Assert.Equal(JobStatus.Completed, service.GetJob(next)!.Status);
+            Assert.Equal(new[] { "next", "failure" }, order.ToArray());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     [Fact]
     public async Task JobWork_RunsInsideCorrelationScope()
     {
@@ -615,6 +755,11 @@ public class JobServiceTests
 
             var jobId = service.Enqueue("clean", "Cleaning library", static (_, _) => Task.CompletedTask);
             await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+
+            // Terminal status can be observed just before history persistence finishes.
+            deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!store.Saved.Any(job => job.Info.Id == jobId) && DateTime.UtcNow < deadline)
+                await Task.Delay(25, TestContext.Current.CancellationToken);
 
             Assert.Equal(["old-job", jobId], service.GetJobHistory().Select(job => job.Id).Reverse());
             Assert.Contains(store.Saved, job => job.Info.Id == jobId && job.Info.Status == JobStatus.Completed);

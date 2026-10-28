@@ -1478,6 +1478,7 @@ public record CoveConfigDto
     public int DatabaseCacheMb { get; init; } = PostgresConfig.DefaultSharedBuffersMb;
     // Mirrors CoveConfiguration: fresh-install default leaves ~3 logical processors free.
     public int MaxParallelTasks { get; init; } = System.Math.Max(1, System.Environment.ProcessorCount - 3);
+    public int MaxSimultaneousJobs { get; init; } = 1;
     public int MaxConcurrentDownloads { get; init; } = 3;
     /// <summary>Highest frame height a download may ask for when a request wants the best available quality. 0 means no limit.</summary>
     public int MaxDownloadHeight { get; init; }
