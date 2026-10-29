@@ -60,38 +60,24 @@ export function RawSegmentResults({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         loadMore={loadMore}
-        renderItem={(item) => (
-          <SegmentTile
-            segment={item}
-            label={`Open raw segment ${buildRawSegmentTitle(item)}`}
-            eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
-            onClick={(toggleOptions) =>
-              selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
-            }
-            selected={selectedIds.has(item.id)}
-            onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
-            selecting={selecting}
-            footer={
-              <div className="flex items-center justify-between gap-2">
-                <span>Updated {formatDate(item.updatedAt)}</span>
-                {canReadVideos ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
-                    }}
-                    className="inline-flex items-center gap-1 text-accent hover:underline"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    Open video
-                  </button>
-                ) : null}
-              </div>
-            }
-          />
-        )}
+        renderItem={(item) => {
+          const videoRoute = { page: "video", id: item.hostId, seekTo: item.startSec } as const;
+          return (
+            <SegmentTile
+              segment={item}
+              label={`Open raw segment ${buildRawSegmentTitle(item)}`}
+              eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
+              onClick={(toggleOptions) =>
+                selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
+              }
+              selected={selectedIds.has(item.id)}
+              onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
+              selecting={selecting}
+              hostRoute={canReadVideos ? videoRoute : undefined}
+              onOpenHost={() => onNavigate(videoRoute)}
+            />
+          );
+        }}
       />
     );
   }

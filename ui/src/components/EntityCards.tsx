@@ -74,6 +74,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
+import type { Route } from "../router/location";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { ExtensionSlot, useHasExtensionSlot } from "../router/RouteRegistry";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
@@ -3556,6 +3557,8 @@ export function SegmentTile({
   label,
   eyebrow,
   footer,
+  hostRoute,
+  onOpenHost,
   onClick,
   selected,
   onSelect,
@@ -3566,12 +3569,16 @@ export function SegmentTile({
   label?: string;
   eyebrow?: string;
   footer?: ReactNode;
+  /** Makes the host title a link of its own, separate from the card's link to the segment. */
+  hostRoute?: Route;
+  onOpenHost?: () => void;
   onClick: (options?: MultiSelectToggleOptions) => void;
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
 }) {
   const sourceLabel = formatSourceKeyLabel(segment.sourceKey);
+  const hostTitle = segment.hostTitle || `${segment.hostType} #${segment.hostId}`;
   const refLabel = segment.performerName || segment.refLabel;
   const title = segment.title || segment.tagName || refLabel || segment.kind || sourceLabel;
   const cardRoute = route ?? { page: "segment", id: segment.id };
@@ -3630,13 +3637,22 @@ export function SegmentTile({
           {kindLabel ? (
             <div className="text-[11px] font-semibold uppercase tracking-wide text-secondary">{kindLabel}</div>
           ) : null}
-          <div className="flex min-w-0 items-start gap-1 text-[13px] font-semibold leading-[18px] text-foreground transition-colors group-hover:text-accent">
+          <div className="flex min-w-0 items-start gap-1 text-[13px] font-semibold leading-[18px] text-foreground transition-colors group-hover:text-accent group-has-[.segment-host-link:hover]:text-foreground">
             {kindIcon ? <SegmentKindIcon kind={kindIcon} /> : null}
             <span className="line-clamp-2 min-w-0">{title}</span>
           </div>
-          <div className="mt-1 truncate text-xs text-secondary">
-            {segment.hostTitle || `${segment.hostType} #${segment.hostId}`}
-          </div>
+          {hostRoute && !selecting ? (
+            <a
+              {...createNestedRouteLinkProps<HTMLAnchorElement>(hostRoute, onOpenHost)}
+              aria-label={`Open video ${hostTitle}`}
+              title={hostTitle}
+              className="segment-host-link relative z-10 mt-1 block w-fit max-w-full truncate text-xs text-secondary hover:text-accent hover:underline"
+            >
+              {hostTitle}
+            </a>
+          ) : (
+            <div className="mt-1 truncate text-xs text-secondary">{hostTitle}</div>
+          )}
         </div>
         {details.length > 0 ? <div className="truncate text-[11px] text-muted">{details.join(" · ")}</div> : null}
       </div>

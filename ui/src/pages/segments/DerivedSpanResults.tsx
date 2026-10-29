@@ -130,6 +130,7 @@ export function DerivedSpanResults({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
           const operandSummary = formatDerivedOperandSummary(item, nameMaps);
+          const videoRoute = { page: "video", id: item.videoId, seekTo: item.span.startSec } as const;
 
           return (
             <SegmentTile
@@ -141,30 +142,9 @@ export function DerivedSpanResults({
               selected={selectedIds.has(item.id)}
               onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
               selecting={selecting}
-              footer={
-                <div className="space-y-1.5">
-                  {operandSummary ? <div className="line-clamp-2 text-foreground">{operandSummary}</div> : null}
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Updated {formatDate(item.videoUpdatedAt)}</span>
-                    <div className="flex items-center gap-2">
-                      {canReadVideos ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onNavigate({ page: "video", id: item.videoId, seekTo: item.span.startSec });
-                          }}
-                          className="inline-flex items-center gap-1 text-accent hover:underline"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                          Open video
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              }
+              footer={operandSummary ? <div className="line-clamp-2 text-foreground">{operandSummary}</div> : undefined}
+              hostRoute={canReadVideos ? videoRoute : undefined}
+              onOpenHost={() => onNavigate(videoRoute)}
             />
           );
         }}

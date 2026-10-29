@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedSpan } from "../api/types";
 import { SegmentTile, type SegmentTileItem } from "../components/EntityCards";
@@ -11,11 +11,11 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-function renderTile(segment: SegmentTileItem) {
+function renderTile(segment: SegmentTileItem, props: Partial<Parameters<typeof SegmentTile>[0]> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SegmentTile segment={segment} onClick={vi.fn()} />
+      <SegmentTile segment={segment} onClick={vi.fn()} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -148,5 +148,36 @@ describe("SegmentTile", () => {
     expect(screen.getByText("Custom Title")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Tag" })).not.toBeInTheDocument();
     expect(screen.getByText("Tag: Dancing · User · 91% confidence")).toBeInTheDocument();
+  });
+
+  it("links the video title to the video, separately from the card", () => {
+    const onClick = vi.fn();
+    const onOpenHost = vi.fn();
+    const item = buildSpanItem({ kind: "tag", tagId: 5, tagName: "Dancing", sourceKey: "user" });
+    renderTile(spanTile(item), {
+      onClick,
+      onOpenHost,
+      hostRoute: { page: "video", id: 7, seekTo: 10 },
+    });
+
+    const videoLink = screen.getByRole("link", { name: "Open video Host Video" });
+    expect(videoLink).toHaveAttribute("href", "/video/7?t=10");
+    expect(videoLink).toHaveTextContent("Host Video");
+
+    // A modified click is left to the browser so the video can open in a new tab.
+    expect(fireEvent.click(videoLink, { ctrlKey: true })).toBe(true);
+    expect(onOpenHost).not.toHaveBeenCalled();
+
+    expect(fireEvent.click(videoLink)).toBe(false);
+    expect(onOpenHost).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps the video title as plain text while selecting", () => {
+    const item = buildSpanItem({ kind: "tag", tagId: 5, tagName: "Dancing", sourceKey: "user" });
+    renderTile(spanTile(item), { selecting: true, hostRoute: { page: "video", id: 7, seekTo: 10 } });
+
+    expect(screen.getByText("Host Video")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Host Video/ })).not.toBeInTheDocument();
   });
 });
