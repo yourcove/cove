@@ -192,6 +192,7 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
           coverSegmentId: item.coverSegmentId,
           coverVersion: item.coverVersion,
           span: item.span,
+          reference: item.reference,
           profileId: item.profileId,
           derivedQuery:
             appliedQuery != null

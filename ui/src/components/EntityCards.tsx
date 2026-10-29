@@ -3532,7 +3532,7 @@ function formatFaceAppearanceTime(totalSeconds: number) {
     : `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-interface SegmentTileItem {
+export interface SegmentTileItem {
   id: number | string;
   hostType: string;
   hostId: number;
@@ -3576,12 +3576,23 @@ export function SegmentTile({
   const title = segment.title || segment.tagName || refLabel || segment.kind || sourceLabel;
   const cardRoute = route ?? { page: "segment", id: segment.id };
   const rangeLabel = formatSegmentRangeLabel(segment.startSec, segment.endSec);
-  const confidenceLabel = segment.confidence == null ? null : `${Math.round(segment.confidence * 100)}%`;
+  const confidenceLabel = segment.confidence == null ? null : `${Math.round(segment.confidence * 100)}% confidence`;
+  // A tag icon only marks the name when the name is the tag; a custom title keeps the plain kind label.
+  const kindIcon = segmentKindIconKind(segment.kind, !segment.tagName || segment.tagName === title);
+  const kindLabel = !kindIcon && segment.kind && segment.kind !== title ? formatSegmentKindLabel(segment.kind) : null;
+  // The body leads with the label, marked by an icon for tags and faces, then names the video; the detail
+  // line only carries what the label does not already say.
+  const details = [
+    segment.tagName && segment.tagName !== title ? `Tag: ${segment.tagName}` : null,
+    refLabel && refLabel !== title ? refLabel : null,
+    segment.sourceKey && sourceLabel !== title ? sourceLabel : null,
+    confidenceLabel,
+  ].filter((detail): detail is string => !!detail);
 
   return (
     <article
       onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
-      className={`entity-card video-card group relative overflow-hidden rounded border bg-card transition-all ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}
+      className={`entity-card video-card group relative flex h-full flex-col overflow-hidden rounded border bg-card transition-all ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}
     >
       <RouteCardLinkOverlay
         route={cardRoute}
@@ -3609,27 +3620,25 @@ export function SegmentTile({
             <Layers className="h-10 w-10" />
           </div>
         )}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-3 text-white">
-          <div className="flex items-end justify-between gap-3">
-            <div className="line-clamp-2 min-w-0 text-sm font-semibold">{title}</div>
-            <div className="shrink-0 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white/85">
-              {eyebrow ?? rangeLabel}
-            </div>
+        <div className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white/85">
+          {eyebrow ?? rangeLabel}
+        </div>
+      </div>
+      {/* Spaced like the video card body so segment and video grids line up. */}
+      <div className="card-body px-2.5 pt-2 pb-2 border-t border-border/50 flex-1 flex flex-col gap-1.5 min-h-0">
+        <div>
+          {kindLabel ? (
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-secondary">{kindLabel}</div>
+          ) : null}
+          <div className="flex min-w-0 items-start gap-1 text-[13px] font-semibold leading-[18px] text-foreground transition-colors group-hover:text-accent">
+            {kindIcon ? <SegmentKindIcon kind={kindIcon} /> : null}
+            <span className="line-clamp-2 min-w-0">{title}</span>
+          </div>
+          <div className="mt-1 truncate text-xs text-secondary">
+            {segment.hostTitle || `${segment.hostType} #${segment.hostId}`}
           </div>
         </div>
-      </div>
-      <div className="card-body border-t border-border bg-card p-3">
-        <div className="line-clamp-2 text-sm font-medium text-foreground">{title}</div>
-        <div className="truncate text-xs text-secondary">
-          {segment.hostTitle || `${segment.hostType} #${segment.hostId}`}
-        </div>
-      </div>
-      <div className="card-popovers relative z-10 flex flex-wrap items-center gap-1.5 border-t border-border px-3 py-2 text-[11px] text-secondary">
-        {segment.tagName ? <SegmentInfoChip label="Tag" value={segment.tagName} /> : null}
-        {segment.kind ? <SegmentInfoChip label="Kind" value={segment.kind} /> : null}
-        {refLabel ? <SegmentInfoChip label="Ref" value={refLabel} /> : null}
-        {segment.sourceKey ? <SegmentInfoChip label="Provider" value={sourceLabel} /> : null}
-        {confidenceLabel ? <SegmentInfoChip label="Confidence" value={confidenceLabel} /> : null}
+        {details.length > 0 ? <div className="truncate text-[11px] text-muted">{details.join(" · ")}</div> : null}
       </div>
       {footer ? (
         <div className="relative z-10 border-t border-border px-3 py-2 text-xs text-secondary">{footer}</div>
@@ -3638,13 +3647,32 @@ export function SegmentTile({
   );
 }
 
-function SegmentInfoChip({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1 rounded border border-border bg-surface/60 px-1.5 py-0.5">
-      <span className="shrink-0 text-muted">{label}:</span>
-      <span className="truncate text-foreground">{value}</span>
-    </span>
-  );
+type SegmentKindIconKind = "tag" | "face" | "performer";
+
+function segmentKindIconKind(kind: string | undefined, titleIsTag: boolean): SegmentKindIconKind | null {
+  switch (kind?.toLowerCase()) {
+    case "tag":
+      return titleIsTag ? "tag" : null;
+    case "face":
+      return "face";
+    case "performer":
+      return "performer";
+    default:
+      return null;
+  }
+}
+
+function SegmentKindIcon({ kind }: { kind: SegmentKindIconKind }) {
+  const props = {
+    className: "mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary",
+    "aria-label": formatSegmentKindLabel(kind),
+    role: "img",
+  };
+  return kind === "tag" ? <Tag {...props} /> : <User {...props} />;
+}
+
+function formatSegmentKindLabel(kind: string) {
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
 function formatSegmentRangeLabel(startSec: number, endSec?: number) {

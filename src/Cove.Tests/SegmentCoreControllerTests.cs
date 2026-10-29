@@ -1404,6 +1404,96 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_SearchSpans_AttachesCurrentFaceAndPerformerReferences()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        var video = new Video { Title = "Reference Video" };
+        var tag = new Tag { Name = "Tagged" };
+        var linkedPerformer = new Performer { Name = "Linked Performer" };
+        var directPerformer = new Performer { Name = "Direct Performer" };
+        context.AddRange(video, tag, linkedPerformer, directPerformer);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var unnamedFace = new Face { Label = "face-0001", PrimarySourceKey = "face-0001" };
+        var linkedFace = new Face { Label = "face-0002", PrimarySourceKey = "face-0002", PerformerId = linkedPerformer.Id };
+        context.Faces.AddRange(unnamedFace, linkedFace);
+        var profile = new SegmentDisplayProfile { Name = "References", IsDefault = true, Version = 1 };
+        context.SegmentDisplayProfiles.Add(profile);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Segment BuildSegment(double startSec, string kind, string title, long? refId, int? tagId = null) => new()
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = startSec,
+            EndSec = startSec + 5,
+            Kind = kind,
+            Title = title,
+            RefId = refId,
+            TagId = tagId,
+            SourceKey = "user",
+        };
+        context.Segments.AddRange(
+            BuildSegment(0, "face", "stale unnamed title", unnamedFace.Id),
+            BuildSegment(10, "face", "stale linked title", linkedFace.Id),
+            BuildSegment(20, "performer", "stale performer title", directPerformer.Id),
+            BuildSegment(30, "tag", "tag title", directPerformer.Id, tag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentRepository(context),
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        async Task<List<SegmentSpanSearchResultItemDto>> SearchAsync(string sort, SegmentSpanDerivedQueryDto? derivedQuery = null)
+        {
+            var result = await controller.SearchSpans(
+                new SegmentSpanSearchRequestDto(profile.Id, derivedQuery, 1, 24, sort, "asc", null, null, null, null),
+                CancellationToken.None);
+            return Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(result.Result).Value).Items
+                .OrderBy(item => item.Span.StartSec)
+                .ToList();
+        }
+
+        // A video-level sort takes the early-terminating path and a span-level sort the full one; both attach.
+        var items = await SearchAsync("updated_at");
+        Assert.Equal(
+            items.Select(item => item.Reference),
+            (await SearchAsync("start_sec")).Select(item => item.Reference));
+
+        Assert.Equal(4, items.Count);
+        Assert.Equal(
+            new SegmentSpanReferenceDto { FaceId = unnamedFace.Id, FaceLabel = "face-0001", FaceSourceKey = "face-0001" },
+            items[0].Reference);
+        Assert.Equal(
+            new SegmentSpanReferenceDto
+            {
+                FaceId = linkedFace.Id,
+                FaceLabel = "face-0002",
+                FaceSourceKey = "face-0002",
+                PerformerId = linkedPerformer.Id,
+                PerformerName = "Linked Performer",
+            },
+            items[1].Reference);
+        Assert.Equal(
+            new SegmentSpanReferenceDto { PerformerId = directPerformer.Id, PerformerName = "Direct Performer" },
+            items[2].Reference);
+        Assert.Null(items[3].Reference);
+
+        // A derived span mixes several references, so none of them names it.
+        var derivedItems = await SearchAsync("updated_at", new SegmentSpanDerivedQueryDto(
+            "union",
+            [new SegmentSpanOperandDto(null, "face", null, null), new SegmentSpanOperandDto(null, "performer", null, null)],
+            100,
+            0));
+        Assert.NotEmpty(derivedItems);
+        Assert.All(derivedItems, item => Assert.Null(item.Reference));
+    }
+
+    [Fact]
     public async Task SegmentsController_SearchSpans_AppliesRawSegmentFieldFiltersAndSorts()
     {
         await using var scope = await CreateContextAsync();

@@ -497,6 +497,7 @@ export function SegmentsPage({ onNavigate }: Props) {
           coverSegmentId: item.coverSegmentId,
           coverVersion: item.coverVersion,
           span: item.span,
+          reference: item.reference,
           profileId: item.profileId,
           derivedQuery:
             appliedQuery != null
@@ -869,6 +870,8 @@ export function SegmentsPage({ onNavigate }: Props) {
           key: item.key,
           videoId: item.videoId,
           spanKey: item.span.spanKey,
+          // A group keeps this title as a snapshot, so it stays the distinguishing stored title rather than a
+          // current display name such as "Unnamed face".
           title: buildSpanTitle(item.span, item.videoTitle),
           profileId: item.profileId,
           derivedQuery: item.derivedQuery,

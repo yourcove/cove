@@ -1,7 +1,9 @@
 import { type ReactNode } from "react";
-import type { ResolvedSpan } from "../../api/types";
+import type { ResolvedSpan, SegmentSpanReference } from "../../api/types";
+import type { SegmentTileItem } from "../../components/EntityCards";
 import { SegmentPreviewMedia } from "../../components/SegmentPreviewMedia";
 import { formatDate } from "../../components/shared";
+import { faceStoredName } from "../../utils/faceDisplay";
 import { formatSegmentTime } from "../../utils/segmentTime";
 import { formatOperatorLabel } from "./derivedQueryCriterion";
 import type { DerivedSpanItem, RawSegmentItem } from "./types";
@@ -40,8 +42,50 @@ export function SegmentVideoPreview({
   );
 }
 
-export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string) {
-  return span.tagName || span.kind || span.sourceKey || videoTitle || `Span ${span.spanKey}`;
+export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string, reference?: SegmentSpanReference) {
+  return (
+    formatSpanReferenceName(reference) ||
+    span.tagName ||
+    span.kind ||
+    span.sourceKey ||
+    videoTitle ||
+    `Span ${span.spanKey}`
+  );
+}
+
+// A span's tile shows its tag only for tag spans: other spans carry their segments' stored title in tagName,
+// which the reference replaces.
+export function buildSpanTileSegment(item: DerivedSpanItem, title: string): SegmentTileItem {
+  return {
+    id: item.coverSegmentId ?? item.span.segmentIds[0] ?? item.id,
+    hostType: "video",
+    hostId: item.videoId,
+    startSec: item.span.startSec,
+    endSec: item.span.endSec,
+    tagName: item.span.tagId != null ? item.span.tagName : undefined,
+    kind: item.span.kind,
+    sourceKey: item.span.sourceKey,
+    title,
+    updatedAt: item.coverVersion ?? item.videoUpdatedAt,
+    hostTitle: item.videoTitle,
+    refLabel: item.reference?.faceSourceKey || item.reference?.faceLabel,
+  };
+}
+
+// A face span reads as its performer or its own name; a face still carrying only its placeholder label is
+// "Unnamed face", with the placeholder shown as its detail instead.
+export function formatSpanReferenceName(reference?: SegmentSpanReference) {
+  if (!reference) return undefined;
+  if (reference.faceId == null) return reference.performerName;
+  return (
+    faceStoredName({
+      id: reference.faceId,
+      label: reference.faceLabel,
+      primarySourceKey: reference.faceSourceKey,
+      performerId: reference.performerId,
+      performerName: reference.performerName,
+    }) ?? "Unnamed face"
+  );
 }
 
 export function buildRawSegmentTitle(segment: RawSegmentItem) {

@@ -12,6 +12,7 @@ import {
   type MultiSelectToggleHandler,
 } from "../../hooks/useMultiSelect";
 import {
+  buildSpanTileSegment,
   buildSpanTitle,
   type DerivedOperandNameMaps,
   formatDate,
@@ -120,7 +121,7 @@ export function DerivedSpanResults({
         isFetchingNextPage={isFetchingNextPage}
         loadMore={loadMore}
         renderItem={(item) => {
-          const title = buildSpanTitle(item.span, item.videoTitle);
+          const title = buildSpanTitle(item.span, item.videoTitle, item.reference);
           const route = {
             page: "video-span",
             id: item.videoId,
@@ -129,23 +130,10 @@ export function DerivedSpanResults({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
           const operandSummary = formatDerivedOperandSummary(item, nameMaps);
-          const coverSegmentId = item.coverSegmentId ?? item.span.segmentIds[0];
 
           return (
             <SegmentTile
-              segment={{
-                id: coverSegmentId ?? item.id,
-                hostType: "video",
-                hostId: item.videoId,
-                startSec: item.span.startSec,
-                endSec: item.span.endSec,
-                tagName: item.span.tagName,
-                kind: item.span.kind,
-                sourceKey: item.span.sourceKey,
-                title,
-                updatedAt: item.coverVersion ?? item.videoUpdatedAt,
-                hostTitle: item.videoTitle,
-              }}
+              segment={buildSpanTileSegment(item, title)}
               route={route}
               label={`Open segment ${title}`}
               eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}
@@ -234,7 +222,7 @@ function DerivedSpanListRow({
   nameMaps?: DerivedOperandNameMaps;
   density: SegmentListDensity;
 }) {
-  const title = buildSpanTitle(item.span, item.videoTitle);
+  const title = buildSpanTitle(item.span, item.videoTitle, item.reference);
   const primaryRawSegmentId = item.span.segmentIds[0];
   const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
   const operandSummary = formatDerivedOperandSummary(item, nameMaps);
@@ -288,8 +276,8 @@ function DerivedSpanListRow({
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{title}</div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
-                {item.span.tagName ? <Pill>{item.span.tagName}</Pill> : null}
                 {item.span.kind ? <Pill>{item.span.kind}</Pill> : null}
+                {item.reference?.faceSourceKey ? <Pill>{item.reference.faceSourceKey}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
                 <span>
                   {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}

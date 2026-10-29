@@ -832,6 +832,19 @@ public record SegmentSpanSearchResultItemDto(
     /// touches the segment, not its video.
     /// </summary>
     public string? CoverVersion { get; init; }
+
+    // The face or performer a face or performer span refers to, read from its first segment. Null for every
+    // other span, derived-query spans included.
+    public SegmentSpanReferenceDto? Reference { get; init; }
+}
+
+public sealed record SegmentSpanReferenceDto
+{
+    public int? FaceId { get; init; }
+    public string? FaceLabel { get; init; }
+    public string? FaceSourceKey { get; init; }
+    public int? PerformerId { get; init; }
+    public string? PerformerName { get; init; }
 }
 
 public record SegmentSpanSearchResponseDto(

@@ -1545,6 +1545,14 @@ export interface SegmentSpanSearchRequest {
   updatedAtModifier?: CriterionModifier;
 }
 
+export interface SegmentSpanReference {
+  faceId?: number;
+  faceLabel?: string;
+  faceSourceKey?: string;
+  performerId?: number;
+  performerName?: string;
+}
+
 export interface SegmentSpanSearchResultItem {
   span: ResolvedSpan;
   videoId: number;
@@ -1555,6 +1563,8 @@ export interface SegmentSpanSearchResultItem {
   /** Version of the span cover: the cover segment's updatedAt. */
   coverVersion?: string;
   profileId: number;
+  /** The face or performer a non-tag span refers to, read from its first segment. */
+  reference?: SegmentSpanReference;
 }
 
 export interface SegmentSpanSearchResponse {
