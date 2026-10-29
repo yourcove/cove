@@ -170,17 +170,32 @@ function readDerivedSpanOperandFilter(value: unknown): DerivedSpanOperandFilterV
     minConfidence?: unknown;
   };
 
+  const tagIds = normalizeIdArray(operand.tagIds);
+  const performerIds = normalizeIdArray(operand.performerIds);
+  const faceIds = normalizeIdArray(operand.faceIds);
+  const kind = typeof operand.kind === "string" && operand.kind.trim().length > 0 ? operand.kind.trim() : undefined;
   return {
     sourceKey:
       typeof operand.sourceKey === "string" && operand.sourceKey.trim().length > 0
         ? operand.sourceKey.trim()
         : undefined,
-    kind: typeof operand.kind === "string" && operand.kind.trim().length > 0 ? operand.kind.trim() : undefined,
-    tagIds: normalizeIdArray(operand.tagIds),
-    performerIds: normalizeIdArray(operand.performerIds),
-    faceIds: normalizeIdArray(operand.faceIds),
+    kind: kind ?? inferOperandKind(tagIds, performerIds, faceIds),
+    tagIds,
+    performerIds,
+    faceIds,
     minConfidence: normalizeFiniteNumber(operand.minConfidence),
   };
+}
+
+// The editor only shows an operand's tag, performer or face picker for that kind, so a stored operand that names
+// one kind of entity without saying so (an older or hand-written link) is read as that kind.
+function inferOperandKind(tagIds: number[], performerIds: number[], faceIds: number[]) {
+  const kinds = [
+    tagIds.length > 0 ? "tag" : null,
+    performerIds.length > 0 ? "performer" : null,
+    faceIds.length > 0 ? "face" : null,
+  ].filter((kind): kind is string => kind != null);
+  return kinds.length === 1 ? kinds[0] : undefined;
 }
 
 function isDerivedSpanOperandFilterActive(operand: DerivedSpanOperandFilterValue) {
@@ -219,7 +234,12 @@ function buildAppliedDerivedOperand(
 
   return {
     sourceKey: operand.sourceKey,
-    kind: operand.kind,
+    // Picked performers are matched through the face detections linked to them, which are stored as face
+    // segments; a performer operand with none picked still matches performer segments.
+    kind:
+      normalizeOperandSelectorKind(operand.kind) === "performer" && operand.performerIds.length > 0
+        ? "face"
+        : operand.kind,
     tagIds: operand.tagIds.length > 0 ? operand.tagIds : undefined,
     refIds: refIds.length > 0 ? refIds : undefined,
     minConfidence: operand.minConfidence,
