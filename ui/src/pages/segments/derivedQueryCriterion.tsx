@@ -7,7 +7,11 @@ import type { SegmentDerivedQueryDescriptor, SegmentSpanOperand, SegmentSpanOper
 import type { AppliedDerivedQuery, DerivedSpanOperandFilterValue, DerivedSpanQueryFilterValue } from "./types";
 import { compareNatural } from "../../utils/naturalCompare";
 
-export function createDerivedSpanCustomFilterSection(scopeVideoIds: number[]): FilterDialogCustomSection {
+export function createDerivedSpanCustomFilterSection(
+  scopeVideoIds: number[],
+  // Names the active query in words for the filter chip; without it the chip counts operands.
+  describeQuery?: (filter: DerivedSpanQueryFilterValue) => string | undefined,
+): FilterDialogCustomSection {
   return {
     id: "derivedSpanQuery",
     label: "Derived Segments",
@@ -15,7 +19,14 @@ export function createDerivedSpanCustomFilterSection(scopeVideoIds: number[]): F
     defaultValue: createDefaultDerivedSpanQueryFilter(),
     isActive: isDerivedSpanQueryFilterActive,
     shouldKeepDraft: () => true,
-    summarize: summarizeDerivedSpanQuery,
+    summarize: (value) => {
+      const filter = readDerivedSpanQueryFilter(value);
+      const activeOperands = filter.operands.filter(isDerivedSpanOperandFilterActive);
+      return (
+        (activeOperands.length > 0 ? describeQuery?.({ ...filter, operands: activeOperands }) : undefined) ??
+        summarizeDerivedSpanQuery(value)
+      );
+    },
     renderEditor: (value, onChange) => (
       <DerivedSpanQueryEditor
         value={readDerivedSpanQueryFilter(value)}

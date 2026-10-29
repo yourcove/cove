@@ -1,10 +1,11 @@
 import { type ReactNode } from "react";
-import type { ResolvedSpan, SegmentSpanReference } from "../../api/types";
+import type { ResolvedSpan, SegmentSpanOperator, SegmentSpanReference } from "../../api/types";
 import type { SegmentTileItem } from "../../components/EntityCards";
 import { SegmentPreviewMedia } from "../../components/SegmentPreviewMedia";
 import { formatDate } from "../../components/shared";
 import { faceStoredName } from "../../utils/faceDisplay";
 import { formatSegmentTime } from "../../utils/segmentTime";
+import { formatSourceKeyLabel } from "../../utils/sourceKeyLabel";
 import { formatOperatorLabel } from "./derivedQueryCriterion";
 import type { DerivedSpanItem, RawSegmentItem } from "./types";
 
@@ -54,8 +55,10 @@ export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string, referenc
 }
 
 // A span's tile shows its tag only for tag spans: other spans carry their segments' stored title in tagName,
-// which the reference replaces.
+// which the reference replaces. A derived-query span is named after its query, so its operator kind and
+// internal "derived" source say nothing more.
 export function buildSpanTileSegment(item: DerivedSpanItem, title: string): SegmentTileItem {
+  const derived = item.kind === "derivedQuery";
   return {
     id: item.coverSegmentId ?? item.span.segmentIds[0] ?? item.id,
     hostType: "video",
@@ -63,8 +66,8 @@ export function buildSpanTileSegment(item: DerivedSpanItem, title: string): Segm
     startSec: item.span.startSec,
     endSec: item.span.endSec,
     tagName: item.span.tagId != null ? item.span.tagName : undefined,
-    kind: item.span.kind,
-    sourceKey: item.span.sourceKey,
+    kind: derived ? undefined : item.span.kind,
+    sourceKey: derived ? undefined : item.span.sourceKey,
     title,
     updatedAt: item.coverVersion ?? item.videoUpdatedAt,
     hostTitle: item.videoTitle,
@@ -136,33 +139,70 @@ function lookupName(map: Map<number, string> | Record<number, string> | undefine
   return (map as Record<number, string>)[id];
 }
 
-export function formatDerivedOperandSummary(item: DerivedSpanItem, names?: DerivedOperandNameMaps) {
-  const descriptor = item.derivedQueryDescriptor;
-  if (!descriptor || descriptor.operands.length === 0) {
+interface DerivedQueryNameOperand {
+  sourceKey?: string;
+  kind?: string;
+  tagIds?: number[];
+  performerIds?: number[];
+  faceIds?: number[];
+  minConfidence?: number;
+}
+
+// Names a derived query in words, e.g. "Dancing or Singing", "Kissing with Alex", "Dancing without Alex". Every
+// span of an intersection or difference matches the whole expression; a union span matches at least one side.
+export function formatDerivedQueryName(
+  query: { operator: SegmentSpanOperator; operands: DerivedQueryNameOperand[] } | undefined,
+  names?: DerivedOperandNameMaps,
+) {
+  if (!query || query.operands.length === 0) {
     return undefined;
   }
 
-  const operands = descriptor.operands.map((operand, index) => {
-    const parts: string[] = [];
-    if (operand.sourceKey) parts.push(formatSourceLabel(operand.sourceKey));
-    if (operand.kind) parts.push(operand.kind);
-    if (operand.tagIds?.length) {
-      const named = operand.tagIds.map((id) => lookupName(names?.tagNamesById, id) ?? `#${id}`);
-      parts.push(named.join(", "));
-    }
-    if (operand.performerIds?.length) {
-      const named = operand.performerIds.map((id) => lookupName(names?.performerNamesById, id) ?? `#${id}`);
-      parts.push(named.join(", "));
-    }
-    if (operand.faceIds?.length) {
-      const named = operand.faceIds.map((id) => lookupName(names?.faceLabelsById, id) ?? `Face #${id}`);
-      parts.push(named.join(", "));
-    }
-    if (operand.minConfidence != null) parts.push(`${Math.round(operand.minConfidence * 100)}%+ confidence`);
-    return parts.length > 0 ? parts.join(" + ") : `Operand ${index + 1}`;
-  });
+  const [first, ...rest] = query.operands.map((operand) => formatDerivedOperandName(operand, names));
+  const name =
+    rest.length === 0
+      ? first
+      : query.operator === "union"
+        ? [first, ...rest].join(" or ")
+        : query.operator === "intersection"
+          ? `${first} with ${joinWords(rest, "and")}`
+          : `${first} without ${joinWords(rest, "or")}`;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
-  return `${formatOperatorLabel(descriptor.operator)} of ${operands.join(" / ")}`;
+// True once every tag, performer and face the query names has loaded, so a caller can wait rather than show ids.
+export function hasDerivedQueryNames(operands: DerivedQueryNameOperand[], names?: DerivedOperandNameMaps) {
+  return operands.every(
+    (operand) =>
+      (operand.tagIds ?? []).every((id) => lookupName(names?.tagNamesById, id) != null) &&
+      (operand.performerIds ?? []).every((id) => lookupName(names?.performerNamesById, id) != null) &&
+      (operand.faceIds ?? []).every((id) => lookupName(names?.faceLabelsById, id) != null),
+  );
+}
+
+// The tags, performers or faces an operand names already say what kind of segment they are, so the kind is
+// only spelled out for an operand without names.
+function formatDerivedOperandName(operand: DerivedQueryNameOperand, names?: DerivedOperandNameMaps) {
+  const named = [
+    ...(operand.tagIds ?? []).map((id) => lookupName(names?.tagNamesById, id) ?? `Tag #${id}`),
+    ...(operand.performerIds ?? []).map((id) => lookupName(names?.performerNamesById, id) ?? `Performer #${id}`),
+    ...(operand.faceIds ?? []).map((id) => lookupName(names?.faceLabelsById, id) ?? `Face #${id}`),
+  ];
+  const qualifiers = [
+    operand.sourceKey ? formatSourceKeyLabel(operand.sourceKey) : null,
+    operand.minConfidence != null ? `${Math.round(operand.minConfidence * 100)}%+` : null,
+  ].filter((qualifier): qualifier is string => !!qualifier);
+
+  // An operand matches any of its tags, performers or faces.
+  const subject =
+    named.length > 1
+      ? `(${named.join(" or ")})`
+      : (named[0] ?? (operand.kind ? `any ${operand.kind.toLowerCase()}` : null) ?? "any segment");
+  return qualifiers.length > 0 ? `${subject} (${qualifiers.join(", ")})` : subject;
+}
+
+function joinWords(words: string[], conjunction: "and" | "or") {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} ${conjunction} ${words.at(-1)}`;
 }
 
 export function formatSegmentRange(startSec: number, endSec?: number) {

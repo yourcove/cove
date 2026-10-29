@@ -3,7 +3,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedSpan } from "../api/types";
 import { SegmentTile, type SegmentTileItem } from "../components/EntityCards";
-import { buildSpanTileSegment, buildSpanTitle } from "../pages/segments/segmentDisplayUtils";
+import {
+  buildSpanTileSegment,
+  buildSpanTitle,
+  formatDerivedQueryName,
+  hasDerivedQueryNames,
+} from "../pages/segments/segmentDisplayUtils";
 import type { DerivedSpanItem } from "../pages/segments/types";
 
 vi.mock("../components/Rating", () => ({
@@ -179,5 +184,122 @@ describe("SegmentTile", () => {
 
     expect(screen.getByText("Host Video")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Host Video/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("formatDerivedQueryName", () => {
+  const names = {
+    tagNamesById: new Map([
+      [1, "Dancing"],
+      [2, "Singing"],
+      [3, "Kissing"],
+    ]),
+    performerNamesById: new Map([[9, "Alex"]]),
+  };
+
+  it("names each operator in words", () => {
+    expect(formatDerivedQueryName({ operator: "union", operands: [{ tagIds: [1] }, { tagIds: [2] }] }, names)).toBe(
+      "Dancing or Singing",
+    );
+    expect(
+      formatDerivedQueryName({ operator: "intersection", operands: [{ tagIds: [3] }, { performerIds: [9] }] }, names),
+    ).toBe("Kissing with Alex");
+    expect(
+      formatDerivedQueryName({ operator: "difference", operands: [{ tagIds: [1] }, { performerIds: [9] }] }, names),
+    ).toBe("Dancing without Alex");
+  });
+
+  it("lists further operands and groups an operand's alternatives", () => {
+    expect(
+      formatDerivedQueryName(
+        { operator: "intersection", operands: [{ tagIds: [3] }, { performerIds: [9] }, { tagIds: [1, 2] }] },
+        names,
+      ),
+    ).toBe("Kissing with Alex and (Dancing or Singing)");
+  });
+
+  it("qualifies an operand by source and confidence, and names a kind-only operand", () => {
+    expect(
+      formatDerivedQueryName(
+        {
+          operator: "difference",
+          operands: [{ tagIds: [1], sourceKey: "ext:ai.tagging", minConfidence: 0.8 }, { kind: "face" }],
+        },
+        names,
+      ),
+    ).toBe("Dancing (AI Tagging, 80%+) without any face");
+  });
+
+  it("leaves out the kind the editor sets alongside the names", () => {
+    expect(
+      formatDerivedQueryName(
+        {
+          operator: "union",
+          operands: [
+            { kind: "tag", tagIds: [1] },
+            { kind: "tag", tagIds: [2] },
+          ],
+        },
+        names,
+      ),
+    ).toBe("Dancing or Singing");
+    expect(
+      formatDerivedQueryName(
+        {
+          operator: "intersection",
+          operands: [
+            { kind: "tag", tagIds: [3] },
+            { kind: "performer", performerIds: [9] },
+          ],
+        },
+        names,
+      ),
+    ).toBe("Kissing with Alex");
+  });
+
+  it("joins three operands and names a single or missing one", () => {
+    const three = [{ tagIds: [1] }, { tagIds: [2] }, { tagIds: [3] }];
+    expect(formatDerivedQueryName({ operator: "union", operands: three }, names)).toBe("Dancing or Singing or Kissing");
+    expect(formatDerivedQueryName({ operator: "difference", operands: three }, names)).toBe(
+      "Dancing without Singing or Kissing",
+    );
+    expect(formatDerivedQueryName({ operator: "difference", operands: [{ tagIds: [1] }] }, names)).toBe("Dancing");
+    expect(formatDerivedQueryName({ operator: "union", operands: [] }, names)).toBeUndefined();
+    expect(formatDerivedQueryName({ operator: "union", operands: [{ sourceKey: "user" }, { kind: "face" }] })).toBe(
+      "Any segment (User) or any face",
+    );
+  });
+
+  it("reports whether every named operand has loaded", () => {
+    expect(hasDerivedQueryNames([{ tagIds: [1] }, { performerIds: [9] }], names)).toBe(true);
+    expect(hasDerivedQueryNames([{ tagIds: [1] }, { tagIds: [7] }], names)).toBe(false);
+    expect(hasDerivedQueryNames([{ kind: "face" }], undefined)).toBe(true);
+  });
+
+  it("falls back to ids before names load", () => {
+    expect(formatDerivedQueryName({ operator: "union", operands: [{ tagIds: [7] }, { faceIds: [4] }] })).toBe(
+      "Tag #7 or Face #4",
+    );
+  });
+});
+
+describe("derived span tiles", () => {
+  it("are named after their query without an operator label or the derived source", () => {
+    const item = {
+      ...buildSpanItem({ kind: "union", sourceKey: "derived", segmentIds: [3, 4] }),
+      kind: "derivedQuery" as const,
+      derivedQueryDescriptor: { operator: "union" as const, operands: [{ tagIds: [1] }, { tagIds: [2] }] },
+    };
+    const title = formatDerivedQueryName(item.derivedQueryDescriptor, {
+      tagNamesById: new Map([
+        [1, "Dancing"],
+        [2, "Singing"],
+      ]),
+    })!;
+    const { container } = renderTile(buildSpanTileSegment(item, title));
+
+    expect(screen.getByText("Dancing or Singing")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/union/i);
+    expect(container).not.toHaveTextContent("derived");
   });
 });

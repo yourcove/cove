@@ -34,7 +34,8 @@ import {
   readBoolCriterion,
   createSegmentCriteria,
 } from "./segments/segmentCriteriaDefinitions";
-import { buildSpanTitle } from "./segments/segmentDisplayUtils";
+import { buildSpanTitle, formatDerivedQueryName, hasDerivedQueryNames } from "./segments/segmentDisplayUtils";
+import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
 import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
 import { buildSegmentFilteredQuery, useRawSegmentsQuery } from "./segments/useRawSegmentsQuery";
@@ -173,6 +174,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     () => readDerivedSpanQueryFilter(objectFilter.derivedSpanQuery),
     [objectFilter.derivedSpanQuery],
   );
+  const derivedOperandNameMaps = useDerivedOperandNameMaps(derivedSpanQueryFilter.operands);
   const rawSegmentFilter = useMemo(
     () => readRawSegmentFilter(objectFilter.rawSegmentFilters),
     [objectFilter.rawSegmentFilters],
@@ -935,8 +937,18 @@ export function SegmentsPage({ onNavigate }: Props) {
   });
 
   const customFilterSections = useMemo(
-    () => (isRawView ? [] : [createDerivedSpanCustomFilterSection(videoSelection.includeIds)]),
-    [isRawView, videoSelection.includeIds],
+    () =>
+      isRawView
+        ? []
+        : [
+            // Operands added in the dialog have no names loaded yet; those keep the operand count until applied.
+            createDerivedSpanCustomFilterSection(videoSelection.includeIds, (filter) =>
+              hasDerivedQueryNames(filter.operands, derivedOperandNameMaps)
+                ? formatDerivedQueryName(filter, derivedOperandNameMaps)
+                : undefined,
+            ),
+          ],
+    [derivedOperandNameMaps, isRawView, videoSelection.includeIds],
   );
 
   // useMultiSelect clears the selected ids itself when selectionResetKey changes; the all-matching
