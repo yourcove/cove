@@ -1591,6 +1591,8 @@ export function SettingsPage() {
     nextDraft.ui.feedVideoStartPercent = Math.min(95, Math.max(0, nextDraft.ui.feedVideoStartPercent ?? 0));
     nextDraft.ui.feedVideoStartMinDuration = Math.max(0, nextDraft.ui.feedVideoStartMinDuration ?? 0);
 
+    // A draft rebuilt from server config (for example after an extension install) has nothing new to save.
+    initializedRef.current = false;
     setDraft(nextDraft);
   }, [config]);
 
@@ -1897,7 +1899,7 @@ export function SettingsPage() {
   const { mutate: saveConfig } = saveMutation;
   useEffect(() => {
     if (!draftState || !canWriteSystemSettings) return;
-    // Skip the first render when draft is initialized from config
+    // Skip renders where the draft was (re)initialized from config
     if (!initializedRef.current) {
       initializedRef.current = true;
       return;
@@ -8038,6 +8040,7 @@ export function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
 
       // Pull the freshened manifest so a newly installed extension's setup guide becomes
       // available, then offer it as a CTA rather than opening the manual automatically.
@@ -8802,6 +8805,7 @@ export function FindAndInstallExtensions() {
       queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
 
       // Pull the freshened manifest so a newly installed extension's setup guide becomes
       // available, then offer it as a CTA rather than opening the manual automatically. The
@@ -8836,6 +8840,7 @@ export function FindAndInstallExtensions() {
       queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
 
       const installedId = data?.extensionId;
       if (installedId) {
@@ -8867,6 +8872,7 @@ export function FindAndInstallExtensions() {
       queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
 
       const installedId = data?.extensionId;
       if (installedId) {

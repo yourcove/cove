@@ -6,6 +6,7 @@ using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
+using Cove.Sdk;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,7 @@ public sealed class ExtensionZipInstallTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"cove-zip-install-{Guid.NewGuid():N}");
     private readonly IServiceProvider _services = new ServiceCollection().BuildServiceProvider();
+    private readonly CoveConfiguration _configuration = new();
 
     [Fact]
     public async Task Uploaded_zip_installs_initializes_records_source_and_cleans_temporary_files()
@@ -91,6 +93,99 @@ public sealed class ExtensionZipInstallTests : IDisposable
         Assert.Empty(Directory.GetDirectories(ExtensionsDir(), ".url-install-*"));
     }
 
+    [Fact]
+    public async Task Installing_an_extension_without_navigation_pages_leaves_the_menu_unchanged()
+    {
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, _) = CreateController();
+        var archive = CreateZip(("extension.json", Manifest("com.example.no-pages", "1.0.0")));
+
+        Assert.IsType<OkObjectResult>(await controller.InstallFromZip(FormFile(archive), true, TestContext.Current.CancellationToken));
+
+        Assert.Equal(["videos", "images"], _configuration.Interface.MenuItems);
+        Assert.False(File.Exists(ConfigPath()));
+    }
+
+    [Fact]
+    public async Task Newly_installed_extension_navigation_pages_are_shown()
+    {
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, manager) = CreateController();
+        var before = controller.TakeNavigationSnapshot(["com.example.nav"]);
+        manager.Register(new NavigationPageExtension("com.example.nav", "nav-page"));
+        manager.Register(new NavigationPageExtension("com.example.other", "other-page"));
+
+        await controller.ShowNewNavigationPagesAsync(before);
+
+        Assert.NotNull(before);
+        Assert.Empty(before.Routes);
+        Assert.Equal(["videos", "images", "nav-page"], _configuration.Interface.MenuItems);
+    }
+
+    [Fact]
+    public async Task Update_shows_only_navigation_pages_the_extension_did_not_have_before()
+    {
+        // The user hid "nav-page"; the update adds "added-page".
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, manager) = CreateController();
+        manager.Register(new NavigationPageExtension("com.example.nav", "nav-page", "added-page"));
+        var before = new ExtensionsController.NavigationSnapshot(
+            new HashSet<string>(["com.example.nav"]),
+            new HashSet<string>(["nav-page"]));
+
+        await controller.ShowNewNavigationPagesAsync(before);
+
+        Assert.Equal(["videos", "images", "added-page"], _configuration.Interface.MenuItems);
+    }
+
+    [Fact]
+    public async Task Reinstall_keeps_a_hidden_navigation_page_hidden()
+    {
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, manager) = CreateController();
+        manager.Register(new NavigationPageExtension("com.example.nav", "nav-page"));
+        var before = controller.TakeNavigationSnapshot(["com.example.nav"]);
+
+        await controller.ShowNewNavigationPagesAsync(before);
+
+        Assert.NotNull(before);
+        Assert.Equal(["nav-page"], before.Routes);
+        Assert.Equal(["videos", "images"], _configuration.Interface.MenuItems);
+        Assert.False(File.Exists(ConfigPath()));
+    }
+
+    [Fact]
+    public async Task Disabled_extension_navigation_pages_are_left_alone()
+    {
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, manager) = CreateController();
+        manager.Register(new NavigationPageExtension("com.example.nav", "nav-page"));
+        await manager.DisableExtensionAsync("com.example.nav", TestContext.Current.CancellationToken);
+        var before = controller.TakeNavigationSnapshot(["com.example.nav"]);
+        // Replacing the extension forgets that it was disabled, so it comes back with its pages.
+        await manager.EnableExtensionAsync("com.example.nav", TestContext.Current.CancellationToken);
+
+        await controller.ShowNewNavigationPagesAsync(before);
+
+        Assert.NotNull(before);
+        Assert.Empty(before.ExtensionIds);
+        Assert.Equal(["videos", "images"], _configuration.Interface.MenuItems);
+    }
+
+    [Fact]
+    public async Task Excluded_extensions_do_not_get_navigation_pages()
+    {
+        _configuration.Interface.MenuItems = ["videos", "images"];
+        var (controller, manager) = CreateController();
+        var before = controller.TakeNavigationSnapshot(["com.example.dependency", "com.example.failed"]);
+        manager.Register(new NavigationPageExtension("com.example.dependency", "dependency-page"));
+        manager.Register(new NavigationPageExtension("com.example.failed", "failed-page"));
+
+        await controller.ShowNewNavigationPagesAsync(before, "com.example.failed");
+
+        Assert.Equal(["videos", "images", "dependency-page"], _configuration.Interface.MenuItems);
+    }
+
     public static IEnumerable<object[]> InvalidPackages()
     {
         yield return [Encoding.UTF8.GetBytes("not a zip"), "central directory"];
@@ -114,7 +209,9 @@ public sealed class ExtensionZipInstallTests : IDisposable
         var factory = new BytesHttpClientFactory(responseBytes ?? []);
         var controller = new ExtensionsController(
             manager,
-            new ScraperService(new CoveConfiguration(), NullLogger<ScraperService>.Instance, factory, manager))
+            new ScraperService(new CoveConfiguration(), NullLogger<ScraperService>.Instance, factory, manager),
+            new ConfigService(_configuration, NullLogger<ConfigService>.Instance, ConfigPath()),
+            NullLogger<ExtensionsController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -125,6 +222,8 @@ public sealed class ExtensionZipInstallTests : IDisposable
     }
 
     private string ExtensionsDir() => Path.Combine(_root, "extensions");
+
+    private string ConfigPath() => Path.Combine(_root, "data", "cove-config.json");
 
     private static IFormFile FormFile(byte[] bytes) =>
         new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", "ignored-client-name.zip");
@@ -159,6 +258,22 @@ public sealed class ExtensionZipInstallTests : IDisposable
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
         (_services as IDisposable)?.Dispose();
+    }
+
+    private sealed class NavigationPageExtension(string id, params string[] navRoutes) : CoveExtensionBase
+    {
+        public override string Id => id;
+        public override string Name => id;
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest()
+        {
+            var builder = ManifestBuilder()
+                .AddPage(new UIPageDefinition($"{id}-detail", "Detail", ShowInNav: false));
+            foreach (var route in navRoutes)
+                builder.AddPage(new UIPageDefinition(route, route));
+            return builder.Build();
+        }
     }
 
     private sealed class BytesHttpClientFactory(byte[] bytes) : IHttpClientFactory
