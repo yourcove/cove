@@ -55,7 +55,14 @@ public class FingerprintService(
 
         try
         {
-            await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+            // Hashing reads every byte, so a library-wide run is bounded by sequential read speed.
+            // Measured against spinning disks: the 80 KB default sustains ~170 MB/s, a 1 MB buffer
+            // ~199 MB/s, and 1 MB with SequentialScan readahead ~230 MB/s. 4 MB measured no better.
+            await using var stream = FileReadRace.TryOpenRead(
+                path,
+                bufferSize: 1024 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan,
+                pathWasObserved: true);
             if (stream == null)
                 return null;
 
