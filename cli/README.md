@@ -86,6 +86,48 @@ cove-cli groups items remove 42 103
 
 New items go at the end unless `--first` or `--to-position` is given. Every ID is checked before anything is added or removed, so an unknown ID leaves the group unchanged. Removing an item keeps the record itself in the library.
 
+Register files that are already on the server as videos, then fill in their metadata and cover:
+
+```sh
+cove-cli videos import-file /media/videos/incoming/example.mp4 --json
+cove-cli library update videos 42 --data '{"title":"Example","date":"2026-07-01"}'
+cove-cli library image videos 42 --file cover.jpg
+cove-cli library image performers 17 --file portrait.webp
+```
+
+`import-file` sends each path to Cove as given, so use the absolute path the server sees, which may differ from yours when Cove runs in a container. Importing a file Cove already knows returns its existing video. Several paths are imported in order and the first failure stops the run; in `--json` output the error's `details.imported` lists the paths and video IDs already imported. `library image` accepts JPEG, PNG, GIF, WebP, AVIF, and BMP files for videos, performers, studios, tags, galleries, audios, and texts.
+
+To pick up a whole folder instead, scan just that folder and wait for the job:
+
+```sh
+job=$(cove-cli maintenance scan --path /media/videos/incoming --json | jq -r .jobId)
+cove-cli jobs wait "$job"
+```
+
+Each `--path` must be an absolute server path inside a configured library path; Cove skips any other path without reporting an error, so a mistyped path yields a scan that finds nothing. A scan needs the `library.scan` permission; `import-file` needs only `videos.write`.
+
+Find records by the ID a metadata server such as StashDB gives them:
+
+```sh
+cove-cli performers list --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json
+cove-cli studios show --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json
+cove-cli videos show --remote-id https://stashdb.org/graphql=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13
+cove-cli tags list --remote-id 3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13
+```
+
+`--remote-id` works on `videos`, `performers`, `studios`, and `tags`, in both `list` and `show`. The endpoint is the metadata server's GraphQL URL; a bare host such as `stashdb.org` stands for `https://stashdb.org/graphql`, and leaving out `endpoint=` matches the ID on any endpoint. `list` returns every match, including none. `show` fails with `PERFORMER_NOT_FOUND` (or `VIDEO_`, `STUDIO_`, `TAG_`) when nothing matches and `PERFORMER_AMBIGUOUS` with up to 10 candidate IDs when several records share the ID.
+
+For endpoints without a dedicated command, `api` sends authenticated requests under `/api`:
+
+```sh
+cove-cli api get videos/42
+cove-cli api put videos/42 --data '{"organized":true}'
+cove-cli api post studios/9/image --file logo.png
+cove-cli api delete videos/42/image --yes
+```
+
+`--file` sends a multipart upload in the `file` form field; use `--field` to name another field.
+
 Authenticate interactively with a Cove server:
 
 ```sh

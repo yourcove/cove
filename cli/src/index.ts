@@ -19,6 +19,8 @@ import type { CatalogEntityKind, RenderContext } from "./output";
 import { resolveResultWindow } from "./pagination";
 import type { ResultWindowOptions } from "./pagination";
 import { addVideoIdsToFilter, defaultSavedFilter, listSavedFilters, queryForSavedFilter, removeVideoIdsFromFilter, resolveSavedFilter, savedFilterSummary } from "./saved-filters";
+import { parseRemoteId, remoteIdObjectFilter, resolveByRemoteId } from "./remote-ids";
+import type { RemoteIdReference, RemoteIdResource } from "./remote-ids";
 import { isSegmentRecord, listSegments } from "./segments";
 import { heldPermissions, parseScope, SCOPE_PRESET_NAMES, SCOPE_PRESETS, unheldScope } from "./tokens";
 import type { ScopeSelection } from "./tokens";
@@ -28,6 +30,7 @@ import { cleanInline, configureCliHelp, DEFAULT_ACCENT, terminalColorsEnabled, t
 import type { UiColor } from "./ui";
 import { resolvePerformer, resolveTag, videosForCriteria } from "./videos";
 import { assertTagGroup, listTagGroups, resolveTagGroup, tagGroupColor } from "./tag-groups";
+import { assertImageResource, assertServerPaths, fileForm, importVideoFiles, isServerAbsolutePath, uploadImage } from "./uploads";
 
 type OutputFormat = "human" | "json" | "jsonl";
 type HyperlinkMode = "auto" | "always" | "never";
@@ -45,7 +48,7 @@ const BUILT_IN_LIST_SORTS: Partial<Record<FilterByResource, { key: string; direc
 };
 
 interface GlobalOptions { profile?: string; server?: string; json?: boolean; output?: OutputFormat; color?: boolean; hyperlinks?: HyperlinkMode }
-interface CatalogListOptions extends ResultWindowOptions { query?: string; filter?: string; filterBy: string[]; savedFilter?: string; defaultFilter?: boolean; sortBy: Array<{ key: string; direction: "asc" | "desc" }>; tag?: string[]; excludeTag?: string[]; performer?: string[]; excludePerformer?: string[] }
+interface CatalogListOptions extends ResultWindowOptions { query?: string; filter?: string; filterBy: string[]; savedFilter?: string; defaultFilter?: boolean; sortBy: Array<{ key: string; direction: "asc" | "desc" }>; tag?: string[]; excludeTag?: string[]; performer?: string[]; excludePerformer?: string[]; remoteId?: RemoteIdReference }
 interface TagFilterOptions extends CatalogListOptions { tag: string[]; excludeTag: string[] }
 interface EntityFilterOptions extends CatalogListOptions { tag: string[]; excludeTag: string[]; performer: string[]; excludePerformer: string[] }
 interface SimilarOptions { by: "visual" | "audio"; type?: "videos" | "images"; limit: number }
@@ -129,10 +132,10 @@ function clientFor(store: ConfigStore, options: GlobalOptions): Promise<{ client
   });
 }
 
-async function startMaintenanceJob(store: ConfigStore, command: Command, path: string, label: string): Promise<void> {
+async function startMaintenanceJob(store: ConfigStore, command: Command, path: string, label: string, body?: unknown): Promise<void> {
   const options = globals(command);
   const { client } = await clientFor(store, options);
-  const result = await client.post<unknown>(path);
+  const result = await client.post<unknown>(path, body);
   print(result, options, () => renderMutation(label, result));
 }
 
@@ -179,6 +182,14 @@ function collect(value: string, previous: string[]): string[] {
 function queryPair(value: string, previous: string[]): string[] {
   if (!value.includes("=")) throw new CliError("INVALID_ARGUMENT", "--param must use name=value.");
   return [...previous, value];
+}
+
+function apiPathWithParams(path: string, params: string[]): string {
+  const query = new URLSearchParams(params.map(pair => {
+    const split = pair.indexOf("=");
+    return [pair.slice(0, split), pair.slice(split + 1)];
+  }));
+  return `${path}${query.size ? `${path.includes("?") ? "&" : "?"}${query}` : ""}`;
 }
 
 function positiveInteger(option: string, maximum?: number): (value: string) => number {
@@ -498,7 +509,7 @@ function listObjectFilter(options: Pick<CatalogListOptions, "filter" | "filterBy
 async function queryOptionsForList(client: CoveClient, options: CatalogListOptions, resource: FilterByResource, volume: ResultWindowOptions, describeFilters = false, relationFilter: Record<string, unknown> = {}): Promise<ListQueryOptions> {
   const explicitObjectFilter = mergeObjectFilters(listObjectFilter(options, resource), relationFilter);
   const explicitRandomSeed = options.sortBy[0]?.key.toLowerCase() === "random" ? randomInt(1, 2_147_483_647) : undefined;
-  const hasRelationFilter = [options.tag, options.excludeTag, options.performer, options.excludePerformer].some(values => values?.length);
+  const hasRelationFilter = [options.tag, options.excludeTag, options.performer, options.excludePerformer].some(values => values?.length) || options.remoteId !== undefined;
   const hasExplicitState = !!options.query || !!options.filter || !!options.filterBy.length || options.sortBy.length > 0 || hasRelationFilter;
   const savedFilter = options.savedFilter
     ? await resolveSavedFilter(client, options.savedFilter, resource)
@@ -687,6 +698,24 @@ function withTagFilterOptions(command: Command, resource: "performers" | "studio
     .option("--query <text>", "search records")
     .option("--tag <id-or-name>", "require tag ID, exact name, or exact alias (repeatable)", collect, [])
     .option("--exclude-tag <id-or-name>", "exclude tag ID, exact name, or exact alias (repeatable)", collect, []), resource);
+}
+
+function singleRemoteId(value: string, previous?: RemoteIdReference): RemoteIdReference {
+  if (previous !== undefined) throw new CliError("INVALID_ARGUMENT", "--remote-id may only be specified once.");
+  return parseRemoteId(value);
+}
+
+function withRemoteIdOption(command: Command): Command {
+  return command.option("--remote-id <endpoint=id>", "match a remote ID as endpoint=id, or a bare id on any endpoint; a bare host such as stashdb.org means https://<host>/graphql", singleRemoteId);
+}
+
+/** A show command takes its positional reference or --remote-id, exactly one of them. */
+function requireOneShowTarget(reference: string | undefined, remoteId: RemoteIdReference | undefined, noun: string): void {
+  if ((reference === undefined) === (remoteId === undefined)) throw new CliError("INVALID_ARGUMENT", `Pass exactly one of ${noun} or --remote-id.`);
+}
+
+async function showTarget<T>(client: CoveClient, resource: RemoteIdResource, reference: string | undefined, remoteId: RemoteIdReference | undefined, validate: (value: unknown) => value is T, byReference: (reference: string) => Promise<T>): Promise<T> {
+  return remoteId ? resolveByRemoteId(client, resource, remoteId, validate) : byReference(reference!);
 }
 
 async function resolveTagCriteria(client: CoveClient, options: TagFilterOptions) {
@@ -1115,6 +1144,19 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const result = await client.post<unknown>(`${resource}/bulk`, body);
       print(result, global, () => renderMutation(`${mode} tags for ${resource}`, result));
     });
+  withExamples(library.command("image <resource> <id>").description("Upload a record's cover or profile image").requiredOption("--file <path>", "local JPEG, PNG, GIF, WebP, AVIF, or BMP file"), [
+    "cove-cli library image videos 42 --file cover.jpg",
+    "cove-cli library image performers 17 --file portrait.webp --json",
+  ]).action(async (resourceValue: string, reference: string, options: { file: string }, command: Command) => {
+      const global = globals(command);
+      const resource = mutableResource(resourceValue);
+      const id = entityId(reference);
+      assertImageResource(resource);
+      const upload = await fileForm(options.file, "file", true);
+      const { client } = await clientFor(store, global);
+      const result = await uploadImage(client, resource, id, upload, options.file);
+      print(result, global, () => `Uploaded ${options.file} as the image for ${resource} ${id}`);
+    });
   library.command("favorite <resource> <id>").description("Set an entity's favorite state").requiredOption("--value <boolean>", "true or false")
     .action(async (resourceValue: string, reference: string, options: { value: string }, command: Command) => {
       const global = globals(command);
@@ -1182,8 +1224,17 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
   });
 
   const maintenance = program.command("maintenance").description("Run library maintenance operations").helpGroup("Manage:");
-  maintenance.command("scan").description("Start a library scan").option("--generate-previews", "generate previews during the scan")
-    .action(async (options: { generatePreviews?: boolean }, command: Command) => startMaintenanceJob(store, command, `jobs/scan?generatePreviews=${options.generatePreviews === true}`, "Started scan"));
+  withExamples(maintenance.command("scan").description("Start a library scan, optionally limited to some library folders").option("--generate-previews", "generate previews during the scan")
+    .option("--path <path>", "scan only this server-side folder or file inside a library path (repeatable)", collect, []), [
+    "cove-cli maintenance scan",
+    "cove-cli maintenance scan --path /media/videos/incoming --path /media/videos/new --json",
+  ]).action(async (options: { generatePreviews?: boolean; path: string[] }, command: Command) => {
+      if (!options.path.length) return startMaintenanceJob(store, command, `jobs/scan?generatePreviews=${options.generatePreviews === true}`, "Started scan");
+      // Cove skips paths outside its library without an error, so at least catch relative ones here.
+      const relative = options.path.find(path => !isServerAbsolutePath(path));
+      if (relative !== undefined) throw new CliError("INVALID_ARGUMENT", `--path “${relative}” is not an absolute path. Give the path as the Cove server sees it.`);
+      return startMaintenanceJob(store, command, "metadata/scan", "Started scan", { paths: options.path, scanGeneratePreviews: options.generatePreviews === true });
+    });
   maintenance.command("generate <kind>").description("Generate thumbnails, video phashes, or image phashes")
     .action(async (kind: string, _options, command: Command) => {
       const paths: Record<string, string> = { thumbnails: "generate-thumbnails", "video-phashes": "generate-video-phashes", "image-phashes": "generate-image-phashes" };
@@ -1279,22 +1330,48 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
         print(result, global, () => renderGeneric(family.label, result));
       });
   }
-  const api = program.command("api").description("Inspect newer or extension REST resources").helpGroup("Help:");
+  const api = program.command("api").description("Call newer or extension REST resources").helpGroup("Help:");
   api.command("get <path>").description("Make an authenticated GET request under /api").option("--param <name=value>", "append a query parameter (repeatable)", queryPair, [])
     .action(async (path: string, options: { param: string[] }, command: Command) => {
       const global = globals(command);
       const { client } = await clientFor(store, global);
-      const query = new URLSearchParams(options.param.map(pair => {
-        const split = pair.indexOf("=");
-        return [pair.slice(0, split), pair.slice(split + 1)];
-      }));
-      const result = await client.get<unknown>(`${path}${query.size ? `${path.includes("?") ? "&" : "?"}${query}` : ""}`);
+      const result = await client.get<unknown>(apiPathWithParams(path, options.param));
       print(result, global, () => renderGeneric("API response", result), genericRecords(result));
     });
+  for (const method of ["post", "put", "delete"] as const) {
+    let mutation = api.command(`${method} <path>`).description(`Make an authenticated ${method.toUpperCase()} request under /api`)
+      .option("--param <name=value>", "append a query parameter (repeatable)", queryPair, [])
+      .option("--data <json>", "JSON request body")
+      .option("--file <path>", "send a local file as multipart form data instead of JSON")
+      .option("--field <name>", "form field name for --file", "file");
+    if (method === "delete") mutation = mutation.requiredOption("--yes", "confirm the request");
+    const examples = {
+      post: ["cove-cli api post videos/42/image --file cover.jpg", "cove-cli api post metadata/scan --data '{\"paths\":[\"/media/videos/incoming\"]}' --json"],
+      put: ["cove-cli api put videos/42 --data '{\"organized\":true}'"],
+      delete: ["cove-cli api delete videos/42/image --yes"],
+    };
+    withExamples(mutation, examples[method]).action(async (path: string, options: { param: string[]; data?: string; file?: string; field: string }, command: Command) => {
+      const global = globals(command);
+      if (options.data !== undefined && options.file !== undefined) throw new CliError("INVALID_ARGUMENT", "Pass --data or --file, not both.");
+      let body: string | FormData | undefined;
+      if (options.data !== undefined) {
+        try {
+          body = JSON.stringify(JSON.parse(options.data));
+        } catch {
+          throw new CliError("INVALID_ARGUMENT", "--data must be valid JSON.");
+        }
+      }
+      if (options.file !== undefined) body = (await fileForm(options.file, options.field)).form;
+      const { client } = await clientFor(store, global);
+      const result = await client.request<unknown>(apiPathWithParams(path, options.param), { method: method.toUpperCase(), body });
+      print(result ?? null, global, () => result === undefined ? "Done" : renderGeneric("API response", result), genericRecords(result));
+    });
+  }
 
   const videoCommands = program.command("videos").description("Browse Cove videos").helpGroup("Explore:");
-  const videoList = withEntityFilterOptions(videoCommands.command("list").description("List videos matching filters"), "videos");
+  const videoList = withRemoteIdOption(withEntityFilterOptions(videoCommands.command("list").description("List videos matching filters"), "videos"));
   withExamples(videoList, [
+    "cove-cli videos list --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
     "cove-cli videos list --performer 42 --profile personal",
     "cove-cli videos list --tag \"Featured\" --tag \"Favorite\" --performer \"Example Performer\"",
     "cove-cli videos list --saved-filter \"Recently Added\" --filter-by 'title:excludes=[cyoa]'",
@@ -1310,23 +1387,39 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const volume = resultVolume(options);
       const { client } = await clientFor(store, global);
       const criteria = await resolveEntityCriteria(client, options);
-      const queryOptions = await queryOptionsForList(client, options, "videos", volume, outputFormat(global) === "human", relationObjectFilter(criteria));
+      const queryOptions = await queryOptionsForList(client, options, "videos", volume, outputFormat(global) === "human", { ...relationObjectFilter(criteria), ...remoteIdObjectFilter(options.remoteId) });
       const result = await videosForCriteria(client, criteria, queryOptions);
       print({ videos: result.items, totalCount: result.totalCount }, global, () => renderVideoResults("Videos", result.items, renderFor(global, listRenderContext(client.server, result.totalCount, options, 25, queryOptions.defaultFilterApplied, queryOptions.appliedFilterSummary))), result.items);
   });
 
-  withExamples(videoCommands.command("show <id>").description("Show one video by ID"), [
+  withExamples(withRemoteIdOption(videoCommands.command("show [id]").description("Show one video by ID or remote ID")), [
     "cove-cli videos show 42 --profile personal",
     "cove-cli videos show 42 --profile personal --json",
-  ]).action(async (reference: string, _options, command: Command) => {
+    "cove-cli videos show --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
+  ]).action(async (reference: string | undefined, options: { remoteId?: RemoteIdReference }, command: Command) => {
     const global = globals(command);
-    const id = entityId(reference);
+    requireOneShowTarget(reference, options.remoteId, "an ID");
+    const id = reference === undefined ? undefined : entityId(reference);
     const { client } = await clientFor(store, global);
-    const video = await client.get<Video>(`videos/${id}`);
-    if (!isVideoRecord(video)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid video object.");
+    const video = await showTarget(client, "videos", reference, options.remoteId, isVideoRecord, async () => {
+      const item = await client.get<unknown>(`videos/${id}`);
+      if (!isVideoRecord(item)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid video object.");
+      return item;
+    });
     const metadataServers = outputFormat(global) === "human" && hasRemoteIds(video.remoteIds) ? await metadataServersFor(client) : [];
     print(video, global, () => renderVideo(video, renderFor(global, { server: client.server, metadataServers })));
   });
+  withExamples(videoCommands.command("import-file <path...>").description("Register server-side video files as videos, in order, and print them"), [
+    "cove-cli videos import-file /media/videos/incoming/example.mp4",
+    "cove-cli videos import-file /media/videos/a.mp4 /media/videos/b.mkv --json",
+  ]).addHelpText("after", "\nPaths are read by the Cove server, so give each one as the server sees it. Importing a file\nthat is already registered returns its existing video. The first failure stops the run and\nnames the videos already imported.")
+    .action(async (paths: string[], _options, command: Command) => {
+      const global = globals(command);
+      assertServerPaths(paths);
+      const { client } = await clientFor(store, global);
+      const videos = await importVideoFiles(client, paths, isVideoRecord);
+      print({ videos }, global, () => videos.map((video, index) => `Imported video ${video.id}${video.title ? ` “${cleanInline(video.title)}”` : ""} from ${paths[index]}`).join("\n"), videos);
+    });
   addSavedFilterCommands(videoCommands, "videos", "video");
 
   const audioCommands = program.command("audios").description("Browse Cove audios").helpGroup("Explore:");
@@ -1408,11 +1501,12 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
   addSavedFilterCommands(galleryCommands, "galleries", "gallery");
 
   const tagCommands = program.command("tags").description("Browse Cove tags").helpGroup("Explore:");
-  const tagList = withPagingSortOptions(tagCommands.command("list").description("List tags")
-    .option("--query <text>", "search tags"), "tags");
+  const tagList = withRemoteIdOption(withPagingSortOptions(tagCommands.command("list").description("List tags")
+    .option("--query <text>", "search tags"), "tags"));
   withExamples(tagList, [
     "cove-cli tags list --profile personal",
     "cove-cli tags list --query \"Example\" --sort-by name:asc",
+    "cove-cli tags list --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
     "cove-cli tags list --page 2 --per-page 50 --sort-by video_count:desc --json",
   ]);
   withSortFields(tagList, ["name", "rating", "video_count", "gallery_count", "group_count", "image_count", "performer_count", "studio_count", "latest_video_date", "total_file_size", "created_at", "updated_at"])
@@ -1420,17 +1514,20 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const global = globals(command);
       const volume = resultVolume(options);
       const { client } = await clientFor(store, global);
-      const queryOptions = await queryOptionsForList(client, options, "tags", volume, outputFormat(global) === "human");
-      const result = await listEntities<Tag>(client, "tags", {}, queryOptions, "tag", isTagRecord);
+      const remoteIdFilter = remoteIdObjectFilter(options.remoteId);
+      const queryOptions = await queryOptionsForList(client, options, "tags", volume, outputFormat(global) === "human", remoteIdFilter);
+      const result = await listEntities<Tag>(client, "tags", remoteIdFilter, queryOptions, "tag", isTagRecord);
       print({ tags: result.items, totalCount: result.totalCount }, global, () => renderTags(result.items, renderFor(global, listRenderContext(client.server, result.totalCount, options, 25, queryOptions.defaultFilterApplied, queryOptions.appliedFilterSummary))), result.items);
     });
-  withExamples(tagCommands.command("show <id-or-name>").description("Show one tag by ID, exact name, or exact alias"), [
+  withExamples(withRemoteIdOption(tagCommands.command("show [id-or-name]").description("Show one tag by ID, exact name, exact alias, or remote ID")), [
     "cove-cli tags show 42 --profile personal",
     "cove-cli tags show \"Featured\" --json",
-  ]).action(async (reference: string, _options, command: Command) => {
+    "cove-cli tags show --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
+  ]).action(async (reference: string | undefined, options: { remoteId?: RemoteIdReference }, command: Command) => {
     const global = globals(command);
+    requireOneShowTarget(reference, options.remoteId, "an ID or name");
     const { client } = await clientFor(store, global);
-    const tag = await resolveTag(client, reference);
+    const tag = await showTarget(client, "tags", reference, options.remoteId, isTagRecord, value => resolveTag(client, value));
     print(tag, global, () => renderCatalogDetail(tag, "tag", renderFor(global, { server: client.server })));
   });
   addSavedFilterCommands(tagCommands, "tags", "tag");
@@ -1518,10 +1615,11 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
   });
 
   const performerCommands = program.command("performers").description("Browse Cove performers").helpGroup("Explore:");
-  const performerList = withTagFilterOptions(performerCommands.command("list").description("List performers"), "performers");
+  const performerList = withRemoteIdOption(withTagFilterOptions(performerCommands.command("list").description("List performers"), "performers"));
   withExamples(performerList, [
     "cove-cli performers list --profile personal",
     "cove-cli performers list --query \"Example\" --tag \"Featured\" --sort-by name:asc",
+    "cove-cli performers list --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
     "cove-cli performers list --page 2 --per-page 50 --sort-by video_count:desc --json",
   ]);
   withSortFields(performerList, ["name", "rating", "created_at", "updated_at", "birthdate", "video_count", "image_count", "gallery_count", "latest_video_date", "total_file_size", "height", "weight", "tag_count", "like_counter", "play_count", "last_like_at", "last_played_at"])
@@ -1530,29 +1628,32 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const volume = resultVolume(options);
       const { client } = await clientFor(store, global);
       const criteria = await resolveTagCriteria(client, options);
-      const relationFilter = relationObjectFilter(criteria);
+      const relationFilter = { ...relationObjectFilter(criteria), ...remoteIdObjectFilter(options.remoteId) };
       const queryOptions = await queryOptionsForList(client, options, "performers", volume, outputFormat(global) === "human", relationFilter);
       const result = await listEntities<Performer>(client, "performers", relationFilter, queryOptions, "performer", isPerformerRecord);
       print({ performers: result.items, totalCount: result.totalCount }, global, () => renderPerformers(result.items, renderFor(global, listRenderContext(client.server, result.totalCount, options, 25, queryOptions.defaultFilterApplied, queryOptions.appliedFilterSummary))), result.items);
     });
 
-  withExamples(performerCommands.command("show <id-or-name>").description("Show one performer by ID, exact name, or exact alias"), [
+  withExamples(withRemoteIdOption(performerCommands.command("show [id-or-name]").description("Show one performer by ID, exact name, exact alias, or remote ID")), [
     "cove-cli performers show 42 --profile personal",
     "cove-cli performers show \"Example Performer\" --profile personal --json",
-  ]).action(async (reference: string, _options, command: Command) => {
+    "cove-cli performers show --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
+  ]).action(async (reference: string | undefined, options: { remoteId?: RemoteIdReference }, command: Command) => {
     const global = globals(command);
+    requireOneShowTarget(reference, options.remoteId, "an ID or name");
     const { client } = await clientFor(store, global);
-    const performer = await resolvePerformer(client, reference);
+    const performer = await showTarget(client, "performers", reference, options.remoteId, isPerformerRecord, value => resolvePerformer(client, value));
     const metadataServers = outputFormat(global) === "human" && hasRemoteIds(performer.remoteIds) ? await metadataServersFor(client) : [];
     print(performer, global, () => renderPerformer(performer, renderFor(global, { server: client.server, metadataServers })));
   });
   addSavedFilterCommands(performerCommands, "performers", "performer");
 
   const studioCommands = program.command("studios").description("Browse Cove studios").helpGroup("Explore:");
-  const studioList = withTagFilterOptions(studioCommands.command("list").description("List studios"), "studios");
+  const studioList = withRemoteIdOption(withTagFilterOptions(studioCommands.command("list").description("List studios"), "studios"));
   withExamples(studioList, [
     "cove-cli studios list --profile personal",
     "cove-cli studios list --query \"Example\" --tag \"Featured\" --sort-by name:asc",
+    "cove-cli studios list --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json",
     "cove-cli studios list --page 2 --per-page 50 --sort-by video_count:desc --json",
   ]);
   withSortFields(studioList, ["name", "rating", "video_count", "gallery_count", "image_count", "latest_video_date", "total_file_size", "parent_count", "child_count", "tag_count", "created_at", "updated_at"])
@@ -1561,12 +1662,12 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       const volume = resultVolume(options);
       const { client } = await clientFor(store, global);
       const criteria = await resolveTagCriteria(client, options);
-      const relationFilter = relationObjectFilter(criteria);
+      const relationFilter = { ...relationObjectFilter(criteria), ...remoteIdObjectFilter(options.remoteId) };
       const queryOptions = await queryOptionsForList(client, options, "studios", volume, outputFormat(global) === "human", relationFilter);
       const result = await listEntities<StudioRecord>(client, "studios", relationFilter, queryOptions, "studio", isStudioRecord);
       print({ studios: result.items, totalCount: result.totalCount }, global, () => renderStudios(result.items, renderFor(global, listRenderContext(client.server, result.totalCount, options, 25, queryOptions.defaultFilterApplied, queryOptions.appliedFilterSummary))), result.items);
     });
-  addIdShowCommand<StudioRecord>(store, studioCommands, "studio", isStudioRecord, renderCatalogDetail, accent);
+  addIdShowCommand<StudioRecord>(store, studioCommands, "studio", isStudioRecord, renderCatalogDetail, accent, "studios");
   addSavedFilterCommands(studioCommands, "studios", "studio");
 
   const groupCommands = program.command("groups").description("Browse and manage Cove groups").helpGroup("Explore:");
@@ -1835,16 +1936,26 @@ function formatFieldList(fields: string[], terminalWidth = process.stdout.column
   return lines.join("\n");
 }
 
-function addIdShowCommand<T extends { id: number }>(store: ConfigStore, parent: Command, resource: CatalogEntityKind, validate: (value: unknown) => value is T, renderer: (item: T, kind: CatalogEntityKind, context?: RenderContext) => string, accent: string): void {
-  withExamples(parent.command("show <id>").description(`Show one ${resource} by ID`), [
+/** Adds `show <id>`, or `show [id]` with --remote-id when the resource keeps remote IDs. */
+function addIdShowCommand<T extends { id: number }>(store: ConfigStore, parent: Command, resource: CatalogEntityKind, validate: (value: unknown) => value is T, renderer: (item: T, kind: CatalogEntityKind, context?: RenderContext) => string, accent: string, remoteIdResource?: RemoteIdResource): void {
+  const show = remoteIdResource
+    ? withRemoteIdOption(parent.command("show [id]").description(`Show one ${resource} by ID or remote ID`))
+    : parent.command("show <id>").description(`Show one ${resource} by ID`);
+  withExamples(show, [
     `cove-cli ${parent.name()} show 42 --profile personal`,
     `cove-cli ${parent.name()} show 42 --json`,
-  ]).action(async (reference: string, _options, command: Command) => {
+    ...(remoteIdResource ? [`cove-cli ${parent.name()} show --remote-id stashdb.org=3a1c7f0e-5b2d-4c8e-9f61-0d4b7a2e8c13 --json`] : []),
+  ]).action(async (reference: string | undefined, options: { remoteId?: RemoteIdReference }, command: Command) => {
     const global = globals(command);
-    const id = entityId(reference);
+    if (remoteIdResource) requireOneShowTarget(reference, options.remoteId, "an ID");
+    const id = reference === undefined ? undefined : entityId(reference);
     const { client } = await clientFor(store, global);
-    const item = await client.get<T>(`${parent.name()}/${id}`);
-    if (!validate(item)) throw new CliError("INVALID_RESPONSE", `Cove returned an invalid ${resource} object.`);
+    const byId = async () => {
+      const value = await client.get<unknown>(`${parent.name()}/${id}`);
+      if (!validate(value)) throw new CliError("INVALID_RESPONSE", `Cove returned an invalid ${resource} object.`);
+      return value;
+    };
+    const item = remoteIdResource ? await showTarget(client, remoteIdResource, reference, options.remoteId, validate, byId) : await byId();
     print(item, global, () => renderer(item, resource, presentationFor(global, accent, { server: client.server })));
   });
 }

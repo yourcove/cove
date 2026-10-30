@@ -16,9 +16,14 @@ function objectValue(value: unknown, key: string): unknown {
 }
 
 function serverErrorMessage(body: unknown): string | undefined {
+  if (typeof body === "string" && body.trim()) return body.trim();
   for (const key of ["message", "error", "detail", "title"]) {
     const value = objectValue(body, key);
     if (typeof value === "string" && value.trim()) return value;
+  }
+  const missing = objectValue(body, "missing");
+  if (Array.isArray(missing) && missing.length && missing.every(item => typeof item === "string")) {
+    return `Not permitted (missing: ${missing.join(", ")}).`;
   }
   return undefined;
 }
@@ -137,6 +142,11 @@ export class CoveClient {
     try {
       body = text ? JSON.parse(text) : undefined;
     } catch {
+      // Keep a short plain-text reason, but not a proxy's HTML error page.
+      const plainText = response.headers.get("content-type")?.toLowerCase().startsWith("text/plain") ?? false;
+      if (!response.ok && plainText && text.trim() && !text.trim().includes("\n") && text.length <= 1_000) {
+        throw new CliError(`HTTP_${response.status}`, text.trim(), { status: response.status });
+      }
       throw new CliError("INVALID_RESPONSE", `Cove returned a non-JSON response (${response.status}).`, { status: response.status });
     }
     if (!response.ok) {
