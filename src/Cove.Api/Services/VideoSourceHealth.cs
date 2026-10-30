@@ -119,6 +119,14 @@ public sealed class VideoSourceHealthProbe(
     }
 
     /// <summary>
+    /// MPEG-1 video carries bit_rate in its sequence header as 18 bits in units of 400 bit/s, and
+    /// all ones means the stream is variable-rate (ISO/IEC 11172-2). ffprobe reports that sentinel
+    /// verbatim, so an ordinary 900 kbps .mpg declares 262143 * 400 bit/s and looks truncated by a
+    /// factor of a hundred. It is a declaration of "unknown", not a rate.
+    /// </summary>
+    private const long Mpeg1VariableBitRateSentinel = 262143L * 400;
+
+    /// <summary>
     /// Reads the container duration and the FIRST video stream's own declared bitrate out of
     /// ffprobe's -show_format/-show_streams JSON. The stream bitrate is the part that matters and
     /// the part Cove does not persist - <see cref="Cove.Core.Entities.VideoFile.BitRate"/> holds
@@ -146,7 +154,9 @@ public sealed class VideoSourceHealthProbe(
             {
                 if (!stream.TryGetProperty("codec_type", out var codecType) || codecType.GetString() != "video")
                     continue;
-                if (stream.TryGetProperty("bit_rate", out var bitRate) && long.TryParse(bitRate.GetString(), out var parsedBitRate))
+                if (stream.TryGetProperty("bit_rate", out var bitRate)
+                    && long.TryParse(bitRate.GetString(), out var parsedBitRate)
+                    && parsedBitRate != Mpeg1VariableBitRateSentinel)
                     videoStreamBitRate = parsedBitRate;
                 break;
             }

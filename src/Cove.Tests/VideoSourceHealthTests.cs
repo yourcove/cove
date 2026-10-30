@@ -113,4 +113,37 @@ public class VideoSourceHealthTests
 
         Assert.False(VideoSourceHealthProbe.TryReadProbe(json, out _, out _));
     }
+
+    [Fact]
+    public void TruncatedMpegDeclaringARealRateIsStillCaught()
+    {
+        // The sentinel guard must narrow the check, not disable it for MPEG. A .mpg that declares
+        // a genuine rate still has to be judged on its average.
+        const string json = """
+        {
+          "streams": [ { "codec_type": "video", "bit_rate": "800000" } ],
+          "format": { "duration": "1478.668000" }
+        }
+        """;
+
+        Assert.True(VideoSourceHealthProbe.TryReadProbe(json, out var duration, out var bitRate));
+        Assert.Equal(800_000, bitRate);
+        // 9 MB of a file whose 1478s at 800 kbps implies about 148 MB.
+        Assert.False(VideoSourceHealth.Classify(9 * Mb, duration, bitRate).IsReadable);
+    }
+
+    [Fact]
+    public void MpegVariableBitRateSentinelIsInconclusive()
+    {
+        // 262143 * 400 is MPEG-1's all-ones sequence-header bitrate, meaning "variable", which a
+        // complete 900 kbps .mpg declares just as a truncated one would.
+        const string json = """
+        {
+          "streams": [ { "codec_type": "video", "bit_rate": "104857200" } ],
+          "format": { "duration": "618.528000" }
+        }
+        """;
+
+        Assert.False(VideoSourceHealthProbe.TryReadProbe(json, out _, out _));
+    }
 }
