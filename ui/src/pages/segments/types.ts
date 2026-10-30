@@ -19,6 +19,7 @@ export interface DerivedSpanItem {
   coverVersion?: string;
   span: ResolvedSpan;
   reference?: SegmentSpanReference;
+  confidence?: number;
   profileId?: number;
   derivedQuery?: SegmentSpanDerivedQuery;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;

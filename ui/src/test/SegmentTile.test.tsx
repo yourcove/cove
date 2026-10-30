@@ -64,6 +64,16 @@ describe("SegmentTile", () => {
     expect(container).not.toHaveTextContent("Tag:");
   });
 
+  it("shows a span's confidence after its source", () => {
+    const item = {
+      ...buildSpanItem({ kind: "tag", tagId: 5, tagName: "Dancing", sourceKey: "ext:ai.tagging" }),
+      confidence: 0.914,
+    };
+    renderTile(spanTile(item));
+
+    expect(screen.getByText("AI Tagging · 91% confidence")).toBeInTheDocument();
+  });
+
   it("shows an unnamed face by its placeholder key rather than as a tag", () => {
     const item = buildSpanItem(
       { kind: "face", tagName: "stale title", sourceKey: "ext:ai.faces" },

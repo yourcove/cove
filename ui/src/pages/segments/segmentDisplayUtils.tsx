@@ -72,6 +72,7 @@ export function buildSpanTileSegment(item: DerivedSpanItem, title: string): Segm
     updatedAt: item.coverVersion ?? item.videoUpdatedAt,
     hostTitle: item.videoTitle,
     refLabel: item.reference?.faceSourceKey || item.reference?.faceLabel,
+    confidence: item.confidence,
   };
 }
 

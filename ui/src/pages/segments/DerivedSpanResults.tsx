@@ -208,6 +208,7 @@ function DerivedSpanListRow({
                 {item.span.kind && !derivedName ? <Pill>{item.span.kind}</Pill> : null}
                 {item.reference?.faceSourceKey ? <Pill>{item.reference.faceSourceKey}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
+                {item.confidence != null ? <Pill>{Math.round(item.confidence * 100)}% confidence</Pill> : null}
                 <span>
                   {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}
                 </span>

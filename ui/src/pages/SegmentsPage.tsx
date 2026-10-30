@@ -500,6 +500,7 @@ export function SegmentsPage({ onNavigate }: Props) {
           coverVersion: item.coverVersion,
           span: item.span,
           reference: item.reference,
+          confidence: item.confidence,
           profileId: item.profileId,
           derivedQuery:
             appliedQuery != null

@@ -1565,6 +1565,8 @@ export interface SegmentSpanSearchResultItem {
   profileId: number;
   /** The face or performer a non-tag span refers to, read from its first segment. */
   reference?: SegmentSpanReference;
+  /** The highest confidence among the span's segments, when any has one. */
+  confidence?: number;
 }
 
 export interface SegmentSpanSearchResponse {

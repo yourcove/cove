@@ -836,6 +836,10 @@ public record SegmentSpanSearchResultItemDto(
     // The face or performer a face or performer span refers to, read from its first segment. Null for every
     // other span, derived-query spans included.
     public SegmentSpanReferenceDto? Reference { get; init; }
+
+    // The highest confidence among the span's segments, the value the segment_confidence sort orders by.
+    // Null when none of them has one, and for every derived-query span.
+    public float? Confidence { get; init; }
 }
 
 public sealed record SegmentSpanReferenceDto

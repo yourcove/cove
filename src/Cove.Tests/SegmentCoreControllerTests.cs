@@ -1494,6 +1494,63 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_SearchSpans_AttachesHighestSegmentConfidence()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        var video = new Video { Title = "Confidence Video" };
+        var tag = new Tag { Name = "Scored" };
+        var profile = new SegmentDisplayProfile { Name = "Confidence", IsDefault = true, Version = 1 };
+        context.AddRange(video, tag, profile);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Segment BuildSegment(double startSec, float? confidence) => new()
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = startSec,
+            EndSec = startSec + 5,
+            Kind = "tag",
+            TagId = tag.Id,
+            Confidence = confidence,
+            SourceKey = "ext:ai.tagging",
+        };
+        context.Segments.AddRange(BuildSegment(0, 0.9f), BuildSegment(3, 0.6f), BuildSegment(20, null));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentRepository(context),
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        async Task<List<SegmentSpanSearchResultItemDto>> SearchAsync(string sort, SegmentSpanDerivedQueryDto? derivedQuery = null)
+        {
+            var result = await controller.SearchSpans(
+                new SegmentSpanSearchRequestDto(profile.Id, derivedQuery, 1, 24, sort, "asc", null, null, null, null),
+                CancellationToken.None);
+            return Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(result.Result).Value).Items
+                .OrderBy(item => item.Span.StartSec)
+                .ToList();
+        }
+
+        // The overlapping segments merge into one span that reads as the higher of their scores, and a span
+        // without any score has none, on the early-terminating path and on the full one.
+        foreach (var sort in new[] { "updated_at", "start_sec", "segment_confidence" })
+            Assert.Equal([0.9f, null], (await SearchAsync(sort)).Select(item => item.Confidence));
+
+        // A derived span mixes operands that score different things, so it reads as no score at all.
+        var derived = await SearchAsync("updated_at", new SegmentSpanDerivedQueryDto(
+            "union",
+            [new SegmentSpanOperandDto(null, "tag", [tag.Id], null)],
+            0,
+            0));
+        Assert.Equal(2, derived.Count);
+        Assert.All(derived, item => Assert.Null(item.Confidence));
+    }
+
+    [Fact]
     public async Task SegmentsController_SearchSpans_AppliesRawSegmentFieldFiltersAndSorts()
     {
         await using var scope = await CreateContextAsync();

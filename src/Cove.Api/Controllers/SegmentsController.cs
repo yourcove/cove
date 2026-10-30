@@ -474,7 +474,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             // If we never crossed the page boundary we resolved the whole scope, so the count is exact and
             // free; otherwise it's unknown here and the spans/count endpoint supplies it.
             var exactTotal = earlyTerminated ? -1 : collected;
-            return Ok(new SegmentSpanSearchResponseDto(await AttachSpanReferencesAsync(await WithCoverVersionsAsync(pageItems, ct), ct), exactTotal, page, perPage, HasMore: earlyTerminated));
+            return Ok(new SegmentSpanSearchResponseDto(await AttachSpanDetailsAsync(pageItems, derivedQueryRequest != null, ct), exactTotal, page, perPage, HasMore: earlyTerminated));
         }
 
         // 3. Full path (segment-row filters or span-level sort): resolve all in-scope spans, filter, sort,
@@ -488,7 +488,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var finalOffset = (page - 1) * perPage;
         var finalPageItems = allItems.Skip(finalOffset).Take(perPage).ToList();
 
-        return Ok(new SegmentSpanSearchResponseDto(await AttachSpanReferencesAsync(await WithCoverVersionsAsync(finalPageItems, ct), ct), totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
+        return Ok(new SegmentSpanSearchResponseDto(await AttachSpanDetailsAsync(finalPageItems, derivedQueryRequest != null, ct), totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
     }
 
     /// <summary>
@@ -519,6 +519,36 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
                     CoverVersion = segmentsById[coverSegmentId].UpdatedAt.ToString("o"),
                 }
                 : item)
+            .ToList();
+    }
+
+    private async Task<List<SegmentSpanSearchResultItemDto>> AttachSpanDetailsAsync(List<SegmentSpanSearchResultItemDto> items, bool derived, CancellationToken ct)
+    {
+        items = await AttachSpanReferencesAsync(await WithCoverVersionsAsync(items, ct), ct);
+        return derived ? items : await AttachSpanConfidenceAsync(items, ct);
+    }
+
+    // Cards show a span's confidence the way the confidence sort reads it: the highest of its segments'. A
+    // derived span gets none, since its segments come from operands that score different things, the
+    // excluded operands of a difference included.
+    private async Task<List<SegmentSpanSearchResultItemDto>> AttachSpanConfidenceAsync(List<SegmentSpanSearchResultItemDto> items, CancellationToken ct)
+    {
+        var segmentIds = items.SelectMany(item => item.Span.SegmentIds).Where(id => id > 0).Distinct().ToList();
+        if (segmentIds.Count == 0)
+            return items;
+
+        var confidences = await db.Segments.AsNoTracking()
+            .Where(segment => segmentIds.Contains(segment.Id) && segment.Confidence != null)
+            .Select(segment => new { segment.Id, segment.Confidence })
+            .ToDictionaryAsync(segment => segment.Id, segment => segment.Confidence!.Value, ct);
+        if (confidences.Count == 0)
+            return items;
+
+        return items
+            .Select(item => item with
+            {
+                Confidence = item.Span.SegmentIds.Select(id => confidences.TryGetValue(id, out var value) ? value : (float?)null).Max(),
+            })
             .ToList();
     }
 
