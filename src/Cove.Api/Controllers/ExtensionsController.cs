@@ -18,7 +18,11 @@ internal static class FrontendRuntimeContract
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.ExtensionsRead)]
-public class ExtensionsController(ExtensionManager extensionManager, ScraperService scraperService) : ControllerBase
+public class ExtensionsController(
+    ExtensionManager extensionManager,
+    ScraperService scraperService,
+    ConfigService configService,
+    ILogger<ExtensionsController> logger) : ControllerBase
 {
     /// <summary>Returns the aggregated UI manifest from all registered extensions.</summary>
     [HttpGet("manifest")]
@@ -597,6 +601,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             var extensionDir = Path.GetFullPath(Path.Combine(extensionsDir, manifest.Id));
             if (!IsPathInsideDirectory(extensionsDir, extensionDir))
                 return BadRequest("The package extension id resolves outside the extensions directory.");
+            var navigationBefore = TakeNavigationSnapshot([manifest.Id]);
             if (Directory.Exists(extensionDir))
             {
                 await extensionManager.UnloadExtensionAsync(manifest.Id, HttpContext.RequestServices, ct);
@@ -622,6 +627,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
             await extensionManager.SetInstallationSourceAsync(manifest.Id, installationSource, ct);
             scraperService.ReloadScrapers();
+            await ShowNewNavigationPagesAsync(navigationBefore);
 
             return Ok(new
             {
@@ -635,6 +641,59 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         {
             if (Directory.Exists(tempRoot))
                 await DeleteDirectoryWithRetriesAsync(tempRoot, ct);
+        }
+    }
+
+    /// <summary>Navigation page routes the given extensions currently contribute.</summary>
+    private HashSet<string> GetNavigationRoutes(IEnumerable<string> extensionIds)
+    {
+        var ids = extensionIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return extensionManager.GetAggregatedManifest().Pages
+            .Where(page => page.ShowInNav && page.ExtensionId != null && ids.Contains(page.ExtensionId))
+            .Select(page => page.Route)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal sealed record NavigationSnapshot(IReadOnlySet<string> ExtensionIds, IReadOnlySet<string> Routes);
+
+    /// <summary>
+    /// Record the navigation pages the extensions have before they are replaced. Returns null when the
+    /// manifest cannot be read, in which case the menu is left alone rather than risk re-showing hidden pages.
+    /// </summary>
+    internal NavigationSnapshot? TakeNavigationSnapshot(IEnumerable<string> extensionIds)
+    {
+        // A disabled extension's pages are missing from the manifest, so which of them the user hid is unknown.
+        var ids = extensionIds.Where(extensionManager.IsEnabled).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            return new NavigationSnapshot(ids, GetNavigationRoutes(ids));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read navigation pages before installing extensions {ExtensionIds}", ids);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Navigation pages that an install or update newly contributes start visible. Pages the extensions
+    /// already had are left alone so a page the user hid stays hidden across updates and reinstalls.
+    /// </summary>
+    internal async Task ShowNewNavigationPagesAsync(NavigationSnapshot? before, params string[] excludedExtensionIds)
+    {
+        if (before == null)
+            return;
+
+        var ids = before.ExtensionIds.Except(excludedExtensionIds, StringComparer.OrdinalIgnoreCase).ToList();
+        try
+        {
+            var newRoutes = GetNavigationRoutes(ids).Where(route => !before.Routes.Contains(route));
+            await configService.AddMenuItemsAsync(newRoutes);
+        }
+        catch (Exception ex)
+        {
+            // The install itself succeeded; the user can still enable the page in Interface settings.
+            logger.LogWarning(ex, "Could not add navigation pages for installed extensions {ExtensionIds}", ids);
         }
     }
 
@@ -763,6 +822,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
         // Unload any existing extensions that will be replaced before swapping their files.
         var idsToReplace = dependencyPlan.Select(d => d.Id).Append(request.ExtensionId).ToList();
+        var navigationBefore = TakeNavigationSnapshot(idsToReplace);
         foreach (var extId in idsToReplace)
         {
             var existing = extensionManager.Extensions.FirstOrDefault(e => string.Equals(e.Id, extId, StringComparison.OrdinalIgnoreCase));
@@ -794,6 +854,8 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         }
 
         var initialized = await extensionManager.InitializeExtensionAsync(request.ExtensionId, HttpContext.RequestServices, ct);
+        // Dependencies that initialized keep their pages even if the requested extension failed.
+        await ShowNewNavigationPagesAsync(navigationBefore, initialized ? [] : [request.ExtensionId]);
         if (!initialized)
         {
             return StatusCode(500, new

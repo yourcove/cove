@@ -349,6 +349,34 @@ public class ConfigService
         }
     }
 
+    /// <summary>
+    /// Append navigation pages that are not listed yet, keeping the order and visibility of existing items.
+    /// </summary>
+    public async Task AddMenuItemsAsync(IEnumerable<string> pages)
+    {
+        ArgumentNullException.ThrowIfNull(pages);
+
+        await _lock.WaitAsync();
+        try
+        {
+            var current = NormalizeMenuItems(_config.Interface.MenuItems);
+            var additions = pages
+                .Where(page => !string.IsNullOrWhiteSpace(page))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(page => !current.Contains(page, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (additions.Count == 0)
+                return;
+
+            _config.Interface.MenuItems = [.. current, .. additions];
+            await PersistCurrentConfigAsync();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     public async Task SaveCurrentConfigAsync()
     {
         await _lock.WaitAsync();

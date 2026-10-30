@@ -2412,7 +2412,12 @@ public class ExtensionBundleSupportTests
     {
         var controller = new ExtensionsController(
             manager,
-            new ScraperService(new CoveConfiguration(), NullLogger<ScraperService>.Instance, new TestHttpClientFactory(), manager));
+            new ScraperService(new CoveConfiguration(), NullLogger<ScraperService>.Instance, new TestHttpClientFactory(), manager),
+            new ConfigService(
+                new CoveConfiguration(),
+                NullLogger<ConfigService>.Instance,
+                Path.Combine(Path.GetTempPath(), "cove-extension-controller-tests", "cove-config.json")),
+            NullLogger<ExtensionsController>.Instance);
 
         if (requestServices != null)
         {

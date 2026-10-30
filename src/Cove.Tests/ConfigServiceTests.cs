@@ -91,6 +91,86 @@ public sealed class ConfigServiceTests
     }
 
     [Fact]
+    public async Task AddMenuItems_AppendsOnlyMissingPagesAndPersists()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "cove-config.json");
+        var configuration = new CoveConfiguration();
+        configuration.Interface.MenuItems = ["images", "videos", "extension-page"];
+        var service = new ConfigService(
+            configuration,
+            NullLogger<ConfigService>.Instance,
+            configPath);
+
+        try
+        {
+            await service.AddMenuItemsAsync(["Extension-Page", "new-page", " ", "new-page"]);
+
+            var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
+                JsonOptions);
+            Assert.Equal(["images", "videos", "extension-page", "new-page"], configuration.Interface.MenuItems);
+            Assert.NotNull(persisted);
+            Assert.Equal(["images", "videos", "extension-page", "new-page"], persisted.Interface.MenuItems);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AddMenuItems_ToUnsetMenu_StartsFromTheDefaults()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");
+        var configuration = new CoveConfiguration();
+        configuration.Interface.MenuItems = [];
+        var service = new ConfigService(
+            configuration,
+            NullLogger<ConfigService>.Instance,
+            Path.Combine(tempRoot, "cove-config.json"));
+
+        try
+        {
+            await service.AddMenuItemsAsync(["new-page"]);
+
+            Assert.Equal([.. InterfaceConfig.DefaultMenuItems, "new-page"], configuration.Interface.MenuItems);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AddMenuItems_WithNothingNew_DoesNotRewriteConfig()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "cove-config.json");
+        var configuration = new CoveConfiguration();
+        configuration.Interface.MenuItems = ["images", "videos"];
+        var service = new ConfigService(
+            configuration,
+            NullLogger<ConfigService>.Instance,
+            configPath);
+
+        try
+        {
+            await service.AddMenuItemsAsync(["videos"]);
+
+            Assert.Equal(["images", "videos"], configuration.Interface.MenuItems);
+            Assert.False(File.Exists(configPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SavedConfigWithoutScrubberSpriteSetting_ShowsScrubberSprites()
     {
         // Config files written before the setting existed have no key for it.
