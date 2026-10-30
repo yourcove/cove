@@ -224,4 +224,16 @@ export function formatSegmentCardEyebrow(startSec: number, endSec?: number) {
   return formatSegmentRange(startSec, endSec);
 }
 
+// The page of the stored face a face span or raw face segment names, as the faces list opens it.
+export function spanFaceRoute(item: DerivedSpanItem) {
+  const faceId = item.reference?.faceId;
+  return faceId == null ? undefined : ({ page: "face", id: faceId } as const);
+}
+
+export function rawSegmentFaceRoute(segment: RawSegmentItem) {
+  return segment.kind?.toLowerCase() === "face" && segment.refId != null
+    ? ({ page: "face", id: segment.refId } as const)
+    : undefined;
+}
+
 export { formatDate, formatSegmentTime };

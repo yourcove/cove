@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ExternalLink, FolderOpen } from "lucide-react";
+import { ExternalLink, Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
@@ -20,6 +20,7 @@ import {
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,
+  spanFaceRoute,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { DerivedSpanItem } from "./types";
@@ -29,6 +30,7 @@ interface Props {
   displayMode: DisplayMode;
   items: DerivedSpanItem[];
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selectedIds: Set<string | number>;
@@ -44,6 +46,7 @@ export function DerivedSpanResults({
   displayMode,
   items,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   onViewRawSegments,
   selectedIds,
@@ -81,6 +84,7 @@ export function DerivedSpanResults({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
           const videoRoute = { page: "video", id: item.videoId, seekTo: item.span.startSec } as const;
+          const faceRoute = canReadFaces ? spanFaceRoute(item) : undefined;
 
           return (
             <SegmentTile
@@ -94,6 +98,8 @@ export function DerivedSpanResults({
               selecting={selecting}
               hostRoute={canReadVideos ? videoRoute : undefined}
               onOpenHost={() => onNavigate(videoRoute)}
+              faceRoute={faceRoute}
+              onOpenFace={() => faceRoute && onNavigate(faceRoute)}
             />
           );
         }}
@@ -116,6 +122,7 @@ export function DerivedSpanResults({
             key={item.key}
             item={item}
             canReadVideos={canReadVideos}
+            canReadFaces={canReadFaces}
             onNavigate={onNavigate}
             onViewRawSegments={onViewRawSegments}
             selected={selectedIds.has(item.id)}
@@ -133,6 +140,7 @@ export function DerivedSpanResults({
 function DerivedSpanListRow({
   item,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   onViewRawSegments,
   selected,
@@ -143,6 +151,7 @@ function DerivedSpanListRow({
 }: {
   item: DerivedSpanItem;
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selected: boolean;
@@ -155,6 +164,7 @@ function DerivedSpanListRow({
   const title = derivedName ?? buildSpanTitle(item.span, item.videoTitle, item.reference);
   const primaryRawSegmentId = item.span.segmentIds[0];
   const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
+  const faceRoute = canReadFaces ? spanFaceRoute(item) : undefined;
 
   return (
     <div
@@ -259,6 +269,20 @@ function DerivedSpanListRow({
               >
                 <FolderOpen className="h-3.5 w-3.5" />
                 Open video
+              </button>
+            ) : null}
+            {faceRoute ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onNavigate(faceRoute);
+                }}
+                className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                <Fingerprint className="h-3.5 w-3.5" />
+                Open face
               </button>
             ) : null}
           </div>

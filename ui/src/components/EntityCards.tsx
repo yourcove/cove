@@ -3559,6 +3559,8 @@ export function SegmentTile({
   footer,
   hostRoute,
   onOpenHost,
+  faceRoute,
+  onOpenFace,
   onClick,
   selected,
   onSelect,
@@ -3572,6 +3574,9 @@ export function SegmentTile({
   /** Makes the host title a link of its own, separate from the card's link to the segment. */
   hostRoute?: Route;
   onOpenHost?: () => void;
+  /** Makes the name a link of its own, to the face it names. */
+  faceRoute?: Route;
+  onOpenFace?: () => void;
   onClick: (options?: MultiSelectToggleOptions) => void;
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
@@ -3582,6 +3587,7 @@ export function SegmentTile({
   const refLabel = segment.performerName || segment.refLabel;
   const title = segment.title || segment.tagName || refLabel || segment.kind || sourceLabel;
   const cardRoute = route ?? { page: "segment", id: segment.id };
+  const faceLinked = faceRoute != null && !selecting;
   const rangeLabel = formatSegmentRangeLabel(segment.startSec, segment.endSec);
   const confidenceLabel = segment.confidence == null ? null : `${Math.round(segment.confidence * 100)}% confidence`;
   // A tag icon only marks the name when the name is the tag; a custom title keeps the plain kind label.
@@ -3637,9 +3643,22 @@ export function SegmentTile({
           {kindLabel ? (
             <div className="text-[11px] font-semibold uppercase tracking-wide text-secondary">{kindLabel}</div>
           ) : null}
-          <div className="flex min-w-0 items-start gap-1 text-[13px] font-semibold leading-[18px] text-foreground transition-colors group-hover:text-accent group-has-[.segment-host-link:hover]:text-foreground">
+          {/* A name that links to its face highlights only on its own hover, like the video title. */}
+          <div
+            className={`flex min-w-0 items-start gap-1 text-[13px] font-semibold leading-[18px] text-foreground transition-colors ${faceLinked ? "" : "group-hover:text-accent group-has-[.segment-host-link:hover]:text-foreground"}`}
+          >
             {kindIcon ? <SegmentKindIcon kind={kindIcon} /> : null}
-            <span className="line-clamp-2 min-w-0">{title}</span>
+            {faceRoute && !selecting ? (
+              <a
+                {...createNestedRouteLinkProps<HTMLAnchorElement>(faceRoute, onOpenFace)}
+                aria-label={`Open face ${title}`}
+                className="relative z-10 line-clamp-2 min-w-0 hover:text-accent hover:underline"
+              >
+                {title}
+              </a>
+            ) : (
+              <span className="line-clamp-2 min-w-0">{title}</span>
+            )}
           </div>
           {hostRoute && !selecting ? (
             <a

@@ -1,4 +1,4 @@
-import { FolderOpen } from "lucide-react";
+import { Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
@@ -16,6 +16,7 @@ import {
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,
+  rawSegmentFaceRoute,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { RawSegmentItem } from "./types";
@@ -24,6 +25,7 @@ interface Props {
   displayMode: DisplayMode;
   items: RawSegmentItem[];
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   selectedIds: Set<string | number>;
   onToggle: MultiSelectToggleHandler<string | number>;
@@ -38,6 +40,7 @@ export function RawSegmentResults({
   displayMode,
   items,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   selectedIds,
   onToggle,
@@ -62,6 +65,7 @@ export function RawSegmentResults({
         loadMore={loadMore}
         renderItem={(item) => {
           const videoRoute = { page: "video", id: item.hostId, seekTo: item.startSec } as const;
+          const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
           return (
             <SegmentTile
               segment={item}
@@ -75,6 +79,8 @@ export function RawSegmentResults({
               selecting={selecting}
               hostRoute={canReadVideos ? videoRoute : undefined}
               onOpenHost={() => onNavigate(videoRoute)}
+              faceRoute={faceRoute}
+              onOpenFace={() => faceRoute && onNavigate(faceRoute)}
             />
           );
         }}
@@ -91,6 +97,7 @@ export function RawSegmentResults({
             key={item.key}
             item={item}
             canReadVideos={canReadVideos}
+            canReadFaces={canReadFaces}
             onNavigate={onNavigate}
             selected={selectedIds.has(item.id)}
             onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
@@ -119,6 +126,7 @@ export function RawSegmentListHeader() {
 export function RawSegmentListRow({
   item,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   selected,
   onToggle,
@@ -127,12 +135,14 @@ export function RawSegmentListRow({
 }: {
   item: RawSegmentItem;
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   selected: boolean;
   onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   density: SegmentListDensity;
 }) {
+  const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
   const title = buildRawSegmentTitle(item);
 
   return (
@@ -181,20 +191,36 @@ export function RawSegmentListRow({
         <div className="hidden text-xs text-secondary lg:block">{formatSegmentRange(item.startSec, item.endSec)}</div>
         <div className="min-w-0 text-xs text-secondary lg:text-sm">
           <div className="truncate text-foreground">{item.videoTitle}</div>
-          {canReadVideos ? (
+          {canReadVideos || faceRoute ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
-                }}
-                className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                Open video
-              </button>
+              {canReadVideos ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
+                  }}
+                  className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Open video
+                </button>
+              ) : null}
+              {faceRoute ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onNavigate(faceRoute);
+                  }}
+                  className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  <Fingerprint className="h-3.5 w-3.5" />
+                  Open face
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -146,6 +146,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     });
   const { hasPermission } = useAuth();
   const canReadVideos = canReadEntity("video", hasPermission);
+  const canReadFaces = canReadEntity("face", hasPermission);
   const canWriteGroups = canWriteEntity("group", hasPermission);
   const canDeleteSegments = canDeleteEntity("segment", hasPermission);
   const [showAddToGroup, setShowAddToGroup] = useState(false);
@@ -1139,6 +1140,7 @@ export function SegmentsPage({ onNavigate }: Props) {
           appliedQuery={appliedQuery}
           isLoading={isLoading}
           canReadVideos={canReadVideos}
+          canReadFaces={canReadFaces}
           onNavigate={onNavigate}
           onViewRawSegments={(segmentIds) => switchContentView("raw", segmentIds)}
           selectedIds={selectedIds}

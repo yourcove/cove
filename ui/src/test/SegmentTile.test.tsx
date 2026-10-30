@@ -3,13 +3,17 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedSpan } from "../api/types";
 import { SegmentTile, type SegmentTileItem } from "../components/EntityCards";
+import { RawSegmentListRow } from "../pages/segments/RawSegmentResults";
 import {
   buildSpanTileSegment,
   buildSpanTitle,
   formatDerivedQueryName,
   hasDerivedQueryNames,
+  rawSegmentFaceRoute,
+  spanFaceRoute,
 } from "../pages/segments/segmentDisplayUtils";
-import type { DerivedSpanItem } from "../pages/segments/types";
+
+import type { DerivedSpanItem, RawSegmentItem } from "../pages/segments/types";
 
 vi.mock("../components/Rating", () => ({
   RatingBanner: () => null,
@@ -188,12 +192,48 @@ describe("SegmentTile", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("links a face span's name to the face, separately from the card", () => {
+    const onClick = vi.fn();
+    const onOpenFace = vi.fn();
+    const item = buildSpanItem(
+      { kind: "face", sourceKey: "ext:ai.faces" },
+      { faceId: 32, faceLabel: "face-0032", faceSourceKey: "face-0032", performerId: 4, performerName: "Linked" },
+    );
+    const faceRoute = spanFaceRoute(item);
+    renderTile(spanTile(item), { onClick, onOpenFace, faceRoute });
+
+    const faceLink = screen.getByRole("link", { name: "Open face Linked" });
+    expect(faceLink).toHaveAttribute("href", "/face/32");
+    expect(fireEvent.click(faceLink)).toBe(false);
+    expect(onOpenFace).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps the face name as plain text while selecting", () => {
+    const item = buildSpanItem({ kind: "face" }, { faceId: 32, faceLabel: "face-0032" });
+    renderTile(spanTile(item), { selecting: true, faceRoute: spanFaceRoute(item) });
+
+    expect(screen.queryByRole("link", { name: /Open face/ })).not.toBeInTheDocument();
+  });
+
   it("keeps the video title as plain text while selecting", () => {
     const item = buildSpanItem({ kind: "tag", tagId: 5, tagName: "Dancing", sourceKey: "user" });
     renderTile(spanTile(item), { selecting: true, hostRoute: { page: "video", id: 7, seekTo: 10 } });
 
     expect(screen.getByText("Host Video")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Host Video/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("face routes", () => {
+  it("open the face a span or a raw face segment names, and nothing else", () => {
+    expect(spanFaceRoute(buildSpanItem({ kind: "face" }, { faceId: 31 }))).toEqual({ page: "face", id: 31 });
+    expect(spanFaceRoute(buildSpanItem({ kind: "performer" }, { performerId: 4 }))).toBeUndefined();
+
+    const raw = (segment: Partial<RawSegmentItem>) => segment as RawSegmentItem;
+    expect(rawSegmentFaceRoute(raw({ kind: "Face", refId: 31 }))).toEqual({ page: "face", id: 31 });
+    expect(rawSegmentFaceRoute(raw({ kind: "performer", refId: 4 }))).toBeUndefined();
+    expect(rawSegmentFaceRoute(raw({ kind: "face" }))).toBeUndefined();
   });
 });
 
@@ -311,5 +351,66 @@ describe("derived span tiles", () => {
     expect(screen.getByText("Dancing or Singing")).toBeInTheDocument();
     expect(container).not.toHaveTextContent(/union/i);
     expect(container).not.toHaveTextContent("derived");
+  });
+});
+
+describe("RawSegmentListRow", () => {
+  const density = {
+    rowPaddingClassName: "py-1.5",
+    previewHeight: 0,
+    previewWidth: 0,
+    showPreview: false,
+    showSecondaryDetails: false,
+  };
+  const faceSegment = {
+    id: 3,
+    key: "3",
+    videoId: 7,
+    videoTitle: "Host Video",
+    hostType: "video",
+    hostId: 7,
+    startSec: 10,
+    endSec: 20,
+    kind: "face",
+    refId: 31,
+    sourceKey: "ext:ai.faces",
+  } as RawSegmentItem;
+
+  it("offers the face on its own when the video cannot be read", () => {
+    const onNavigate = vi.fn();
+    render(
+      <RawSegmentListRow
+        item={faceSegment}
+        canReadVideos={false}
+        canReadFaces
+        onNavigate={onNavigate}
+        selected={false}
+        onToggle={vi.fn()}
+        selecting={false}
+        density={density}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open video" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open face" }));
+    expect(onNavigate).toHaveBeenCalledWith({ page: "face", id: 31 });
+  });
+
+  it("leaves the face out without permission to read faces", () => {
+    render(
+      <RawSegmentListRow
+        item={faceSegment}
+        canReadVideos
+        canReadFaces={false}
+        onNavigate={vi.fn()}
+        selected={false}
+        onToggle={vi.fn()}
+        selecting={false}
+        density={density}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Open video" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open face" })).not.toBeInTheDocument();
   });
 });

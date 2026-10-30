@@ -14,6 +14,7 @@ interface Props {
   appliedQuery: AppliedDerivedQuery | null;
   isLoading: boolean;
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selectedIds: Set<string | number>;
@@ -34,6 +35,7 @@ export function SegmentsPageList({
   appliedQuery,
   isLoading,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   onViewRawSegments,
   selectedIds,
@@ -53,6 +55,7 @@ export function SegmentsPageList({
           displayMode={displayMode}
           items={rawItems}
           canReadVideos={canReadVideos}
+          canReadFaces={canReadFaces}
           onNavigate={onNavigate}
           selectedIds={selectedIds}
           onToggle={onToggle}
@@ -67,6 +70,7 @@ export function SegmentsPageList({
           displayMode={displayMode}
           items={spanItems}
           canReadVideos={canReadVideos}
+          canReadFaces={canReadFaces}
           onNavigate={onNavigate}
           onViewRawSegments={onViewRawSegments}
           selectedIds={selectedIds}
