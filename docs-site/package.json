@@ -29,7 +29,7 @@
     "test:navigation-output": "node --test scripts/check-generated-navigation.test.mjs"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.10",
+    "@astrojs/check": "^0.9.12",
     "@astrojs/mdx": "latest",
     "@astrojs/sitemap": "latest",
     "@astrojs/starlight": "latest",
@@ -38,10 +38,10 @@
     "astro": "latest"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.1",
     "ajv": "^8.20.0",
     "parse5": "^8.0.1",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "typescript": "^6.0.3"
   }
 }
