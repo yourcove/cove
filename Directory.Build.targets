@@ -109,7 +109,7 @@
 
   <!-- Extension ABI gate. The baseline and opt-in are defined in Directory.Build.props. -->
   <ItemGroup Condition=" '$(ApiCompatValidateAssemblies)' == 'true' ">
-    <PackageReference Include="Microsoft.DotNet.ApiCompat.Task" Version="10.0.401" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.DotNet.ApiCompat.Task" Version="10.0.402" PrivateAssets="all" />
     <PackageDownload Include="$(PackageId)" Version="[$(CoveExtensionAbiBaselineVersion)]" />
   </ItemGroup>
 
