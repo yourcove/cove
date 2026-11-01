@@ -50,8 +50,9 @@ public static class TextDocumentFilterQuery
             ? await RelatedFilterQuery.ApplyToTextsAsync(db, query, filter?.PerformerFilterCriterion, ct)
             : query;
         // No distinct-performer assignment exists for texts, so a Distinct related scope is refused by the
-        // shared walker rather than silently treated as Reuse.
-        return await FilterExpressionQuery.ApplyAsync(query, expression, async (source, leaf) =>
+        // shared walker rather than silently treated as Reuse. Leaves build their own queries, so OR, NOT and
+        // just-one branches start from every readable text rather than repeating the conditions above.
+        return await FilterExpressionQuery.ApplyAsync(textBase, query, expression, async (source, leaf) =>
         {
             var matches = await BuildAsync(db, leaf, null, includeRelatedFilters, ct);
             return source.Where(text => matches.Any(match => match.Id == text.Id));

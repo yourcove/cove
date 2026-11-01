@@ -103,6 +103,9 @@ public class VideoRepository : IVideoRepository
 
         // Build a lightweight filter-only query (no Includes) for COUNT and filter predicates
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
+        // OR, NOT and just-one branches start here rather than from their group's input, so each one
+        // names only its own conditions instead of repeating everything applied before the group.
+        var expressionRoot = filterQuery;
 
         async Task<IQueryable<Video>> ApplyLeafAsync(IQueryable<Video> query, VideoFilter leaf, bool applyPerformerCriterion = true)
         {
@@ -163,27 +166,13 @@ public class VideoRepository : IVideoRepository
                 return current;
             }
             if (group.Operator == FilterExpressionOperator.Not)
-                return input.Except(await ApplyExpressionNodeAsync(input, group.Children[0]));
-            if (group.Operator == FilterExpressionOperator.JustOne)
-            {
-                IQueryable<Video>? seen = null;
-                IQueryable<Video>? exactlyOne = null;
-                foreach (var child in group.Children)
-                {
-                    var branch = await ApplyExpressionNodeAsync(input, child);
-                    if (seen == null) { seen = branch; exactlyOne = branch; continue; }
-                    exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
-                    seen = seen.Union(branch);
-                }
-                return exactlyOne ?? input;
-            }
-            IQueryable<Video>? union = null;
+                return FilterExpressionQuery.MatchingNone(input, await ApplyExpressionNodeAsync(expressionRoot, group.Children[0]));
+            var branches = new List<IQueryable<Video>>(group.Children.Count);
             foreach (var child in group.Children)
-            {
-                var branch = await ApplyExpressionNodeAsync(input, child);
-                union = union == null ? branch : union.Union(branch);
-            }
-            return union ?? input;
+                branches.Add(await ApplyExpressionNodeAsync(expressionRoot, child));
+            return group.Operator == FilterExpressionOperator.JustOne
+                ? FilterExpressionQuery.MatchingExactlyOne(input, branches)
+                : FilterExpressionQuery.MatchingAny(input, branches);
         }
 
         if (filter != null)
@@ -212,11 +201,7 @@ public class VideoRepository : IVideoRepository
             return (Array.Empty<Video>(), count);
         }
 
-        // Run COUNT first on the lightweight query (no Includes = faster). Counting reads every match,
-        // which on a broad search costs as much as the page itself, so callers holding the total skip it.
-        var totalCount = findFilter?.SkipCount == true
-            ? FindFilter.UncountedTotal
-            : await filterQuery.AsNoTracking().CountAsync(ct);
+        var countQuery = filterQuery;
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
         var multiSortRegistry = CreateMultiSortRegistry();
@@ -233,11 +218,36 @@ public class VideoRepository : IVideoRepository
             filterQuery = await ApplyVideoRelevanceOrderingAsync(filterQuery, findFilter?.Q, ct);
 
         var page = findFilter?.Page ?? 1;
-        var pagedIds = await filterQuery
-            .Skip((page - 1) * perPage)
-            .Take(perPage)
-            .Select(s => s.Id)
-            .ToListAsync(ct);
+        List<int> pagedIds;
+        int totalCount;
+        if (findFilter?.SkipCount == true)
+        {
+            // Counting reads every match, which on a broad search costs as much as the page itself, so
+            // callers holding the total skip it.
+            totalCount = FindFilter.UncountedTotal;
+            pagedIds = await filterQuery.Skip((page - 1) * perPage).Take(perPage).Select(s => s.Id).ToListAsync(ct);
+        }
+        else if (FilterExpressionQuery.HasSetOperation(expression) && _db.Database.IsRelational())
+        {
+            // The total rides along with the page: the window sees every match before the page is cut, so
+            // an expression with OR, NOT or just-one groups is evaluated once rather than once for a COUNT
+            // and again for the page. Simpler filters count cheaply and let the page stop at its limit.
+            var rows = await filterQuery
+                .Select(s => new { s.Id, Total = WindowCount.Total() })
+                .Skip((page - 1) * perPage)
+                .Take(perPage)
+                .ToListAsync(ct);
+            pagedIds = rows.Select(row => row.Id).ToList();
+            // A page past the end has no row to carry the total.
+            totalCount = rows.Count > 0
+                ? checked((int)rows[0].Total)
+                : page > 1 ? await countQuery.AsNoTracking().CountAsync(ct) : 0;
+        }
+        else
+        {
+            totalCount = await countQuery.AsNoTracking().CountAsync(ct);
+            pagedIds = await filterQuery.Skip((page - 1) * perPage).Take(perPage).Select(s => s.Id).ToListAsync(ct);
+        }
 
         if (pagedIds.Count == 0)
             return (Array.Empty<Video>(), totalCount);

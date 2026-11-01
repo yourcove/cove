@@ -52,12 +52,15 @@ public static class AudioFilterQuery
         if (!FilterExpressionQuery.TryValidate(expression, out var expressionError))
             throw new ArgumentException(expressionError, nameof(expression));
         return expression is { Children.Count: > 0 }
-            ? await ApplyExpressionAsync(db, query, expression, includeRelatedFilters, ct)
+            ? await ApplyExpressionAsync(db, audioBase, query, expression, includeRelatedFilters, ct)
             : query;
     }
 
+    // OR, NOT and just-one branches start from root rather than from their group's input, so each one
+    // names only its own conditions instead of repeating everything applied before the group.
     private static async Task<IQueryable<Audio>> ApplyExpressionAsync(
         CoveContext db,
+        IQueryable<Audio> root,
         IQueryable<Audio> input,
         FilterExpression<AudioFilter> group,
         bool includeRelatedFilters,
@@ -66,7 +69,7 @@ public static class AudioFilterQuery
         async Task<IQueryable<Audio>> ApplyNodeAsync(IQueryable<Audio> source, FilterExpressionNode<AudioFilter> node)
             => node.Filter != null
                 ? await ApplyLeafAsync(source, node.Filter)
-                : await ApplyExpressionAsync(db, source, node.Group!, includeRelatedFilters, ct);
+                : await ApplyExpressionAsync(db, root, source, node.Group!, includeRelatedFilters, ct);
 
         async Task<IQueryable<Audio>> ApplyLeafAsync(IQueryable<Audio> source, AudioFilter leaf)
         {
@@ -89,27 +92,13 @@ public static class AudioFilterQuery
             return current;
         }
         if (group.Operator == FilterExpressionOperator.Not)
-            return input.Except(await ApplyNodeAsync(input, group.Children[0]));
-        if (group.Operator == FilterExpressionOperator.JustOne)
-        {
-            IQueryable<Audio>? seen = null;
-            IQueryable<Audio>? exactlyOne = null;
-            foreach (var child in group.Children)
-            {
-                var branch = await ApplyNodeAsync(input, child);
-                if (seen == null) { seen = branch; exactlyOne = branch; continue; }
-                exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
-                seen = seen.Union(branch);
-            }
-            return exactlyOne ?? input;
-        }
-        IQueryable<Audio>? union = null;
+            return FilterExpressionQuery.MatchingNone(input, await ApplyNodeAsync(root, group.Children[0]));
+        var branches = new List<IQueryable<Audio>>(group.Children.Count);
         foreach (var child in group.Children)
-        {
-            var branch = await ApplyNodeAsync(input, child);
-            union = union == null ? branch : union.Union(branch);
-        }
-        return union ?? input;
+            branches.Add(await ApplyNodeAsync(root, child));
+        return group.Operator == FilterExpressionOperator.JustOne
+            ? FilterExpressionQuery.MatchingExactlyOne(input, branches)
+            : FilterExpressionQuery.MatchingAny(input, branches);
     }
 
     private static IQueryable<Audio> ApplyFilter(CoveContext db, IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? tagGroups, IReadOnlyList<int[]>? requiredTagGroups, IReadOnlyList<int[]>? studioGroups, IReadOnlyList<int[]>? requiredStudioGroups, IReadOnlyList<int[]>? performerTagGroups)

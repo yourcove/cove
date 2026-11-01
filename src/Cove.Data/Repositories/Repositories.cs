@@ -412,6 +412,9 @@ public class PerformerRepository : IPerformerRepository
                 ct);
 
         var query = (readScopePlan ?? new ReadScopeRootPlan<Performer>(false, null)).Apply(_db.Performers.AsQueryable());
+        // Expression leaves build their own queries, so OR, NOT and just-one branches start here rather than
+        // repeating the filter and search conditions below.
+        var expressionRoot = query;
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
 
         if (filter != null)
@@ -725,6 +728,7 @@ public class PerformerRepository : IPerformerRepository
         }
 
         query = await FilterExpressionQuery.ApplyAsync(
+            expressionRoot,
             query,
             expression,
             async (input, leaf) =>
@@ -736,7 +740,7 @@ public class PerformerRepository : IPerformerRepository
                     allowReadScopeOptimization: false,
                     ct: ct,
                     expression: null);
-                return input.Intersect(leafQuery);
+                return input.Where(performer => leafQuery.Any(match => match.Id == performer.Id));
             },
             async (input, scope, leaves) =>
             {

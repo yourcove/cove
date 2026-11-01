@@ -544,6 +544,36 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FilterExpression_OrAndJustOneUnderACondition_KeepToWhatTheConditionMatches()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("foo-alpha"),
+            CreateVideoWithFile("foo-alpha-beta"),
+            CreateVideoWithFile("foo-gamma"),
+            CreateVideoWithFile("bar-alpha"),
+            CreateVideoWithFile("bar-beta"));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        FilterExpressionNode<VideoFilter> Title(string value) => new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = value } } };
+        FilterExpression<VideoFilter> UnderFoo(FilterExpressionOperator op) => new()
+        {
+            Children = [Title("foo"), new() { Group = new FilterExpression<VideoFilter> { Operator = op, Children = [Title("alpha"), Title("beta")] } }],
+        };
+
+        // The branches start from the whole library, so they must not bring back what the condition before them left out.
+        var (anyItems, anyCount) = await new VideoRepository(context).FindAsync(
+            null, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken, UnderFoo(FilterExpressionOperator.Or));
+        Assert.Equal(2, anyCount);
+        Assert.Equal(["foo-alpha", "foo-alpha-beta"], anyItems.Select(video => video.Title ?? string.Empty).ToArray());
+
+        var (oneItems, oneCount) = await new VideoRepository(context).FindAsync(
+            null, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken, UnderFoo(FilterExpressionOperator.JustOne));
+        Assert.Equal(1, oneCount);
+        Assert.Equal("foo-alpha", Assert.Single(oneItems).Title);
+    }
+
+    [Fact]
     public async Task FilterExpression_NotNegatesOneConditionOrNestedGroup()
     {
         await using var context = CreateContext();
