@@ -15,11 +15,11 @@ vi.mock("../hooks/useEntityEngagement", () => ({
 }));
 
 vi.mock("../components/Rating", () => ({
-  InteractiveRating: ({ onChange, readOnly }: { onChange: (value: number) => void; readOnly?: boolean }) => (
+  InteractiveRating: vi.fn(({ onChange, readOnly }: { onChange: (value: number) => void; readOnly?: boolean }) => (
     <button type="button" disabled={readOnly} onClick={() => onChange(60)}>
       Rate image 60
     </button>
-  ),
+  )),
 }));
 
 vi.mock("../api/client", () => ({
@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 describe("Lightbox image engagement", () => {
-  it("shows rating and like controls in the bottom-left overlay", async () => {
+  it("shows rating and like controls in the bottom-right overlay", async () => {
     renderLightbox();
 
     fireEvent.click(screen.getByRole("button", { name: "Rate image 60" }));
@@ -66,13 +66,33 @@ describe("Lightbox image engagement", () => {
     await waitFor(() => expect(mockIncrementLike).toHaveBeenCalledWith(152376));
     expect(await screen.findByRole("button", { name: "Like image (2 likes)" })).toBeInTheDocument();
 
-    const controls = screen.getByRole("button", { name: "Rate image 60" }).parentElement;
-    expect(controls?.parentElement).toHaveClass(
-      "absolute",
-      "bottom-[max(1rem,env(safe-area-inset-bottom))]",
-      "inset-x-4",
-    );
-    expect(controls?.parentElement?.firstElementChild).toBe(controls);
+    // Stars, like and references share one panel at the bottom right, with the stars first in the DOM to
+    // match the row on wider screens; phones lift the like row above the stars.
+    const ratingRow = screen.getByRole("button", { name: "Rate image 60" }).closest("[data-lightbox-rating]");
+    const panel = ratingRow?.closest("[data-lightbox-engagement]");
+    expect(panel).toHaveClass("ml-auto");
+    expect(panel?.parentElement).toHaveClass("absolute", "bottom-[max(1rem,env(safe-area-inset-bottom))]", "inset-x-4");
+    expect(panel?.firstElementChild).toBe(ratingRow);
+    const likeRow = screen.getByRole("button", { name: "Like image (2 likes)" }).parentElement;
+    expect(likeRow?.parentElement).toBe(panel);
+    expect(likeRow).toHaveClass("max-sm:order-first");
+  });
+
+  it("asks for compact stars so the overlay fits a phone", async () => {
+    const { InteractiveRating } = await import("../components/Rating");
+    renderLightbox();
+
+    expect(vi.mocked(InteractiveRating).mock.lastCall?.[0]).toMatchObject({ compact: true });
+  });
+
+  it("shows the image name at the bottom left, beside the engagement panel", () => {
+    renderLightbox();
+
+    const name = screen.getByText("001.jpg");
+    const panel = screen.getByRole("button", { name: "Rate image 60" }).closest("[data-lightbox-engagement]");
+    expect(name.parentElement).toBe(panel?.parentElement);
+    expect(name.parentElement?.firstElementChild).toBe(name);
+    expect(name).toHaveClass("truncate");
   });
 
   it("prevents engagement mutations without permission", () => {

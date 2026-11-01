@@ -85,7 +85,7 @@ describe("Lightbox image references", () => {
     expect(tagsButton).toHaveAttribute("title", "Tags");
     const galleriesButton = screen.getByTitle("Galleries");
     expect(galleriesButton).toHaveTextContent("1");
-    expect(tagsButton.closest("[data-lightbox-references]")).toHaveClass("ml-auto");
+    expect(tagsButton.closest("[data-lightbox-engagement]")).toHaveClass("ml-auto");
 
     await hover(tagsButton);
     expect(screen.getByText("Outdoor")).toBeInTheDocument();

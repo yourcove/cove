@@ -1,4 +1,4 @@
-import { useState, useEffect, useEffectEvent, useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useEffectEvent, useCallback, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { usePublishActiveMedia } from "./ActiveMedia";
 import {
@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Maximize2,
   Minimize2,
+  Settings,
   ThumbsUp,
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,41 @@ import { hasImageReferences, ImageReferencePopovers, type ImageReferences } from
 // Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
 // the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
 const DRAG_CLICK_THRESHOLD_PX = 5;
+const MAX_ZOOM = 5;
+
+type Point = { x: number; y: number };
+
+// A two-finger gesture, measured from the image's untransformed centre so the zoom anchors on the
+// point between the fingers.
+interface PinchStart {
+  pointerIds: [number, number];
+  origin: Point;
+  distance: number;
+  midpoint: Point;
+  zoom: number;
+  pan: Point;
+}
+
+const distanceBetween = (a: Point, b: Point) => Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
+const midpointOf = (a: Point, b: Point, origin: Point): Point => ({
+  x: (a.x + b.x) / 2 - origin.x,
+  y: (a.y + b.y) / 2 - origin.y,
+});
+
+// The image renders at `centre + zoom * offset + pan`, so the image point under the starting midpoint
+// stays under the current midpoint when the pan moves by the midpoint shift minus its scaled offset.
+function pinchView(start: PinchStart, distance: number, midpoint: Point): { zoom: number; pan: Point } {
+  const zoom = Math.min(Math.max((start.zoom * distance) / start.distance, 1), MAX_ZOOM);
+  if (zoom === 1) return { zoom, pan: { x: 0, y: 0 } };
+  const ratio = zoom / start.zoom;
+  return {
+    zoom,
+    pan: {
+      x: midpoint.x - ratio * (start.midpoint.x - start.pan.x),
+      y: midpoint.y - ratio * (start.midpoint.y - start.pan.y),
+    },
+  };
+}
 
 export interface LightboxImage {
   id: number;
@@ -84,6 +120,11 @@ export function Lightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsPanelId = useId();
+  // iPhone Safari only lets video elements go full screen, so the button would do nothing there.
+  const fullscreenSupported = typeof document !== "undefined" && document.fullscreenEnabled === true;
   const [boundaryLoading, setBoundaryLoading] = useState(false);
 
   const dragStart = useRef({ x: 0, y: 0 });
@@ -92,12 +133,25 @@ export function Lightbox({
   // image's onClick to decide if a release should toggle zoom. A ref, not state, so onClick sees the
   // up-to-date value even though the click fires after pointerup has already reset `dragging`.
   const pointerMoved = useRef(false);
+  // Every pointer down on the image area, so a second finger can turn a tap or pan into a pinch.
+  const activePointers = useRef(new Map<number, Point>());
+  const pinchStart = useRef<PinchStart | null>(null);
+  // The latest zoom and pan, which pointer handlers read so a gesture never starts from a view React has
+  // not rendered yet.
+  const view = useRef<{ zoom: number; pan: Point }>({ zoom: 1, pan: { x: 0, y: 0 } });
+  useLayoutEffect(() => {
+    view.current = { zoom, pan };
+  }, [zoom, pan]);
+  const stageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const slideshowTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   const trackedOpen = useRef(false);
   const lastTrackedIndex = useRef<number | null>(null);
 
   const count = queuedImages.length;
+  // The panel lives behind the gear, which only shows for a multi-image queue; a queue replaced by a
+  // single image must not leave its invisible dismiss layer behind.
+  const settingsShown = settingsOpen && count > 1;
   // A stale or absent total must never read as fewer results than the queue already holds.
   const displayCount = Math.max(totalCount ?? 0, count);
   const displayPosition = positionOffset + index + 1;
@@ -201,6 +255,10 @@ export function Lightbox({
   // Fullscreen is only tracked while open; the listener below re-reads it on the next open.
   if (!open && fullscreen) {
     setFullscreen(false);
+  }
+  // Reopening starts with the settings panel closed.
+  if (!open && settingsOpen) {
+    setSettingsOpen(false);
   }
 
   useEffect(() => {
@@ -309,6 +367,9 @@ export function Lightbox({
   const resetView = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    // A gesture in progress belongs to the image it started on.
+    pinchStart.current = null;
+    setDragging(false);
   }, []);
 
   const goTo = useCallback(
@@ -374,7 +435,7 @@ export function Lightbox({
   }, [resetView, trackCurrentImageInteraction, zoom]);
 
   const handleZoomIn = useCallback(() => {
-    const nextZoom = Math.min(zoom + 0.5, 5);
+    const nextZoom = Math.min(zoom + 0.5, MAX_ZOOM);
     setZoom(nextZoom);
     if (nextZoom !== zoom) {
       trackCurrentImageInteraction("zoom", { action: "in", zoom: nextZoom });
@@ -465,12 +526,12 @@ export function Lightbox({
                 keys: "f",
                 surface: "viewer" as const,
                 action: () => {
-                  void toggleFullscreen();
+                  if (fullscreenSupported) void toggleFullscreen();
                 },
               },
             ]
           : [],
-      [goNext, goPrev, open, toggleFullscreen, toggleSlideshow],
+      [fullscreenSupported, goNext, goPrev, open, toggleFullscreen, toggleSlideshow],
     ),
   );
   useEffect(() => {
@@ -479,54 +540,138 @@ export function Lightbox({
       switch (e.key) {
         case "Escape":
           e.preventDefault();
-          handleClose();
+          // Escape dismisses the settings panel before the lightbox itself, returning focus to its button
+          // so keyboard users are not dropped onto the page body.
+          if (settingsShown) {
+            setSettingsOpen(false);
+            settingsButtonRef.current?.focus();
+          } else handleClose();
           break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleClose, open]);
+  }, [handleClose, open, settingsShown]);
 
   // Scroll wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.25 : 0.25;
     setZoom((z) => {
-      const next = Math.min(Math.max(z + delta, 1), 5);
+      const next = Math.min(Math.max(z + delta, 1), MAX_ZOOM);
       if (next === 1) setPan({ x: 0, y: 0 });
       return next;
     });
   }, []);
 
-  // Pan handlers
+  // The shown image's centre before its zoom transform; offsets ignore transforms.
+  const imageOrigin = useCallback((): Point => {
+    const stage = stageRef.current;
+    const image = stage?.querySelector<HTMLImageElement>("img[data-lightbox-shown]");
+    if (!stage || !image) return { x: 0, y: 0 };
+    const rect = stage.getBoundingClientRect();
+    return {
+      x: rect.left + stage.clientLeft + image.offsetLeft + image.offsetWidth / 2,
+      y: rect.top + stage.clientTop + image.offsetTop + image.offsetHeight / 2,
+    };
+  }, []);
+
+  const startPan = useCallback((point: Point) => {
+    setDragging(true);
+    dragStart.current = point;
+    panStart.current = { ...view.current.pan };
+  }, []);
+
+  // Pan and pinch handlers
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      const pointers = activePointers.current;
+      // A primary pointer starts a new gesture, so drop any pointer whose release was never seen.
+      if (e.isPrimary) {
+        pointers.clear();
+        pinchStart.current = null;
+      }
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+      if (pointers.size === 2) {
+        const [[firstId, first], [secondId, second]] = Array.from(pointers);
+        // A pinch is never a tap, so its release must not toggle zoom.
+        pointerMoved.current = true;
+        setDragging(true);
+        // The image centre does not move while zooming, so it is measured once per pinch.
+        const origin = imageOrigin();
+        pinchStart.current = {
+          pointerIds: [firstId, secondId],
+          origin,
+          distance: distanceBetween(first, second),
+          midpoint: midpointOf(first, second, origin),
+          zoom: view.current.zoom,
+          pan: { ...view.current.pan },
+        };
+        return;
+      }
+      if (pointers.size > 2) return;
+
       pointerMoved.current = false;
-      if (zoom <= 1) return;
-      setDragging(true);
-      dragStart.current = { x: e.clientX, y: e.clientY };
-      panStart.current = { ...pan };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      if (view.current.zoom <= 1) return;
+      startPan({ x: e.clientX, y: e.clientY });
     },
-    [zoom, pan],
+    [imageOrigin, startPan],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      const pointers = activePointers.current;
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      const pinch = pinchStart.current;
+      if (pinch) {
+        const first = pointers.get(pinch.pointerIds[0]);
+        const second = pointers.get(pinch.pointerIds[1]);
+        if (!first || !second) return;
+        const next = pinchView(pinch, distanceBetween(first, second), midpointOf(first, second, pinch.origin));
+        view.current = next;
+        setZoom(next.zoom);
+        setPan(next.pan);
+        return;
+      }
+
       if (!dragging) return;
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
       if (!pointerMoved.current && Math.hypot(dx, dy) > DRAG_CLICK_THRESHOLD_PX) {
         pointerMoved.current = true;
       }
-      setPan({ x: panStart.current.x + dx, y: panStart.current.y + dy });
+      const nextPan = { x: panStart.current.x + dx, y: panStart.current.y + dy };
+      view.current = { ...view.current, pan: nextPan };
+      setPan(nextPan);
     },
     [dragging],
   );
 
-  const handlePointerUp = useCallback(() => {
-    setDragging(false);
-  }, []);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const pointers = activePointers.current;
+      pointers.delete(e.pointerId);
+      const pinch = pinchStart.current;
+      if (pinch?.pointerIds.includes(e.pointerId)) {
+        pinchStart.current = null;
+        const { zoom: pinchedZoom } = view.current;
+        if (pinchedZoom !== pinch.zoom) {
+          trackCurrentImageInteraction("zoom", { action: "pinch", zoom: pinchedZoom });
+        }
+        // The finger still down keeps panning the zoomed image instead of stalling until it lifts.
+        const remaining = pointers.size === 1 ? pointers.values().next().value : undefined;
+        if (remaining && pinchedZoom > 1) {
+          startPan(remaining);
+          return;
+        }
+      }
+      if (pointers.size === 0 || !pinchStart.current) setDragging(false);
+    },
+    [startPan, trackCurrentImageInteraction],
+  );
 
   // Preload adjacent images
   useEffect(() => {
@@ -552,39 +697,83 @@ export function Lightbox({
         if (e.target === containerRef.current) handleClose();
       }}
     >
+      {/* While the settings panel is open, a transparent layer under the top bar takes the next tap
+          anywhere else, so dismissing the panel never also closes the viewer or zooms the image. */}
+      {settingsShown ? (
+        <div
+          data-lightbox-settings-dismiss=""
+          className="absolute inset-0 z-30"
+          style={{ touchAction: "none" }}
+          onClick={(e) => {
+            // Marks the tap handled, so iOS does not treat a quick second tap as double-tap zoom.
+            e.preventDefault();
+            setSettingsOpen(false);
+          }}
+        />
+      ) : null}
+
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/80 via-black/40 to-transparent">
-        <span className="text-white text-sm font-medium select-none">
+      <div
+        className={`absolute top-0 left-0 right-0 ${settingsShown ? "z-40" : "z-10"} flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/80 via-black/40 to-transparent`}
+      >
+        {/* The counter gives way on very narrow screens, so the controls and close button stay reachable.
+            The image name sits at the bottom left. */}
+        <span className="min-w-0 truncate text-white text-sm font-medium tabular-nums select-none">
           {displayPosition} / {displayCount}
-          {current?.title && <span className="ml-3 text-white/70">{current.title}</span>}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {count > 1 ? (
-            <div className="mr-1 flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80">
+            <div>
+              {/* Not positioned: the panel anchors to the top bar so it stays on screen beside a narrow toolbar. */}
               <button
-                onClick={() => changeSlideshowDelay(-1000)}
-                className="rounded px-1 py-0.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="Decrease slideshow delay"
-                title="Decrease slideshow delay"
+                ref={settingsButtonRef}
+                onClick={() => setSettingsOpen(!settingsShown)}
+                className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                aria-label="Lightbox settings"
+                aria-expanded={settingsShown}
+                aria-controls={settingsShown ? settingsPanelId : undefined}
+                title="Lightbox settings"
               >
-                -
+                <Settings size={20} />
               </button>
-              <span className="min-w-[3.5rem] text-center tabular-nums">
-                {(currentSlideshowDelay / 1000).toFixed(0)}s
-              </span>
-              <button
-                onClick={() => changeSlideshowDelay(1000)}
-                className="rounded px-1 py-0.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="Increase slideshow delay"
-                title="Increase slideshow delay"
-              >
-                +
-              </button>
+              {settingsShown ? (
+                <div
+                  id={settingsPanelId}
+                  role="group"
+                  aria-label="Lightbox settings"
+                  className="absolute right-4 top-full -mt-1 w-max max-w-[calc(100vw-2rem)] rounded-lg border border-white/15 bg-black/85 p-3 text-sm text-white shadow-lg backdrop-blur-sm"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="whitespace-nowrap text-white/80">Slideshow delay</span>
+                    <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1 py-0.5">
+                      <button
+                        onClick={() => changeSlideshowDelay(-1000)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Decrease slideshow delay"
+                        title="Decrease slideshow delay"
+                      >
+                        -
+                      </button>
+                      <span className="min-w-[2.5rem] text-center tabular-nums" aria-live="polite">
+                        {(currentSlideshowDelay / 1000).toFixed(0)}s
+                      </span>
+                      <button
+                        onClick={() => changeSlideshowDelay(1000)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Increase slideshow delay"
+                        title="Increase slideshow delay"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
           <button
             onClick={handleZoomOut}
-            className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            className="p-2 max-sm:hidden text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
             aria-label="Zoom out"
             title="Zoom out"
           >
@@ -592,7 +781,7 @@ export function Lightbox({
           </button>
           <button
             onClick={handleZoomIn}
-            className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            className="p-2 max-sm:hidden text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
             aria-label="Zoom in"
             title="Zoom in"
           >
@@ -600,20 +789,22 @@ export function Lightbox({
           </button>
           <button
             onClick={() => resetView()}
-            className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            className="p-2 max-sm:hidden text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
             aria-label="Reset zoom"
             title="Reset zoom"
           >
             <RotateCcw size={20} />
           </button>
-          <button
-            onClick={() => void toggleFullscreen()}
-            className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-            aria-label={fullscreen ? "Exit full screen" : "Enter full screen"}
-            title={fullscreen ? "Exit full screen" : "Enter full screen"}
-          >
-            {fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-          </button>
+          {fullscreenSupported ? (
+            <button
+              onClick={() => void toggleFullscreen()}
+              className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+              aria-label={fullscreen ? "Exit full screen" : "Enter full screen"}
+              title={fullscreen ? "Exit full screen" : "Enter full screen"}
+            >
+              {fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+            </button>
+          ) : null}
           <button
             onClick={toggleSlideshow}
             className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -658,9 +849,11 @@ export function Lightbox({
 
       {/* Image container */}
       <div
+        ref={stageRef}
         className="relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden select-none pt-[calc(4rem+env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)] sm:h-[94dvh] sm:w-[96vw] sm:pt-0 sm:pb-0"
         onClick={(e) => {
-          if (e.target === e.currentTarget) {
+          // A pan that started on the backdrop releases there too, and must not close the viewer.
+          if (e.target === e.currentTarget && !pointerMoved.current) {
             handleClose();
           }
         }}
@@ -668,6 +861,9 @@ export function Lightbox({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        // Cove blocks pinch zoom on the page; here the image takes the gesture instead.
+        style={{ touchAction: "none" }}
       >
         {loading && !failed && !displayed && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -685,6 +881,7 @@ export function Lightbox({
             src={image.src}
             alt={image.title ?? ""}
             aria-hidden={image.src !== current?.src}
+            data-lightbox-shown={displayed?.src === image.src ? "" : undefined}
             draggable={false}
             onClick={(e) => {
               // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
@@ -713,6 +910,9 @@ export function Lightbox({
             style={{
               transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
               cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+              // Follow the fingers directly; the eased transition is for button and tap zoom.
+              transition: dragging ? "none" : undefined,
+              touchAction: "none",
               opacity: displayed?.src === image.src ? 1 : 0,
               position: displayed?.src === image.src ? "relative" : "absolute",
             }}
@@ -720,41 +920,56 @@ export function Lightbox({
         ))}
       </div>
 
-      {/* Wrap-reverse lifts the references above the engagement controls when both can't share a row. */}
-      <div className="pointer-events-none absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex flex-wrap-reverse items-end gap-2">
-        {current ? (
-          <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-white/15 bg-black/65 px-3 py-2 text-white shadow-lg backdrop-blur-sm">
-            <InteractiveRating
-              value={rating}
-              onChange={setRating}
-              readOnly={(loading && Boolean(displayed)) || !canEngage || ratingPending}
-            />
-            <button
-              type="button"
-              disabled={(loading && Boolean(displayed)) || !canLike || likeMutation.isPending}
-              onClick={() => likeMutation.mutate(current.id)}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={`Like image (${likeCount} likes)`}
-              title={likeMutation.isPending ? "Saving like" : "Like image"}
-            >
-              <ThumbsUp className={likeCount > 0 ? "h-4 w-4 fill-current text-accent" : "h-4 w-4"} />
-              <span className="text-sm tabular-nums">{likeCount}</span>
-            </button>
-          </div>
+      {/* The image name takes the bottom-left; rating, like and references sit on the right,
+          straight on the image with a shadow for contrast instead of a panel. Phones stack like and references above compact stars so the name keeps room beside them. */}
+      <div className="pointer-events-none absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-end gap-3">
+        {current?.title ? (
+          <span className="pointer-events-auto min-w-0 truncate pb-1 text-sm text-white/80 [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]">
+            {current.title}
+          </span>
         ) : null}
 
-        {referenceImage?.references && hasImageReferences(referenceImage.references) ? (
+        {current ? (
           <div
-            data-lightbox-references=""
-            className="pointer-events-auto ml-auto flex items-center gap-1 rounded-lg border border-white/15 bg-black/65 px-2 py-1.5 text-white shadow-lg backdrop-blur-sm"
+            data-lightbox-engagement=""
+            className="pointer-events-auto ml-auto flex shrink-0 flex-col items-end gap-1 text-white [filter:drop-shadow(0_1px_2px_rgb(0_0_0/0.9))] sm:flex-row sm:items-center sm:gap-2"
           >
-            <ImageReferencePopovers
-              key={referenceImage.id}
-              imageId={referenceImage.id}
-              references={referenceImage.references}
-              onNavigate={navigateToReference}
-              buttonClassName="text-white/80 hover:bg-white/10 hover:text-white"
-            />
+            {/* First in the DOM so keyboard and screen-reader order matches the row on wider screens. A fixed
+                height on phones stops the row above from jumping while the read-only stars show. */}
+            <div data-lightbox-rating="" className="flex items-center max-sm:min-h-7">
+              <InteractiveRating
+                value={rating}
+                onChange={setRating}
+                readOnly={(loading && Boolean(displayed)) || !canEngage || ratingPending}
+                compact
+              />
+            </div>
+
+            <div className="flex items-center gap-1 max-sm:order-first">
+              <button
+                type="button"
+                disabled={(loading && Boolean(displayed)) || !canLike || likeMutation.isPending}
+                onClick={() => likeMutation.mutate(current.id)}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`Like image (${likeCount} likes)`}
+                title={likeMutation.isPending ? "Saving like" : "Like image"}
+              >
+                <ThumbsUp className={likeCount > 0 ? "h-4 w-4 fill-current text-accent" : "h-4 w-4"} />
+                <span className="text-sm tabular-nums">{likeCount}</span>
+              </button>
+
+              {referenceImage?.references && hasImageReferences(referenceImage.references) ? (
+                <div data-lightbox-references="" className="flex items-center gap-1">
+                  <ImageReferencePopovers
+                    key={referenceImage.id}
+                    imageId={referenceImage.id}
+                    references={referenceImage.references}
+                    onNavigate={navigateToReference}
+                    buttonClassName="text-white/80 hover:bg-white/10 hover:text-white"
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
