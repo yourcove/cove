@@ -13,13 +13,9 @@ interface Options {
 
 export function useEntityEngagement(hostType: AffinityHostType, hostId: number, options?: Options) {
   const queryClient = useQueryClient();
-  const queryKey = options?.queryScope
-    ? (["engagement", options.queryScope, hostType, hostId] as const)
-    : (["engagement", hostType, hostId] as const);
+  const queryScope = options?.queryScope;
+  const queryKey = engagementKey(hostType, hostId, queryScope);
   const batchQueryKey = ["engagement", hostType, "batch"] as const;
-  const ratingsQueryKey = options?.queryScope
-    ? (["engagement", options.queryScope, hostType, hostId, "ratings"] as const)
-    : (["engagement", hostType, hostId, "ratings"] as const);
 
   const { data } = useQuery({
     queryKey,
@@ -27,42 +23,51 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
     enabled: options?.enabled ?? true,
   });
 
+  // Each change carries the id it was made for. A viewer that moves to another entity while a save is in
+  // flight keeps this hook, and the mutation then sees the new id; the response must still update the
+  // entity it belongs to.
   const setFavoriteMutation = useMutation({
-    mutationFn: (isFavorite: boolean) => entityEngagement.setFavorite(hostType, hostId, { isFavorite }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
-      if (!options?.queryScope) {
+    mutationFn: ({ id, isFavorite }: { id: number; isFavorite: boolean }) =>
+      entityEngagement.setFavorite(hostType, id, { isFavorite }),
+    onSuccess: (updated, { id }) => {
+      queryClient.setQueryData(engagementKey(hostType, id, queryScope), (prev?: EntityEngagement) =>
+        mergePreservingResume(prev, updated),
+      );
+      if (!queryScope) {
         queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
       }
     },
   });
 
   const setRatingMutation = useMutation({
-    mutationFn: (payload: { value: number | null; aspect?: string }) =>
-      entityEngagement.setRating(hostType, hostId, payload),
-    onSuccess: (updated, variables) => {
-      queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
-      if (!options?.queryScope) {
+    mutationFn: ({ id, ...payload }: { id: number; value: number | null; aspect?: string }) =>
+      entityEngagement.setRating(hostType, id, payload),
+    onSuccess: (updated, { id, value, aspect }) => {
+      queryClient.setQueryData(engagementKey(hostType, id, queryScope), (prev?: EntityEngagement) =>
+        mergePreservingResume(prev, updated),
+      );
+      if (!queryScope) {
         queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
       }
-      queryClient.setQueryData(ratingsQueryKey, (current: EntityRatings | undefined) =>
-        syncRatings(current, hostId, variables.aspect ?? "overall", variables.value),
+      queryClient.setQueryData(
+        [...engagementKey(hostType, id, queryScope), "ratings"],
+        (current: EntityRatings | undefined) => syncRatings(current, id, aspect ?? "overall", value),
       );
     },
   });
 
   const setFavorite = useCallback(
     (isFavorite: boolean) => {
-      setFavoriteMutation.mutate(isFavorite);
+      setFavoriteMutation.mutate({ id: hostId, isFavorite });
     },
-    [setFavoriteMutation],
+    [hostId, setFavoriteMutation],
   );
 
   const setRating = useCallback(
     (value: number | undefined, aspect = "overall") => {
-      setRatingMutation.mutate({ value: value ?? null, aspect });
+      setRatingMutation.mutate({ id: hostId, value: value ?? null, aspect });
     },
-    [setRatingMutation],
+    [hostId, setRatingMutation],
   );
 
   return {
@@ -115,4 +120,10 @@ function syncRatings(current: EntityRatings | undefined, hostId: number, aspect:
     hostId,
     ratings: nextRatings,
   };
+}
+
+function engagementKey(hostType: AffinityHostType, hostId: number, queryScope?: string) {
+  return queryScope
+    ? (["engagement", queryScope, hostType, hostId] as const)
+    : (["engagement", hostType, hostId] as const);
 }

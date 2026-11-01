@@ -185,11 +185,13 @@ function RatingNumberInput({
   onChange,
   options,
   inputClassName,
+  readOnly,
 }: {
   value?: number;
   onChange: (value: number | undefined) => void;
   options: RatingSystemOptions;
   inputClassName?: string;
+  readOnly?: boolean;
 }) {
   const displayValue = convertToRatingFormat(value, options);
 
@@ -197,6 +199,7 @@ function RatingNumberInput({
     <input
       type="number"
       value={displayValue ?? ""}
+      readOnly={readOnly}
       min={0}
       max={getRatingMax(options)}
       step={getRatingStep(options)}
@@ -220,7 +223,8 @@ function RatingNumberInput({
         );
       }}
       onBlur={(event) => {
-        if (!event.target.value) {
+        // A read-only field, as while a save is in flight, must not send its value again on leaving it.
+        if (readOnly || !event.target.value) {
           return;
         }
 
@@ -387,12 +391,19 @@ export function InteractiveRating({
   value,
   onChange,
   readOnly = false,
+  disabled = false,
+  compact = false,
 }: {
   value?: number;
   onChange?: (value: number | undefined) => void;
   readOnly?: boolean;
+  /** Keeps the interactive stars in place but ignores input, for a moment such as a save in flight. */
+  disabled?: boolean;
+  /** Smaller stars and tap targets on phones, for overlays where width is scarce. */
+  compact?: boolean;
 }) {
   const options = useRatingOptions();
+  const starSize = compact ? "h-4 w-4 sm:h-5 sm:w-5" : "h-5 w-5";
   const displayValue = convertToRatingFormat(value, options) ?? 0;
   const label = formatDisplayRating(value, options);
   const [hoverValue, setHoverValue] = useState<number | null>(null);
@@ -403,7 +414,7 @@ export function InteractiveRating({
     if (readOnly) {
       return (
         <div className="flex items-center gap-2">
-          <RatingStars value={displayValue} sizeClass="h-5 w-5" />
+          <RatingStars value={displayValue} sizeClass={starSize} />
           {label ? (
             <span className="text-sm text-secondary">{label}</span>
           ) : (
@@ -435,6 +446,7 @@ export function InteractiveRating({
             <button
               key={star}
               type="button"
+              disabled={disabled}
               onMouseMove={(event) => setHoverValue(getValueFromPointer(event, star))}
               onFocus={() => setHoverValue(star)}
               onBlur={() => setHoverValue(null)}
@@ -448,19 +460,19 @@ export function InteractiveRating({
                 // falls back to the freshly-updated value. (On desktop, mousemove re-sets it immediately.)
                 setHoverValue(null);
               }}
-              className="inline-flex h-9 w-9 items-center justify-center text-accent transition-transform hover:scale-110 sm:h-auto sm:w-auto"
+              className={`inline-flex ${compact ? "h-7 w-7" : "h-9 w-9"} items-center justify-center text-accent transition-transform hover:scale-110 disabled:cursor-default disabled:hover:scale-100 sm:h-auto sm:w-auto`}
               title="Set rating"
             >
               {/* Inner box sized exactly to the star so the fill overlay aligns to the star, not the
-                  larger (h-9 w-9) mobile tap target — otherwise the fill is offset on touch devices.
+                  larger mobile tap target (h-9 w-9, or h-7 w-7 when compact) — otherwise the fill is offset on touch devices.
                   data-rating-star marks it as the geometry reference for pointer-to-value mapping. */}
-              <span data-rating-star className="relative inline-block h-5 w-5 shrink-0">
-                <Star className="h-5 w-5 text-muted" />
+              <span data-rating-star className={`relative inline-block shrink-0 ${starSize}`}>
+                <Star className={`${starSize} text-muted`} />
                 <span
                   className="absolute inset-y-0 left-0 overflow-hidden"
                   style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 100}%` }}
                 >
-                  <Star className="h-5 w-5 max-w-none fill-current text-accent" />
+                  <Star className={`${starSize} max-w-none fill-current text-accent`} />
                 </span>
               </span>
             </button>
@@ -480,6 +492,8 @@ export function InteractiveRating({
         value={value}
         onChange={onChange ?? (() => {})}
         options={options}
+        // Read-only rather than disabled, so a field being typed in keeps its focus.
+        readOnly={disabled}
         inputClassName="themed-number-input min-h-10 w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none sm:min-h-0"
       />
     </div>
