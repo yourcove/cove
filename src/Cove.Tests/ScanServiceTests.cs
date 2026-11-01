@@ -256,6 +256,63 @@ public class ScanServiceTests
         Assert.Contains("partial box header", failure);
     }
 
+    // A tail shaped like a real export's: its first eight bytes, read as a box header, declare a size far
+    // past the end of the file and a type that is not four printable ASCII characters.
+    private static readonly byte[] TrailingJunk =
+        [0x01, 0x0c, 0x45, 0x27, 0x15, 0x4e, 0x16, 0x9f, 0x70, 0xea, 0x6e, 0x77, 0xd0, 0xf3, 0xea, 0xf2, 0xd9, 0xb0, 0x0d, 0xc1];
+
+    [Theory]
+    [InlineData("ftyp mdat moov")]
+    [InlineData("ftyp wide mdat moov")]
+    [InlineData("ftyp moov mdat")]
+    [InlineData("ftyp moov mdat64")]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsNonBoxTailAfterCompleteMovieAndMediaData(string layout)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, TrailingJunk);
+
+        Assert.Null(failure);
+    }
+
+    [Theory]
+    // Declares a size smaller than a box header.
+    [InlineData(new byte[] { 0, 0, 0, 3, 0x9f, 0x70, 0xea, 0x6e, 0x77, 0xd0 })]
+    // Exactly eight bytes, the shortest tail that is read as a full box header.
+    [InlineData(new byte[] { 0x01, 0x0c, 0x45, 0x27, 0x15, 0x4e, 0x16, 0x9f })]
+    // Declares an extended size but ends before the 64-bit size field.
+    [InlineData(new byte[] { 0, 0, 0, 1, 0x15, 0x4e, 0x16, 0x9f, 0x70, 0xea })]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsMalformedNonBoxTailAfterCompleteMovieAndMediaData(byte[] tail)
+    {
+
+        var failure = await ValidateIsoBoxesWithTailAsync("ftyp mdat moov", tail);
+
+        Assert.Null(failure);
+    }
+
+    [Theory]
+    [InlineData("ftyp mdat")]
+    [InlineData("ftyp moov")]
+    [InlineData("ftyp moov moof mdat")]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsNonBoxTailWithoutCompleteUnfragmentedMovie(string layout)
+    {
+        var failure = await ValidateIsoBoxesWithTailAsync(layout, TrailingJunk);
+
+        Assert.Contains("shorter than a declared box", failure);
+    }
+
+    [Theory]
+    [InlineData("udta")]
+    [InlineData("mdat")]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsTruncatedNamedBoxAfterCompleteMovieAndMediaData(string type)
+    {
+        // A copy cut inside a later real box, such as trailing user data or a second media data box: its
+        // header is a real box header, so the cut is reported.
+        byte[] tail = [0, 0, 0, 64, .. System.Text.Encoding.ASCII.GetBytes(type), 1, 2, 3, 4];
+
+        var failure = await ValidateIsoBoxesWithTailAsync("ftyp mdat moov", tail);
+
+        Assert.Contains("shorter than a declared box", failure);
+    }
+
     private static async Task<string?> ValidateIsoBoxesWithTailAsync(string layout, byte[] tail)
     {
         var bytes = new List<byte>();

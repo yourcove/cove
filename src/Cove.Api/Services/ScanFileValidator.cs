@@ -556,6 +556,8 @@ public sealed class ScanFileValidator(
         while (offset < length)
         {
             ct.ThrowIfCancellationRequested();
+            // Complete movie metadata and media data with no fragments: anything after them is ancillary.
+            var hasCompleteUnfragmentedMovie = hasMovie && hasMediaData && !isFragmented;
             if (boxes >= MaxIsoBmffTopLevelBoxes)
                 return $"the ISO media container has more than {MaxIsoBmffTopLevelBoxes:N0} top-level boxes";
             if (length - offset < 8)
@@ -570,13 +572,20 @@ public sealed class ScanFileValidator(
                 // Some exports end in a few non-zero bytes instead. After complete movie metadata and media data,
                 // a cut there could only drop trailing ancillary boxes. Fragmented files keep the strict check
                 // because a tail there may be the start of a missing fragment.
-                if (hasMovie && hasMediaData && !isFragmented)
+                if (hasCompleteUnfragmentedMovie)
                     return null;
                 return "the ISO media container ends in a partial box header";
             }
 
             stream.Position = offset;
             await stream.ReadExactlyAsync(header.AsMemory(0, 8), ct);
+            // Some exports also append a longer run of non-box bytes after the last box. Once complete movie
+            // metadata and media data are in hand, a header whose type is not printable ASCII is that tail
+            // rather than the start of a real box, so its "size" means nothing. A real trailing box cut short
+            // keeps the strict check, as do fragmented files.
+            if (hasCompleteUnfragmentedMovie && !IsPrintableBoxType(header.AsSpan(4, 4)))
+                return null;
+
             var size32 = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0, 4));
             long boxSize;
             var headerSize = 8;
@@ -615,6 +624,9 @@ public sealed class ScanFileValidator(
 
         return boxes == 0 ? "the ISO media container has no boxes" : null;
     }
+
+    private static bool IsPrintableBoxType(ReadOnlySpan<byte> type) =>
+        type.IndexOfAnyExceptInRange((byte)0x20, (byte)0x7e) < 0;
 
     private static async Task<string?> ValidateRiffLengthAsync(string path, CancellationToken ct)
     {
