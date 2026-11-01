@@ -29,6 +29,26 @@ import { hasImageReferences, ImageReferencePopovers, type ImageReferences } from
 // Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
 // the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
 const DRAG_CLICK_THRESHOLD_PX = 5;
+// A horizontal touch swipe at least this far, or this share of the viewer width if larger, turns the page.
+const SWIPE_MIN_PX = 50;
+const SWIPE_MIN_SHARE = 0.15;
+// Space between the current and the incoming image while they slide, and how long the slide takes; the
+// duration matches the images' duration-200 transform transition.
+const SWIPE_GAP_PX = 24;
+const SWIPE_SETTLE_MS = 200;
+// Past the last image of a list that does not wrap, the image moves this fraction of the finger's travel.
+const SWIPE_EDGE_RESISTANCE = 0.3;
+
+// The neighbouring image sliding in during a swipe. `side` is 1 for the next image, entering from the right,
+// and -1 for the previous one. It is dragging with the finger, settling back after a short swipe, committing
+// to its place, or handing over: drawn in place until the real image for the new position has decoded,
+// so the old image never flashes back between the slide and the swap.
+interface SlideState {
+  side: 1 | -1;
+  width: number;
+  neighbor: LightboxImage | null;
+  phase: "drag" | "settle" | "commit" | "handoff";
+}
 const MAX_ZOOM = 5;
 
 type Point = { x: number; y: number };
@@ -136,6 +156,10 @@ export function Lightbox({
   // Every pointer down on the image area, so a second finger can turn a tap or pan into a pinch.
   const activePointers = useRef(new Map<number, Point>());
   const pinchStart = useRef<PinchStart | null>(null);
+  // Where a one-finger swipe began on an unzoomed image; the image follows the finger sideways until release.
+  const swipeStart = useRef<(Point & { width: number }) | null>(null);
+  const [slide, setSlide] = useState<SlideState | null>(null);
+  const slideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The latest zoom and pan, which pointer handlers read so a gesture never starts from a view React has
   // not rendered yet.
   const view = useRef<{ zoom: number; pan: Point }>({ zoom: 1, pan: { x: 0, y: 0 } });
@@ -158,9 +182,23 @@ export function Lightbox({
   const current = queuedImages[index];
   const currentSrc = useRef<string | undefined>(current?.src);
   const openSrc = open ? current?.src : undefined;
+  // Load results for images that settled before they became current, such as a swipe's incoming image.
+  // Their elements carry on as the current image and fire no further load or error event.
+  const settledSrcs = useRef(new Map<string, { element: HTMLImageElement; result: LightboxImage | "failed" }>());
   // Image loads resolve asynchronously, so they compare against the source shown after the latest commit.
   useLayoutEffect(() => {
     currentSrc.current = openSrc;
+    if (!openSrc) {
+      settledSrcs.current.clear();
+      return;
+    }
+    const settled = settledSrcs.current.get(openSrc);
+    settledSrcs.current.delete(openSrc);
+    // A result stands only for the element that reported it. After a short swipe springs back, that
+    // element is gone, and a new one for the same image loads and reports for itself.
+    if (!settled?.element.isConnected) return;
+    if (settled.result === "failed") setFailedSrc(openSrc);
+    else setDisplayed(settled.result);
   }, [openSrc]);
   const loading = Boolean(current && displayed?.src !== current.src);
   usePublishActiveMedia(
@@ -173,10 +211,27 @@ export function Lightbox({
   const referenceImage = loading ? displayed : current;
   const visibleImages =
     displayed && displayed.src !== current?.src ? [displayed, ...(current ? [current] : [])] : current ? [current] : [];
+  const incomingImage = slide?.neighbor;
+  const stageImages =
+    incomingImage && !visibleImages.some((image) => image.src === incomingImage.src)
+      ? [...visibleImages, incomingImage]
+      : visibleImages;
   const queryClient = useQueryClient();
   const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, {
     enabled: open && Boolean(current),
   });
+  // The chosen rating shows while it saves, so the stars neither flash the old value nor change layout.
+  const [pendingRating, setPendingRating] = useState<{ imageId: number; value: number | undefined } | null>(null);
+  const shownRating =
+    ratingPending && pendingRating && pendingRating.imageId === current?.id ? pendingRating.value : rating;
+  const rateImage = useCallback(
+    (value: number | undefined) => {
+      if (!current) return;
+      setPendingRating({ imageId: current.id, value });
+      setRating(value);
+    },
+    [current, setRating],
+  );
   const likeMutation = useMutation({
     mutationFn: (imageId: number) => imageApi.incrementLike(imageId),
     onSuccess: (likeCount, imageId) => {
@@ -259,6 +314,10 @@ export function Lightbox({
   // Reopening starts with the settings panel closed.
   if (!open && settingsOpen) {
     setSettingsOpen(false);
+  }
+  // A gesture cut short by closing must not carry over into the next opening.
+  if (!open && dragging) {
+    setDragging(false);
   }
 
   useEffect(() => {
@@ -380,12 +439,17 @@ export function Lightbox({
     [count, resetView],
   );
 
+  // One adjacent page loads at a time: a second swipe or key press during a load would read the same page
+  // bounds and append the same images again.
+  const boundaryLoad = useRef(false);
   const goPrev = useCallback(async () => {
     if (index > 0 || !hasPrevious || !loadPrevious) {
       if (index === 0 && !wrap) return;
       goTo(index - 1);
       return;
     }
+    if (boundaryLoad.current) return;
+    boundaryLoad.current = true;
     setBoundaryLoading(true);
     try {
       const loaded = await loadPrevious();
@@ -398,6 +462,7 @@ export function Lightbox({
     } catch {
       // Keep the current image visible when an adjacent page cannot be loaded.
     } finally {
+      boundaryLoad.current = false;
       setBoundaryLoading(false);
     }
   }, [goTo, hasPrevious, index, loadPrevious, resetView, wrap]);
@@ -407,6 +472,8 @@ export function Lightbox({
       goTo(index + 1);
       return;
     }
+    if (boundaryLoad.current) return;
+    boundaryLoad.current = true;
     setBoundaryLoading(true);
     try {
       const loaded = await loadNext();
@@ -417,9 +484,56 @@ export function Lightbox({
     } catch {
       // Keep the current image visible when an adjacent page cannot be loaded.
     } finally {
+      boundaryLoad.current = false;
       setBoundaryLoading(false);
     }
   }, [count, goTo, hasNext, index, loadNext, resetView, wrap]);
+  // The page turn at the end of a swipe runs after a timer, so it reads the navigation of the latest render.
+  const latestTurn = useRef({ goNext, goPrev });
+  useLayoutEffect(() => {
+    latestTurn.current = { goNext, goPrev };
+  }, [goNext, goPrev]);
+
+  // Whether turning the page that way loads another page of results first; the image is not known yet.
+  const loadsBeyond = useCallback(
+    (side: 1 | -1) =>
+      side > 0
+        ? index === count - 1 && hasNext && Boolean(loadNext)
+        : index === 0 && hasPrevious && Boolean(loadPrevious),
+    [count, hasNext, hasPrevious, index, loadNext, loadPrevious],
+  );
+
+  // The image a swipe toward `side` would show, following goNext and goPrev, or null where there is
+  // none or it still has to load.
+  const neighborFor = useCallback(
+    (side: 1 | -1): LightboxImage | null => {
+      if (count <= 1 || loadsBeyond(side)) return null;
+      const next = index + side;
+      if (next >= 0 && next < count) return queuedImages[next];
+      return wrap ? queuedImages[(next + count) % count] : null;
+    },
+    [count, index, loadsBeyond, queuedImages, wrap],
+  );
+
+  // The handover ends once the new position's image is on screen, or once anything else has moved on.
+  if (
+    slide?.phase === "handoff" &&
+    (!open || current?.src !== slide.neighbor?.src || displayed?.src === current?.src || failedSrc === current?.src)
+  ) {
+    setSlide(null);
+  }
+  if (!open && slide) {
+    setSlide(null);
+  }
+  useEffect(() => () => clearTimeout(slideTimer.current), []);
+  // A slide in progress must not turn the page of a viewer that has since closed.
+  useEffect(() => {
+    if (open) return;
+    clearTimeout(slideTimer.current);
+    activePointers.current.clear();
+    swipeStart.current = null;
+    pinchStart.current = null;
+  }, [open]);
 
   const toggleSlideshow = useCallback(() => setPlaying((p) => !p), []);
 
@@ -585,17 +699,29 @@ export function Lightbox({
   // Pan and pinch handlers
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Once a swipe has committed, the images are mid-slide to the next position; let them land.
+      if (slide?.phase === "commit") return;
+      // A touch while the incoming image still loads gives the stage back rather than waiting on it.
+      if (slide?.phase === "handoff") setSlide(null);
       const pointers = activePointers.current;
       // A primary pointer starts a new gesture, so drop any pointer whose release was never seen.
       if (e.isPrimary) {
         pointers.clear();
         pinchStart.current = null;
+        swipeStart.current = null;
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
 
       if (pointers.size === 2) {
         const [[firstId, first], [secondId, second]] = Array.from(pointers);
+        // A second finger turns a swipe into a pinch, starting from the image back in place.
+        if (swipeStart.current) {
+          swipeStart.current = null;
+          view.current = { ...view.current, pan: { x: 0, y: 0 } };
+          setPan({ x: 0, y: 0 });
+          setSlide(null);
+        }
         // A pinch is never a tap, so its release must not toggle zoom.
         pointerMoved.current = true;
         setDragging(true);
@@ -614,10 +740,18 @@ export function Lightbox({
       if (pointers.size > 2) return;
 
       pointerMoved.current = false;
-      if (view.current.zoom <= 1) return;
+      if (view.current.zoom <= 1) {
+        // Mouse users have the arrows and keys; a finger swipes between images.
+        if (e.pointerType === "mouse") return;
+        // A touch during a spring-back starts a fresh drag from the image's resting place.
+        clearTimeout(slideTimer.current);
+        swipeStart.current = { x: e.clientX, y: e.clientY, width: stageRef.current?.clientWidth ?? 0 };
+        setDragging(true);
+        return;
+      }
       startPan({ x: e.clientX, y: e.clientY });
     },
-    [imageOrigin, startPan],
+    [imageOrigin, slide?.phase, startPan],
   );
 
   const handlePointerMove = useCallback(
@@ -637,6 +771,25 @@ export function Lightbox({
         return;
       }
 
+      const swipe = swipeStart.current;
+      if (swipe) {
+        const dx = e.clientX - swipe.x;
+        if (!pointerMoved.current && Math.hypot(dx, e.clientY - swipe.y) > DRAG_CLICK_THRESHOLD_PX) {
+          pointerMoved.current = true;
+        }
+        // Dragging left brings in the next image from the right edge, dragging right the previous one.
+        const side = dx < 0 ? 1 : -1;
+        const neighbor = neighborFor(side);
+        // With nothing to bring in, the image resists to show the end of the list.
+        const x = neighbor || loadsBeyond(side) ? dx : dx * SWIPE_EDGE_RESISTANCE;
+        view.current = { ...view.current, pan: { x, y: 0 } };
+        setPan({ x, y: 0 });
+        if (slide?.phase !== "drag" || slide.side !== side || slide.neighbor !== neighbor) {
+          setSlide({ side, width: swipe.width, neighbor, phase: "drag" });
+        }
+        return;
+      }
+
       if (!dragging) return;
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
@@ -647,13 +800,56 @@ export function Lightbox({
       view.current = { ...view.current, pan: nextPan };
       setPan(nextPan);
     },
-    [dragging],
+    [dragging, loadsBeyond, neighborFor, slide],
   );
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
       const pointers = activePointers.current;
       pointers.delete(e.pointerId);
+      const swipe = swipeStart.current;
+      if (swipe) {
+        swipeStart.current = null;
+        setDragging(false);
+        clearTimeout(slideTimer.current);
+        const dx = e.clientX - swipe.x;
+        const dy = e.clientY - swipe.y;
+        const side = dx < 0 ? 1 : -1;
+        const far = Math.abs(dx) >= Math.max(SWIPE_MIN_PX, swipe.width * SWIPE_MIN_SHARE);
+        const turn = e.type !== "pointercancel" && pointerMoved.current && far && Math.abs(dx) > Math.abs(dy);
+        const neighbor = turn ? neighborFor(side) : null;
+
+        if (neighbor) {
+          // Both images finish the slide together, then the position changes underneath them.
+          const landed = { x: -side * (swipe.width + SWIPE_GAP_PX), y: 0 };
+          view.current = { ...view.current, pan: landed };
+          setPan(landed);
+          setSlide({ side, width: swipe.width, neighbor, phase: "commit" });
+          const leaving = currentSrc.current;
+          slideTimer.current = setTimeout(() => {
+            // A key, arrow button or slideshow tick may have moved on during the slide; then this turn is moot.
+            if (currentSrc.current !== leaving) {
+              setSlide(null);
+              return;
+            }
+            // The neighbour's element stays mounted as the new current image. If it has loaded, the
+            // settled result shows it at once; otherwise its own load event does, and until then the image
+            // the swipe left stays hidden. The latest navigation is used, as the queue may have shifted.
+            setSlide((state) => (state ? { ...state, phase: "handoff" } : state));
+            void (side > 0 ? latestTurn.current.goNext() : latestTurn.current.goPrev());
+          }, SWIPE_SETTLE_MS);
+          return;
+        }
+
+        // Otherwise the image springs back, and the incoming one slides back out of view with it.
+        view.current = { ...view.current, pan: { x: 0, y: 0 } };
+        setPan({ x: 0, y: 0 });
+        setSlide((current) => (current ? { ...current, phase: "settle" } : current));
+        slideTimer.current = setTimeout(() => setSlide(null), SWIPE_SETTLE_MS);
+        // The next page of results is not loaded yet, so there was nothing to slide in; turn after loading.
+        if (turn && loadsBeyond(side)) void (side > 0 ? goNext() : goPrev());
+        return;
+      }
       const pinch = pinchStart.current;
       if (pinch?.pointerIds.includes(e.pointerId)) {
         pinchStart.current = null;
@@ -670,7 +866,7 @@ export function Lightbox({
       }
       if (pointers.size === 0 || !pinchStart.current) setDragging(false);
     },
-    [startPan, trackCurrentImageInteraction],
+    [goNext, goPrev, loadsBeyond, neighborFor, startPan, trackCurrentImageInteraction],
   );
 
   // Preload adjacent images
@@ -865,7 +1061,8 @@ export function Lightbox({
         // Cove blocks pinch zoom on the page; here the image takes the gesture instead.
         style={{ touchAction: "none" }}
       >
-        {loading && !failed && !displayed && (
+        {/* Also while a swipe waits on an incoming image that is still loading, as both images are hidden. */}
+        {loading && !failed && (!displayed || slide?.phase === "handoff") && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin" />
           </div>
@@ -875,49 +1072,79 @@ export function Lightbox({
             Unable to load image. Try another image.
           </div>
         )}
-        {visibleImages.map((image) => (
-          <img
-            key={image.src}
-            src={image.src}
-            alt={image.title ?? ""}
-            aria-hidden={image.src !== current?.src}
-            data-lightbox-shown={displayed?.src === image.src ? "" : undefined}
-            draggable={false}
-            onClick={(e) => {
-              // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
-              if (pointerMoved.current) return;
-              e.stopPropagation();
-              if (loading) return;
-              toggleZoom();
-            }}
-            onLoad={async (event) => {
-              const element = event.currentTarget;
-              try {
-                await element.decode?.();
-                // Ignore loads completed after another navigation or closing the viewer.
-                if (element.isConnected && currentSrc.current === image.src) {
-                  setDisplayed(image);
-                  setFailedSrc(null);
+        {/* One keyed list holds the shown image, the one loading, and a swipe's incoming neighbour, so when a
+            swipe turns the page the neighbour's element, already decoded and painted, simply becomes the
+            current image. Swapping in a fresh element there could show black while it decodes. */}
+        {stageImages.map((image) => {
+          const incoming = slide?.neighbor?.src === image.src && image.src !== current?.src;
+          const shown = displayed?.src === image.src;
+          return (
+            <img
+              key={image.src}
+              src={image.src}
+              alt={image.title ?? ""}
+              aria-hidden={image.src !== current?.src}
+              data-lightbox-shown={shown ? "" : undefined}
+              data-lightbox-incoming={incoming ? "" : undefined}
+              draggable={false}
+              onClick={(e) => {
+                // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
+                if (pointerMoved.current) return;
+                e.stopPropagation();
+                if (loading) return;
+                toggleZoom();
+              }}
+              onLoad={async (event) => {
+                const element = event.currentTarget;
+                try {
+                  await element.decode?.();
+                  if (!element.isConnected) return;
+                  if (currentSrc.current === image.src) {
+                    setDisplayed(image);
+                    setFailedSrc(null);
+                  } else {
+                    // Not current yet, as a swipe's incoming image is; kept for when it becomes current.
+                    settledSrcs.current.set(image.src, { element, result: image });
+                  }
+                } catch {
+                  if (!element.isConnected) return;
+                  if (currentSrc.current === image.src) setFailedSrc(image.src);
+                  else settledSrcs.current.set(image.src, { element, result: "failed" });
                 }
-              } catch {
-                if (element.isConnected && currentSrc.current === image.src) setFailedSrc(image.src);
+              }}
+              onError={(event) => {
+                if (currentSrc.current === image.src) setFailedSrc(image.src);
+                else settledSrcs.current.set(image.src, { element: event.currentTarget, result: "failed" });
+              }}
+              // Out of the flow, an image's max-height resolves against the stage's padding box; on phones
+              // that includes the top-bar padding, so cap it to the content box to match the shown image.
+              className={`max-h-full max-w-full object-contain transition-transform duration-200 ease-out ${
+                shown ? "" : "max-sm:max-h-[calc(100%-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]"
+              }`}
+              style={
+                incoming && slide
+                  ? {
+                      // One stage width plus a gap to the side, moving in step with the current image.
+                      transform: `scale(1) translate(${pan.x + slide.side * (slide.width + SWIPE_GAP_PX)}px, 0px)`,
+                      transition: slide.phase === "drag" ? "none" : undefined,
+                      touchAction: "none",
+                      pointerEvents: "none",
+                      position: "absolute",
+                    }
+                  : {
+                      transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                      cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+                      // Follow the fingers directly; the eased transition is for button and tap zoom and for
+                      // a swipe settling. After a swipe turns the page, the image it left stays out of sight.
+                      transition: dragging || slide?.phase === "handoff" ? "none" : undefined,
+                      touchAction: "none",
+                      opacity: shown && (slide?.phase !== "handoff" || image.src === current?.src) ? 1 : 0,
+                      position: shown ? "relative" : "absolute",
+                    }
               }
-            }}
-            onError={() => {
-              if (currentSrc.current === image.src) setFailedSrc(image.src);
-            }}
-            className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out"
-            style={{
-              transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-              cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
-              // Follow the fingers directly; the eased transition is for button and tap zoom.
-              transition: dragging ? "none" : undefined,
-              touchAction: "none",
-              opacity: displayed?.src === image.src ? 1 : 0,
-              position: displayed?.src === image.src ? "relative" : "absolute",
-            }}
-          />
-        ))}
+            />
+          );
+        })}
       </div>
 
       {/* The image name takes the bottom-left; rating, like and references sit on the right,
@@ -935,12 +1162,13 @@ export function Lightbox({
             className="pointer-events-auto ml-auto flex shrink-0 flex-col items-end gap-1 text-white [filter:drop-shadow(0_1px_2px_rgb(0_0_0/0.9))] sm:flex-row sm:items-center sm:gap-2"
           >
             {/* First in the DOM so keyboard and screen-reader order matches the row on wider screens. A fixed
-                height on phones stops the row above from jumping while the read-only stars show. */}
+                height on phones keeps the row above steady whatever the stars render. */}
             <div data-lightbox-rating="" className="flex items-center max-sm:min-h-7">
               <InteractiveRating
-                value={rating}
-                onChange={setRating}
-                readOnly={(loading && Boolean(displayed)) || !canEngage || ratingPending}
+                value={shownRating}
+                onChange={rateImage}
+                readOnly={!canEngage}
+                disabled={(loading && Boolean(displayed)) || ratingPending}
                 compact
               />
             </div>

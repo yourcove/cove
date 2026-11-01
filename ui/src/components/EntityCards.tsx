@@ -668,35 +668,39 @@ export function PopoverButton({
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
+  const openNow = useCallback(() => {
+    clearTimeout(enterTimer.current);
+    clearTimeout(leaveTimer.current);
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const showBelow = preferBelow ? spaceBelow > 100 : rect.top < 220;
+      const style: React.CSSProperties = { position: "fixed", zIndex: 9999 };
+      if (showBelow) {
+        style.top = rect.bottom + 4;
+      } else {
+        style.bottom = window.innerHeight - rect.top + 4;
+      }
+      const centerX = rect.left + rect.width / 2;
+      const popWidth = wide ? 300 : 220;
+      // Content can widen the popover to its max-width class. Where that could cross the right edge,
+      // align it to the trigger's right edge instead so it grows leftward and stays beside the trigger.
+      const maxPopWidth = wide ? 360 : 280;
+      if (centerX + maxPopWidth / 2 > window.innerWidth - 8) {
+        style.right = Math.max(8, window.innerWidth - rect.right);
+      } else {
+        style.left = Math.max(8, centerX - popWidth / 2);
+      }
+      setPopoverStyle(style);
+      setPortalTarget(fullscreenContainerFor(buttonRef.current));
+    }
+    setOpen(true);
+  }, [preferBelow, wide]);
+
   const handleMouseEnter = useCallback(() => {
     clearTimeout(leaveTimer.current);
-    enterTimer.current = setTimeout(() => {
-      if (buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const showBelow = preferBelow ? spaceBelow > 100 : rect.top < 220;
-        const style: React.CSSProperties = { position: "fixed", zIndex: 9999 };
-        if (showBelow) {
-          style.top = rect.bottom + 4;
-        } else {
-          style.bottom = window.innerHeight - rect.top + 4;
-        }
-        const centerX = rect.left + rect.width / 2;
-        const popWidth = wide ? 300 : 220;
-        // Content can widen the popover to its max-width class. Where that could cross the right edge,
-        // align it to the trigger's right edge instead so it grows leftward and stays beside the trigger.
-        const maxPopWidth = wide ? 360 : 280;
-        if (centerX + maxPopWidth / 2 > window.innerWidth - 8) {
-          style.right = Math.max(8, window.innerWidth - rect.right);
-        } else {
-          style.left = Math.max(8, centerX - popWidth / 2);
-        }
-        setPopoverStyle(style);
-        setPortalTarget(fullscreenContainerFor(buttonRef.current));
-      }
-      setOpen(true);
-    }, 200);
-  }, [preferBelow, wide]);
+    enterTimer.current = setTimeout(openNow, 200);
+  }, [openNow]);
 
   const handleMouseLeave = useCallback(() => {
     clearTimeout(enterTimer.current);
@@ -716,7 +720,15 @@ export function PopoverButton({
       <button
         className={`flex items-center gap-1 px-1.5 py-1 ${buttonClassName} rounded text-xs transition-colors`}
         title={title}
-        onClick={(e) => e.stopPropagation()}
+        aria-expanded={children ? open : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          // Touch has no hover to leave, so a tap toggles: the first opens the list, the next closes it.
+          if (open) {
+            clearTimeout(enterTimer.current);
+            setOpen(false);
+          } else openNow();
+        }}
         onMouseDown={(e) => e.stopPropagation()}
         onAuxClick={(e) => e.stopPropagation()}
       >

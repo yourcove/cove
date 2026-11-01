@@ -137,6 +137,35 @@ describe("Lightbox image references", () => {
     expect(screen.queryByTitle("Tags")).not.toBeInTheDocument();
   });
 
+  it("opens a reference list on the first tap and closes it on the next", async () => {
+    renderLightbox([taggedImage]);
+    await loadImage("/tagged.jpg");
+    const galleriesButton = screen.getByTitle("Galleries");
+
+    // A tap sends a hover before its click; the click opens the list straight away.
+    fireEvent.mouseEnter(galleriesButton.parentElement!);
+    fireEvent.click(galleriesButton);
+    expect(await screen.findByText("Holiday set")).toBeInTheDocument();
+
+    // The next tap sends no new hover, only a click, which closes the list.
+    fireEvent.click(galleriesButton);
+    expect(screen.queryByText("Holiday set")).not.toBeInTheDocument();
+
+    // The open delay left by the first hover must not bring it back.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(screen.queryByText("Holiday set")).not.toBeInTheDocument();
+  });
+
+  it("toggles the tag list with clicks the same way", async () => {
+    renderLightbox([taggedImage]);
+    await loadImage("/tagged.jpg");
+
+    fireEvent.click(screen.getByTitle("Tags"));
+    expect(screen.getByText("Outdoor")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Tags"));
+    expect(screen.queryByText("Outdoor")).not.toBeInTheDocument();
+  });
+
   it("omits the reference bar when the image has no references", async () => {
     renderLightbox([plainImage]);
     await loadImage("/plain.jpg");
