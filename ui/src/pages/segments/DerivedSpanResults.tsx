@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { ExternalLink, Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
-import { SegmentTile } from "../../components/EntityCards";
+import { SegmentTile, SuggestedNameMarker } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -10,21 +10,23 @@ import {
   type MultiSelectToggleHandler,
 } from "../../hooks/useMultiSelect";
 import {
+  buildSpanDisplayTitle,
   buildSpanTileSegment,
-  buildSpanTitle,
   type DerivedOperandNameMaps,
   formatDate,
-  formatDerivedQueryName,
+  formatShownTitle,
   formatSegmentCardEyebrow,
   formatSegmentDuration,
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,
   spanFaceRoute,
+  spanUnnamedFaceId,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { DerivedSpanItem } from "./types";
 import { useDerivedOperandNameMaps } from "./useDerivedOperandNameMaps";
+import { useListedFaceNames, type ListedFaceName } from "./useListedFaceNames";
 
 interface Props {
   displayMode: DisplayMode;
@@ -59,6 +61,11 @@ export function DerivedSpanResults({
 }: Props) {
   const operands = useMemo(() => items.flatMap((item) => item.derivedQueryDescriptor?.operands ?? []), [items]);
   const nameMaps = useDerivedOperandNameMaps(operands);
+  const unnamedFaceIds = useMemo(
+    () => items.flatMap((item) => (item.kind === "derivedQuery" ? [] : (spanUnnamedFaceId(item.reference) ?? []))),
+    [items],
+  );
+  const faceNames = useListedFaceNames(unnamedFaceIds, canReadFaces);
   const listDensity = useSegmentListDensity();
 
   if (displayMode === "grid") {
@@ -73,9 +80,7 @@ export function DerivedSpanResults({
         isFetchingNextPage={isFetchingNextPage}
         loadMore={loadMore}
         renderItem={(item) => {
-          const title =
-            formatDerivedQueryName(item.derivedQueryDescriptor, nameMaps) ??
-            buildSpanTitle(item.span, item.videoTitle, item.reference);
+          const { title, titleIsSuggestion } = buildSpanDisplayTitle(item, nameMaps, faceNames);
           const route = {
             page: "video-span",
             id: item.videoId,
@@ -88,9 +93,9 @@ export function DerivedSpanResults({
 
           return (
             <SegmentTile
-              segment={buildSpanTileSegment(item, title)}
+              segment={{ ...buildSpanTileSegment(item, title), titleIsSuggestion }}
               route={route}
-              label={`Open segment ${title}`}
+              label={`Open segment ${formatShownTitle(title, titleIsSuggestion)}`}
               eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}
               onClick={(toggleOptions) => (selecting ? onToggle(item.id, toggleOptions) : onNavigate(route))}
               selected={selectedIds.has(item.id)}
@@ -129,6 +134,7 @@ export function DerivedSpanResults({
             onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
             nameMaps={nameMaps}
+            faceNames={faceNames}
             density={listDensity}
           />
         ))}
@@ -147,6 +153,7 @@ function DerivedSpanListRow({
   onToggle,
   selecting,
   nameMaps,
+  faceNames,
   density,
 }: {
   item: DerivedSpanItem;
@@ -158,10 +165,10 @@ function DerivedSpanListRow({
   onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   nameMaps?: DerivedOperandNameMaps;
+  faceNames: ReadonlyMap<number, ListedFaceName>;
   density: SegmentListDensity;
 }) {
-  const derivedName = formatDerivedQueryName(item.derivedQueryDescriptor, nameMaps);
-  const title = derivedName ?? buildSpanTitle(item.span, item.videoTitle, item.reference);
+  const { title, derivedName, titleIsSuggestion } = buildSpanDisplayTitle(item, nameMaps, faceNames);
   const primaryRawSegmentId = item.span.segmentIds[0];
   const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
   const faceRoute = canReadFaces ? spanFaceRoute(item) : undefined;
@@ -188,7 +195,7 @@ function DerivedSpanListRow({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           })
         }
-        label={`Open span ${title}`}
+        label={`Open span ${formatShownTitle(title, titleIsSuggestion)}`}
         disabled={selecting}
         selectionSafeZone
       />
@@ -207,13 +214,16 @@ function DerivedSpanListRow({
                   updatedAt={item.coverVersion ?? item.videoUpdatedAt}
                   startSec={item.span.startSec}
                   endSec={item.span.endSec}
-                  title={title}
+                  title={formatShownTitle(title, titleIsSuggestion)}
                   imgClassName="h-full w-full object-cover"
                 />
               </div>
             ) : null}
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">{title}</div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                {titleIsSuggestion ? <SuggestedNameMarker /> : null}
+              </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
                 {item.span.kind && !derivedName ? <Pill>{item.span.kind}</Pill> : null}
                 {item.reference?.faceSourceKey ? <Pill>{item.reference.faceSourceKey}</Pill> : null}

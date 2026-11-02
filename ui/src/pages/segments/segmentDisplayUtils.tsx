@@ -8,6 +8,7 @@ import { formatSegmentTime } from "../../utils/segmentTime";
 import { formatSourceKeyLabel } from "../../utils/sourceKeyLabel";
 import { formatOperatorLabel } from "./derivedQueryCriterion";
 import type { DerivedSpanItem, RawSegmentItem } from "./types";
+import type { ListedFaceName } from "./useListedFaceNames";
 
 export function Pill({ children }: { children: ReactNode }) {
   return <span className="inline-flex items-center rounded-full bg-surface px-2 py-1 text-secondary">{children}</span>;
@@ -81,15 +82,40 @@ export function buildSpanTileSegment(item: DerivedSpanItem, title: string): Segm
 export function formatSpanReferenceName(reference?: SegmentSpanReference) {
   if (!reference) return undefined;
   if (reference.faceId == null) return reference.performerName;
-  return (
-    faceStoredName({
-      id: reference.faceId,
-      label: reference.faceLabel,
-      primarySourceKey: reference.faceSourceKey,
-      performerId: reference.performerId,
-      performerName: reference.performerName,
-    }) ?? "Unnamed face"
-  );
+  return referenceFaceName(reference, reference.faceId) ?? "Unnamed face";
+}
+
+// The face a span names when that face has no name of its own, to look up its suggested performer.
+export function spanUnnamedFaceId(reference?: SegmentSpanReference) {
+  if (reference?.faceId == null) return undefined;
+  return referenceFaceName(reference, reference.faceId) ? undefined : reference.faceId;
+}
+
+function referenceFaceName(reference: SegmentSpanReference, faceId: number) {
+  return faceStoredName({
+    id: faceId,
+    label: reference.faceLabel,
+    primarySourceKey: reference.faceSourceKey,
+    performerId: reference.performerId,
+    performerName: reference.performerName,
+  });
+}
+
+// A span's title: a derived span's query in words, else its face, performer or tag, with a face the span names
+// only by its placeholder read by its looked-up name, which may be its suggested performer.
+export function buildSpanDisplayTitle(
+  item: DerivedSpanItem,
+  nameMaps?: DerivedOperandNameMaps,
+  faceNames?: ReadonlyMap<number, ListedFaceName>,
+) {
+  const derivedName = formatDerivedQueryName(item.derivedQueryDescriptor, nameMaps);
+  const unnamedFaceId = spanUnnamedFaceId(item.reference);
+  const faceName = unnamedFaceId == null ? undefined : faceNames?.get(unnamedFaceId);
+  return {
+    derivedName,
+    title: derivedName ?? faceName?.name ?? buildSpanTitle(item.span, item.videoTitle, item.reference),
+    titleIsSuggestion: !derivedName && !!faceName?.suggested,
+  };
 }
 
 export function buildRawSegmentTitle(segment: RawSegmentItem) {
@@ -231,9 +257,31 @@ export function spanFaceRoute(item: DerivedSpanItem) {
 }
 
 export function rawSegmentFaceRoute(segment: RawSegmentItem) {
-  return segment.kind?.toLowerCase() === "face" && segment.refId != null
-    ? ({ page: "face", id: segment.refId } as const)
-    : undefined;
+  const faceId = rawSegmentFaceId(segment);
+  return faceId == null ? undefined : ({ page: "face", id: faceId } as const);
+}
+
+function rawSegmentFaceId(segment: RawSegmentItem) {
+  return segment.kind?.toLowerCase() === "face" ? segment.refId : undefined;
+}
+
+// A raw face segment of a face linked to no performer and titled with nothing but that face's label, whose name
+// is worth looking up; a title someone gave the segment stays.
+export function rawSegmentPlaceholderFaceId(segment: RawSegmentItem) {
+  if (segment.performerName || segment.tagName) return undefined;
+  const title = segment.title?.trim().toLowerCase();
+  if (title && title !== segment.refLabel?.trim().toLowerCase()) return undefined;
+  return rawSegmentFaceId(segment);
+}
+
+export function rawSegmentFaceName(segment: RawSegmentItem, faceNames: ReadonlyMap<number, ListedFaceName>) {
+  const faceId = rawSegmentPlaceholderFaceId(segment);
+  return faceId == null ? undefined : faceNames.get(faceId);
+}
+
+// A title as screen readers announce it, saying when the name is only a suggested match.
+export function formatShownTitle(title: string, suggested?: boolean) {
+  return suggested ? `${title} (suggested)` : title;
 }
 
 export { formatDate, formatSegmentTime };

@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
-import { SegmentTile } from "../../components/EntityCards";
+import { SegmentTile, SuggestedNameMarker } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../../hooks/useMultiSelect";
 import {
   buildRawSegmentTitle,
+  formatShownTitle,
   formatDate,
   formatSegmentCardEyebrow,
   formatSourceLabel,
@@ -17,9 +19,12 @@ import {
   Pill,
   SegmentVideoPreview,
   rawSegmentFaceRoute,
+  rawSegmentFaceName,
+  rawSegmentPlaceholderFaceId,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { RawSegmentItem } from "./types";
+import { useListedFaceNames, type ListedFaceName } from "./useListedFaceNames";
 
 interface Props {
   displayMode: DisplayMode;
@@ -51,6 +56,8 @@ export function RawSegmentResults({
   loadMore,
 }: Props) {
   const listDensity = useSegmentListDensity();
+  const placeholderFaceIds = useMemo(() => items.flatMap((item) => rawSegmentPlaceholderFaceId(item) ?? []), [items]);
+  const faceNames = useListedFaceNames(placeholderFaceIds, canReadFaces);
 
   if (displayMode === "grid") {
     return (
@@ -66,10 +73,12 @@ export function RawSegmentResults({
         renderItem={(item) => {
           const videoRoute = { page: "video", id: item.hostId, seekTo: item.startSec } as const;
           const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
+          const faceName = rawSegmentFaceName(item, faceNames);
+          const title = faceName?.name ?? buildRawSegmentTitle(item);
           return (
             <SegmentTile
-              segment={item}
-              label={`Open raw segment ${buildRawSegmentTitle(item)}`}
+              segment={faceName ? { ...item, title, titleIsSuggestion: faceName.suggested } : item}
+              label={`Open raw segment ${formatShownTitle(title, faceName?.suggested)}`}
               eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
               onClick={(toggleOptions) =>
                 selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
@@ -98,6 +107,7 @@ export function RawSegmentResults({
             item={item}
             canReadVideos={canReadVideos}
             canReadFaces={canReadFaces}
+            faceNames={faceNames}
             onNavigate={onNavigate}
             selected={selectedIds.has(item.id)}
             onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
@@ -127,6 +137,7 @@ export function RawSegmentListRow({
   item,
   canReadVideos,
   canReadFaces,
+  faceNames,
   onNavigate,
   selected,
   onToggle,
@@ -136,6 +147,7 @@ export function RawSegmentListRow({
   item: RawSegmentItem;
   canReadVideos: boolean;
   canReadFaces: boolean;
+  faceNames?: ReadonlyMap<number, ListedFaceName>;
   onNavigate: (route: any) => void;
   selected: boolean;
   onToggle: BoundMultiSelectToggleHandler<string | number>;
@@ -143,7 +155,8 @@ export function RawSegmentListRow({
   density: SegmentListDensity;
 }) {
   const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
-  const title = buildRawSegmentTitle(item);
+  const faceName = faceNames ? rawSegmentFaceName(item, faceNames) : undefined;
+  const title = faceName?.name ?? buildRawSegmentTitle(item);
 
   return (
     <div
@@ -153,7 +166,7 @@ export function RawSegmentListRow({
       <RouteCardLinkOverlay
         route={{ page: "segment", id: item.id }}
         onClick={() => onNavigate({ page: "segment", id: item.id })}
-        label={`Open raw segment ${title}`}
+        label={`Open raw segment ${formatShownTitle(title, faceName?.suggested)}`}
         disabled={selecting}
         selectionSafeZone
       />
@@ -172,13 +185,16 @@ export function RawSegmentListRow({
                   updatedAt={item.updatedAt}
                   startSec={item.startSec}
                   endSec={item.endSec}
-                  title={title}
+                  title={formatShownTitle(title, faceName?.suggested)}
                   imgClassName="h-full w-full object-cover"
                 />
               </div>
             ) : null}
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">{title}</div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                {faceName?.suggested ? <SuggestedNameMarker /> : null}
+              </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
                 {item.tagName ? <Pill>{item.tagName}</Pill> : null}
                 {item.kind ? <Pill>{item.kind}</Pill> : null}

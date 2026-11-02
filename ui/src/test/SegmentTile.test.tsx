@@ -9,7 +9,12 @@ import {
   buildSpanTitle,
   formatDerivedQueryName,
   hasDerivedQueryNames,
+  buildSpanDisplayTitle,
   rawSegmentFaceRoute,
+  formatShownTitle,
+  rawSegmentFaceName,
+  rawSegmentPlaceholderFaceId,
+  spanUnnamedFaceId,
   spanFaceRoute,
 } from "../pages/segments/segmentDisplayUtils";
 
@@ -412,5 +417,61 @@ describe("RawSegmentListRow", () => {
 
     expect(screen.getByRole("button", { name: "Open video" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open face" })).not.toBeInTheDocument();
+  });
+});
+
+describe("suggested face names", () => {
+  const suggestions = new Map([[31, { name: "Suggested Performer", suggested: true }]]);
+
+  it("name a span of an unnamed face after its suggestion, and nothing else", () => {
+    const unnamed = buildSpanItem({ kind: "face" }, { faceId: 31, faceLabel: "face-0031", faceSourceKey: "face-0031" });
+    expect(buildSpanDisplayTitle(unnamed, undefined, suggestions)).toMatchObject({
+      title: "Suggested Performer",
+      titleIsSuggestion: true,
+    });
+    expect(buildSpanDisplayTitle(unnamed)).toMatchObject({ title: "Unnamed face", titleIsSuggestion: false });
+    // A face linked since the segments were listed reads by its new name, unmarked.
+    expect(
+      buildSpanDisplayTitle(unnamed, undefined, new Map([[31, { name: "Since Linked", suggested: false }]])),
+    ).toMatchObject({ title: "Since Linked", titleIsSuggestion: false });
+
+    const linked = buildSpanItem(
+      { kind: "face" },
+      { faceId: 31, faceLabel: "face-0031", faceSourceKey: "face-0031", performerId: 4, performerName: "Linked" },
+    );
+    expect(spanUnnamedFaceId(linked.reference)).toBeUndefined();
+    expect(buildSpanDisplayTitle(linked, undefined, suggestions)).toMatchObject({
+      title: "Linked",
+      titleIsSuggestion: false,
+    });
+  });
+
+  it("rename a raw face segment only while it is titled with its face's label", () => {
+    const raw = (segment: Partial<RawSegmentItem>) =>
+      ({ kind: "face", refId: 31, refLabel: "face-0031", ...segment }) as RawSegmentItem;
+    expect(rawSegmentFaceName(raw({ title: "face-0031" }), suggestions)?.name).toBe("Suggested Performer");
+    expect(rawSegmentFaceName(raw({ title: "FACE-0031" }), suggestions)?.name).toBe("Suggested Performer");
+    expect(rawSegmentFaceName(raw({}), suggestions)?.name).toBe("Suggested Performer");
+    // Only the segments that could take the name are looked up.
+    expect(rawSegmentPlaceholderFaceId(raw({ title: "Kitchen scene" }))).toBeUndefined();
+    expect(rawSegmentPlaceholderFaceId(raw({ performerName: "Linked" }))).toBeUndefined();
+    expect(rawSegmentPlaceholderFaceId(raw({ kind: "performer" }))).toBeUndefined();
+    expect(rawSegmentFaceName(raw({ title: "Kitchen scene" }), suggestions)).toBeUndefined();
+  });
+
+  it("are marked as suggestions on the card, with the face's own key kept in the details", () => {
+    const item = buildSpanItem(
+      { kind: "face", sourceKey: "ext:ai.faces" },
+      { faceId: 31, faceLabel: "face-0031", faceSourceKey: "face-0031" },
+    );
+    const { title, titleIsSuggestion } = buildSpanDisplayTitle(item, undefined, suggestions);
+    renderTile({ ...buildSpanTileSegment(item, title), titleIsSuggestion }, { faceRoute: spanFaceRoute(item) });
+
+    expect(screen.getByText("Suggested Performer")).toBeInTheDocument();
+    expect(screen.getByText("suggested")).toHaveAttribute("title", "Suggested match, not linked yet");
+    expect(screen.getByText("face-0031 · AI Faces")).toBeInTheDocument();
+    // Screen readers hear that the name is only a suggestion.
+    expect(screen.getByRole("link", { name: "Open face Suggested Performer (suggested)" })).toBeInTheDocument();
+    expect(formatShownTitle(title, titleIsSuggestion)).toBe("Suggested Performer (suggested)");
   });
 });

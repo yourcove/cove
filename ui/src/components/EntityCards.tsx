@@ -3549,6 +3549,8 @@ export interface SegmentTileItem {
   hostTitle?: string;
   refLabel?: string;
   performerName?: string;
+  /** The title is a face's suggested performer rather than a name it has been given. */
+  titleIsSuggestion?: boolean;
 }
 
 export function SegmentTile({
@@ -3625,7 +3627,7 @@ export function SegmentTile({
             updatedAt={segment.updatedAt}
             startSec={segment.startSec}
             endSec={segment.endSec}
-            title={title}
+            title={segment.titleIsSuggestion ? `${title} (suggested)` : title}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
@@ -3651,7 +3653,7 @@ export function SegmentTile({
             {faceRoute && !selecting ? (
               <a
                 {...createNestedRouteLinkProps<HTMLAnchorElement>(faceRoute, onOpenFace)}
-                aria-label={`Open face ${title}`}
+                aria-label={`Open face ${title}${segment.titleIsSuggestion ? " (suggested)" : ""}`}
                 className="relative z-10 line-clamp-2 min-w-0 hover:text-accent hover:underline"
               >
                 {title}
@@ -3659,6 +3661,7 @@ export function SegmentTile({
             ) : (
               <span className="line-clamp-2 min-w-0">{title}</span>
             )}
+            {segment.titleIsSuggestion ? <SuggestedNameMarker /> : null}
           </div>
           {hostRoute && !selecting ? (
             <a
@@ -3679,6 +3682,20 @@ export function SegmentTile({
         <div className="relative z-10 border-t border-border px-3 py-2 text-xs text-secondary">{footer}</div>
       ) : null}
     </article>
+  );
+}
+
+/** Marks a face's name as its suggested performer, which nobody has confirmed by linking it. */
+export function SuggestedNameMarker({ className = "" }: { className?: string }) {
+  return (
+    // Hidden from screen readers, which hear "(suggested)" in the card and face link labels instead.
+    <span
+      aria-hidden
+      title="Suggested match, not linked yet"
+      className={`shrink-0 rounded border border-border px-1 text-[10px] font-medium leading-4 text-muted ${className}`}
+    >
+      suggested
+    </span>
   );
 }
 
