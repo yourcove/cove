@@ -1094,8 +1094,9 @@ public class ThumbnailService(
         var thumbDir = Path.GetDirectoryName(thumbPath)!;
         Directory.CreateDirectory(thumbDir);
 
-        var seekSeconds = atSeconds ?? duration * 0.2;
-        if (seekSeconds <= 0) seekSeconds = 1;
+        // An asked-for moment is kept even at 0; only the cover's own pick moves off the very start.
+        var seekSeconds = atSeconds is { } requested ? Math.Max(0, requested) : duration * 0.2;
+        if (atSeconds is null && seekSeconds <= 0) seekSeconds = 1;
         var vrFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth);
 
         // Limit concurrent FFmpeg processes
