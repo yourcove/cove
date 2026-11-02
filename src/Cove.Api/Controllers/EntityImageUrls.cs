@@ -9,6 +9,9 @@ internal static class EntityImageUrls
     private const string AccessCookieName = "cove_access_token";
     public const int DefaultEntityImageMaxDimension = 640;
     public const int DefaultGalleryCoverMaxDimension = 640;
+    // Cache revision of detection crops, bumped when crops start coming from different frames; keep it in
+    // step with DETECTION_CROP_FRAME_REVISION in ui/src/api/client.ts. 2: cut from each detection's exact frame.
+    private const string DetectionCropFrameRevision = "2";
 
     public static string Video(int id, DateTime updatedAt, int maxDimension = DefaultEntityImageMaxDimension)
         => Build(null, $"/api/videos/{id}/image", updatedAt, maxDimension);
@@ -104,12 +107,14 @@ internal static class EntityImageUrls
         => Build(context, $"/api/galleries/{id}/image/back", updatedAt, maxDimension);
 
     // A face with no cover blob falls back to a crop of its best detection (mirrors the detail-page hero).
-    // The crop endpoint takes only `max` (no cache-busting `v`); auth is appended like every other image URL.
+    // The crop endpoint takes no per-entity `v`; the `frame` revision drops cached crops when crops start
+    // coming from different frames. Auth is appended like every other image URL.
     public static string DetectionCrop(HttpContext? context, int detectionId, int maxDimension = DefaultEntityImageMaxDimension)
     {
         var query = new List<KeyValuePair<string, string?>>
         {
             new("max", maxDimension.ToString(CultureInfo.InvariantCulture)),
+            new("frame", DetectionCropFrameRevision),
         };
 
         AppendAuthQuery(context, query);
