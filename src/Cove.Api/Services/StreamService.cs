@@ -82,9 +82,12 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         if (effectiveSeconds.HasValue)
         {
             var tsPath = thumbnailService.GetTimestampedThumbnailPath(sourceVideoId, effectiveSeconds.Value);
-            if (File.Exists(tsPath))
+            // A frame kept to the whole second, by earlier versions, is usually close and beats a sprite tile.
+            var wholeSecondPath = Path.Combine(Path.GetDirectoryName(tsPath)!, ThumbnailService.WholeSecondFrameFileName(sourceVideoId, effectiveSeconds.Value));
+            foreach (var framePath in new[] { tsPath, wholeSecondPath })
             {
-                var timestampStream = FileReadRace.TryOpenRead(tsPath, bufferSize: 8192, pathWasObserved: true);
+                if (!File.Exists(framePath)) continue;
+                var timestampStream = FileReadRace.TryOpenRead(framePath, bufferSize: 8192, pathWasObserved: true);
                 if (timestampStream != null)
                     return (timestampStream, "image/jpeg", true);
             }

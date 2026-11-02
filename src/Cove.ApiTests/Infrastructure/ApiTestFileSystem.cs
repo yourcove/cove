@@ -401,7 +401,7 @@ public sealed class ApiTestFileSystem
 
     public string CreateVideoScreenshot(int videoId, double seconds, byte[] contents)
         => CreateGeneratedFile(
-            Path.Combine("screenshots", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.jpg"),
+            Path.Combine("screenshots", GetVideoBucket(videoId), $"{videoId}_t{(long)Math.Round(seconds * 1000, MidpointRounding.AwayFromZero)}ms.jpg"),
             contents);
 
     public string CreateVideoSegmentPreview(int videoId, double seconds, byte[] contents)

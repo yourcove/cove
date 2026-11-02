@@ -150,6 +150,42 @@ public class StreamServiceTests
         }
     }
 
+    [Theory]
+    // Frames kept to the whole second by earlier versions still serve screenshots and segment pictures.
+    [InlineData(false, 0)]
+    // The exact frame wins over the whole-second one.
+    [InlineData(true, 255)]
+    public async Task GetVideoScreenshot_PrefersTheExactFrame_ThenTheWholeSecondOne(bool exactExists, byte expectedRed)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-stream-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var exactPath = Path.Combine(tempRoot, "42_t6500ms.jpg");
+            using (var wholeSecond = new Image<Rgba32>(16, 9, new Rgba32(0, 0, 255)))
+                await wholeSecond.SaveAsJpegAsync(Path.Combine(tempRoot, ThumbnailService.WholeSecondFrameFileName(42, 6.5)), TestContext.Current.CancellationToken);
+            if (exactExists)
+            {
+                using var exact = new Image<Rgba32>(16, 9, new Rgba32(255, 0, 0));
+                await exact.SaveAsJpegAsync(exactPath, TestContext.Current.CancellationToken);
+            }
+
+            var service = new StreamService(null!, new FakeThumbnailService(exactPath, Path.Combine(tempRoot, "none.jpg"), Path.Combine(tempRoot, "none.vtt")), null!);
+
+            var screenshot = await service.GetVideoScreenshot(42, 6.5, CancellationToken.None);
+
+            Assert.NotNull(screenshot);
+            await using var stream = screenshot.Value.stream;
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
+            Assert.InRange(image[8, 4].R, Math.Max(0, expectedRed - 30), Math.Min(255, expectedRed + 30));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeThumbnailService(string timestampPath, string spritePath, string vttPath) : IThumbnailService
     {
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();

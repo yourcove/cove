@@ -794,6 +794,25 @@ public class ThumbnailServiceTests
         return new SingleVideoProvider(provider, video.Id, file.Id);
     }
 
+    [Fact]
+    public void GetTimestampedThumbnailPath_GivesEachMillisecondItsOwnFrame()
+    {
+        var service = new ThumbnailService(
+            null!,
+            new StubJobService(),
+            new CoveConfiguration { GeneratedPath = Path.Combine(Path.GetTempPath(), $"cove-frames-{Guid.NewGuid():N}") },
+            new ZipFileReader(),
+            new NullBlobService(),
+            NullLogger<ThumbnailService>.Instance);
+
+        // A detection at 35:48.0 and a cover set from 35:48.9 used to share one file, the last one written.
+        Assert.NotEqual(service.GetTimestampedThumbnailPath(7, 2148.0), service.GetTimestampedThumbnailPath(7, 2148.9));
+        Assert.Equal("7_t2148900ms.jpg", Path.GetFileName(service.GetTimestampedThumbnailPath(7, 2148.9)));
+        // Floating-point noise below a millisecond is the same moment.
+        Assert.Equal(service.GetTimestampedThumbnailPath(7, 0.3), service.GetTimestampedThumbnailPath(7, 0.1 + 0.2));
+        Assert.Equal("7_t2148.jpg", ThumbnailService.WholeSecondFrameFileName(7, 2148.9));
+    }
+
     private sealed class StubJobService : IJobService
     {
         public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true)

@@ -1186,14 +1186,23 @@ public class ThumbnailService(
         return TimeSpan.FromSeconds(Math.Clamp(baseSeconds + secondsPerGigabyte * gigabytes, baseSeconds, maxSeconds));
     }
 
-    /// <summary>Get the path for a timestamp-specific cached thumbnail.</summary>
+    /// <summary>
+    /// Get the path for the frame at a timestamp, keyed to the millisecond. Frames are shared by everything
+    /// that asks for the same moment (detection crops, covers set from a frame), so two different moments
+    /// must never share a file.
+    /// </summary>
     public string GetTimestampedThumbnailPath(int videoId, double seconds)
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
-        var subDir = hash[..2];
-        var secKey = ((int)seconds).ToString();
-        return Path.Combine(ThumbnailDir, subDir, $"{videoId}_t{secKey}.jpg");
+        var milliseconds = (long)Math.Round(seconds * 1000, MidpointRounding.AwayFromZero);
+        return Path.Combine(ThumbnailDir, hash[..2], $"{videoId}_t{milliseconds}ms.jpg");
     }
+
+    /// <summary>
+    /// The name frames had when they were keyed to the whole second. Every moment in a second shared one
+    /// file, so it holds whichever of them was written last; it sits beside the exact frame.
+    /// </summary>
+    public static string WholeSecondFrameFileName(int videoId, double seconds) => $"{videoId}_t{(int)seconds}.jpg";
 
     public string GetThumbnailPathForVideo(int videoId) => GetThumbnailPath(videoId);
 
