@@ -1051,7 +1051,9 @@ public class ThumbnailService(
 
     public async Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds, CancellationToken ct)
     {
-        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
+        // A frame is the same picture whoever asks for it, so one made while this caller waited for the
+        // video's gate (another request for the same moment) is used instead of being made again.
+        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct, reuseExistingFrame: true);
     }
 
     public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
@@ -1068,18 +1070,23 @@ public class ThumbnailService(
         int videoId,
         int? sourceFileId,
         double? atSeconds,
-        CancellationToken ct)
-        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoThumbnailUnlockedAsync(videoId, sourceFileId, atSeconds, ct), ct);
+        CancellationToken ct,
+        bool reuseExistingFrame = false)
+        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoThumbnailUnlockedAsync(videoId, sourceFileId, atSeconds, reuseExistingFrame, ct), ct);
 
     private async Task<bool> GenerateVideoThumbnailUnlockedAsync(
         int videoId,
         int? sourceFileId,
         double? atSeconds,
+        bool reuseExistingFrame,
         CancellationToken ct)
     {
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(videoId, atSeconds.Value)
             : GetThumbnailPath(videoId);
+
+        if (reuseExistingFrame && atSeconds.HasValue && File.Exists(thumbPath))
+            return true;
 
         var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (!File.Exists(filePath)) return false;
