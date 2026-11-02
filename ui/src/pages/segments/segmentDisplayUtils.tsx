@@ -108,7 +108,7 @@ export function buildSpanDisplayTitle(
   nameMaps?: DerivedOperandNameMaps,
   faceNames?: ReadonlyMap<number, ListedFaceName>,
 ) {
-  const derivedName = formatDerivedQueryName(item.derivedQueryDescriptor, nameMaps);
+  const derivedName = formatDerivedQueryName(item.derivedQueryDescriptor, nameMaps, { concise: true });
   const unnamedFaceId = spanUnnamedFaceId(item.reference);
   const faceName = unnamedFaceId == null ? undefined : faceNames?.get(unnamedFaceId);
   return {
@@ -130,15 +130,7 @@ export function buildRawSegmentTitle(segment: RawSegmentItem) {
 }
 
 export function formatSourceLabel(sourceKey?: string) {
-  if (!sourceKey) {
-    return "Unknown source";
-  }
-
-  if (sourceKey === "user") {
-    return "User";
-  }
-
-  return sourceKey.startsWith("ext:") ? formatIdentifierWords(sourceKey.slice(4)) : sourceKey;
+  return formatSourceKeyLabel(sourceKey);
 }
 
 export function formatKindLabel(kind: string) {
@@ -182,15 +174,24 @@ interface DerivedQueryNameOperand {
 
 // Names a derived query in words, e.g. "Dancing or Singing", "Kissing with Alex", "Dancing without Alex". Every
 // span of an intersection or difference matches the whole expression; a union span matches at least one side.
+// A concise name, for titles that every result of the same query repeats, leaves out an operand's source and
+// minimum confidence unless they are all that tell it apart: an operand naming nothing, or one whose name another
+// operand shares, as in "Dancing (AI Tagging) without Dancing (User)".
 export function formatDerivedQueryName(
   query: { operator: SegmentSpanOperator; operands: DerivedQueryNameOperand[] } | undefined,
   names?: DerivedOperandNameMaps,
+  { concise = false }: { concise?: boolean } = {},
 ) {
   if (!query || query.operands.length === 0) {
     return undefined;
   }
 
-  const [first, ...rest] = query.operands.map((operand) => formatDerivedOperandName(operand, names));
+  const operandNames = query.operands.map((operand) => formatDerivedOperandName(operand, names));
+  const [first, ...rest] = operandNames.map(({ subject, qualified }) =>
+    concise && subject !== ANY_SEGMENT && operandNames.filter((other) => other.subject === subject).length === 1
+      ? subject
+      : qualified,
+  );
   const name =
     rest.length === 0
       ? first
@@ -214,7 +215,7 @@ export function hasDerivedQueryNames(operands: DerivedQueryNameOperand[], names?
 
 // The tags, performers or faces an operand names already say what kind of segment they are, so the kind is
 // only spelled out for an operand without names.
-function formatDerivedOperandName(operand: DerivedQueryNameOperand, names?: DerivedOperandNameMaps) {
+function formatDerivedOperandName(operand: DerivedQueryNameOperand, names: DerivedOperandNameMaps | undefined) {
   const named = [
     ...(operand.tagIds ?? []).map((id) => lookupName(names?.tagNamesById, id) ?? `Tag #${id}`),
     ...(operand.performerIds ?? []).map((id) => lookupName(names?.performerNamesById, id) ?? `Performer #${id}`),
@@ -229,9 +230,11 @@ function formatDerivedOperandName(operand: DerivedQueryNameOperand, names?: Deri
   const subject =
     named.length > 1
       ? `(${named.join(" or ")})`
-      : (named[0] ?? (operand.kind ? `any ${operand.kind.toLowerCase()}` : null) ?? "any segment");
-  return qualifiers.length > 0 ? `${subject} (${qualifiers.join(", ")})` : subject;
+      : (named[0] ?? (operand.kind ? `any ${operand.kind.toLowerCase()}` : null) ?? ANY_SEGMENT);
+  return { subject, qualified: qualifiers.length > 0 ? `${subject} (${qualifiers.join(", ")})` : subject };
 }
+
+const ANY_SEGMENT = "any segment";
 
 function joinWords(words: string[], conjunction: "and" | "or") {
   return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} ${conjunction} ${words.at(-1)}`;

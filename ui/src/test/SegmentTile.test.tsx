@@ -285,6 +285,44 @@ describe("formatDerivedQueryName", () => {
     ).toBe("Dancing (AI Tagging, 80%+) without any face");
   });
 
+  it("leaves out qualifiers in a concise name unless they tell operands apart", () => {
+    const concise = { concise: true };
+    expect(
+      formatDerivedQueryName(
+        {
+          operator: "intersection",
+          operands: [
+            { kind: "tag", tagIds: [1], minConfidence: 0.8 },
+            { kind: "performer", performerIds: [9], sourceKey: "ext:ai.faces" },
+          ],
+        },
+        names,
+        concise,
+      ),
+    ).toBe("Dancing with Alex");
+    expect(
+      formatDerivedQueryName(
+        {
+          operator: "difference",
+          operands: [
+            { tagIds: [1], sourceKey: "ext:ai.tagging" },
+            { tagIds: [1], sourceKey: "user" },
+            { tagIds: [9], minConfidence: 0.5 },
+          ],
+        },
+        names,
+        concise,
+      ),
+    ).toBe("Dancing (AI Tagging) without Dancing (User) or Tag #9");
+    expect(
+      formatDerivedQueryName(
+        { operator: "union", operands: [{ sourceKey: "user" }, { kind: "face" }] },
+        undefined,
+        concise,
+      ),
+    ).toBe("Any segment (User) or any face");
+  });
+
   it("leaves out the kind the editor sets alongside the names", () => {
     expect(
       formatDerivedQueryName(
