@@ -20,9 +20,6 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     // that must distinguish neighbouring detections pass a smaller context (see GetDetectionCrop).
     private const double DefaultDetectionCropContext = DetectionCropRenderer.DefaultContext;
 
-    // At or below this the crop is tight enough that frame alignment matters more than cost.
-    private const double TightDetectionCropContext = 1.5;
-
     [HttpGet("video/{videoId:int}")]
     public async Task<IActionResult> StreamVideo(int videoId, CancellationToken ct, [FromQuery] int? fileId = null)
     {
@@ -217,22 +214,20 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         if (detection.HostType == DetectionHostType.Video)
         {
-            // Without an exact-timestamp frame the crop falls back to a sprite tile, which is both
-            // low-resolution and sampled at a coarser interval than the detection — so the box no longer
-            // lines up with where the face actually was. A large request needs the resolution; a tight
-            // context needs the alignment, because there is no slack left to absorb the drift.
-            var needsExactFrame = max.GetValueOrDefault(640) > 640
-                || context.GetValueOrDefault(DefaultDetectionCropContext) < TightDetectionCropContext;
-            if (needsExactFrame)
+            var frame = await DetectionFrame.OpenAsync(db, thumbnailService, detection, ct);
+            if (frame is not null)
             {
-                await EnsureHighResolutionDetectionFrameAsync(detection, ct);
+                await using (frame)
+                    return await BuildDetectionCropResultAsync(detection, frame, max, context, longCache: true, ct);
             }
 
+            // The frame cannot be made (source offline, no FFmpeg): crop the closest stand-in, cached only
+            // briefly so the crop from the real frame replaces it once that can be made.
             var result = await streamService.GetVideoScreenshot(detection.HostId, detection.ObservedAtSec, ct);
             if (result is null) return NotFound();
 
             await using var stream = result.Value.stream;
-            return await BuildDetectionCropResultAsync(detection, stream, max, context, ct);
+            return await BuildDetectionCropResultAsync(detection, stream, max, context, longCache: false, ct);
         }
 
         if (detection.HostType == DetectionHostType.Image)
@@ -241,32 +236,10 @@ public class StreamController(IStreamService streamService, IThumbnailService th
             if (result is null) return NotFound();
 
             await using var stream = result.Value.stream;
-            return await BuildDetectionCropResultAsync(detection, stream, max, context, ct);
+            return await BuildDetectionCropResultAsync(detection, stream, max, context, longCache: true, ct);
         }
 
         return NotFound();
-    }
-
-    private async Task EnsureHighResolutionDetectionFrameAsync(Detection detection, CancellationToken ct)
-    {
-        if (!detection.ObservedAtSec.HasValue)
-        {
-            return;
-        }
-
-        var sourceVideoId = await ResolveSourceVideoIdAsync(detection.HostId, ct);
-        if (!sourceVideoId.HasValue)
-        {
-            return;
-        }
-
-        var framePath = thumbnailService.GetTimestampedThumbnailPath(sourceVideoId.Value, detection.ObservedAtSec.Value);
-        if (System.IO.File.Exists(framePath))
-        {
-            return;
-        }
-
-        await thumbnailService.GenerateVideoThumbnailAsync(sourceVideoId.Value, detection.ObservedAtSec.Value, ct);
     }
 
     [HttpGet("video/{videoId:int}/caption/{captionId:int}")]
@@ -490,13 +463,13 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         return video?.ParentVideoId ?? video?.Id;
     }
 
-    private async Task<IActionResult> BuildDetectionCropResultAsync(Detection detection, Stream sourceStream, int? max, double? context, CancellationToken ct)
+    private async Task<IActionResult> BuildDetectionCropResultAsync(Detection detection, Stream sourceStream, int? max, double? context, bool longCache, CancellationToken ct)
     {
         var output = await DetectionCropRenderer.RenderAsync(detection, sourceStream, max, context, ct);
         if (output is null)
             return NotFound();
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        Response.Headers["Cache-Control"] = longCache ? "public, max-age=86400" : "public, max-age=300";
         return File(output, "image/jpeg");
     }
 

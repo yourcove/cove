@@ -82,7 +82,8 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         if (effectiveSeconds.HasValue)
         {
             var tsPath = thumbnailService.GetTimestampedThumbnailPath(sourceVideoId, effectiveSeconds.Value);
-            // A frame kept to the whole second, by earlier versions, is usually close and beats a sprite tile.
+            // A frame kept to the whole second, by earlier versions, is usually close and beats a sprite
+            // tile. Detection crops use their exact frame, and come here only when it cannot be made.
             var wholeSecondPath = Path.Combine(Path.GetDirectoryName(tsPath)!, ThumbnailService.WholeSecondFrameFileName(sourceVideoId, effectiveSeconds.Value));
             foreach (var framePath in new[] { tsPath, wholeSecondPath })
             {
