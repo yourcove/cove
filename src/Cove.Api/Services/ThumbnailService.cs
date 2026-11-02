@@ -1110,7 +1110,8 @@ public class ThumbnailService(
                 IReadOnlyList<string> ThumbnailArgs(string? filter) =>
                 [
                     .. decodeArgs, "-v", "error", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-y",
-                    "-ss", seekSeconds.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath!,
+                    // Full precision: rounding up could land past the frame that is showing at this moment.
+                    "-ss", seekSeconds.ToString("0.######", CultureInfo.InvariantCulture), "-i", filePath!,
                     .. filter != null ? ["-vf", filter] : Array.Empty<string>(),
                     "-vframes", "1", "-q:v", "2", "-f", "image2", tempPath,
                 ];
