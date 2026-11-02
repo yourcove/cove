@@ -34,7 +34,13 @@ import {
   readBoolCriterion,
   createSegmentCriteria,
 } from "./segments/segmentCriteriaDefinitions";
-import { buildSpanTitle, formatDerivedQueryName, hasDerivedQueryNames } from "./segments/segmentDisplayUtils";
+import {
+  buildSpanTitle,
+  formatDerivedQueryName,
+  formatKindLabel,
+  formatSourceLabel,
+  hasDerivedQueryNames,
+} from "./segments/segmentDisplayUtils";
 import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
 import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
@@ -285,7 +291,7 @@ export function SegmentsPage({ onNavigate }: Props) {
           { value: "derived", label: "Derived" },
           ...(sourceOptionsQuery.data ?? []).map((option) => ({
             value: option.value,
-            label: `${option.value} (${option.count})`,
+            label: formatSourceLabel(option.value),
           })),
         ],
         kindOptions: [
@@ -294,7 +300,7 @@ export function SegmentsPage({ onNavigate }: Props) {
           { value: "difference", label: "Difference" },
           ...(kindOptionsQuery.data ?? []).map((option) => ({
             value: option.value,
-            label: `${option.value} (${option.count})`,
+            label: formatKindLabel(option.value),
           })),
         ],
       }),

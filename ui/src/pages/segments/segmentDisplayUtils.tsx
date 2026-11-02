@@ -138,14 +138,19 @@ export function formatSourceLabel(sourceKey?: string) {
     return "User";
   }
 
-  return sourceKey.startsWith("ext:")
-    ? sourceKey
-        .slice(4)
-        .split(/[._-]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    : sourceKey;
+  return sourceKey.startsWith("ext:") ? formatIdentifierWords(sourceKey.slice(4)) : sourceKey;
+}
+
+export function formatKindLabel(kind: string) {
+  return formatIdentifierWords(kind) || kind;
+}
+
+function formatIdentifierWords(value: string) {
+  return value
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export function formatSpanItemKindLabel(item: DerivedSpanItem) {

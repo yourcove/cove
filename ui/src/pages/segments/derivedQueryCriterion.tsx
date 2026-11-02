@@ -6,6 +6,7 @@ import type { FilterDialogCustomSection } from "../../components/filterCriteriaT
 import type { SegmentDerivedQueryDescriptor, SegmentSpanOperand, SegmentSpanOperator } from "../../api/types";
 import type { AppliedDerivedQuery, DerivedSpanOperandFilterValue, DerivedSpanQueryFilterValue } from "./types";
 import { compareNatural } from "../../utils/naturalCompare";
+import { formatKindLabel, formatSourceLabel } from "./segmentDisplayUtils";
 
 export function createDerivedSpanCustomFilterSection(
   scopeVideoIds: number[],
@@ -373,26 +374,6 @@ function DerivedSpanQueryEditor({
 
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               <label className="space-y-1.5 text-sm font-medium text-secondary">
-                <span>Source</span>
-                <select
-                  value={operand.sourceKey ?? ""}
-                  onChange={(event) => updateOperand(index, { sourceKey: event.target.value || undefined })}
-                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
-                >
-                  <option value="">Any source</option>
-                  {optionsLoading && sourceOptions.length === 0 ? (
-                    <option value="" disabled>
-                      Loading sources...
-                    </option>
-                  ) : null}
-                  {sourceOptions.map((sourceKey) => (
-                    <option key={sourceKey} value={sourceKey}>
-                      {sourceKey}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1.5 text-sm font-medium text-secondary">
                 <span>Kind</span>
                 <select
                   value={operand.kind ?? ""}
@@ -416,7 +397,27 @@ function DerivedSpanQueryEditor({
                   ) : null}
                   {kindOptions.map((kind) => (
                     <option key={kind} value={kind}>
-                      {kind}
+                      {formatKindLabel(kind)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5 text-sm font-medium text-secondary">
+                <span>Source</span>
+                <select
+                  value={operand.sourceKey ?? ""}
+                  onChange={(event) => updateOperand(index, { sourceKey: event.target.value || undefined })}
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
+                >
+                  <option value="">Any source</option>
+                  {optionsLoading && sourceOptions.length === 0 ? (
+                    <option value="" disabled>
+                      Loading sources...
+                    </option>
+                  ) : null}
+                  {sourceOptions.map((sourceKey) => (
+                    <option key={sourceKey} value={sourceKey}>
+                      {formatSourceLabel(sourceKey)}
                     </option>
                   ))}
                 </select>

@@ -81,10 +81,14 @@ export function emptyBulkWizardForm(): BulkWizardState {
   };
 }
 
-export function buildDistinctOptions(items: SegmentDistinctValue[], currentValue: string) {
-  const options = items.map((item) => ({ value: item.value, label: `${item.value} (${item.count})` }));
+export function buildDistinctOptions(
+  items: SegmentDistinctValue[],
+  currentValue: string,
+  formatLabel: (value: string) => string,
+) {
+  const options = items.map((item) => ({ value: item.value, label: `${formatLabel(item.value)} (${item.count})` }));
   if (currentValue && !options.some((option) => option.value === currentValue)) {
-    return [{ value: currentValue, label: currentValue }, ...options];
+    return [{ value: currentValue, label: formatLabel(currentValue) }, ...options];
   }
 
   return options;

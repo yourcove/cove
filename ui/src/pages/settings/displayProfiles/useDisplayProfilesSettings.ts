@@ -25,6 +25,7 @@ import {
 } from "./types";
 import { bulkCreateDisplayProfileRules } from "./bulkCreateRules";
 import { compareNatural } from "../../../utils/naturalCompare";
+import { formatKindLabel, formatSourceLabel } from "../../segments/segmentDisplayUtils";
 
 // Stable across renders so the list only counts as changed when the query data does.
 const noProfiles: SegmentDisplayProfile[] = [];
@@ -146,10 +147,13 @@ export function useDisplayProfilesSettings() {
   );
 
   const sourceKeyOptions = useMemo(
-    () => buildDistinctOptions(sourceKeys, ruleForm.sourceKey),
+    () => buildDistinctOptions(sourceKeys, ruleForm.sourceKey, formatSourceLabel),
     [ruleForm.sourceKey, sourceKeys],
   );
-  const kindOptions = useMemo(() => buildDistinctOptions(kinds, ruleForm.kind), [kinds, ruleForm.kind]);
+  const kindOptions = useMemo(
+    () => buildDistinctOptions(kinds, ruleForm.kind, formatKindLabel),
+    [kinds, ruleForm.kind],
+  );
 
   const persistedPreviewRules = useMemo(() => normalizeRulePayloads(rules.map((rule) => ruleToPayload(rule))), [rules]);
   const draftPreviewRules = useMemo(() => {
