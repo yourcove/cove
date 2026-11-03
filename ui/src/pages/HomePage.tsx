@@ -2554,6 +2554,7 @@ function SavedFilterRecommendationRow({
             videoUpdatedAt: item.videoUpdatedAt,
             coverSegmentId: item.coverSegmentId,
             coverVersion: item.coverVersion,
+            hasGeneratedCover: item.hasGeneratedCover,
             span: item.span,
             profileId: item.profileId,
             derivedQuery: appliedQuery ?? undefined,
@@ -3220,6 +3221,7 @@ function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNav
         title,
         updatedAt: item.coverVersion ?? item.videoUpdatedAt,
         hostTitle: item.videoTitle,
+        hasGeneratedCover: item.hasGeneratedCover,
       }}
       route={route}
       label={`Open segment ${title}`}

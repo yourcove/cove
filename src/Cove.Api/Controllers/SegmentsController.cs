@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Text.RegularExpressions;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -18,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SegmentsRead)]
-public class SegmentsController(CoveContext db, ISegmentRepository segments, SegmentSpanResolver spanResolver, IMemoryCache memoryCache, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class SegmentsController(CoveContext db, ISegmentRepository segments, SegmentSpanResolver spanResolver, IMemoryCache memoryCache, IFieldProvenanceService? fieldProvenanceService = null, IThumbnailService? thumbnailService = null) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<PaginatedResponse<SegmentRecordDto>>> List(
@@ -130,7 +131,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             ? (await segments.AggregateAsync(filter, findFilter, cancellationToken)).Duration
             : null;
 
-        return Ok(new PaginatedResponse<SegmentRecordDto>(items.Select(item => MapToDto(item)).ToList(), totalCount, Math.Max(page, 1), Math.Clamp(perPage, 1, ListPaging.MaxPerPage), aggregateDuration));
+        return Ok(new PaginatedResponse<SegmentRecordDto>(await MapWithCoverStatusAsync(items, cancellationToken), totalCount, Math.Max(page, 1), Math.Clamp(perPage, 1, ListPaging.MaxPerPage), aggregateDuration));
     }
 
     /// <summary>
@@ -150,7 +151,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             filter.Ids = req.Ids;
 
         var (items, totalCount) = await segments.FindAsync(filter, findFilter, cancellationToken);
-        return Ok(new PaginatedResponse<SegmentRecordDto>(items.Select(item => MapToDto(item)).ToList(), totalCount, Math.Max(findFilter.Page, 1), Math.Clamp(findFilter.PerPage, 1, ListPaging.MaxPerPage), null));
+        return Ok(new PaginatedResponse<SegmentRecordDto>(await MapWithCoverStatusAsync(items, cancellationToken), totalCount, Math.Max(findFilter.Page, 1), Math.Clamp(findFilter.PerPage, 1, ListPaging.MaxPerPage), null));
     }
 
     [HttpPost("aggregate")]
@@ -203,7 +204,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             ? null
             : await fieldProvenanceService.GetForHostAsync(AffinityHostType.Segment, item.Segment.Id, cancellationToken);
 
-        return Ok(MapToDto(item, fieldProvenance));
+        return Ok((await WithCoverStatusAsync([MapToDto(item, fieldProvenance)], cancellationToken))[0]);
     }
 
     [HttpPost("bulk/remove-tag")]
@@ -298,6 +299,36 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
 
     private static SegmentRecordDto MapToDto(SegmentLibraryItem item, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null)
         => SegmentRecordDto.FromLibraryItem(item, fieldProvenance);
+
+    private Task<List<SegmentRecordDto>> MapWithCoverStatusAsync(IEnumerable<SegmentLibraryItem> items, CancellationToken ct)
+        => WithCoverStatusAsync(items.Select(item => MapToDto(item)).ToList(), ct);
+
+    private async Task<List<SegmentRecordDto>> WithCoverStatusAsync(List<SegmentRecordDto> items, CancellationToken ct)
+    {
+        var status = await GeneratedCoverStatusAsync(items.Select(item => item.Id).ToList(), ct);
+        return items.Select(item => item with { HasGeneratedCover = status.GetValueOrDefault(item.Id) }).ToList();
+    }
+
+    /// <summary>
+    /// For each segment that gets a generated cover (SegmentCoverScope), whether Generate has made its frame.
+    /// Other segments (a chosen cover, a face segment, another host) are left out, so callers report them as
+    /// unknown and show no badge.
+    /// </summary>
+    private async Task<Dictionary<int, bool?>> GeneratedCoverStatusAsync(IReadOnlyCollection<int> segmentIds, CancellationToken ct)
+    {
+        if (thumbnailService == null || segmentIds.Count == 0) return new();
+
+        var rows = await (
+            from segment in db.Segments.AsNoTracking().ThatGetGeneratedCovers()
+            join video in db.Videos.AsNoTracking() on segment.HostId equals video.Id
+            where segmentIds.Contains(segment.Id)
+            select new { segment.Id, segment.StartSec, SourceVideoId = video.ParentVideoId ?? video.Id })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(
+            row => row.Id,
+            row => (bool?)System.IO.File.Exists(thumbnailService.GetTimestampedThumbnailPath(row.SourceVideoId, row.StartSec)));
+    }
 
     internal static IQueryable<TRow> ApplyDateTimeCriterion<TRow>(
         IQueryable<TRow> query,
@@ -515,6 +546,8 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
                 .Select(id => (int?)id)
                 .FirstOrDefault(),
             ReferenceEqualityComparer.Instance);
+        var coverStatus = await GeneratedCoverStatusAsync(
+            coverSegmentIdBySpan.Values.OfType<int>().Distinct().ToList(), ct);
 
         return items
             .Select(item => coverSegmentIdBySpan[item] is { } coverSegmentId
@@ -522,6 +555,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
                 {
                     CoverSegmentId = coverSegmentId,
                     CoverVersion = segmentsById[coverSegmentId].UpdatedAt.ToString("o"),
+                    HasGeneratedCover = coverStatus.GetValueOrDefault(coverSegmentId),
                 }
                 : item)
             .ToList();
