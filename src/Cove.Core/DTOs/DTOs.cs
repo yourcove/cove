@@ -2692,8 +2692,11 @@ public record GenerateOptionsDto
     /// The ordinary cover, preview and sprites of a VR video are always one eye, for flat screens.</summary>
     public bool VrStereo { get; init; }
     /// <summary>The frame at the start of each video segment without a chosen cover, shown as its picture.
-    /// Face segments are left out. Without it a segment shows the sprite tile at its start.</summary>
+    /// Without it a segment shows the sprite tile at its start.</summary>
     public bool SegmentCovers { get; init; }
+    /// <summary>The segment kinds (such as "tag" or "face", compared without case; "" for segments without one)
+    /// Segment Covers makes frames for. Null means every kind except face.</summary>
+    public List<string>? SegmentCoverKinds { get; init; }
     public bool Phashes { get; init; }
     public bool Md5 { get; init; }
     public bool ImageThumbnails { get; init; }

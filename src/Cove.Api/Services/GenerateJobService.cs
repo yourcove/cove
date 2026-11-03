@@ -210,7 +210,7 @@ public sealed class GenerateJobService(
             .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
             .AsSplitQuery().OrderBy(video => video.Id).ToListAsync(ct);
         var segmentCoverTimes = options.SegmentCovers
-            ? await LoadSegmentCoverTimesAsync(db, ids, segmentCoversOnly, options.VideoIds, ct)
+            ? await LoadSegmentCoverTimesAsync(db, ids, segmentCoversOnly, options.VideoIds, options.SegmentCoverKinds, ct)
             : Enumerable.Empty<double>().ToLookup(_ => 0);
         return videos
             .Select(video => CreateVideoWorkItem(
@@ -219,16 +219,17 @@ public sealed class GenerateJobService(
     }
 
     /// <summary>
-    /// The start of every segment that gets a generated cover (SegmentCoverScope), keyed by the video whose file holds
+    /// The start of every segment of the chosen kinds that can get a generated cover (SegmentCoverScope), keyed by the video whose file holds
     /// the frame. Segments on a clip use the source video's timeline, so they belong to the source. A source
     /// added only because a clip of it was selected gets the frames of the selected clips' segments alone.
     /// </summary>
     private static async Task<ILookup<int, double>> LoadSegmentCoverTimesAsync(
-        CoveContext db, int[] ids, IReadOnlySet<int> segmentCoversOnly, IReadOnlyCollection<int>? selectedVideoIds, CancellationToken ct)
+        CoveContext db, int[] ids, IReadOnlySet<int> segmentCoversOnly, IReadOnlyCollection<int>? selectedVideoIds,
+        IReadOnlyCollection<string>? kinds, CancellationToken ct)
     {
         // Kept as two plain membership tests so PostgreSQL can use the key and ParentVideoId indexes.
         var segments = await (
-            from segment in db.Segments.AsNoTracking().ThatGetGeneratedCovers()
+            from segment in db.Segments.AsNoTracking().ThatCanHaveGeneratedCovers().OfKinds(kinds)
             join host in db.Videos.AsNoTracking() on segment.HostId equals host.Id
             where ids.Contains(host.Id) || (host.ParentVideoId != null && ids.Contains(host.ParentVideoId.Value))
             select new { SourceId = host.ParentVideoId ?? host.Id, HostId = host.Id, segment.StartSec })
@@ -278,7 +279,7 @@ public sealed class GenerateJobService(
     /// <summary>A source added only because a clip of it was selected gets segment covers and nothing else.</summary>
     private static GenerateOptionsDto OptionsFor(VideoWorkItem item, GenerateOptionsDto options)
         => item.SegmentCoversOnly
-            ? new GenerateOptionsDto { Thumbnails = false, SegmentCovers = true, Overwrite = options.Overwrite }
+            ? new GenerateOptionsDto { Thumbnails = false, SegmentCovers = true, SegmentCoverKinds = options.SegmentCoverKinds, Overwrite = options.Overwrite }
             : options;
 
     private static bool NeedsVideoWork(VideoWorkItem item, GenerateOptionsDto options)

@@ -878,11 +878,13 @@ public sealed class VideoConversionJobService(
     }
 
     // Whether Generate had made the start frame of any of the video's segments, or its clips' segments, which
-    // run on its timeline. Detection crops keep frames in the same folder, so the folder alone does not tell.
+    // run on its timeline, of the kinds a run makes by default; the rebuild makes those again. Face segments are
+    // left out: detection crops write frames at the same moments, so a frame there does not mean a run asked for
+    // face covers, and rebuilding every face segment after a trim would be a large job nobody asked for.
     private static async Task<bool> HadSegmentCoversAsync(CoveContext db, IThumbnailService thumbnails, int videoId, CancellationToken ct)
     {
         var starts = await (
-            from segment in db.Segments.AsNoTracking().ThatGetGeneratedCovers()
+            from segment in db.Segments.AsNoTracking().ThatCanHaveGeneratedCovers().OfKinds(null)
             join host in db.Videos.AsNoTracking() on segment.HostId equals host.Id
             where host.Id == videoId || host.ParentVideoId == videoId
             select segment.StartSec)
