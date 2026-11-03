@@ -1,7 +1,6 @@
 import { FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
 import { SegmentTile } from "../../components/EntityCards";
-import { SegmentCoverPill } from "../../components/SegmentCoverBadge";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -189,7 +188,6 @@ export function RawSegmentListRow({
                 {item.kind ? <Pill>{item.kind}</Pill> : null}
                 {item.performerName || item.refLabel ? <Pill>{item.performerName || item.refLabel}</Pill> : null}
                 {item.confidence != null ? <Pill>{Math.round(item.confidence * 100)}%</Pill> : null}
-                <SegmentCoverPill hasGeneratedCover={item.hasGeneratedCover} />
               </div>
             </div>
           </div>

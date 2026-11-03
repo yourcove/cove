@@ -496,7 +496,6 @@ export function SegmentsPage({ onNavigate }: Props) {
           videoUpdatedAt: item.videoUpdatedAt,
           coverSegmentId: item.coverSegmentId,
           coverVersion: item.coverVersion,
-          hasGeneratedCover: item.hasGeneratedCover,
           span: item.span,
           profileId: item.profileId,
           derivedQuery:

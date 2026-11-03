@@ -683,44 +683,6 @@ public class AiCoreControllerTests
     }
 
     [Fact]
-    public async Task SegmentsController_FindPost_ReportsWhichSegmentsHaveGeneratedCovers()
-    {
-        await using var scope = await CreateContextAsync();
-        var context = scope.Context;
-        var video = new Video { Title = "Video with segments" };
-        context.Videos.Add(video);
-        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-        var generated = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 10, EndSec = 20, SourceKey = "user" };
-        var spriteOnly = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 40, EndSec = 50, SourceKey = "user" };
-        var chosen = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 70, EndSec = 80, SourceKey = "user", ImageBlobId = "chosen-cover" };
-        // Face segments get covers only when a run asks for them, but their mark still says whether one exists.
-        var face = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 10, EndSec = 12, SourceKey = "ext:ai.faces", Kind = "face" };
-        var faceWithout = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 44, EndSec = 46, SourceKey = "ext:ai.faces", Kind = "face" };
-        context.Segments.AddRange(generated, spriteOnly, chosen, face, faceWithout);
-        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        using var frameDirectory = new TemporaryDirectory();
-        var thumbnailService = new StubThumbnailService { FrameDirectory = frameDirectory.Path };
-        WriteFrame(thumbnailService.GetTimestampedThumbnailPath(video.Id, 10), 320, 180);
-        var controller = new SegmentsController(
-            context,
-            new Cove.Data.Repositories.SegmentRepository(context),
-            null!,
-            new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
-            thumbnailService: thumbnailService);
-
-        var result = await controller.FindPost(new FilteredQueryRequest<SegmentFilter> { Ids = [generated.Id, spriteOnly.Id, chosen.Id, face.Id, faceWithout.Id] }, TestContext.Current.CancellationToken);
-
-        var page = Assert.IsType<PaginatedResponse<SegmentRecordDto>>(Assert.IsType<OkObjectResult>(result.Result).Value);
-        var status = page.Items.ToDictionary(item => item.Id, item => item.HasGeneratedCover);
-        Assert.True(status[generated.Id]);
-        Assert.False(status[spriteOnly.Id]);
-        Assert.Null(status[chosen.Id]);
-        Assert.True(status[face.Id]);
-        Assert.False(status[faceWithout.Id]);
-    }
-
-    [Fact]
     public async Task EntityImageController_GetSegmentImage_OnClip_ServesFrameFromSourceVideo()
     {
         await using var scope = await CreateContextAsync();

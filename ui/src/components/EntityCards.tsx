@@ -84,7 +84,6 @@ import { getAudioDisplayTitle, getTextDisplayTitle, pickPrimaryTextFile } from "
 import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
-import { SegmentCoverBadge } from "./SegmentCoverBadge";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, TagMediaHover } from "./EntityMedia";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
@@ -3549,7 +3548,6 @@ interface SegmentTileItem {
   hostTitle?: string;
   refLabel?: string;
   performerName?: string;
-  hasGeneratedCover?: boolean | null;
 }
 
 export function SegmentTile({
@@ -3611,11 +3609,6 @@ export function SegmentTile({
             <Layers className="h-10 w-10" />
           </div>
         )}
-        {segment.hostType === "video" ? (
-          <div className="pointer-events-none absolute right-2 top-2 z-10">
-            <SegmentCoverBadge hasGeneratedCover={segment.hasGeneratedCover} />
-          </div>
-        ) : null}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-3 text-white">
           <div className="flex items-end justify-between gap-3">
             <div className="line-clamp-2 min-w-0 text-sm font-semibold">{title}</div>
