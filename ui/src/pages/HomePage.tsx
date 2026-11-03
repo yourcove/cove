@@ -2552,6 +2552,8 @@ function SavedFilterRecommendationRow({
             videoId: item.videoId,
             videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
             videoUpdatedAt: item.videoUpdatedAt,
+            coverSegmentId: item.coverSegmentId,
+            coverVersion: item.coverVersion,
             span: item.span,
             profileId: item.profileId,
             derivedQuery: appliedQuery ?? undefined,
@@ -3207,7 +3209,7 @@ function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNav
   return (
     <SegmentTile
       segment={{
-        id: item.span.segmentIds[0] ?? item.id,
+        id: item.coverSegmentId ?? item.span.segmentIds[0] ?? item.id,
         hostType: "video",
         hostId: item.videoId,
         startSec: item.span.startSec,
@@ -3216,7 +3218,7 @@ function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNav
         kind: item.span.kind,
         sourceKey: item.span.sourceKey,
         title,
-        updatedAt: item.videoUpdatedAt,
+        updatedAt: item.coverVersion ?? item.videoUpdatedAt,
         hostTitle: item.videoTitle,
       }}
       route={route}

@@ -129,12 +129,12 @@ export function DerivedSpanResults({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
           const operandSummary = formatDerivedOperandSummary(item, nameMaps);
-          const primaryRawSegmentId = item.span.segmentIds[0];
+          const coverSegmentId = item.coverSegmentId ?? item.span.segmentIds[0];
 
           return (
             <SegmentTile
               segment={{
-                id: primaryRawSegmentId ?? item.id,
+                id: coverSegmentId ?? item.id,
                 hostType: "video",
                 hostId: item.videoId,
                 startSec: item.span.startSec,
@@ -143,7 +143,7 @@ export function DerivedSpanResults({
                 kind: item.span.kind,
                 sourceKey: item.span.sourceKey,
                 title,
-                updatedAt: item.videoUpdatedAt,
+                updatedAt: item.coverVersion ?? item.videoUpdatedAt,
                 hostTitle: item.videoTitle,
               }}
               route={route}
@@ -236,6 +236,7 @@ function DerivedSpanListRow({
 }) {
   const title = buildSpanTitle(item.span, item.videoTitle);
   const primaryRawSegmentId = item.span.segmentIds[0];
+  const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
   const operandSummary = formatDerivedOperandSummary(item, nameMaps);
 
   return (
@@ -275,8 +276,8 @@ function DerivedSpanListRow({
               >
                 <SegmentVideoPreview
                   hostId={item.videoId}
-                  segmentId={primaryRawSegmentId}
-                  updatedAt={item.videoUpdatedAt}
+                  segmentId={coverSegmentId}
+                  updatedAt={item.coverVersion ?? item.videoUpdatedAt}
                   startSec={item.span.startSec}
                   endSec={item.span.endSec}
                   title={title}
