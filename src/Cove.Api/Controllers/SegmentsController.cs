@@ -474,7 +474,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             // If we never crossed the page boundary we resolved the whole scope, so the count is exact and
             // free; otherwise it's unknown here and the spans/count endpoint supplies it.
             var exactTotal = earlyTerminated ? -1 : collected;
-            return Ok(new SegmentSpanSearchResponseDto(pageItems, exactTotal, page, perPage, HasMore: earlyTerminated));
+            return Ok(new SegmentSpanSearchResponseDto(await WithCoverVersionsAsync(pageItems, ct), exactTotal, page, perPage, HasMore: earlyTerminated));
         }
 
         // 3. Full path (segment-row filters or span-level sort): resolve all in-scope spans, filter, sort,
@@ -488,7 +488,43 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var finalOffset = (page - 1) * perPage;
         var finalPageItems = allItems.Skip(finalOffset).Take(perPage).ToList();
 
-        return Ok(new SegmentSpanSearchResponseDto(finalPageItems, totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
+        return Ok(new SegmentSpanSearchResponseDto(await WithCoverVersionsAsync(finalPageItems, ct), totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
+    }
+
+    /// <summary>
+    /// Picks each span's cover segment and versions its picture. The cover is the span's earliest-starting
+    /// segment, since hovering a span card plays the video from the span's start and that segment's cover
+    /// frame is the closest to it. Its UpdatedAt versions the image, because choosing a cover touches the
+    /// segment, not its video.
+    /// </summary>
+    private async Task<List<SegmentSpanSearchResultItemDto>> WithCoverVersionsAsync(List<SegmentSpanSearchResultItemDto> items, CancellationToken ct)
+    {
+        var spanSegmentIds = items.SelectMany(item => item.Span.SegmentIds).Distinct().ToList();
+        if (spanSegmentIds.Count == 0) return items;
+
+        var segmentsById = await db.Segments.AsNoTracking()
+            .Where(segment => spanSegmentIds.Contains(segment.Id))
+            .Select(segment => new { segment.Id, segment.StartSec, segment.UpdatedAt })
+            .ToDictionaryAsync(segment => segment.Id, ct);
+        var coverSegmentIdBySpan = items.ToDictionary(
+            item => item,
+            item => item.Span.SegmentIds
+                .Where(segmentsById.ContainsKey)
+                .OrderBy(id => segmentsById[id].StartSec)
+                .ThenBy(id => id)
+                .Select(id => (int?)id)
+                .FirstOrDefault(),
+            ReferenceEqualityComparer.Instance);
+
+        return items
+            .Select(item => coverSegmentIdBySpan[item] is { } coverSegmentId
+                ? item with
+                {
+                    CoverSegmentId = coverSegmentId,
+                    CoverVersion = segmentsById[coverSegmentId].UpdatedAt.ToString("o"),
+                }
+                : item)
+            .ToList();
     }
 
     private const int SpanResolveBatchSize = 400;

@@ -14,6 +14,8 @@ export interface DerivedSpanItem {
   videoId: number;
   videoTitle: string;
   videoUpdatedAt?: string;
+  coverSegmentId?: number;
+  coverVersion?: string;
   span: ResolvedSpan;
   profileId?: number;
   derivedQuery?: SegmentSpanDerivedQuery;

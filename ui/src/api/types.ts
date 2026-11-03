@@ -1542,6 +1542,10 @@ export interface SegmentSpanSearchResultItem {
   videoId: number;
   videoTitle?: string;
   videoUpdatedAt?: string;
+  /** The segment whose image the span shows: its earliest-starting segment. */
+  coverSegmentId?: number;
+  /** Version of the span cover: the cover segment's updatedAt. */
+  coverVersion?: string;
   profileId: number;
 }
 

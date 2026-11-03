@@ -819,7 +819,20 @@ public record SegmentSpanSearchResultItemDto(
     int VideoId,
     string? VideoTitle,
     string? VideoUpdatedAt,
-    int ProfileId);
+    int ProfileId)
+{
+    /// <summary>
+    /// The segment whose image the span shows: its earliest-starting segment, whose cover frame is closest
+    /// to where hovering the span starts playing.
+    /// </summary>
+    public int? CoverSegmentId { get; init; }
+
+    /// <summary>
+    /// Version of the span's cover image: the UpdatedAt of <see cref="CoverSegmentId"/>. Choosing a cover
+    /// touches the segment, not its video.
+    /// </summary>
+    public string? CoverVersion { get; init; }
+}
 
 public record SegmentSpanSearchResponseDto(
     IReadOnlyList<SegmentSpanSearchResultItemDto> Items,

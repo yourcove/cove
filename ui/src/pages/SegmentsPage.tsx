@@ -494,6 +494,8 @@ export function SegmentsPage({ onNavigate }: Props) {
           videoId: item.videoId,
           videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
           videoUpdatedAt: item.videoUpdatedAt,
+          coverSegmentId: item.coverSegmentId,
+          coverVersion: item.coverVersion,
           span: item.span,
           profileId: item.profileId,
           derivedQuery:
