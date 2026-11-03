@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { metadata, type GenerateOptions } from "../api/client";
 import { Loader2, Check } from "lucide-react";
 import { EditModal } from "./EditModal";
+import { GenerateOptionList, GenerateRunSummary, type GenerateOptionGroup } from "./GenerateOptionList";
 
 interface Props {
   open: boolean;
@@ -56,6 +57,16 @@ export function GenerateDialog({
   });
   const [submitted, setSubmitted] = useState(false);
 
+  // Counted for the dialog's scope whatever is ticked.
+  const estimateQ = useQuery({
+    queryKey: ["generate-estimate", "dialog", videoIds ?? null, imageIds ?? null, audioIds ?? null, textIds ?? null],
+    queryFn: ({ signal }) => metadata.estimateGenerate({ videoIds, imageIds, audioIds, textIds }, signal),
+    enabled: open,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
   const generateMut = useMutation({
     mutationFn: () => metadata.generate({ ...opts, videoIds, imageIds, audioIds, textIds }),
     onSuccess: () => {
@@ -64,8 +75,6 @@ export function GenerateDialog({
   });
 
   if (!open) return null;
-
-  const toggle = (key: keyof GenerateOptions) => setOpts((o) => ({ ...o, [key]: !o[key] }));
 
   const scopedCount = videoIds?.length ?? imageIds?.length ?? audioIds?.length ?? textIds?.length ?? 0;
   const scopedNoun = isVideoScoped
@@ -79,75 +88,61 @@ export function GenerateDialog({
           : "item";
   const label = isScoped ? `Generate for ${scopedCount} ${scopedNoun}${scopedCount !== 1 ? "s" : ""}` : "Generate All";
 
-  const renderGroup = (
-    heading: string,
-    rows: ReadonlyArray<readonly [keyof GenerateOptions, string]>,
-    withDivider = true,
-  ) => (
-    <>
-      {withDivider && <div className="border-t border-border my-3" />}
-      <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">{heading}</h4>
-      {rows.map(([key, labelText]) => (
-        <label key={key} className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={!!opts[key]}
-            onChange={() => toggle(key)}
-            className="w-4 h-4 rounded border-border accent-accent"
-          />
-          <span className="text-sm text-foreground group-hover:text-accent">{labelText}</span>
-        </label>
-      ))}
-    </>
-  );
+  const groups: GenerateOptionGroup[] = [
+    ...(showVideo
+      ? [
+          {
+            title: "Video content",
+            keys: ["thumbnails", "previews", "sprites", "vrStereo", "segmentCovers", "phashes", "md5"] as const,
+          },
+        ]
+      : []),
+    ...(showImage ? [{ title: "Image content", keys: ["imageThumbnails", "imagePhashes"] as const }] : []),
+    ...(showAudio ? [{ title: "Audio", keys: ["audioPhashes"] as const }] : []),
+    ...(showText ? [{ title: "Text", keys: ["textPhashes"] as const }] : []),
+  ].map((group) => ({ title: group.title, keys: [...group.keys] }));
+  const estimatePending = estimateQ.isFetching && !estimateQ.data;
 
   return (
     <EditModal open={open} onClose={onClose} title={title ?? label}>
       {/* Options */}
       <div className="space-y-3">
-        <p className="text-sm text-secondary mb-4">Select what to generate:</p>
+        <GenerateOptionList
+          idPrefix="generate-dialog"
+          groups={groups}
+          sizing="run"
+          options={opts}
+          estimate={estimateQ.data}
+          estimatePending={estimatePending}
+          isChecked={(key) => !!opts[key]}
+          onCheckedChange={(key, checked) => setOpts((current) => ({ ...current, [key]: checked }))}
+          onSegmentCoverKindsChange={(kinds) => setOpts((current) => ({ ...current, segmentCoverKinds: kinds }))}
+        />
 
-        {showVideo &&
-          renderGroup(
-            "Video Content",
-            [
-              ["thumbnails", "Thumbnails / Screenshots"],
-              ["previews", "Video Previews"],
-              ["sprites", "Sprite Sheets"],
-              ["vrStereo", "VR 3D Covers and Previews"],
-              ["segmentCovers", "Segment Covers"],
-              ["phashes", "Video perceptual hashes"],
-              ["md5", "MD5 Checksums"],
-            ],
-            false,
-          )}
-
-        {showImage &&
-          renderGroup(
-            "Image Content",
-            [
-              ["imageThumbnails", "Image Thumbnails"],
-              ["imagePhashes", "Image perceptual hashes"],
-            ],
-            showVideo,
-          )}
-
-        {showAudio && renderGroup("Audio", [["audioPhashes", "Audio perceptual hashes"]], showVideo || showImage)}
-
-        {showText &&
-          renderGroup("Text", [["textPhashes", "Text perceptual hashes"]], showVideo || showImage || showAudio)}
+        {estimateQ.isError ? (
+          <p className="px-2.5 text-xs text-red-400">
+            Could not count what is missing, so sizes show the work for one item only.
+          </p>
+        ) : null}
 
         <div className="border-t border-border my-3" />
 
-        <label className="flex items-center gap-3 cursor-pointer group">
+        <label className="flex items-center gap-3 cursor-pointer group px-2.5">
           <input
             type="checkbox"
             checked={!!opts.overwrite}
-            onChange={() => toggle("overwrite")}
+            onChange={() => setOpts((current) => ({ ...current, overwrite: !current.overwrite }))}
             className="w-4 h-4 rounded border-border accent-orange-500"
           />
-          <span className="text-sm text-orange-400 group-hover:text-orange-300">Overwrite existing</span>
+          <span className="text-sm text-orange-400 group-hover:text-orange-300">Make again what is already made</span>
         </label>
+
+        <GenerateRunSummary
+          keys={groups.flatMap((group) => group.keys)}
+          options={opts}
+          estimate={estimateQ.data}
+          estimatePending={estimatePending}
+        />
       </div>
 
       {/* Actions */}
