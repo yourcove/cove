@@ -34,6 +34,10 @@ const { authMock, segmentsPanelMock, layoutShortcutsMock } = vi.hoisted(() => ({
   layoutShortcutsMock: vi.fn((_shortcuts: { id?: string; handler: () => void }[]) => undefined),
 }));
 
+const { extensionTabsMock } = vi.hoisted(() => ({
+  extensionTabsMock: { tabs: [] as Record<string, unknown>[] },
+}));
+
 const { videoSpritesMock, layoutMock } = vi.hoisted(() => ({
   videoSpritesMock: vi.fn((_videoId: number | null) => null as unknown),
   // Most tests only need the player row; timeline tests also render the scrubber below it.
@@ -85,7 +89,7 @@ vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
     media: ReactElement<{ children?: ReactNode }>;
     mediaSizesItselfOnMobile?: boolean;
     actions?: ReactNode;
-    tabs: { key: string; label: string }[];
+    tabs: { key: string; label: string; icon?: ReactNode }[];
     activeTab: string;
     onTabChange: (key: string) => void;
     keyboardShortcuts?: { id?: string; handler: () => void }[];
@@ -98,6 +102,7 @@ vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
         <div>
           {tabs.map((tab) => (
             <button key={tab.key} role="tab" aria-selected={tab.key === activeTab} onClick={() => onTabChange(tab.key)}>
+              {tab.icon}
               {tab.label}
             </button>
           ))}
@@ -159,7 +164,7 @@ vi.mock("../state/VideoQueueContext", () => ({
 
 vi.mock("../extensions/ExtensionLoader", () => ({
   useExtensions: () => ({
-    getTabsForPage: () => [],
+    getTabsForPage: (pageType: string) => (pageType === "video" ? extensionTabsMock.tabs : []),
     getActionsForContext: () => [],
     getExtensionRevision: () => 0,
     resolveComponent: () => undefined,
@@ -243,6 +248,7 @@ describe("VideoDetailPage media-player extension surface", () => {
   });
   afterEach(() => {
     vi.clearAllMocks();
+    extensionTabsMock.tabs = [];
     mockVideos.get.mockReset();
     videoQueueMock.queue = null;
     videoQueueMock.currentId = null;
@@ -507,6 +513,35 @@ describe("VideoDetailPage media-player extension surface", () => {
         resumeTime: undefined,
       }),
     );
+  });
+
+  it("shows the icon each video extension tab declares", async () => {
+    const extensionTab = { pageType: "video", extensionId: "ext.tabs", componentName: "Panel", order: 100 };
+    extensionTabsMock.tabs = [
+      { ...extensionTab, key: "cuts", label: "Cuts", icon: "scissors" },
+      { ...extensionTab, key: "songs", label: "Songs", icon: "music" },
+      { ...extensionTab, key: "plain", label: "Plain" },
+    ];
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Video with extension tabs",
+      files: [],
+      performers: [],
+      tags: [],
+      galleries: [],
+      groups: [],
+      urls: [],
+      remoteIds: [],
+    });
+
+    renderVideoDetail();
+
+    const cuts = await screen.findByRole("tab", { name: "Cuts" });
+    const songs = screen.getByRole("tab", { name: "Songs" });
+    await waitFor(() => expect(cuts.querySelector(".lucide-scissors")).not.toBeNull());
+    await waitFor(() => expect(songs.querySelector(".lucide-music")).not.toBeNull());
+    // A tab without a declared icon is left to the layout's own default.
+    expect(screen.getByRole("tab", { name: "Plain" }).querySelector("svg")).toBeNull();
   });
 
   it("stays on the edit tab after saving", async () => {

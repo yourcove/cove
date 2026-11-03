@@ -90,6 +90,7 @@ import {
 import { useVideoQueue, type VideoQueueItem } from "../state/VideoQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
+import { extensionTabIcon } from "../extensions/extensionIcon";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
@@ -784,7 +785,12 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         count: video?.files.length && video.files.length > 1 ? video.files.length : undefined,
       },
       { key: "history", label: "History" },
-      ...videoExtTabs.map((t) => ({ key: `ext:${t.key}` as TabKey, label: t.label, manualContexts: t.manualContexts })),
+      ...videoExtTabs.map((t) => ({
+        key: `ext:${t.key}` as TabKey,
+        label: t.label,
+        icon: extensionTabIcon(t.icon),
+        manualContexts: t.manualContexts,
+      })),
       { key: "edit", label: "Edit" },
     ],
     {

@@ -12,7 +12,6 @@
  *   or would load from JS bundles (for external extensions)
  */
 import {
-  forwardRef,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -29,8 +28,7 @@ import { extensions } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { supportsServerBackedUiPreferences, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 import { canAccessExtensionContribution } from "./extension-permissions";
-import { Puzzle, type LucideIcon, type LucideProps } from "lucide-react";
-import { DynamicIcon, iconNames, type IconName } from "lucide-react/dynamic.js";
+import { resolveExtensionIcon } from "./extensionIcon";
 import type {
   ExtensionManifest,
   ExtensionFeatureDef,
@@ -66,26 +64,6 @@ import {
   type ExtensionRuntimeOwner,
   type ExtensionRuntimeFailure,
 } from "./ExtensionRuntimeReconciler";
-
-// ============================================================================
-// Icon resolver — maps manifest icon names to Lucide components
-// ============================================================================
-const validIconNames = new Set<string>(iconNames);
-const iconComponents = new Map<IconName, LucideIcon>();
-function resolveIcon(name?: string): LucideIcon {
-  const normalizedName = name?.toLowerCase();
-  if (!normalizedName || !validIconNames.has(normalizedName)) return Puzzle;
-
-  const iconName = normalizedName as IconName;
-  let Icon = iconComponents.get(iconName);
-  if (!Icon) {
-    // Keep the component type stable when manifest refreshes register routes again.
-    Icon = forwardRef<SVGSVGElement, LucideProps>((props, ref) => <DynamicIcon {...props} name={iconName} ref={ref} />);
-    Icon.displayName = `ExtensionIcon(${iconName})`;
-    iconComponents.set(iconName, Icon);
-  }
-  return Icon;
-}
 
 type ExtensionActionHandler = (action: ExtensionAction, payload: Record<string, unknown>) => Promise<unknown> | unknown;
 type BundleImporter = (url: string) => Promise<unknown>;
@@ -785,7 +763,7 @@ export function ExtensionLoaderProvider({
             navItem: {
               page: page.route,
               label: page.label,
-              icon: resolveIcon(page.icon),
+              icon: resolveExtensionIcon(page.icon),
               order: page.navOrder,
             },
           }),
