@@ -579,6 +579,178 @@ public class AiCoreControllerTests
         Assert.Equal(bytes, output.ToArray());
     }
 
+    [Theory]
+    [InlineData(3200, 1800, 1600, 900)]
+    [InlineData(3200, 3600, 1422, 1600)]
+    public async Task EntityImageController_GetSegmentImage_WithoutCover_ServesGeneratedStartFrameAtRequestedSize(
+        int frameWidth, int frameHeight, int servedWidth, int servedHeight)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Video with a highlight" };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var segment = new Segment
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = 1873.1,
+            EndSec = 1909.6,
+            SourceKey = "user",
+        };
+        context.Segments.Add(segment);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frameDirectory = new TemporaryDirectory();
+        var thumbnailService = new StubThumbnailService { FrameDirectory = frameDirectory.Path };
+        // The start of 1873.1–1909.6, where the segment's hover playback begins.
+        var framePath = thumbnailService.GetTimestampedThumbnailPath(video.Id, 1873.1);
+        WriteFrame(framePath, frameWidth, frameHeight);
+        var controller = new EntityImageController(
+            context,
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            thumbnailService,
+            new StubStreamService())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetSegmentImage(segment.Id, 1600, "v1", CancellationToken.None);
+
+        var file = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("image/jpeg", file.ContentType);
+        Assert.Equal("public, max-age=31536000, immutable", controller.Response.Headers.CacheControl.ToString());
+        using var served = await SixLabors.ImageSharp.Image.LoadAsync(file.FileStream, TestContext.Current.CancellationToken);
+        Assert.Equal((servedWidth, servedHeight), (served.Width, served.Height));
+
+        controller.Response.Headers.CacheControl = string.Empty;
+        var repeat = await controller.GetSegmentImage(segment.Id, null, null, CancellationToken.None);
+        await using var repeatStream = Assert.IsType<FileStreamResult>(repeat).FileStream;
+        Assert.Equal("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
+        // Served whole and from its start, with nothing to resize.
+        await using var repeatBytes = new MemoryStream();
+        await repeatStream.CopyToAsync(repeatBytes, TestContext.Current.CancellationToken);
+        Assert.Equal(await File.ReadAllBytesAsync(framePath, TestContext.Current.CancellationToken), repeatBytes.ToArray());
+    }
+
+    private static void WriteFrame(string path, int width, int height)
+    {
+        using var frame = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgb24>(width, height);
+        SixLabors.ImageSharp.ImageExtensions.SaveAsJpeg(frame, path);
+    }
+
+    [Fact]
+    public async Task EntityImageController_GetSegmentImage_WithoutGeneratedFrame_ServesStandInBriefly()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Video whose file is offline" };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var segment = new Segment
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = 10,
+            EndSec = 20,
+            SourceKey = "user",
+        };
+        context.Segments.Add(segment);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frameDirectory = new TemporaryDirectory();
+        var standIn = new byte[] { 9, 8, 7 };
+        var streamService = new StubStreamService(standIn, useLongCache: true);
+        var controller = new EntityImageController(
+            context,
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            // Generating on request would throw.
+            new StubThumbnailService { FrameDirectory = frameDirectory.Path },
+            streamService)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetSegmentImage(segment.Id, 1600, "v1", CancellationToken.None);
+
+        var file = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("public, max-age=300", controller.Response.Headers.CacheControl.ToString());
+        await using var output = new MemoryStream();
+        await file.FileStream.CopyToAsync(output, TestContext.Current.CancellationToken);
+        Assert.Equal(standIn, output.ToArray());
+        // The tile at the start, like the frame it stands in for.
+        Assert.Equal(new double?[] { 10 }, streamService.ScreenshotSeconds);
+    }
+
+    [Fact]
+    public async Task EntityImageController_GetSegmentImage_OnClip_ServesFrameFromSourceVideo()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var source = new Video { Title = "Source video" };
+        context.Videos.Add(source);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var clip = new Video { Title = "Clip", ParentVideoId = source.Id, ClipStartSec = 100 };
+        context.Videos.Add(clip);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        // Segments on a clip use the source video's timeline, as detections and the player do.
+        var segment = new Segment { HostType = SegmentHostType.Video, HostId = clip.Id, StartSec = 120, SourceKey = "user" };
+        context.Segments.Add(segment);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frameDirectory = new TemporaryDirectory();
+        var thumbnailService = new StubThumbnailService { FrameDirectory = frameDirectory.Path };
+        WriteFrame(thumbnailService.GetTimestampedThumbnailPath(source.Id, 120), 640, 360);
+        var controller = new EntityImageController(
+            context,
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            thumbnailService,
+            new StubStreamService())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetSegmentImage(segment.Id, 1600, null, CancellationToken.None);
+
+        Assert.Equal("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
+        // A frame already within max is never enlarged.
+        using var served = await SixLabors.ImageSharp.Image.LoadAsync(Assert.IsType<FileStreamResult>(result).FileStream, TestContext.Current.CancellationToken);
+        Assert.Equal((640, 360), (served.Width, served.Height));
+    }
+
+    [Fact]
+    public async Task EntityImageController_GetSegmentImage_RemovesUnreadableCachedFrame()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Video with a damaged frame" };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var segment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 10, EndSec = 20, SourceKey = "user" };
+        context.Segments.Add(segment);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frameDirectory = new TemporaryDirectory();
+        var thumbnailService = new StubThumbnailService { FrameDirectory = frameDirectory.Path };
+        var framePath = thumbnailService.GetTimestampedThumbnailPath(video.Id, 10);
+        await File.WriteAllBytesAsync(framePath, [1, 2, 3], TestContext.Current.CancellationToken);
+        var standIn = new byte[] { 9, 8, 7 };
+        var controller = new EntityImageController(
+            context,
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            thumbnailService,
+            new StubStreamService(standIn, useLongCache: true))
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetSegmentImage(segment.Id, null, "v1", CancellationToken.None);
+
+        await using var served = Assert.IsType<FileStreamResult>(result).FileStream;
+        Assert.Equal("public, max-age=300", controller.Response.Headers.CacheControl.ToString());
+        Assert.False(File.Exists(framePath));
+    }
+
     [Fact]
     public async Task EntityImageController_DeletePerformerImage_RemovesStoredImages()
     {
@@ -901,6 +1073,17 @@ public class AiCoreControllerTests
         }
     }
 
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public string Path { get; } = Directory.CreateDirectory(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"cove-segment-frames-{Guid.NewGuid():N}")).FullName;
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); } catch (IOException) { }
+        }
+    }
+
     private sealed class TestContextScope(CoveContext context, SqliteConnection connection) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
@@ -943,6 +1126,7 @@ public class AiCoreControllerTests
     private sealed class StubThumbnailService : IThumbnailService
     {
         public List<string> DeletedBlobIds { get; } = [];
+        public string? FrameDirectory { get; init; }
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -987,7 +1171,9 @@ public class AiCoreControllerTests
             => throw new NotSupportedException();
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds)
-            => throw new NotSupportedException();
+            => FrameDirectory == null
+                ? throw new NotSupportedException()
+                : Path.Combine(FrameDirectory, $"{videoId}_t{(long)Math.Round(seconds * 1000)}ms.jpg");
 
         public string GetPreviewPath(int videoId)
             => throw new NotSupportedException();
@@ -1004,6 +1190,8 @@ public class AiCoreControllerTests
 
     private sealed class StubStreamService(byte[]? screenshotBytes = null, string screenshotContentType = "image/jpeg", bool useLongCache = false) : IStreamService
     {
+        public List<double?> ScreenshotSeconds { get; } = [];
+
         public Task<(Stream stream, string contentType, long? fileSize)?> GetVideoStream(int videoId, CancellationToken ct = default)
             => throw new NotSupportedException();
 
@@ -1012,6 +1200,7 @@ public class AiCoreControllerTests
             if (screenshotBytes == null)
                 throw new NotSupportedException();
 
+            ScreenshotSeconds.Add(seconds);
             return Task.FromResult<(Stream, string, bool)?>(
                 (new MemoryStream(screenshotBytes, writable: false), screenshotContentType, useLongCache));
         }

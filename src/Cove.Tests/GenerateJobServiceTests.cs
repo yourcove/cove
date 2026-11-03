@@ -231,6 +231,110 @@ public class GenerateJobServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false, false, false, new double[0])]
+    [InlineData(true, false, false, false, new[] { 10d, 100d })]
+    [InlineData(true, true, false, false, new[] { 10d, 30d, 100d })]
+    // Selecting only the clip makes its segments' frames from its source, and nothing else for the source.
+    [InlineData(true, false, true, false, new[] { 100d })]
+    [InlineData(true, false, false, true, new[] { 10d, 100d })]
+    public async Task Start_MakesStartFramesForSegmentsWithoutChosenCovers(
+        bool segmentCovers,
+        bool overwrite,
+        bool selectClipOnly,
+        bool framesFail,
+        double[] expectedSeconds)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "source.mp4"), [1], TestContext.Current.CancellationToken);
+
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var services = new ServiceCollection();
+            services.AddScoped(_ => new CoveContext(dbOptions));
+            await using var provider = services.BuildServiceProvider();
+
+            int sourceId, sourceFileId, clipId;
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var source = CreateVideoWithFiles((1, tempRoot, "source.mp4"));
+                source.Files.Single().Duration = 200;
+                db.Videos.Add(source);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                source.PrimaryFileId = source.Files.Single().Id;
+                var clip = new Video { Title = "Clip", ParentVideoId = source.Id, ClipStartSec = 90 };
+                db.Videos.Add(clip);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                sourceId = source.Id;
+                sourceFileId = source.PrimaryFileId.Value;
+                clipId = clip.Id;
+
+                db.Segments.AddRange(
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 10, EndSec = 20, SourceKey = "user" },
+                    // It starts at the same moment as the segment above, so they share a frame.
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 10, EndSec = 16, SourceKey = "user" },
+                    // It starts past the end of the file, so it has no frame to make.
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 250, EndSec = 260, SourceKey = "user" },
+                    // Its frame was made by an earlier run.
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 30, EndSec = 50, SourceKey = "user" },
+                    // A clip's segment runs on the source's timeline.
+                    new Segment { HostType = SegmentHostType.Video, HostId = clip.Id, StartSec = 100, SourceKey = "user" },
+                    // A chosen cover needs no frame.
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 60, EndSec = 70, ImageBlobId = "chosen", SourceKey = "user" },
+                    // Face segments are left out of segment covers.
+                    new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 120, EndSec = 124, Kind = "Face", SourceKey = "ext:ai.faces" },
+                    // Not a video segment, despite sharing the host id.
+                    new Segment { HostType = SegmentHostType.Audio, HostId = source.Id, StartSec = 80, EndSec = 90, SourceKey = "user" });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            var jobs = new CapturingJobService();
+            var thumbnails = new CapturingThumbnailService(tempRoot) { OnThumbnailFromFile = seconds => seconds == null || !framesFail };
+            await File.WriteAllBytesAsync(thumbnails.GetTimestampedThumbnailPath(sourceId, 30), [1], TestContext.Current.CancellationToken);
+            var fingerprints = new NullFingerprintService();
+            var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+            var fingerprintWriter = new FileFingerprintWriter(scopeFactory);
+            var service = new GenerateJobService(
+                jobs,
+                thumbnails,
+                thumbnails,
+                fingerprints,
+                new AlwaysReadableSourceHealthProbe(),
+                fingerprintWriter,
+                new NonVideoGenerationService(thumbnails, fingerprints, fingerprintWriter, NullLogger<NonVideoGenerationService>.Instance),
+                scopeFactory,
+                new CoveConfiguration { MaxParallelTasks = 1 },
+                NullLogger<GenerateJobService>.Instance);
+
+            // The video cover is asked for too, so the run has work even without segment covers.
+            service.Start(new GenerateOptionsDto
+            {
+                Thumbnails = true,
+                SegmentCovers = segmentCovers,
+                Overwrite = overwrite,
+                VideoIds = selectClipOnly ? [clipId] : null,
+            });
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.All(thumbnails.ThumbnailRequests, request => Assert.Equal((sourceId, sourceFileId), (request.VideoId, request.SourceFileId)));
+            // Compared by whole second: which of two segments sharing a frame supplies its time is unordered.
+            Assert.Equal(expectedSeconds, thumbnails.ThumbnailRequests.Where(request => request.AtSeconds != null).Select(request => Math.Floor(request.AtSeconds!.Value)).Order());
+            Assert.Equal(selectClipOnly ? 0 : 1, thumbnails.ThumbnailRequests.Count(request => request.AtSeconds == null));
+            var unit = Assert.Single(jobs.Progress.Units);
+            Assert.Equal(framesFail, unit.Outcome == JobUnitOutcome.Failed);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingPrimaryFile()
     {
@@ -558,7 +662,13 @@ public class GenerateJobServiceTests
             int sourceFileId,
             double? atSeconds,
             CancellationToken ct = default)
-            => Task.FromResult(true);
+        {
+            ThumbnailRequests.Add((videoId, sourceFileId, atSeconds));
+            return Task.FromResult(OnThumbnailFromFile?.Invoke(atSeconds) ?? true);
+        }
+
+        public List<(int VideoId, int SourceFileId, double? AtSeconds)> ThumbnailRequests { get; } = [];
+        public Func<double?, bool>? OnThumbnailFromFile { get; init; }
 
         public Task<bool> GenerateImageThumbnailAsync(
             int imageId,
@@ -591,7 +701,7 @@ public class GenerateJobServiceTests
         public string GetThumbnailPathForVideo(int videoId) => Path.Combine(generatedRoot, $"{videoId}.jpg");
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds)
-            => Path.Combine(generatedRoot, $"{videoId}_{seconds}.jpg");
+            => Path.Combine(generatedRoot, $"{videoId}_t{(long)Math.Round(seconds * 1000)}ms.jpg");
 
         public string GetPreviewPath(int videoId) => Path.Combine(generatedRoot, $"{videoId}.mp4");
 

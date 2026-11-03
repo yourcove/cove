@@ -444,7 +444,7 @@ public sealed class VideoConversionJobService(
             {
                 // A cut changes the timeline, so the same-footage swap cannot apply. Everything timed on the
                 // video is moved through the cut instead - exactly, since the cut itself is the mapping.
-                var assetsBefore = GeneratedAssetsOf(scope, videoId);
+                var assetsBefore = await GeneratedAssetsOfAsync(scope, videoId, ct);
                 var moved = await ApplyCutTimelineAsync(scope, videoId, original.Id, newFileId, timelineKept, source.Duration, principal, ct);
                 if (moved.Reason is { } refused)
                 {
@@ -865,20 +865,35 @@ public sealed class VideoConversionJobService(
     }
 
     /// <summary>Which generated assets a video had before its timeline changed, so exactly those are rebuilt.</summary>
-    private sealed record GeneratedAssets(bool Cover, bool Preview, bool Sprite);
+    private sealed record GeneratedAssets(bool Cover, bool Preview, bool Sprite, bool SegmentCovers);
 
-    private static GeneratedAssets GeneratedAssetsOf(AsyncServiceScope scope, int videoId)
+    private static async Task<GeneratedAssets> GeneratedAssetsOfAsync(AsyncServiceScope scope, int videoId, CancellationToken ct)
     {
         var thumbnails = scope.ServiceProvider.GetRequiredService<IThumbnailService>();
         return new GeneratedAssets(
             File.Exists(thumbnails.GetThumbnailPathForVideo(videoId)),
             File.Exists(thumbnails.GetPreviewPath(videoId)),
-            File.Exists(thumbnails.GetSpritePath(videoId)));
+            File.Exists(thumbnails.GetSpritePath(videoId)),
+            await HadSegmentCoversAsync(scope.ServiceProvider.GetRequiredService<CoveContext>(), thumbnails, videoId, ct));
+    }
+
+    // Whether Generate had made the start frame of any of the video's segments, or its clips' segments, which
+    // run on its timeline. Detection crops keep frames in the same folder, so the folder alone does not tell.
+    private static async Task<bool> HadSegmentCoversAsync(CoveContext db, IThumbnailService thumbnails, int videoId, CancellationToken ct)
+    {
+        var starts = await (
+            from segment in db.Segments.AsNoTracking().ThatGetGeneratedCovers()
+            join host in db.Videos.AsNoTracking() on segment.HostId equals host.Id
+            where host.Id == videoId || host.ParentVideoId == videoId
+            select segment.StartSec)
+            .Distinct()
+            .ToListAsync(ct);
+        return starts.Any(seconds => File.Exists(thumbnails.GetTimestampedThumbnailPath(videoId, seconds)));
     }
 
     /// <summary>
-    /// Rebuilds what a cut made stale, once the whole batch is done: the preview, sprite and cover each
-    /// video had before (they show footage at times that no longer hold it), and the new file's
+    /// Rebuilds what a cut made stale, once the whole batch is done: the preview, sprite, cover and segment
+    /// covers each video had before (they show footage at times that no longer hold it), and the new file's
     /// perceptual hash, which duplicate matching and metadata lookups rely on. Nothing a video did not
     /// already have is generated.
     /// </summary>
@@ -896,6 +911,7 @@ public sealed class VideoConversionJobService(
                 Thumbnails = changed.Any(item => item.Assets.Cover),
                 Previews = changed.Any(item => item.Assets.Preview),
                 Sprites = changed.Any(item => item.Assets.Sprite),
+                SegmentCovers = changed.Any(item => item.Assets.SegmentCovers),
                 Phashes = true,
             });
         }
