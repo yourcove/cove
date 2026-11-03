@@ -310,16 +310,16 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     }
 
     /// <summary>
-    /// For each segment that gets a generated cover (SegmentCoverScope), whether Generate has made its frame.
-    /// Other segments (a chosen cover, a face segment, another host) are left out, so callers report them as
-    /// unknown and show no badge.
+    /// For each segment that can get a generated cover (SegmentCoverScope), whether Generate has made its frame.
+    /// Other segments (a chosen cover, another host) are left out, so callers report them as unknown and show
+    /// no badge.
     /// </summary>
     private async Task<Dictionary<int, bool?>> GeneratedCoverStatusAsync(IReadOnlyCollection<int> segmentIds, CancellationToken ct)
     {
         if (thumbnailService == null || segmentIds.Count == 0) return new();
 
         var rows = await (
-            from segment in db.Segments.AsNoTracking().ThatGetGeneratedCovers()
+            from segment in db.Segments.AsNoTracking().ThatCanHaveGeneratedCovers()
             join video in db.Videos.AsNoTracking() on segment.HostId equals video.Id
             where segmentIds.Contains(segment.Id)
             select new { segment.Id, segment.StartSec, SourceVideoId = video.ParentVideoId ?? video.Id })
