@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
@@ -1208,10 +1209,14 @@ public class ThumbnailService(
     }
 
     /// <summary>
-    /// The name frames had when they were keyed to the whole second. Every moment in a second shared one
-    /// file, so it holds whichever of them was written last; it sits beside the exact frame.
+    /// Whether a file is a frame from when frames were keyed to the whole second, <c>{videoId}_t{seconds}.jpg</c>.
+    /// Every moment in a second shared one such file, so it holds whichever of them was written last and
+    /// nothing reads it any more. Video covers (<c>{videoId}.jpg</c>) and exact frames (<c>…ms.jpg</c>) sit in
+    /// the same folders and never match.
     /// </summary>
-    public static string WholeSecondFrameFileName(int videoId, double seconds) => $"{videoId}_t{(int)seconds}.jpg";
+    public static bool IsWholeSecondFrameFileName(string fileName) => WholeSecondFrameFileNameRegex.IsMatch(fileName);
+
+    private static readonly Regex WholeSecondFrameFileNameRegex = new(@"^[0-9]+_t[0-9]+\.jpg\z", RegexOptions.CultureInvariant);
 
     public string GetThumbnailPathForVideo(int videoId) => GetThumbnailPath(videoId);
 

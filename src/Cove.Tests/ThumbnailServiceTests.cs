@@ -810,8 +810,21 @@ public class ThumbnailServiceTests
         Assert.Equal("7_t2148900ms.jpg", Path.GetFileName(service.GetTimestampedThumbnailPath(7, 2148.9)));
         // Floating-point noise below a millisecond is the same moment.
         Assert.Equal(service.GetTimestampedThumbnailPath(7, 0.3), service.GetTimestampedThumbnailPath(7, 0.1 + 0.2));
-        Assert.Equal("7_t2148.jpg", ThumbnailService.WholeSecondFrameFileName(7, 2148.9));
     }
+
+    [Theory]
+    [InlineData("7_t2148.jpg", true)]
+    [InlineData("12345_t0.jpg", true)]
+    // The video's cover, sharing the folder.
+    [InlineData("7.jpg", false)]
+    [InlineData("7_t2148900ms.jpg", false)]
+    // A leftover from an interrupted write.
+    [InlineData("7_t2148.jpg.tmp.jpg", false)]
+    [InlineData("7_t.jpg", false)]
+    [InlineData("x7_t2148.jpg", false)]
+    [InlineData("7_t2148.JPG", false)]
+    public void IsWholeSecondFrameFileName_MatchesOnlyFramesKeptToTheWholeSecond(string fileName, bool expected)
+        => Assert.Equal(expected, ThumbnailService.IsWholeSecondFrameFileName(fileName));
 
     private sealed class StubJobService : IJobService
     {
