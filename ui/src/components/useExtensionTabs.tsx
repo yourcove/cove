@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useExtensions } from "../extensions/ExtensionLoader";
+import { extensionTabIcon } from "../extensions/extensionIcon";
 import { ExtensionErrorBoundary } from "./ExtensionErrorBoundary";
 import { serverAwareFetch } from "../state/serverAvailability";
 
@@ -81,6 +82,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
     const ext = extTabs.map((t) => ({
       key: `ext:${t.key}`,
       label: t.label,
+      icon: extensionTabIcon(t.icon),
       count: extCounts[t.key],
       order: t.order,
       manualContexts: t.manualContexts,
