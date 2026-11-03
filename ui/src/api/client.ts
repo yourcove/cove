@@ -955,6 +955,11 @@ type FaceListOptions = {
   perPage?: number;
 };
 
+// Cache revision of detection crops, bumped when crops start coming from different frames; keep it in
+// step with DetectionCropFrameRevision in src/Cove.Api/Controllers/EntityImageUrls.cs. 2: cut from each
+// detection's exact frame.
+const DETECTION_CROP_FRAME_REVISION = 2;
+
 export const faces: {
   list: (opts?: FaceListOptions) => Promise<PaginatedResponse<Face>>;
   get: (id: number) => Promise<Face>;
@@ -1084,7 +1089,10 @@ export const faces: {
   // `context` scales how much frame surrounds the detection box (server default 1.8, a portrait
   // crop). Pass a value near 1 when the point is to tell adjacent detections apart.
   detectionCropUrl: (detectionId: number, max?: number, context?: number) =>
-    buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max, { context }),
+    buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max, {
+      context,
+      frame: DETECTION_CROP_FRAME_REVISION,
+    }),
   deleteImpact: (id: number) => request<FaceDeleteImpact>(`/faces/${id}/delete-impact`),
   create: (data: FaceCreate) => request<Face>("/faces", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: FaceUpdate) =>

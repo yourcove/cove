@@ -1051,7 +1051,9 @@ public class ThumbnailService(
 
     public async Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds, CancellationToken ct)
     {
-        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
+        // A frame is the same picture whoever asks for it, so one made while this caller waited for the
+        // video's gate (another request for the same moment) is used instead of being made again.
+        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct, reuseExistingFrame: true);
     }
 
     public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
@@ -1068,18 +1070,23 @@ public class ThumbnailService(
         int videoId,
         int? sourceFileId,
         double? atSeconds,
-        CancellationToken ct)
-        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoThumbnailUnlockedAsync(videoId, sourceFileId, atSeconds, ct), ct);
+        CancellationToken ct,
+        bool reuseExistingFrame = false)
+        => await _generatedAssetCoordinator.RunAsync(videoId, () => GenerateVideoThumbnailUnlockedAsync(videoId, sourceFileId, atSeconds, reuseExistingFrame, ct), ct);
 
     private async Task<bool> GenerateVideoThumbnailUnlockedAsync(
         int videoId,
         int? sourceFileId,
         double? atSeconds,
+        bool reuseExistingFrame,
         CancellationToken ct)
     {
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(videoId, atSeconds.Value)
             : GetThumbnailPath(videoId);
+
+        if (reuseExistingFrame && atSeconds.HasValue && File.Exists(thumbPath))
+            return true;
 
         var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (!File.Exists(filePath)) return false;
@@ -1094,8 +1101,9 @@ public class ThumbnailService(
         var thumbDir = Path.GetDirectoryName(thumbPath)!;
         Directory.CreateDirectory(thumbDir);
 
-        var seekSeconds = atSeconds ?? duration * 0.2;
-        if (seekSeconds <= 0) seekSeconds = 1;
+        // An asked-for moment is kept even at 0; only the cover's own pick moves off the very start.
+        var seekSeconds = atSeconds is { } requested ? Math.Max(0, requested) : duration * 0.2;
+        if (atSeconds is null && seekSeconds <= 0) seekSeconds = 1;
         var vrFilter = VrFrameFilter.OneEyeFlat(await GetVideoVrAsync(videoId, ct), VrThumbnailWidth);
 
         // Limit concurrent FFmpeg processes
@@ -1110,7 +1118,8 @@ public class ThumbnailService(
                 IReadOnlyList<string> ThumbnailArgs(string? filter) =>
                 [
                     .. decodeArgs, "-v", "error", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-y",
-                    "-ss", seekSeconds.ToString("F2", CultureInfo.InvariantCulture), "-i", filePath!,
+                    // Full precision: rounding up could land past the frame that is showing at this moment.
+                    "-ss", seekSeconds.ToString("0.######", CultureInfo.InvariantCulture), "-i", filePath!,
                     .. filter != null ? ["-vf", filter] : Array.Empty<string>(),
                     "-vframes", "1", "-q:v", "2", "-f", "image2", tempPath,
                 ];
@@ -1186,14 +1195,23 @@ public class ThumbnailService(
         return TimeSpan.FromSeconds(Math.Clamp(baseSeconds + secondsPerGigabyte * gigabytes, baseSeconds, maxSeconds));
     }
 
-    /// <summary>Get the path for a timestamp-specific cached thumbnail.</summary>
+    /// <summary>
+    /// Get the path for the frame at a timestamp, keyed to the millisecond. Frames are shared by everything
+    /// that asks for the same moment (detection crops, covers set from a frame), so two different moments
+    /// must never share a file.
+    /// </summary>
     public string GetTimestampedThumbnailPath(int videoId, double seconds)
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)));
-        var subDir = hash[..2];
-        var secKey = ((int)seconds).ToString();
-        return Path.Combine(ThumbnailDir, subDir, $"{videoId}_t{secKey}.jpg");
+        var milliseconds = (long)Math.Round(seconds * 1000, MidpointRounding.AwayFromZero);
+        return Path.Combine(ThumbnailDir, hash[..2], $"{videoId}_t{milliseconds}ms.jpg");
     }
+
+    /// <summary>
+    /// The name frames had when they were keyed to the whole second. Every moment in a second shared one
+    /// file, so it holds whichever of them was written last; it sits beside the exact frame.
+    /// </summary>
+    public static string WholeSecondFrameFileName(int videoId, double seconds) => $"{videoId}_t{(int)seconds}.jpg";
 
     public string GetThumbnailPathForVideo(int videoId) => GetThumbnailPath(videoId);
 

@@ -37,7 +37,6 @@ public class FacesController(
     BulkDeletionJobService? bulkDeletionJobService = null,
     BulkEntityDeletionService? bulkEntityDeletionService = null,
     IThumbnailService? thumbnailService = null,
-    IStreamService? streamService = null,
     IFaceRepository? faceRepository = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
@@ -2095,7 +2094,7 @@ public class FacesController(
             return;
         }
 
-        if (thumbnailService is null || streamService is null)
+        if (thumbnailService is null)
             return;
 
         var faceId = (long)face.Id;
@@ -2123,13 +2122,26 @@ public class FacesController(
             .ThenByDescending(detection => detection.Score)
             .ThenBy(detection => detection.Id)
             .ToList();
+        // A video candidate may have to make its frame, which can take a while, so only the best few are tried
+        // and a video whose frame could not be made (file offline, undecodable) is not tried again.
+        const int MaxVideoFrameAttempts = 3;
+        var videoFrameAttempts = 0;
+        var videosWithoutFrames = new HashSet<int>();
         foreach (var candidate in orderedCandidates)
         {
             Stream? sourceStream = null;
             if (candidate.HostType == DetectionHostType.Image)
                 sourceStream = (await thumbnailService.GetImageStreamAsync(candidate.HostId, cancellationToken))?.stream;
-            else if (candidate.HostType == DetectionHostType.Video)
-                sourceStream = (await streamService.GetVideoScreenshot(candidate.HostId, candidate.ObservedAtSec, cancellationToken))?.stream;
+            else if (candidate.HostType == DetectionHostType.Video
+                && videoFrameAttempts < MaxVideoFrameAttempts
+                && !videosWithoutFrames.Contains(candidate.HostId))
+            {
+                videoFrameAttempts++;
+                // Only the detection's own frame: the image is kept, so a stand-in from another moment would stay wrong.
+                sourceStream = await DetectionFrame.OpenAsync(db, thumbnailService, candidate, cancellationToken);
+                if (sourceStream is null)
+                    videosWithoutFrames.Add(candidate.HostId);
+            }
             if (sourceStream is null)
                 continue;
 

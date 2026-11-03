@@ -3,9 +3,12 @@ using Microsoft.AspNetCore.Mvc;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Cove.Tests;
 
@@ -153,6 +156,207 @@ public class StreamControllerTests
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
+    }
+
+    [Theory]
+    // The default, loose crop used to settle for a stand-in; the tight one already made its frame.
+    [InlineData(null)]
+    [InlineData(1.0)]
+    public async Task GetDetectionCrop_CutsFromTheDetectionsOwnFrame_NotAnotherMomentInItsSecond(double? context)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var video = new Video { Title = "Video with a face" };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var detection = new Detection { HostType = DetectionHostType.Video, HostId = video.Id, ObservedAtSec = 12, X = 0.25f, Y = 0.25f, W = 0.5f, H = 0.5f, SourceKey = "test" };
+        db.Detections.Add(detection);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frames = new TemporaryFrameDirectory();
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
+        // A frame from 12.9 s, written when frames shared a file per whole second (by "Set cover from frame").
+        await WriteFrameAsync(Path.Combine(frames.Path, ThumbnailService.WholeSecondFrameFileName(video.Id, 12)), new Rgb24(0, 255, 0));
+        var streams = new FrameStreamService(thumbnails);
+        var controller = new StreamController(streams, thumbnails, null!, db)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetDetectionCrop(detection.Id, null, context, TestContext.Current.CancellationToken);
+
+        var file = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
+        Assert.Equal(new[] { (video.Id, 12.0) }, thumbnails.Generated);
+        using var crop = await SixLabors.ImageSharp.Image.LoadAsync<Rgb24>(file.FileStream, TestContext.Current.CancellationToken);
+        Assert.True(crop[crop.Width / 2, crop.Height / 2].R > 200, "The crop should come from the detection's own (red) frame.");
+    }
+
+    [Fact]
+    public async Task GetDetectionCrop_WhenTheFrameCannotBeMade_CachesTheStandInBriefly()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var video = new Video { Title = "Video whose file is offline" };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var detection = new Detection { HostType = DetectionHostType.Video, HostId = video.Id, ObservedAtSec = 12, X = 0.25f, Y = 0.25f, W = 0.5f, H = 0.5f, SourceKey = "test" };
+        db.Detections.Add(detection);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frames = new TemporaryFrameDirectory();
+        var thumbnails = new FrameThumbnailService(frames.Path);
+        var standIn = Path.Combine(frames.Path, "stand-in.jpg");
+        await WriteFrameAsync(standIn, new Rgb24(0, 0, 255));
+        var controller = new StreamController(new FrameStreamService(thumbnails) { StandInPath = standIn }, thumbnails, null!, db)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetDetectionCrop(detection.Id, null, null, TestContext.Current.CancellationToken);
+
+        Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("public, max-age=300", controller.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public async Task DetectionFrame_UsesAnExistingExactFrame_WithoutMakingItAgain()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var video = new Video { Title = "Video with a face" };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frames = new TemporaryFrameDirectory();
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
+        await WriteFrameAsync(thumbnails.GetTimestampedThumbnailPath(video.Id, 12.25), new Rgb24(0, 0, 255));
+        var detection = new Detection { HostType = DetectionHostType.Video, HostId = video.Id, ObservedAtSec = 12.25 };
+
+        await using var frame = await DetectionFrame.OpenAsync(db, thumbnails, detection, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(frame);
+        Assert.Empty(thumbnails.Generated);
+    }
+
+    [Fact]
+    public async Task DetectionFrame_OnAClip_MakesTheFrameFromTheSourceVideo()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var source = new Video { Title = "Source" };
+        db.Videos.Add(source);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var clip = new Video { Title = "Clip", ParentVideoId = source.Id, ClipStartSec = 100 };
+        db.Videos.Add(clip);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frames = new TemporaryFrameDirectory();
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
+        // Detections on a clip use the source's timeline.
+        var detection = new Detection { HostType = DetectionHostType.Video, HostId = clip.Id, ObservedAtSec = 130 };
+
+        await using var frame = await DetectionFrame.OpenAsync(db, thumbnails, detection, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(frame);
+        Assert.Equal(new[] { (source.Id, 130.0) }, thumbnails.Generated);
+    }
+
+    [Fact]
+    public async Task GetDetectionCrop_WhenMakingTheFrameFails_FallsBackInsteadOfFailing()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var video = new Video { Title = "Video in a read-only library" };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var detection = new Detection { HostType = DetectionHostType.Video, HostId = video.Id, ObservedAtSec = 12, X = 0.25f, Y = 0.25f, W = 0.5f, H = 0.5f, SourceKey = "test" };
+        db.Detections.Add(detection);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        using var frames = new TemporaryFrameDirectory();
+        var thumbnails = new FrameThumbnailService(frames.Path) { GenerateFailure = new UnauthorizedAccessException("generated folder is read-only") };
+        var standIn = Path.Combine(frames.Path, "stand-in.jpg");
+        await WriteFrameAsync(standIn, new Rgb24(0, 0, 255));
+        var controller = new StreamController(new FrameStreamService(thumbnails) { StandInPath = standIn }, thumbnails, null!, db)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.GetDetectionCrop(detection.Id, null, null, TestContext.Current.CancellationToken);
+
+        Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("public, max-age=300", controller.Response.Headers.CacheControl.ToString());
+    }
+
+    private static async Task WriteFrameAsync(string path, Rgb24 color)
+    {
+        using var frame = new Image<Rgb24>(160, 90, color);
+        await frame.SaveAsJpegAsync(path, TestContext.Current.CancellationToken);
+    }
+
+    private sealed class TemporaryFrameDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"cove-frames-{Guid.NewGuid():N}");
+        public TemporaryFrameDirectory() => Directory.CreateDirectory(Path);
+        public void Dispose() => Directory.Delete(Path, recursive: true);
+    }
+
+    /// <summary>Frames named like the real service; generating one paints it a solid colour, or makes nothing.</summary>
+    private sealed class FrameThumbnailService(string directory) : IThumbnailService
+    {
+        public Rgb24? FrameColorToGenerate { get; init; }
+        public Exception? GenerateFailure { get; init; }
+        public List<(int VideoId, double Seconds)> Generated { get; } = [];
+        public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension = 640, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetBlobImageThumbnailStreamAsync(string blobId, int maxDimension = 640, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task DeleteVideoGeneratedFilesAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task DeleteBlobGeneratedFilesAsync(string blobId, CancellationToken ct = default) => Task.CompletedTask;
+        public async Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
+        {
+            Generated.Add((videoId, atSeconds!.Value));
+            if (GenerateFailure != null)
+                throw GenerateFailure;
+            if (FrameColorToGenerate is { } color)
+                await WriteFrameAsync(GetTimestampedThumbnailPath(videoId, atSeconds.Value), color);
+        }
+        public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
+        public string GetThumbnailPathForVideo(int videoId) => throw new NotImplementedException();
+        public string GetTimestampedThumbnailPath(int videoId, double seconds) => System.IO.Path.Combine(directory, $"{videoId}_t{(long)Math.Round(seconds * 1000)}ms.jpg");
+        public string GetPreviewPath(int videoId) => throw new NotImplementedException();
+        public string GetSpritePath(int videoId) => System.IO.Path.Combine(directory, $"{videoId}_sprite.jpg");
+        public string GetSpriteVttPath(int videoId) => System.IO.Path.Combine(directory, $"{videoId}_thumbs.vtt");
+        public string StartGenerateAllThumbnails() => throw new NotImplementedException();
+    }
+
+    /// <summary>Screenshots the way the real service reads them: the exact frame, then the whole-second one, then a stand-in.</summary>
+    private sealed class FrameStreamService(FrameThumbnailService thumbnails) : IStreamService
+    {
+        public string? StandInPath { get; init; }
+        public Task<(Stream stream, string contentType, long? fileSize)?> GetVideoStream(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<(Stream stream, string contentType, bool useLongCache)?> GetVideoScreenshot(int videoId, double? seconds, CancellationToken ct = default)
+        {
+            var exact = thumbnails.GetTimestampedThumbnailPath(videoId, seconds!.Value);
+            var wholeSecond = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(exact)!, ThumbnailService.WholeSecondFrameFileName(videoId, seconds.Value));
+            var path = new[] { exact, wholeSecond, StandInPath }.FirstOrDefault(candidate => candidate != null && File.Exists(candidate));
+            return Task.FromResult<(Stream stream, string contentType, bool useLongCache)?>(path == null ? null : (File.OpenRead(path), "image/jpeg", true));
+        }
     }
 
     private static CoveContext CreateContext(SqliteConnection connection)
