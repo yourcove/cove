@@ -335,6 +335,30 @@ public sealed class MetadataOperationsApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/metadata/clean-generated")]
+    public async Task GivenWholeSecondFramesOfLiveVideo_WhenCleanGeneratedCompletes_ThenOnlyThoseAreRemoved()
+    {
+        // Arrange
+        var video = await AsUser().CreateVideoAsync($"Frame owner {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var exactFrame = AsTestFileSystem().CreateVideoScreenshot(video.Id, 7, [1]);
+        var folder = Path.GetRelativePath(AsTestFileSystem().GeneratedPath, Path.GetDirectoryName(exactFrame)!);
+        var cover = AsTestFileSystem().CreateGeneratedFile($"{folder}/{video.Id}.jpg", [2]);
+        var wholeSecondFrame = AsTestFileSystem().CreateGeneratedFile($"{folder}/{video.Id}_t7.jpg", [3]);
+        var interruptedWrite = AsTestFileSystem().CreateGeneratedFile($"{folder}/{video.Id}_t7000ms.jpg.tmp.{Guid.NewGuid():N}.jpg", [4]);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanGeneratedAsync(TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        File.Exists(wholeSecondFrame).Should().BeFalse();
+        File.Exists(exactFrame).Should().BeTrue();
+        File.Exists(cover).Should().BeTrue();
+        File.Exists(interruptedWrite).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task GivenMember_WhenCleanGeneratedStarts_ThenForbiddenIsReturnedWithoutDeletingFile()
     {
         // Arrange

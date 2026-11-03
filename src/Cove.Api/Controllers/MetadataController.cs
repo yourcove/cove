@@ -689,7 +689,8 @@ public class MetadataController(
                     // is absent from every live entity set.
                     // Retired asset kinds are deleted whether or not their entity still exists.
                     var id = ParseLeadingEntityId(Path.GetFileName(file));
-                    var retired = dirs[i] == RetiredSegmentPreviewDir;
+                    var retired = dirs[i] == RetiredSegmentPreviewDir
+                        || (dirs[i] == "screenshots" && ThumbnailService.IsWholeSecondFrameFileName(Path.GetFileName(file)));
                     if (retired || (id is int entityId && !liveVideoIds.Contains(entityId) && !liveImageIds.Contains(entityId)))
                     {
                         try
@@ -733,7 +734,8 @@ public class MetadataController(
     }
 
     // Animated segment previews are no longer generated or served, so Clean removes every one of them,
-    // not only those whose video is gone.
+    // not only those whose video is gone. Frames keyed to the whole second are retired the same way
+    // (ThumbnailService.IsWholeSecondFrameFileName): each could hold any moment of its second.
     private const string RetiredSegmentPreviewDir = "segment-previews";
 
     // Parses the leading integer entity id from a generated filename, requiring the digits to be
