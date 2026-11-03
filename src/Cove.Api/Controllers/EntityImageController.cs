@@ -9,6 +9,10 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 
 namespace Cove.Api.Controllers;
 
@@ -56,18 +60,85 @@ public class EntityImageController(
             if (entity.HostType != SegmentHostType.Video)
                 return NotFound();
 
-            var screenshot = await streamService.GetVideoScreenshot(entity.HostId, entity.StartSec, ct);
-            if (screenshot == null) return NotFound();
-
-            Response.Headers.CacheControl = !string.IsNullOrWhiteSpace(v)
-                ? "public, max-age=31536000, immutable"
-                : screenshot.Value.useLongCache
-                    ? "public, max-age=86400"
-                    : "no-store, no-cache, max-age=0, must-revalidate";
-            return File(screenshot.Value.stream, screenshot.Value.contentType);
+            return await ServeSegmentFrameAsync(entity, max, !string.IsNullOrWhiteSpace(v), ct);
         }
 
         return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
+    }
+
+    /// <summary>
+    /// A video segment without a chosen cover shows the frame at its start once Generate has made it (the
+    /// segment covers option), so the picture turns into the segment playing from there when hovered. Until
+    /// then the sprite tile covering the start, or the video's cover without a sprite, stands in.
+    /// </summary>
+    private async Task<IActionResult> ServeSegmentFrameAsync(Segment segment, int? max, bool immutable, CancellationToken ct)
+    {
+        var atSeconds = segment.StartSec;
+
+        // Segments on a clip use the source video's timeline, so the frame is the source's.
+        var sourceVideoId = await db.Videos.AsNoTracking()
+            .Where(video => video.Id == segment.HostId)
+            .Select(video => (int?)(video.ParentVideoId ?? video.Id))
+            .FirstOrDefaultAsync(ct);
+        if (sourceVideoId == null) return NotFound();
+
+        var frame = await OpenFrameAsync(thumbnailService.GetTimestampedThumbnailPath(sourceVideoId.Value, atSeconds), max, ct);
+        if (frame != null)
+        {
+            Response.Headers.CacheControl = immutable
+                ? "public, max-age=31536000, immutable"
+                : "public, max-age=86400";
+            return File(frame, "image/jpeg");
+        }
+
+        // Cached only briefly, so the generated frame replaces the stand-in soon after it is made.
+        var screenshot = await streamService.GetVideoScreenshot(segment.HostId, atSeconds, ct);
+        if (screenshot == null) return NotFound();
+
+        Response.Headers.CacheControl = "public, max-age=300";
+        return File(screenshot.Value.stream, screenshot.Value.contentType);
+    }
+
+    private async Task<Stream?> OpenFrameAsync(string framePath, int? max, CancellationToken ct)
+    {
+        // Shared for delete as well, so regenerating the frame never fails while a response is still sending it.
+        var stream = FileReadRace.TryOpenRead(framePath, FileShare.Read | FileShare.Delete, bufferSize: 8192, pathWasObserved: false);
+        if (stream == null) return null;
+
+        try
+        {
+            // The synchronous identify reads only the header; the async one buffers the whole file.
+            var info = SixLabors.ImageSharp.Image.Identify(stream);
+            stream.Position = 0;
+            if (max is not > 0 || (info.Width <= max && info.Height <= max))
+                return stream;
+
+            // Decoding toward the fitted size, rather than the max-by-max box, lets the JPEG decoder skip
+            // most of a large frame's pixels.
+            var scale = Math.Min((double)max.Value / info.Width, (double)max.Value / info.Height);
+            var fitted = new Size(Math.Max(1, (int)Math.Round(info.Width * scale)), Math.Max(1, (int)Math.Round(info.Height * scale)));
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync(new DecoderOptions { TargetSize = fitted }, stream, ct);
+            if (image.Width != fitted.Width || image.Height != fitted.Height)
+                image.Mutate(context => context.Resize(fitted));
+            var output = new MemoryStream();
+            await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 85 }, ct);
+            output.Position = 0;
+            await stream.DisposeAsync();
+            return output;
+        }
+        catch (ImageFormatException ex)
+        {
+            await stream.DisposeAsync();
+            // Removed so the stand-in is served until Generate makes the frame again.
+            logger?.LogWarning(ex, "Removing unreadable generated frame {FramePath}", framePath);
+            try { System.IO.File.Delete(framePath); } catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException) { }
+            return null;
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
     }
 
     [HttpDelete("segments/{id:int}/image")]

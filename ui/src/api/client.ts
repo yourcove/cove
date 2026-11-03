@@ -1835,12 +1835,17 @@ async function deleteImage(path: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error(`Delete failed: ${res.status}`);
 }
 
+// Bumped when the frame shown for a segment without a chosen cover changes. Versioned image URLs
+// are cached as immutable, so browsers only fetch the new frame under a new URL.
+const SEGMENT_COVER_FRAME_REVISION = 3;
+
 export const entityImages = {
   videoCoverUrl: (id: number, version?: string, max = 1600) => buildMediaUrl(`/videos/${id}/image`, version, max),
   uploadVideoCoverImage: (id: number, file: File) => uploadImage(`/videos/${id}/image`, file),
   deleteVideoCoverImage: (id: number) => deleteImage(`/videos/${id}/image`),
 
-  segmentCoverUrl: (id: number, version?: string, max = 1600) => buildMediaUrl(`/segments/${id}/image`, version, max),
+  segmentCoverUrl: (id: number, version?: string, max = 1600) =>
+    buildMediaUrl(`/segments/${id}/image`, version, max, { frame: SEGMENT_COVER_FRAME_REVISION }),
   uploadSegmentCoverImage: (id: number, file: File) => uploadImage(`/segments/${id}/image`, file),
   deleteSegmentCoverImage: (id: number) => deleteImage(`/segments/${id}/image`),
   setSegmentCoverFromFrame: (id: number, atSeconds?: number) =>
@@ -2108,6 +2113,8 @@ export interface GenerateOptions {
   sprites?: boolean;
   /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
   vrStereo?: boolean;
+  /** The start frame of each video segment without a chosen cover, except face segments; else a sprite tile. */
+  segmentCovers?: boolean;
   phashes?: boolean;
   md5?: boolean;
   imageThumbnails?: boolean;

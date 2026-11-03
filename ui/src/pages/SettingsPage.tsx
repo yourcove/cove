@@ -643,6 +643,7 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   previews: false,
   sprites: false,
   vrStereo: false,
+  segmentCovers: false,
   phashes: false,
   md5: false,
   imageThumbnails: false,
@@ -5961,6 +5962,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                       description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
                       checked={!!genOpts.vrStereo}
                       onChange={(c) => setGenOpts({ ...genOpts, vrStereo: c })}
+                    />
+                    <CheckboxLabel
+                      label="Segment covers"
+                      description="The frame at the start of each video segment without a chosen cover, so the picture turns into the segment playing when hovered. Face segments are left out. One frame per segment, so videos with many segments take a while. Until it is made, a segment shows the sprite tile covering its start."
+                      checked={!!genOpts.segmentCovers}
+                      onChange={(c) => setGenOpts({ ...genOpts, segmentCovers: c })}
                     />
                     <CheckboxLabel
                       label="Perceptual hashes (phash)"
