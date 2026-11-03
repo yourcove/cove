@@ -9,11 +9,12 @@ import { VideoSelectionActions } from "../components/VideoSelectionActions";
 
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
+  estimateGenerate: vi.fn(),
   denied: new Set<string>(),
 }));
 
 vi.mock("../api/client", () => ({
-  metadata: { generate: mocks.generate },
+  metadata: { generate: mocks.generate, estimateGenerate: mocks.estimateGenerate },
   videos: { bulkUpdate: vi.fn(), bulkDelete: vi.fn() },
   images: { bulkUpdate: vi.fn(), bulkDelete: vi.fn() },
   audios: { bulkUpdate: vi.fn(), bulkDelete: vi.fn() },
@@ -64,6 +65,8 @@ describe("Generate for selected items", () => {
   beforeEach(() => {
     mocks.generate.mockReset();
     mocks.generate.mockResolvedValue({ jobId: "generate-job" });
+    mocks.estimateGenerate.mockReset();
+    mocks.estimateGenerate.mockResolvedValue({});
     mocks.denied.clear();
   });
 

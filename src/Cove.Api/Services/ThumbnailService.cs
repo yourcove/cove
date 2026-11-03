@@ -35,6 +35,8 @@ public interface IThumbnailService
         return true;
     }
     Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default);
+    /// <summary>Whether the default-size thumbnail Generate makes for this image is on disk. It may be stale.</summary>
+    bool HasImageThumbnail(int imageId) => false;
     Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default);
     async Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
     {
@@ -471,6 +473,9 @@ public class ThumbnailService(
             return (source.Value.Stream, sourceContentType, source.Value.Stream.CanSeek);
         }
     }
+
+    public bool HasImageThumbnail(int imageId)
+        => FindExistingImageThumbnail(GetImageThumbnailBasePath(imageId, DefaultImageThumbnailMaxDimension)) is not null;
 
     public async Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension, bool overwrite, CancellationToken ct)
     {

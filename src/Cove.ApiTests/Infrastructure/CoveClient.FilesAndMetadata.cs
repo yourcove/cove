@@ -35,6 +35,11 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => StartMetadataJobAsync("/api/metadata/generate", options, cancellationToken);
 
+    public Task<GenerateEstimateDto> EstimateMetadataGenerateAsync(
+        GenerateOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GenerateEstimateDto>(HttpMethod.Post, "/api/metadata/generate/estimate", options, cancellationToken);
+
     public Task<string> StartMetadataCleanAsync(
         CleanOptionsDto options,
         CancellationToken cancellationToken = default)

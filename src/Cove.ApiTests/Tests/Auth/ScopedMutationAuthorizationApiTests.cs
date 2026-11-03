@@ -151,7 +151,7 @@ public sealed class ScopedMutationAuthorizationApiTests(
                  {
                      "/api/jobs/scan", "/api/jobs/generate-thumbnails",
                      "/api/jobs/generate-video-phashes", "/api/jobs/generate-image-phashes",
-                     "/api/jobs/clean", "/api/metadata/scan", "/api/metadata/generate",
+                     "/api/jobs/clean", "/api/metadata/scan", "/api/metadata/generate", "/api/metadata/generate/estimate",
                      "/api/metadata/clean", "/api/metadata/identify", "/api/metadata/sync-fingerprints",
                  })
         {

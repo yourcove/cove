@@ -98,6 +98,30 @@ public sealed class MetadataOperationsApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/metadata/generate/estimate")]
+    public async Task GivenScannedText_WhenGenerateIsEstimated_ThenWhatIsStillMissingIsCounted()
+    {
+        // Arrange
+        var filePath = AsTestFileSystem().CreateTextFile("A document to size a generate run for.");
+        File.SetLastWriteTimeUtc(filePath, DateTime.UtcNow.AddMinutes(-1));
+        var scanJobId = await AsUser().StartMetadataScanAsync(new ScanOptionsDto { Paths = [filePath] }, TestContext.Current.CancellationToken);
+        (await AsUser().WaitForTerminalJobAsync(scanJobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var scope = new GenerateOptionsDto { Paths = [filePath] };
+
+        // Act
+        var before = await AsUser(ApiTestUsers.Eva).EstimateMetadataGenerateAsync(scope, TestContext.Current.CancellationToken);
+        var generateJobId = await AsUser().StartMetadataGenerateAsync(scope with { Thumbnails = false, TextPhashes = true }, TestContext.Current.CancellationToken);
+        (await AsUser().WaitForTerminalJobAsync(generateJobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var after = await AsUser(ApiTestUsers.Eva).EstimateMetadataGenerateAsync(scope, TestContext.Current.CancellationToken);
+
+        // Assert
+        before.TextPhashes.Should().BeEquivalentTo(new { Missing = 1, Total = 1 });
+        before.Md5.Should().BeEquivalentTo(new { Missing = 1, Total = 1 });
+        before.Previews.Should().BeEquivalentTo(new { Missing = 0, Total = 0 });
+        after.TextPhashes.Should().BeEquivalentTo(new { Missing = 0, Total = 1 });
+    }
+
+    [Fact]
     public async Task GivenVideoSelectionAndNonVideoWorkWithoutPaths_WhenGenerateStarts_ThenBadRequestIsReturned()
     {
         // Arrange
