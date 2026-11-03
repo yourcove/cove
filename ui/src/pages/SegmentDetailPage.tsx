@@ -289,6 +289,9 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const invalidateSegmentQueries = (current?: SegmentRecord | null, nextTagId?: number | null) => {
     queryClient.invalidateQueries({ queryKey: ["segments"] });
     queryClient.invalidateQueries({ queryKey: ["segment", id] });
+    // Span cards on the Segments page and dashboard rows version their image by the segment.
+    queryClient.invalidateQueries({ queryKey: ["segments-page"] });
+    queryClient.invalidateQueries({ queryKey: ["front-page-saved"] });
 
     if (current?.hostId != null) {
       queryClient.invalidateQueries({ queryKey: ["video", current.hostId, "segments"] });

@@ -26,7 +26,7 @@ Without **Replace the original**, the cut file is added to the video next to the
 2. Makes the cut file the video's primary file.
 3. Moves everything timed on the video onto the new timeline, in the same database transaction.
 4. Deletes the original from disk.
-5. Regenerates the cover, previews and sprite that the video had.
+5. Regenerates the cover, previews and sprite that the video had, and the segment covers Generate had made for its segments. Face segments' covers are not remade; run Generate with face segments picked to make them again.
 
 Timed items move as follows:
 

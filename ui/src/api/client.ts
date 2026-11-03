@@ -1835,12 +1835,17 @@ async function deleteImage(path: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error(`Delete failed: ${res.status}`);
 }
 
+// Bumped when the frame shown for a segment without a chosen cover changes. Versioned image URLs
+// are cached as immutable, so browsers only fetch the new frame under a new URL.
+const SEGMENT_COVER_FRAME_REVISION = 3;
+
 export const entityImages = {
   videoCoverUrl: (id: number, version?: string, max = 1600) => buildMediaUrl(`/videos/${id}/image`, version, max),
   uploadVideoCoverImage: (id: number, file: File) => uploadImage(`/videos/${id}/image`, file),
   deleteVideoCoverImage: (id: number) => deleteImage(`/videos/${id}/image`),
 
-  segmentCoverUrl: (id: number, version?: string, max = 1600) => buildMediaUrl(`/segments/${id}/image`, version, max),
+  segmentCoverUrl: (id: number, version?: string, max = 1600) =>
+    buildMediaUrl(`/segments/${id}/image`, version, max, { frame: SEGMENT_COVER_FRAME_REVISION }),
   uploadSegmentCoverImage: (id: number, file: File) => uploadImage(`/segments/${id}/image`, file),
   deleteSegmentCoverImage: (id: number) => deleteImage(`/segments/${id}/image`),
   setSegmentCoverFromFrame: (id: number, atSeconds?: number) =>
@@ -2108,6 +2113,10 @@ export interface GenerateOptions {
   sprites?: boolean;
   /** For VR videos: the stereoscopic cover and preview clip a headset shows, beside the 2D ones. */
   vrStereo?: boolean;
+  /** The start frame of each video segment without a chosen cover; without it a sprite tile stands in. */
+  segmentCovers?: boolean;
+  /** The segment kinds segment covers are made for ("" for segments without one); unset is every kind but face. */
+  segmentCoverKinds?: string[];
   phashes?: boolean;
   md5?: boolean;
   imageThumbnails?: boolean;
@@ -2121,6 +2130,41 @@ export interface GenerateOptions {
   audioIds?: number[];
   textIds?: number[];
   paths?: string[];
+}
+
+/** How many of one generated item a scope holds, and how many are not made yet. */
+export interface GenerateWorkCount {
+  missing: number;
+  total: number;
+  /** The size of the files behind the counts, for work that reads whole files (MD5). */
+  missingBytes: number;
+  totalBytes: number;
+  /** Missing was scaled up from a sample rather than counted, so it is rough. */
+  estimated?: boolean;
+}
+
+export interface GenerateSegmentKindCount {
+  /** Lowercased, "" for segments without a kind. */
+  kind: string;
+  missing: number;
+  total: number;
+  estimated?: boolean;
+}
+
+/** What Generate would find to do in a scope, roughly where sampled; null for media the scope cannot reach. */
+export interface GenerateEstimate {
+  thumbnails?: GenerateWorkCount | null;
+  previews?: GenerateWorkCount | null;
+  sprites?: GenerateWorkCount | null;
+  vrStereo?: GenerateWorkCount | null;
+  segmentCovers?: GenerateSegmentKindCount[] | null;
+  phashes?: GenerateWorkCount | null;
+  md5?: GenerateWorkCount | null;
+  imageThumbnails?: GenerateWorkCount | null;
+  imagePhashes?: GenerateWorkCount | null;
+  galleryThumbnails?: GenerateWorkCount | null;
+  audioPhashes?: GenerateWorkCount | null;
+  textPhashes?: GenerateWorkCount | null;
 }
 
 export type VideoConversionCodec = "h264" | "hevc" | "av1" | "copy";
@@ -2244,6 +2288,15 @@ export const metadata = {
     request<{ jobId: string }>("/metadata/scan", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   generate: (opts?: GenerateOptions) =>
     request<{ jobId: string }>("/metadata/generate", { method: "POST", body: JSON.stringify(opts ?? {}) }),
+  /** Roughly counts what Generate would make in the scope (paths and ids) of these options, whatever they tick. */
+  estimateGenerate: (opts?: GenerateOptions, signal?: AbortSignal) =>
+    request<GenerateEstimate>("/metadata/generate/estimate", {
+      method: "POST",
+      body: JSON.stringify(opts ?? {}),
+      signal,
+      // Walking a large library checks every generated file on disk.
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   libraryFolders: (path?: string, probeChildren = true) => {
     const params = new URLSearchParams();
     if (path) params.set("path", path);

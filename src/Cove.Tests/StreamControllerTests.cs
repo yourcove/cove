@@ -178,7 +178,7 @@ public class StreamControllerTests
         using var frames = new TemporaryFrameDirectory();
         var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
         // A frame from 12.9 s, written when frames shared a file per whole second (by "Set cover from frame").
-        await WriteFrameAsync(Path.Combine(frames.Path, ThumbnailService.WholeSecondFrameFileName(video.Id, 12)), new Rgb24(0, 255, 0));
+        await WriteFrameAsync(Path.Combine(frames.Path, $"{video.Id}_t12.jpg"), new Rgb24(0, 255, 0));
         var streams = new FrameStreamService(thumbnails);
         var controller = new StreamController(streams, thumbnails, null!, db)
         {
@@ -345,7 +345,7 @@ public class StreamControllerTests
         public string StartGenerateAllThumbnails() => throw new NotImplementedException();
     }
 
-    /// <summary>Screenshots the way the real service reads them: the exact frame, then the whole-second one, then a stand-in.</summary>
+    /// <summary>Screenshots the way the real service reads them: the exact frame, then a stand-in.</summary>
     private sealed class FrameStreamService(FrameThumbnailService thumbnails) : IStreamService
     {
         public string? StandInPath { get; init; }
@@ -353,8 +353,7 @@ public class StreamControllerTests
         public Task<(Stream stream, string contentType, bool useLongCache)?> GetVideoScreenshot(int videoId, double? seconds, CancellationToken ct = default)
         {
             var exact = thumbnails.GetTimestampedThumbnailPath(videoId, seconds!.Value);
-            var wholeSecond = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(exact)!, ThumbnailService.WholeSecondFrameFileName(videoId, seconds.Value));
-            var path = new[] { exact, wholeSecond, StandInPath }.FirstOrDefault(candidate => candidate != null && File.Exists(candidate));
+            var path = new[] { exact, StandInPath }.FirstOrDefault(candidate => candidate != null && File.Exists(candidate));
             return Task.FromResult<(Stream stream, string contentType, bool useLongCache)?>(path == null ? null : (File.OpenRead(path), "image/jpeg", true));
         }
     }

@@ -968,6 +968,80 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_SearchSpans_TakesTheCoverFromTheEarliestStartingSegment()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Host" };
+        context.Videos.Add(video);
+        var profile = new SegmentDisplayProfile { Name = "Cover profile", IsDefault = true, Version = 1 };
+        context.SegmentDisplayProfiles.Add(profile);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profile.Id, SourceKey = "user", Visible = true, MergeGapSec = 0 });
+        // Created first, so it has the lower id, but it starts later; the two overlap and merge into one span.
+        var later = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 5, EndSec = 8, SourceKey = "user" };
+        context.Segments.Add(later);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var earlier = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 1, EndSec = 6, SourceKey = "user" };
+        context.Segments.Add(earlier);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentRepository(context),
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        var result = await controller.SearchSpans(
+            new SegmentSpanSearchRequestDto(profile.Id, null, 1, 24, "start_sec", "asc", null, null, null, null),
+            CancellationToken.None);
+
+        var page = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        var item = Assert.Single(page.Items);
+        Assert.Equal(1, item.Span.StartSec);
+        // Hovering the card plays from the span's start, which is where this segment's cover frame is.
+        Assert.Equal(earlier.Id, item.CoverSegmentId);
+    }
+
+    [Theory]
+    [InlineData("updated_at")]
+    [InlineData("start_sec")]
+    public async Task SegmentsController_SearchSpans_VersionsCoverByItsSegment(string sort)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Host" };
+        context.Videos.Add(video);
+        var profile = new SegmentDisplayProfile { Name = "Cover profile", IsDefault = true, Version = 1 };
+        context.SegmentDisplayProfiles.Add(profile);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profile.Id, SourceKey = "user", Visible = true, MergeGapSec = 0 });
+        var segment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 1, EndSec = 3, SourceKey = "user" };
+        context.Segments.Add(segment);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        // A cover chosen later touches the segment, not its video. Saving would stamp the current time, so
+        // the update goes straight to the table to keep the two timestamps a day apart.
+        var coverChangedAt = video.UpdatedAt.AddDays(1);
+        await context.Segments.Where(row => row.Id == segment.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.UpdatedAt, coverChangedAt), TestContext.Current.CancellationToken);
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentRepository(context),
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        var result = await controller.SearchSpans(
+            new SegmentSpanSearchRequestDto(profile.Id, null, 1, 24, sort, "desc", null, null, null, null),
+            CancellationToken.None);
+
+        var page = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        var item = Assert.Single(page.Items);
+        Assert.Equal(segment.Id, Assert.Single(item.Span.SegmentIds));
+        Assert.Equal(coverChangedAt, DateTime.Parse(item.CoverVersion!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind));
+    }
+
+    [Fact]
     public async Task SegmentsController_ListSupportsFocusedFiltersAndSorting()
     {
         await using var scope = await CreateContextAsync();

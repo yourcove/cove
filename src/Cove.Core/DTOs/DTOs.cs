@@ -819,7 +819,23 @@ public record SegmentSpanSearchResultItemDto(
     int VideoId,
     string? VideoTitle,
     string? VideoUpdatedAt,
-    int ProfileId);
+    int ProfileId)
+{
+    /// <summary>
+    /// The segment whose image the span shows: its earliest-starting segment, whose cover frame is closest
+    /// to where hovering the span starts playing.
+    /// </summary>
+    public int? CoverSegmentId { get; init; }
+
+    /// <summary>
+    /// Version of the span's cover image: the UpdatedAt of <see cref="CoverSegmentId"/>. Choosing a cover
+    /// touches the segment, not its video.
+    /// </summary>
+    public string? CoverVersion { get; init; }
+
+    /// <summary>Whether Generate has made the cover frame of <see cref="CoverSegmentId"/>; see <see cref="SegmentRecordDto.HasGeneratedCover"/>.</summary>
+    public bool? HasGeneratedCover { get; init; }
+}
 
 public record SegmentSpanSearchResponseDto(
     IReadOnlyList<SegmentSpanSearchResultItemDto> Items,
@@ -947,6 +963,13 @@ public record SegmentRecordDto(
         item.Segment.CreatedAt.ToString("o"),
         item.Segment.UpdatedAt.ToString("o"),
         fieldProvenance?.ToList());
+
+    /// <summary>
+    /// Whether Generate has made the frame this segment shows as its cover; without it a sprite tile
+    /// stands in. Null when the segment has a chosen cover, is a face segment (which Generate leaves out),
+    /// or the server did not check.
+    /// </summary>
+    public bool? HasGeneratedCover { get; init; }
 }
 
 public record SegmentCreateDto(
@@ -2668,6 +2691,12 @@ public record GenerateOptionsDto
     /// <summary>For VR videos, also make the stereoscopic (both eyes) cover and preview clip a headset shows.
     /// The ordinary cover, preview and sprites of a VR video are always one eye, for flat screens.</summary>
     public bool VrStereo { get; init; }
+    /// <summary>The frame at the start of each video segment without a chosen cover, shown as its picture.
+    /// Without it a segment shows the sprite tile at its start.</summary>
+    public bool SegmentCovers { get; init; }
+    /// <summary>The segment kinds (such as "tag" or "face", compared without case; "" for segments without one)
+    /// Segment Covers makes frames for. Null means every kind except face.</summary>
+    public List<string>? SegmentCoverKinds { get; init; }
     public bool Phashes { get; init; }
     public bool Md5 { get; init; }
     public bool ImageThumbnails { get; init; }

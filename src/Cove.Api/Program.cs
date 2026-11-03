@@ -337,6 +337,7 @@ try
     builder.Services.AddSingleton<FileFingerprintWriter>();
     builder.Services.AddSingleton<NonVideoGenerationService>();
     builder.Services.AddSingleton<GenerateJobService>();
+    builder.Services.AddScoped<GenerateEstimateService>();
     builder.Services.AddSingleton<IMediaProbeService, FfprobeMediaProbeService>();
     builder.Services.AddSingleton<IVideoSourceHealthProbe, VideoSourceHealthProbe>();
     builder.Services.AddSingleton<FfmpegConcurrencyLimiter>();

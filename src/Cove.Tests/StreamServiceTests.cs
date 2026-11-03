@@ -150,35 +150,34 @@ public class StreamServiceTests
         }
     }
 
-    [Theory]
-    // Frames kept to the whole second by earlier versions still serve screenshots and segment pictures.
-    [InlineData(false, 0)]
-    // The exact frame wins over the whole-second one.
-    [InlineData(true, 255)]
-    public async Task GetVideoScreenshot_PrefersTheExactFrame_ThenTheWholeSecondOne(bool exactExists, byte expectedRed)
+    [Fact]
+    public async Task GetVideoScreenshot_IgnoresAFrameKeptToTheWholeSecond()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-stream-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            var exactPath = Path.Combine(tempRoot, "42_t6500ms.jpg");
-            using (var wholeSecond = new Image<Rgba32>(16, 9, new Rgba32(0, 0, 255)))
-                await wholeSecond.SaveAsJpegAsync(Path.Combine(tempRoot, ThumbnailService.WholeSecondFrameFileName(42, 6.5)), TestContext.Current.CancellationToken);
-            if (exactExists)
-            {
-                using var exact = new Image<Rgba32>(16, 9, new Rgba32(255, 0, 0));
-                await exact.SaveAsJpegAsync(exactPath, TestContext.Current.CancellationToken);
-            }
+            // An older frame for 6 s (blue) could hold any moment of that second, so the sprite tile (green) is served.
+            using (var wholeSecond = new Image<Rgba32>(160, 90, new Rgba32(0, 0, 255)))
+                await wholeSecond.SaveAsJpegAsync(Path.Combine(tempRoot, "42_t6.jpg"), TestContext.Current.CancellationToken);
+            using (var sprite = new Image<Rgba32>(160, 90, new Rgba32(0, 128, 0)))
+                await sprite.SaveAsJpegAsync(Path.Combine(tempRoot, "42_sprite.jpg"), TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(tempRoot, "42_thumbs.vtt"), """
+                WEBVTT
 
-            var service = new StreamService(null!, new FakeThumbnailService(exactPath, Path.Combine(tempRoot, "none.jpg"), Path.Combine(tempRoot, "none.vtt")), null!);
+                00:00:00.000 --> 00:00:10.000
+                42_sprite.jpg#xywh=0,0,160,90
+                """, TestContext.Current.CancellationToken);
+
+            var service = new StreamService(null!, new FakeThumbnailService(Path.Combine(tempRoot, "42_t6500ms.jpg"), Path.Combine(tempRoot, "42_sprite.jpg"), Path.Combine(tempRoot, "42_thumbs.vtt")), null!);
 
             var screenshot = await service.GetVideoScreenshot(42, 6.5, CancellationToken.None);
 
             Assert.NotNull(screenshot);
             await using var stream = screenshot.Value.stream;
             using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
-            Assert.InRange(image[8, 4].R, Math.Max(0, expectedRed - 30), Math.Min(255, expectedRed + 30));
+            Assert.True(image[80, 45].G > image[80, 45].B, "The sprite tile should be served, not the whole-second frame.");
         }
         finally
         {

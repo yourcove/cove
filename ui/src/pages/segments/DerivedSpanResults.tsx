@@ -4,6 +4,7 @@ import { ExternalLink, FolderOpen } from "lucide-react";
 import { faces, performers, tags } from "../../api/client";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
 import { SegmentTile } from "../../components/EntityCards";
+import { SegmentCoverPill } from "../../components/SegmentCoverBadge";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -129,12 +130,12 @@ export function DerivedSpanResults({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
           const operandSummary = formatDerivedOperandSummary(item, nameMaps);
-          const primaryRawSegmentId = item.span.segmentIds[0];
+          const coverSegmentId = item.coverSegmentId ?? item.span.segmentIds[0];
 
           return (
             <SegmentTile
               segment={{
-                id: primaryRawSegmentId ?? item.id,
+                id: coverSegmentId ?? item.id,
                 hostType: "video",
                 hostId: item.videoId,
                 startSec: item.span.startSec,
@@ -143,8 +144,9 @@ export function DerivedSpanResults({
                 kind: item.span.kind,
                 sourceKey: item.span.sourceKey,
                 title,
-                updatedAt: item.videoUpdatedAt,
+                updatedAt: item.coverVersion ?? item.videoUpdatedAt,
                 hostTitle: item.videoTitle,
+                hasGeneratedCover: item.hasGeneratedCover,
               }}
               route={route}
               label={`Open segment ${title}`}
@@ -236,6 +238,7 @@ function DerivedSpanListRow({
 }) {
   const title = buildSpanTitle(item.span, item.videoTitle);
   const primaryRawSegmentId = item.span.segmentIds[0];
+  const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
   const operandSummary = formatDerivedOperandSummary(item, nameMaps);
 
   return (
@@ -275,8 +278,8 @@ function DerivedSpanListRow({
               >
                 <SegmentVideoPreview
                   hostId={item.videoId}
-                  segmentId={primaryRawSegmentId}
-                  updatedAt={item.videoUpdatedAt}
+                  segmentId={coverSegmentId}
+                  updatedAt={item.coverVersion ?? item.videoUpdatedAt}
                   startSec={item.span.startSec}
                   endSec={item.span.endSec}
                   title={title}
@@ -290,6 +293,7 @@ function DerivedSpanListRow({
                 {item.span.tagName ? <Pill>{item.span.tagName}</Pill> : null}
                 {item.span.kind ? <Pill>{item.span.kind}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
+                <SegmentCoverPill hasGeneratedCover={item.hasGeneratedCover} />
                 <span>
                   {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}
                 </span>

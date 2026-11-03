@@ -131,6 +131,13 @@ import { KeyboardShortcutSettings } from "../components/KeyboardShortcutSettings
 import { openTutorialStoryboard } from "../components/tutorialStoryboardEvents";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { LibraryFolderTree } from "../components/LibraryFolderTree";
+import {
+  GenerateOptionList,
+  GenerateRunSummary,
+  SizeLegend,
+  type GenerateOptionGroup,
+} from "../components/GenerateOptionList";
+import type { GenerateOptionKey } from "../components/generateOptionCatalog";
 
 type LegacySettingsTab =
   | "tasks"
@@ -638,11 +645,41 @@ const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   rescan: false,
 };
 
+const GENERATE_OPTION_GROUPS: GenerateOptionGroup[] = [
+  {
+    title: "Video options",
+    keys: ["thumbnails", "previews", "sprites", "vrStereo", "segmentCovers", "phashes", "md5"],
+  },
+  { title: "Image options", keys: ["imageThumbnails", "imagePhashes"] },
+  { title: "Gallery, audio and text", keys: ["galleryThumbnails", "audioPhashes", "textPhashes"] },
+];
+const GENERATE_OPTION_KEYS = GENERATE_OPTION_GROUPS.flatMap((group) => group.keys);
+
+// Scan makes these for each new or changed file; segment covers and gallery covers are Generate's alone.
+const SCAN_OPTION_KEYS: Partial<Record<GenerateOptionKey, keyof ScanOptions>> = {
+  thumbnails: "scanGenerateCovers",
+  previews: "scanGeneratePreviews",
+  sprites: "scanGenerateSprites",
+  vrStereo: "scanGenerateVrStereo",
+  phashes: "scanGeneratePhashes",
+  md5: "scanGenerateMd5",
+  imageThumbnails: "scanGenerateThumbnails",
+  imagePhashes: "scanGenerateImagePhashes",
+  audioPhashes: "scanGenerateAudioPhashes",
+  textPhashes: "scanGenerateTextPhashes",
+};
+const SCAN_OPTION_GROUPS: GenerateOptionGroup[] = [
+  { title: "Make for each new video", keys: ["thumbnails", "previews", "sprites", "vrStereo", "phashes", "md5"] },
+  { title: "Make for each new image", keys: ["imageThumbnails", "imagePhashes"] },
+  { title: "Make for each new audio file or text", keys: ["audioPhashes", "textPhashes"] },
+];
+
 const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   thumbnails: true,
   previews: false,
   sprites: false,
   vrStereo: false,
+  segmentCovers: false,
   phashes: false,
   md5: false,
   imageThumbnails: false,
@@ -5751,6 +5788,17 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
     });
   };
 
+  // Counted for the picked folders whatever is ticked, so ticking an option does not count again.
+  const generateEstimateQ = useQuery({
+    queryKey: ["generate-estimate", effectiveGenOpts.paths ?? null],
+    queryFn: ({ signal }) => metadata.estimateGenerate({ paths: effectiveGenOpts.paths }, signal),
+    enabled: mode === "scan-generate" && showGenOpts,
+    // Counting walks the scope on disk, so it is not repeated on focus or after a failure.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
   const scanMut = useMutation({ mutationFn: () => metadata.scan(effectiveScanOpts), onSuccess: () => refetchJobs() });
   const genMut = useMutation({ mutationFn: () => metadata.generate(effectiveGenOpts), onSuccess: () => refetchJobs() });
   const downloadImportMut = useMutation({
@@ -5818,7 +5866,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
               {/* Scan */}
               <TaskCard
                 label="Scan"
-                description="Scan library paths for new content and update metadata."
+                description="Finds new and changed files and updates their metadata, then makes the files ticked below for them. Files that did not change are left alone."
                 onRun={() => scanMut.mutate()}
                 isPending={scanMut.isPending}
                 expandable
@@ -5826,68 +5874,23 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                 onToggleExpand={() => setShowScanOpts(!showScanOpts)}
               >
                 <div className="space-y-3 pt-3 border-t border-border/50">
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide">Video options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Thumbnails / screenshots"
-                      checked={!!scanOpts.scanGenerateCovers}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateCovers: c })}
-                    />
-                    <CheckboxLabel
-                      label="Video previews"
-                      checked={!!scanOpts.scanGeneratePreviews}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePreviews: c })}
-                    />
-                    <CheckboxLabel
-                      label="Sprite sheets"
-                      checked={!!scanOpts.scanGenerateSprites}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateSprites: c })}
-                    />
-                    <CheckboxLabel
-                      label="VR 3D covers and previews"
-                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
-                      checked={!!scanOpts.scanGenerateVrStereo}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateVrStereo: c })}
-                    />
-                    <CheckboxLabel
-                      label="Perceptual hashes (phash)"
-                      checked={!!scanOpts.scanGeneratePhashes}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePhashes: c })}
-                    />
-                    <CheckboxLabel
-                      label="MD5 checksums"
-                      checked={!!scanOpts.scanGenerateMd5}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateMd5: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Image options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Image thumbnails"
-                      checked={!!scanOpts.scanGenerateThumbnails}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateThumbnails: c })}
-                    />
-                    <CheckboxLabel
-                      label="Image phashes"
-                      checked={!!scanOpts.scanGenerateImagePhashes}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateImagePhashes: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Audio options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Audio perceptual hashes"
-                      checked={!!scanOpts.scanGenerateAudioPhashes}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateAudioPhashes: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Text options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Text perceptual hashes"
-                      checked={!!scanOpts.scanGenerateTextPhashes}
-                      onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateTextPhashes: c })}
-                    />
+                  <GenerateOptionList
+                    idPrefix="scan"
+                    groups={SCAN_OPTION_GROUPS}
+                    sizing="each"
+                    isChecked={(key) => !!scanOpts[SCAN_OPTION_KEYS[key]!]}
+                    onCheckedChange={(key, checked) => setScanOpts({ ...scanOpts, [SCAN_OPTION_KEYS[key]!]: checked })}
+                  />
+                  <div className="space-y-1.5 px-2.5">
+                    <p className="text-xs text-secondary">
+                      Segment covers and gallery cover thumbnails are not made during a scan; Generate makes them.
+                    </p>
+                    <SizeLegend sizing="each" />
+                    <p className="text-[11px] text-muted">
+                      A scan only learns how many files are new while it runs, so these stay per file. They add up:
+                      previews for 10 new videos take a few minutes, for 1,000 several hours. To see the whole run
+                      first, scan without them and run Generate, which counts what is missing.
+                    </p>
                   </div>
                   <div className="pt-2">
                     <CheckboxLabel
@@ -5931,7 +5934,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
               {/* Generate */}
               <TaskCard
                 label="Generate"
-                description="Generate thumbnails, previews, sprites, segments, perceptual hashes, and MD5 checksums."
+                description="Makes the files ticked below for the whole library, or for the folders picked under Selective generate. Unless Overwrite is ticked, only what is still missing is made, and each size counts what this run would make."
                 onRun={() => genMut.mutate()}
                 isPending={genMut.isPending}
                 expandable
@@ -5939,84 +5942,36 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                 onToggleExpand={() => setShowGenOpts(!showGenOpts)}
               >
                 <div className="space-y-3 pt-3 border-t border-border/50">
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide">Video options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Thumbnails / screenshots"
-                      checked={!!genOpts.thumbnails}
-                      onChange={(c) => setGenOpts({ ...genOpts, thumbnails: c })}
-                    />
-                    <CheckboxLabel
-                      label="Video previews"
-                      checked={!!genOpts.previews}
-                      onChange={(c) => setGenOpts({ ...genOpts, previews: c })}
-                    />
-                    <CheckboxLabel
-                      label="Sprite sheets"
-                      checked={!!genOpts.sprites}
-                      onChange={(c) => setGenOpts({ ...genOpts, sprites: c })}
-                    />
-                    <CheckboxLabel
-                      label="VR 3D covers and previews"
-                      description="For VR videos: the stereoscopic cover and preview clip shown in the headset. The 2D ones for the browser come from the options above."
-                      checked={!!genOpts.vrStereo}
-                      onChange={(c) => setGenOpts({ ...genOpts, vrStereo: c })}
-                    />
-                    <CheckboxLabel
-                      label="Perceptual hashes (phash)"
-                      checked={!!genOpts.phashes}
-                      onChange={(c) => setGenOpts({ ...genOpts, phashes: c })}
-                    />
-                    <CheckboxLabel
-                      label="MD5 checksums"
-                      checked={!!genOpts.md5}
-                      onChange={(c) => setGenOpts({ ...genOpts, md5: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Image options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Image thumbnails"
-                      checked={!!genOpts.imageThumbnails}
-                      onChange={(c) => setGenOpts({ ...genOpts, imageThumbnails: c })}
-                    />
-                    <CheckboxLabel
-                      label="Image phashes"
-                      checked={!!genOpts.imagePhashes}
-                      onChange={(c) => setGenOpts({ ...genOpts, imagePhashes: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Gallery options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Gallery cover thumbnails"
-                      checked={!!genOpts.galleryThumbnails}
-                      onChange={(c) => setGenOpts({ ...genOpts, galleryThumbnails: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Audio options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Audio perceptual hashes"
-                      checked={!!genOpts.audioPhashes}
-                      onChange={(c) => setGenOpts({ ...genOpts, audioPhashes: c })}
-                    />
-                  </div>
-                  <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Text options</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <CheckboxLabel
-                      label="Text perceptual hashes"
-                      checked={!!genOpts.textPhashes}
-                      onChange={(c) => setGenOpts({ ...genOpts, textPhashes: c })}
-                    />
-                  </div>
-                  <div className="pt-2">
+                  <GenerateOptionList
+                    idPrefix="generate"
+                    groups={GENERATE_OPTION_GROUPS}
+                    sizing="run"
+                    options={genOpts}
+                    estimate={generateEstimateQ.data}
+                    estimatePending={generateEstimateQ.isFetching && !generateEstimateQ.data}
+                    isChecked={(key) => !!genOpts[key]}
+                    onCheckedChange={(key, checked) => setGenOpts({ ...genOpts, [key]: checked })}
+                    onSegmentCoverKindsChange={(kinds) => setGenOpts({ ...genOpts, segmentCoverKinds: kinds })}
+                  />
+                  {generateEstimateQ.isError ? (
+                    <p className="px-2.5 text-xs text-red-400">
+                      Could not count what is missing, so sizes show the work for one item only.
+                    </p>
+                  ) : null}
+                  <div className="px-2.5">
                     <CheckboxLabel
                       label="Overwrite existing generated files"
+                      description="Makes everything ticked again, not only what is missing, so the counts cover everything in scope."
                       checked={!!genOpts.overwrite}
                       onChange={(c) => setGenOpts({ ...genOpts, overwrite: c })}
                     />
                   </div>
+                  <GenerateRunSummary
+                    keys={GENERATE_OPTION_KEYS}
+                    options={genOpts}
+                    estimate={generateEstimateQ.data}
+                    estimatePending={generateEstimateQ.isFetching && !generateEstimateQ.data}
+                  />
                   {selectablePaths.length > 0 && (
                     <div className="space-y-2 rounded-xl border border-border/60 bg-surface/60 p-3">
                       <div className="flex items-center justify-between gap-3">

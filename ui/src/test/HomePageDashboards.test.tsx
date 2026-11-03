@@ -178,7 +178,7 @@ vi.mock("../components/EntityCards", () => {
       link(image.title || `Image #${image.id}`, { page: "image", id: image.id }, onClick),
     FaceTile: ({ face, onClick }: any) => link(`Face #${face.id}`, { page: "face", id: face.id }, onClick),
     SegmentTile: ({ segment, route, label, eyebrow, onClick }: any) => (
-      <div>
+      <div data-image-version={segment.updatedAt}>
         {link(
           label ?? segment.title ?? `Segment #${segment.id}`,
           route ?? { page: "segment", id: segment.id },
@@ -966,6 +966,59 @@ describe("HomePage dashboards", () => {
     expect(await screen.findByText(/Spanned video/)).toBeInTheDocument();
     expect(within(heading.parentElement!).queryByText(/match/)).not.toBeInTheDocument();
     expect(mocks.segmentSpansCount).not.toHaveBeenCalled();
+  });
+
+  it("versions a segment card's image by its segment, not its video", async () => {
+    const savedFilter = {
+      id: 5,
+      name: "Highlights",
+      mode: "segments",
+      findFilter: "{}",
+      objectFilter: "{}",
+      uiOptions: JSON.stringify({ profileId: 2 }),
+    };
+    mocks.viewSavedFilters = [savedFilter];
+    mocks.savedFilterGet.mockImplementation(async () => savedFilter);
+    mocks.segmentSpansSearch.mockResolvedValue({
+      items: [
+        {
+          videoId: 601,
+          videoTitle: "Spanned video",
+          videoUpdatedAt: "2026-08-01T00:00:00Z",
+          coverVersion: "2026-10-23T06:00:00Z",
+          profileId: 2,
+          span: {
+            spanKey: "s1",
+            hostType: "video",
+            hostId: 601,
+            startSec: 10,
+            endSec: 20,
+            collapsedToInstant: false,
+            segmentIds: [9],
+          },
+        },
+      ],
+      totalCount: 1,
+      page: 1,
+      perPage: 25,
+    });
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+
+    const { container } = renderHome();
+
+    await screen.findByText(/Spanned video/);
+    expect(container.querySelector("[data-image-version]")).toHaveAttribute(
+      "data-image-version",
+      "2026-10-23T06:00:00Z",
+    );
   });
 
   it("skips the span count when a segment search already counted its matches", async () => {

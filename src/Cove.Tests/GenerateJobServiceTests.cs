@@ -231,6 +231,242 @@ public class GenerateJobServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(false, null, false, false, false, new double[0])]
+    [InlineData(true, null, false, false, false, new[] { 10d, 100d })]
+    [InlineData(true, null, true, false, false, new[] { 10d, 30d, 100d })]
+    // Selecting only the clip makes its segments' frames from its source, and nothing else for the source.
+    [InlineData(true, null, false, true, false, new[] { 100d })]
+    [InlineData(true, null, false, false, true, new[] { 10d, 100d })]
+    // Face segments are made only when chosen; "" stands for segments without a kind.
+    [InlineData(true, "FACE", false, false, false, new[] { 120d })]
+    [InlineData(true, ",face", false, false, false, new[] { 10d, 100d, 120d })]
+    public async Task Start_MakesStartFramesForSegmentsWithoutChosenCovers(
+        bool segmentCovers,
+        string? kinds,
+        bool overwrite,
+        bool selectClipOnly,
+        bool framesFail,
+        double[] expectedSeconds)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            var (sourceId, sourceFileId, clipId) = (library.SourceId, library.SourceFileId, library.ClipId);
+            var jobs = new CapturingJobService();
+            var thumbnails = new CapturingThumbnailService(tempRoot) { OnThumbnailFromFile = seconds => seconds == null || !framesFail };
+            await File.WriteAllBytesAsync(thumbnails.GetTimestampedThumbnailPath(sourceId, 30), [1], TestContext.Current.CancellationToken);
+            var service = CreateService(library.Provider, jobs, thumbnails);
+
+            // The video cover is asked for too, so the run has work even without segment covers.
+            service.Start(new GenerateOptionsDto
+            {
+                Thumbnails = true,
+                SegmentCovers = segmentCovers,
+                SegmentCoverKinds = kinds?.Split(',').ToList(),
+                Overwrite = overwrite,
+                VideoIds = selectClipOnly ? [clipId] : null,
+            });
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.All(thumbnails.ThumbnailRequests, request => Assert.Equal((sourceId, sourceFileId), (request.VideoId, request.SourceFileId)));
+            // Compared by whole second: which of two segments sharing a frame supplies its time is unordered.
+            Assert.Equal(expectedSeconds, thumbnails.ThumbnailRequests.Where(request => request.AtSeconds != null).Select(request => Math.Floor(request.AtSeconds!.Value)).Order());
+            Assert.Equal(selectClipOnly ? 0 : 1, thumbnails.ThumbnailRequests.Count(request => request.AtSeconds == null));
+            var unit = Assert.Single(jobs.Progress.Units);
+            Assert.Equal(framesFail, unit.Outcome == JobUnitOutcome.Failed);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EstimateAsync_CountsWhatAScopeHoldsAndWhatIsStillMissing(bool selectClipOnly)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            var thumbnails = new CapturingThumbnailService(tempRoot);
+            await File.WriteAllBytesAsync(thumbnails.GetTimestampedThumbnailPath(library.SourceId, 30), [1], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(thumbnails.GetThumbnailPathForVideo(library.SourceId), [1], TestContext.Current.CancellationToken);
+            await using var scope = library.Provider.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            {
+                // A run decodes nothing from a file it already found unreadable, so only its MD5 counts.
+                await File.WriteAllBytesAsync(Path.Combine(tempRoot, "unreadable.mp4"), [1, 2, 3, 4, 5], TestContext.Current.CancellationToken);
+                var unreadable = CreateVideoWithFiles((3, tempRoot, "unreadable.mp4"));
+                unreadable.Files.Single().Size = 5;
+                unreadable.Files.Single().SourceUnreadableAt = DateTime.UtcNow;
+                unreadable.Files.Single().SourceUnreadableSize = 5;
+                db.Videos.Add(unreadable);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                unreadable.PrimaryFileId = 3;
+                db.Segments.Add(new Segment { HostType = SegmentHostType.Video, HostId = unreadable.Id, StartSec = 5, SourceKey = "user" });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            var service = new GenerateEstimateService(db, thumbnails, thumbnails);
+
+            // What is ticked does not matter: every option is counted for the scope.
+            var estimate = await service.EstimateAsync(
+                new GenerateOptionsDto { Thumbnails = false, VideoIds = selectClipOnly ? [library.ClipId] : null },
+                TestContext.Current.CancellationToken);
+
+            Assert.Empty(thumbnails.ThumbnailRequests);
+            var segmentCovers = Assert.IsType<List<GenerateSegmentKindCountDto>>(estimate.SegmentCovers);
+            if (selectClipOnly)
+            {
+                // Only the clip's own segment, made from its source; the source itself is not in scope.
+                Assert.Equal([("", 1, 1)], segmentCovers.Select(kind => (kind.Kind, kind.Missing, kind.Total)));
+                Assert.Equal((0, 0), (estimate.Thumbnails!.Missing, estimate.Thumbnails.Total));
+                Assert.Equal((0, 0), (estimate.Md5!.Missing, estimate.Md5.Total));
+                // Videos were picked without paths, so images and the rest are out of reach.
+                Assert.Null(estimate.ImageThumbnails);
+                Assert.Null(estimate.AudioPhashes);
+                return;
+            }
+
+            // Frames 10 (two segments share it), 30 (already made) and 100 (the clip's segment). 250 is past the
+            // end, 60 has a chosen cover, the audio segment is not a video's, and the unreadable video's segment
+            // cannot be decoded.
+            Assert.Equal([("", 2, 3), ("face", 1, 1)], segmentCovers.Select(kind => (kind.Kind, kind.Missing, kind.Total)));
+            Assert.All(segmentCovers, kind => Assert.False(kind.Estimated));
+            Assert.Equal((0, 1), (estimate.Thumbnails!.Missing, estimate.Thumbnails.Total));
+            Assert.Equal((1, 1), (estimate.Previews!.Missing, estimate.Previews.Total));
+            Assert.Equal((0, 0), (estimate.VrStereo!.Missing, estimate.VrStereo.Total));
+            Assert.Equal((2, 2, 6L), (estimate.Md5!.Missing, estimate.Md5.Total, estimate.Md5.MissingBytes));
+            Assert.Equal((0, 0), (estimate.ImageThumbnails!.Missing, estimate.ImageThumbnails.Total));
+
+            // Ids of other media leave the videos out.
+            var forImages = await service.EstimateAsync(new GenerateOptionsDto { ImageIds = [999] }, TestContext.Current.CancellationToken);
+            Assert.Null(forImages.Thumbnails);
+            Assert.Null(forImages.SegmentCovers);
+            Assert.Null(forImages.AudioPhashes);
+            Assert.Equal((0, 0), (forImages.ImageThumbnails!.Missing, forImages.ImageThumbnails.Total));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EstimateAsync_ScalesWhatASampleIsMissingToTheWholeScope()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            var thumbnails = new CapturingThumbnailService(tempRoot);
+            await using var scope = library.Provider.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            // Ten times more segments than are looked for on disk; the first half have their frame.
+            const int count = GenerateEstimateService.SampleSize * 10;
+            db.Segments.AddRange(Enumerable.Range(0, count).Select(index => new Segment
+            {
+                HostType = SegmentHostType.Video, HostId = library.SourceId, StartSec = index * 0.01, Kind = "many", SourceKey = "user",
+            }));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            for (var index = 0; index < count / 2; index++)
+                await File.WriteAllBytesAsync(thumbnails.GetTimestampedThumbnailPath(library.SourceId, index * 0.01), [1], TestContext.Current.CancellationToken);
+
+            var estimate = await new GenerateEstimateService(db, thumbnails, thumbnails)
+                .EstimateAsync(new GenerateOptionsDto(), TestContext.Current.CancellationToken);
+
+            var many = Assert.Single(estimate.SegmentCovers!, kind => kind.Kind == "many");
+            Assert.Equal(count, many.Total);
+            Assert.True(many.Estimated);
+            Assert.InRange(many.Missing, count * 0.4, count * 0.6);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class SegmentCoverLibrary(ServiceProvider provider, int sourceId, int sourceFileId, int clipId) : IAsyncDisposable
+    {
+        public ServiceProvider Provider => provider;
+        public int SourceId => sourceId;
+        public int SourceFileId => sourceFileId;
+        public int ClipId => clipId;
+        public ValueTask DisposeAsync() => provider.DisposeAsync();
+    }
+
+    /// <summary>A 200 s source with a clip of it, and segments covering each case segment covers handle.</summary>
+    private static async Task<SegmentCoverLibrary> SeedSegmentCoverLibraryAsync(string tempRoot)
+    {
+        await File.WriteAllBytesAsync(Path.Combine(tempRoot, "source.mp4"), [1], TestContext.Current.CancellationToken);
+
+        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        var services = new ServiceCollection();
+        services.AddScoped(_ => new CoveContext(dbOptions));
+        var provider = services.BuildServiceProvider();
+
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        var source = CreateVideoWithFiles((1, tempRoot, "source.mp4"));
+        source.Files.Single().Duration = 200;
+        source.Files.Single().Size = 1;
+        db.Videos.Add(source);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        source.PrimaryFileId = source.Files.Single().Id;
+        var clip = new Video { Title = "Clip", ParentVideoId = source.Id, ClipStartSec = 90 };
+        db.Videos.Add(clip);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        db.Segments.AddRange(
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 10, EndSec = 20, SourceKey = "user" },
+            // It starts at the same moment as the segment above, so they share a frame.
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 10, EndSec = 16, SourceKey = "user" },
+            // It starts past the end of the file, so it has no frame to make.
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 250, EndSec = 260, SourceKey = "user" },
+            // Its frame was made by an earlier run.
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 30, EndSec = 50, SourceKey = "user" },
+            // A clip's segment runs on the source's timeline.
+            new Segment { HostType = SegmentHostType.Video, HostId = clip.Id, StartSec = 100, SourceKey = "user" },
+            // A chosen cover needs no frame.
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 60, EndSec = 70, ImageBlobId = "chosen", SourceKey = "user" },
+            // A face segment, made only when face segments are chosen.
+            new Segment { HostType = SegmentHostType.Video, HostId = source.Id, StartSec = 120, EndSec = 124, Kind = "Face", SourceKey = "ext:ai.faces" },
+            // Not a video segment, despite sharing the host id.
+            new Segment { HostType = SegmentHostType.Audio, HostId = source.Id, StartSec = 80, EndSec = 90, SourceKey = "user" });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return new SegmentCoverLibrary(provider, source.Id, source.PrimaryFileId.Value, clip.Id);
+    }
+
+    private static GenerateJobService CreateService(ServiceProvider provider, CapturingJobService jobs, CapturingThumbnailService thumbnails)
+    {
+        var fingerprints = new NullFingerprintService();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+        var fingerprintWriter = new FileFingerprintWriter(scopeFactory);
+        return new GenerateJobService(
+            jobs,
+            thumbnails,
+            thumbnails,
+            fingerprints,
+            new AlwaysReadableSourceHealthProbe(),
+            fingerprintWriter,
+            new NonVideoGenerationService(thumbnails, fingerprints, fingerprintWriter, NullLogger<NonVideoGenerationService>.Instance),
+            scopeFactory,
+            new CoveConfiguration { MaxParallelTasks = 1 },
+            NullLogger<GenerateJobService>.Instance);
+    }
+
     [Fact]
     public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingPrimaryFile()
     {
@@ -558,7 +794,13 @@ public class GenerateJobServiceTests
             int sourceFileId,
             double? atSeconds,
             CancellationToken ct = default)
-            => Task.FromResult(true);
+        {
+            ThumbnailRequests.Add((videoId, sourceFileId, atSeconds));
+            return Task.FromResult(OnThumbnailFromFile?.Invoke(atSeconds) ?? true);
+        }
+
+        public List<(int VideoId, int SourceFileId, double? AtSeconds)> ThumbnailRequests { get; } = [];
+        public Func<double?, bool>? OnThumbnailFromFile { get; init; }
 
         public Task<bool> GenerateImageThumbnailAsync(
             int imageId,
@@ -591,13 +833,14 @@ public class GenerateJobServiceTests
         public string GetThumbnailPathForVideo(int videoId) => Path.Combine(generatedRoot, $"{videoId}.jpg");
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds)
-            => Path.Combine(generatedRoot, $"{videoId}_{seconds}.jpg");
+            => Path.Combine(generatedRoot, $"{videoId}_t{(long)Math.Round(seconds * 1000)}ms.jpg");
 
         public string GetPreviewPath(int videoId) => Path.Combine(generatedRoot, $"{videoId}.mp4");
 
         public string GetSpritePath(int videoId) => Path.Combine(generatedRoot, $"{videoId}_sprite.jpg");
 
         public string GetSpriteVttPath(int videoId) => Path.Combine(generatedRoot, $"{videoId}.vtt");
+
 
         public string StartGenerateAllThumbnails() => "generate-thumbnails";
 

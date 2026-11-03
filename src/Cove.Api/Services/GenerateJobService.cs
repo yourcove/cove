@@ -29,12 +29,14 @@ public sealed class GenerateJobService(
         bool HasVrPreview,
         bool HasSprite,
         bool HasPhash,
-        bool HasMd5);
+        bool HasMd5,
+        IReadOnlyList<double> SegmentCoverTimesToMake,
+        bool SegmentCoversOnly);
 
     /// <summary>Work that needs frames decoded out of the source file. MD5 does not.</summary>
     private static bool NeedsDecodableSource(GenerateOptionsDto options)
         => options.Thumbnails || options.Previews || options.Sprites || options.VrStereo
-            || options.Phashes;
+            || options.SegmentCovers || options.Phashes;
 
     public string Start(GenerateOptionsDto options)
         => jobService.Enqueue(
@@ -82,7 +84,21 @@ public sealed class GenerateJobService(
             ? Environment.ProcessorCount
             : Math.Max(1, config.MaxParallelTasks);
 
-        await GenerateVideosAsync(db, options, hasVideoSelection, parallelism, progress, ct);
+        // A selected clip has no file of its own, and its segments run on its source's timeline, so their
+        // frames are made from the source. The source is added for segment covers alone.
+        var segmentCoverSources = options.SegmentCovers && hasVideoSelection
+            ? (await db.Videos.AsNoTracking()
+                .Where(video => options.VideoIds!.Contains(video.Id) && video.ParentVideoId != null)
+                .Select(video => video.ParentVideoId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+                .Except(options.VideoIds!).ToHashSet()
+            : new HashSet<int>();
+        var videoOptions = segmentCoverSources.Count == 0
+            ? options
+            : options with { VideoIds = [.. options.VideoIds!, .. segmentCoverSources] };
+
+        await GenerateVideosAsync(db, videoOptions, segmentCoverSources, hasVideoSelection, parallelism, progress, ct);
 
         if (!allowNonVideoWork)
             return;
@@ -93,6 +109,7 @@ public sealed class GenerateJobService(
     private async Task GenerateVideosAsync(
         CoveContext db,
         GenerateOptionsDto options,
+        IReadOnlySet<int> segmentCoversOnly,
         bool hasVideoSelection,
         int parallelism,
         IJobProgress progress,
@@ -103,6 +120,7 @@ public sealed class GenerateJobService(
             || options.Previews
             || options.Sprites
             || options.VrStereo
+            || options.SegmentCovers
             || options.Phashes
             || options.Md5;
 
@@ -112,7 +130,7 @@ public sealed class GenerateJobService(
         // Freeze eligible IDs on disk so concurrent metadata/assets changes cannot
         // change aggregate job totals between selection and processing.
         await using var workSet = await GenerationWorkSet.CreateAsync(ct);
-        await foreach (var batch in ReadVideoWorkAsync(db, options, hasVideoSelection, ct))
+        await foreach (var batch in ReadVideoWorkAsync(db, options, segmentCoversOnly, hasVideoSelection, ct))
             await workSet.AddAsync(batch.Select(item => item.Video.Id), ct);
         progress.DeclareUnitCount(workSet.Count);
 
@@ -131,7 +149,7 @@ public sealed class GenerateJobService(
         var filterPaths = hasVideoSelection ? [] : GeneratePathFilter.Normalize(options.Paths);
         await foreach (var ids in workSet.ReadAsync(ct))
         {
-            var workItems = await LoadVideoWorkAsync(db, ids, filterPaths, ct);
+            var workItems = await LoadVideoWorkAsync(db, ids, filterPaths, options, segmentCoversOnly, ct);
             var availableIds = workItems.Select(item => item.Video.Id).ToHashSet();
             foreach (var missingId in ids.Where(id => !availableIds.Contains(id)))
             {
@@ -142,7 +160,7 @@ public sealed class GenerateJobService(
             await jobService.RunBatchAsync(
                 workItems,
                 parallelism,
-                (item, unit, token) => GenerateVideoAsync(item, options, new RecordingJobUnit(unit), reporter, token),
+                (item, unit, token) => GenerateVideoAsync(item, OptionsFor(item, options), new RecordingJobUnit(unit), reporter, token),
                 progress,
                 unitIdFactory: (item, _) => item.Video.Id.ToString(),
                 labelFactory: item => item.Video.Title,
@@ -155,44 +173,92 @@ public sealed class GenerateJobService(
     /// <summary>Names the asset kinds this run was asked for, so the log says what it is doing.</summary>
     internal static string DescribeSelectedAssets(GenerateOptionsDto options)
     {
-        var selected = new List<string>(6);
+        var selected = new List<string>(7);
         if (options.Thumbnails) selected.Add("covers");
         if (options.Previews) selected.Add("previews");
         if (options.Sprites) selected.Add("sprites");
+        if (options.SegmentCovers) selected.Add("segment covers");
         if (options.Phashes) selected.Add("phashes");
         if (options.Md5) selected.Add("md5");
         return selected.Count > 0 ? string.Join(", ", selected) : "nothing";
     }
 
     private async IAsyncEnumerable<List<VideoWorkItem>> ReadVideoWorkAsync(
-        CoveContext db, GenerateOptionsDto options, bool hasVideoSelection,
+        CoveContext db, GenerateOptionsDto options, IReadOnlySet<int> segmentCoversOnly, bool hasVideoSelection,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var filterPaths = hasVideoSelection ? [] : GeneratePathFilter.Normalize(options.Paths);
         await foreach (var ids in GenerationSelection.VideosAsync(db, options, ct))
         {
-            var work = (await LoadVideoWorkAsync(db, ids, filterPaths, ct))
-                .Where(item => NeedsVideoWork(item, options)).ToList();
+            var work = (await LoadVideoWorkAsync(db, ids, filterPaths, options, segmentCoversOnly, ct))
+                .Where(item => NeedsVideoWork(item, OptionsFor(item, options))).ToList();
             if (work.Count > 0)
                 yield return work;
         }
     }
 
     private async Task<List<VideoWorkItem>> LoadVideoWorkAsync(
-        CoveContext db, int[] ids, IReadOnlyList<string> filterPaths, CancellationToken ct)
+        CoveContext db,
+        int[] ids,
+        IReadOnlyList<string> filterPaths,
+        GenerateOptionsDto options,
+        IReadOnlySet<int> segmentCoversOnly,
+        CancellationToken ct)
     {
         var videos = await db.Videos.AsNoTracking().Where(video => ids.Contains(video.Id))
             .Include(video => video.Files).ThenInclude(file => file.ParentFolder)
             .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
             .AsSplitQuery().OrderBy(video => video.Id).ToListAsync(ct);
-        return videos.Select(video => CreateVideoWorkItem(video, filterPaths)).OfType<VideoWorkItem>().ToList();
+        var segmentCoverTimes = options.SegmentCovers
+            ? await LoadSegmentCoverTimesAsync(db, ids, segmentCoversOnly, options.VideoIds, options.SegmentCoverKinds, ct)
+            : Enumerable.Empty<double>().ToLookup(_ => 0);
+        return videos
+            .Select(video => CreateVideoWorkItem(
+                video, filterPaths, segmentCoverTimes[video.Id], options.Overwrite, segmentCoversOnly.Contains(video.Id)))
+            .OfType<VideoWorkItem>().ToList();
     }
 
-    private VideoWorkItem? CreateVideoWorkItem(Video video, IReadOnlyList<string> filterPaths)
+    /// <summary>
+    /// The start of every segment of the chosen kinds that can get a generated cover (SegmentCoverScope), keyed by the video whose file holds
+    /// the frame. Segments on a clip use the source video's timeline, so they belong to the source. A source
+    /// added only because a clip of it was selected gets the frames of the selected clips' segments alone.
+    /// </summary>
+    private static async Task<ILookup<int, double>> LoadSegmentCoverTimesAsync(
+        CoveContext db, int[] ids, IReadOnlySet<int> segmentCoversOnly, IReadOnlyCollection<int>? selectedVideoIds,
+        IReadOnlyCollection<string>? kinds, CancellationToken ct)
+    {
+        // Kept as two plain membership tests so PostgreSQL can use the key and ParentVideoId indexes.
+        var segments = await (
+            from segment in db.Segments.AsNoTracking().ThatCanHaveGeneratedCovers().OfKinds(kinds)
+            join host in db.Videos.AsNoTracking() on segment.HostId equals host.Id
+            where ids.Contains(host.Id) || (host.ParentVideoId != null && ids.Contains(host.ParentVideoId.Value))
+            select new { SourceId = host.ParentVideoId ?? host.Id, HostId = host.Id, segment.StartSec })
+            .ToListAsync(ct);
+        return segments
+            // Such a source is in the selection list too, for its clips, so its own segments are left out by host.
+            .Where(segment => !segmentCoversOnly.Contains(segment.SourceId)
+                || (segment.HostId != segment.SourceId && selectedVideoIds?.Contains(segment.HostId) == true))
+            .ToLookup(segment => segment.SourceId, segment => segment.StartSec);
+    }
+
+    private VideoWorkItem? CreateVideoWorkItem(
+        Video video,
+        IReadOnlyList<string> filterPaths,
+        IEnumerable<double> segmentCoverTimes,
+        bool overwrite,
+        bool segmentCoversOnly)
     {
         var file = SelectVideoFile(video, filterPaths);
         if (file is null)
             return null;
+
+        // Segments starting at the same moment share one frame file. A start at or past the end of a file
+        // of known length has no frame, and asking for it would fail the video on every run.
+        var coverTimesToMake = segmentCoverTimes
+            .Where(seconds => file.Duration <= 0 || seconds < file.Duration)
+            .DistinctBy(seconds => thumbnailService.GetTimestampedThumbnailPath(video.Id, seconds))
+            .Where(seconds => overwrite || !System.IO.File.Exists(thumbnailService.GetTimestampedThumbnailPath(video.Id, seconds)))
+            .ToList();
 
         return new VideoWorkItem(
             video,
@@ -205,8 +271,16 @@ public sealed class GenerateJobService(
             System.IO.File.Exists(thumbnailService.GetSpritePath(video.Id))
                 && System.IO.File.Exists(thumbnailService.GetSpriteVttPath(video.Id)),
             video.Files.Any(candidate => candidate.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value))),
-            video.Files.Any(candidate => candidate.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value))));
+            video.Files.Any(candidate => candidate.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value))),
+            coverTimesToMake,
+            segmentCoversOnly);
     }
+
+    /// <summary>A source added only because a clip of it was selected gets segment covers and nothing else.</summary>
+    private static GenerateOptionsDto OptionsFor(VideoWorkItem item, GenerateOptionsDto options)
+        => item.SegmentCoversOnly
+            ? new GenerateOptionsDto { Thumbnails = false, SegmentCovers = true, SegmentCoverKinds = options.SegmentCoverKinds, Overwrite = options.Overwrite }
+            : options;
 
     private static bool NeedsVideoWork(VideoWorkItem item, GenerateOptionsDto options)
     {
@@ -216,7 +290,8 @@ public sealed class GenerateJobService(
             || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrCard))
             || (options.Previews && (options.Overwrite || !item.HasPreview))
             || (options.VrStereo && item.Video.IsVr && (options.Overwrite || !item.HasVrPreview))
-            || (options.Sprites && (options.Overwrite || !item.HasSprite));
+            || (options.Sprites && (options.Overwrite || !item.HasSprite))
+            || (options.SegmentCovers && item.SegmentCoverTimesToMake.Count > 0);
 
         return generatedFileWork
             || (options.Phashes && (options.Overwrite || !item.HasPhash))
@@ -463,6 +538,21 @@ public sealed class GenerateJobService(
                     options.Overwrite,
                     ct),
                 "Sprite generation failed");
+        }
+
+        if (options.SegmentCovers)
+        {
+            var times = item.SegmentCoverTimesToMake;
+            var failed = 0;
+            for (var index = 0; index < times.Count; index++)
+            {
+                // A video with hundreds of segments takes minutes, so its progress moves per frame.
+                unit.Report((double)index / times.Count, $"Segment cover {index + 1} of {times.Count}");
+                if (!await videoAssetGenerator.GenerateThumbnailFromFileAsync(item.Video.Id, item.File.Id, times[index], ct))
+                    failed++;
+            }
+            if (failed > 0)
+                unit.Complete(JobUnitOutcome.Failed, $"Segment cover generation failed for {failed} of {times.Count} frames");
         }
     }
 }

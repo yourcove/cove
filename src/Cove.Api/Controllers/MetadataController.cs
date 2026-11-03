@@ -211,6 +211,21 @@ public class MetadataController(
         return Ok(new { jobId = generateJobService.Start(options) });
     }
 
+    /// <summary>
+    /// How many of each generated item the scope of these options holds and roughly how many Generate would
+    /// still make, so the options can show what a run costs before it starts. Only the paths and ids are read.
+    /// </summary>
+    [HttpPost("generate/estimate")]
+    [RequiresPermission(Permissions.JobsRun)]
+    [RequiresUnscopedEntityAccess("write")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "opts", PropertyName = "VideoIds")]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite, ActionArgumentName = "opts", PropertyName = "ImageIds")]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite, ActionArgumentName = "opts", PropertyName = "AudioIds")]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite, ActionArgumentName = "opts", PropertyName = "TextIds")]
+    public async Task<ActionResult<GenerateEstimateDto>> EstimateGenerate(
+        [FromBody] GenerateOptionsDto? opts, [FromServices] GenerateEstimateService estimates, CancellationToken ct)
+        => Ok(await estimates.EstimateAsync(opts ?? new GenerateOptionsDto(), ct));
+
     [HttpPost("clean")]
     [RequiresPermission(Permissions.LibraryClean)]
     [RequiresUnscopedEntityAccess("delete")]
@@ -689,7 +704,8 @@ public class MetadataController(
                     // is absent from every live entity set.
                     // Retired asset kinds are deleted whether or not their entity still exists.
                     var id = ParseLeadingEntityId(Path.GetFileName(file));
-                    var retired = dirs[i] == RetiredSegmentPreviewDir;
+                    var retired = dirs[i] == RetiredSegmentPreviewDir
+                        || (dirs[i] == "screenshots" && ThumbnailService.IsWholeSecondFrameFileName(Path.GetFileName(file)));
                     if (retired || (id is int entityId && !liveVideoIds.Contains(entityId) && !liveImageIds.Contains(entityId)))
                     {
                         try
@@ -733,7 +749,8 @@ public class MetadataController(
     }
 
     // Animated segment previews are no longer generated or served, so Clean removes every one of them,
-    // not only those whose video is gone.
+    // not only those whose video is gone. Frames keyed to the whole second are retired the same way
+    // (ThumbnailService.IsWholeSecondFrameFileName): each could hold any moment of its second.
     private const string RetiredSegmentPreviewDir = "segment-previews";
 
     // Parses the leading integer entity id from a generated filename, requiring the digits to be
