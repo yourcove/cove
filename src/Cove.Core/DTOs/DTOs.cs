@@ -832,6 +832,9 @@ public record SegmentSpanSearchResultItemDto(
     /// touches the segment, not its video.
     /// </summary>
     public string? CoverVersion { get; init; }
+
+    /// <summary>Whether Generate has made the cover frame of <see cref="CoverSegmentId"/>; see <see cref="SegmentRecordDto.HasGeneratedCover"/>.</summary>
+    public bool? HasGeneratedCover { get; init; }
 }
 
 public record SegmentSpanSearchResponseDto(
@@ -960,6 +963,13 @@ public record SegmentRecordDto(
         item.Segment.CreatedAt.ToString("o"),
         item.Segment.UpdatedAt.ToString("o"),
         fieldProvenance?.ToList());
+
+    /// <summary>
+    /// Whether Generate has made the frame this segment shows as its cover; without it a sprite tile
+    /// stands in. Null when the segment has a chosen cover, is a face segment (which Generate leaves out),
+    /// or the server did not check.
+    /// </summary>
+    public bool? HasGeneratedCover { get; init; }
 }
 
 public record SegmentCreateDto(

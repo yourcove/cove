@@ -1363,6 +1363,8 @@ export interface Segment {
 
 export interface SegmentRecord extends Segment {
   hostTitle?: string;
+  /** Whether Generate has made this segment's cover frame; absent when it has a chosen cover or is a face segment. */
+  hasGeneratedCover?: boolean | null;
 }
 
 export interface SegmentCreate {
@@ -1546,6 +1548,8 @@ export interface SegmentSpanSearchResultItem {
   coverSegmentId?: number;
   /** Version of the span cover: the cover segment's updatedAt. */
   coverVersion?: string;
+  /** Whether Generate has made the cover segment's cover frame. */
+  hasGeneratedCover?: boolean | null;
   profileId: number;
 }
 

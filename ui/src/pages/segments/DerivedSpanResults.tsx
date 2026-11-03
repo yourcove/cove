@@ -4,6 +4,7 @@ import { ExternalLink, FolderOpen } from "lucide-react";
 import { faces, performers, tags } from "../../api/client";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
 import { SegmentTile } from "../../components/EntityCards";
+import { SegmentCoverPill } from "../../components/SegmentCoverBadge";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -145,6 +146,7 @@ export function DerivedSpanResults({
                 title,
                 updatedAt: item.coverVersion ?? item.videoUpdatedAt,
                 hostTitle: item.videoTitle,
+                hasGeneratedCover: item.hasGeneratedCover,
               }}
               route={route}
               label={`Open segment ${title}`}
@@ -291,6 +293,7 @@ function DerivedSpanListRow({
                 {item.span.tagName ? <Pill>{item.span.tagName}</Pill> : null}
                 {item.span.kind ? <Pill>{item.span.kind}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
+                <SegmentCoverPill hasGeneratedCover={item.hasGeneratedCover} />
                 <span>
                   {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}
                 </span>
