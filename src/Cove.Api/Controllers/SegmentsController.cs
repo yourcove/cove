@@ -872,7 +872,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     {
         return sort switch
         {
-            "random" => OrderSpanBy(items, item => SeededRandomKey(item.Span.SegmentIds.FirstOrDefault(), seed), descending),
+            "random" => OrderSpanBy(items, item => SeededRandomSpanKey(item, seed), descending),
             "start_sec" or "span_start" => OrderSpanBy(items, item => item.Span.StartSec, descending),
             "end_sec" or "span_end" => OrderSpanBy(items, item => item.Span.EndSec, descending),
             "duration" or "span_duration" => OrderSpanBy(items, item => item.Span.EndSec - item.Span.StartSec, descending),
@@ -891,6 +891,19 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             "host_id" => OrderSpanBy(items, item => item.Span.HostId, descending),
             _ => OrderSpanBy(items, item => item.VideoUpdatedAt ?? string.Empty, descending),
         };
+    }
+
+    // Derived spans cut from one long segment all share their first segment id, so the key folds in every segment
+    // id and the span's own position; it stays stable for a seed so pages of one shuffle line up.
+    private static long SeededRandomSpanKey(SegmentSpanSearchResultItemDto item, int? seed)
+    {
+        var key = SeededRandomKey(item.VideoId, seed);
+        foreach (var segmentId in item.Span.SegmentIds)
+        {
+            key = SeededRandomKey(segmentId, unchecked((int)key));
+        }
+
+        return SeededRandomKey(unchecked((int)Math.Round(item.Span.StartSec * 1000)), unchecked((int)key));
     }
 
     private static long SeededRandomKey(int id, int? seed)

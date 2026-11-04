@@ -294,5 +294,93 @@ public sealed class SegmentsControllerSmokeTests
         Assert.Contains(spansPayload.Items, item => item.Span.SourceKey == "user");
         Assert.Contains(spansPayload.Items, item => item.Span.SourceKey == "ext:ai.actions");
     }
+
+    // Every span of these queries is cut from the same long tag segment, so they all share their first segment id, and
+    // each span of the difference has no other; random order must still shuffle them rather than fall back to start time.
+    [Theory]
+    [InlineData("intersection")]
+    [InlineData("difference")]
+    public async Task SpansSearch_RandomSort_ShufflesDerivedSpansThatShareASegment(string queryOperator)
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+
+        var (videoId, profileId) = await factory.WithDbContextAsync(async db =>
+        {
+            var video = new Video { Title = "Shared Segment Video", MaxDuration = 120 };
+            db.Videos.Add(video);
+            var profile = new SegmentDisplayProfile
+            {
+                Name = "Random Profile",
+                UserId = CoveWebApplicationFactory.TestUserId,
+                IsDefault = true,
+                Version = 1,
+            };
+            db.SegmentDisplayProfiles.Add(profile);
+            await db.SaveChangesAsync();
+
+            db.Segments.Add(new Segment
+            {
+                HostType = SegmentHostType.Video,
+                HostId = video.Id,
+                StartSec = 0,
+                EndSec = 100,
+                Kind = "tag",
+                SourceKey = "user",
+            });
+            await db.SaveChangesAsync();
+            db.Segments.AddRange(Enumerable.Range(1, 8).Select(index => new Segment
+            {
+                HostType = SegmentHostType.Video,
+                HostId = video.Id,
+                StartSec = index * 10,
+                EndSec = index * 10 + 2,
+                Kind = "face",
+                SourceKey = "ext:ai.faces",
+            }));
+            await db.SaveChangesAsync();
+            return (video.Id, profile.Id);
+        });
+
+        using var client = factory.CreateAuthenticatedClient();
+        async Task<List<double>> SearchStartsAsync(int seed)
+        {
+            var response = await client.PostAsJsonAsync("/api/segments/spans/search", new SegmentSpanSearchRequestDto(
+                profileId,
+                new SegmentSpanDerivedQueryDto(
+                    queryOperator,
+                    [
+                        new SegmentSpanOperandDto(null, "tag", null, null),
+                        new SegmentSpanOperandDto(null, "face", null, null),
+                    ],
+                    null,
+                    null),
+                1,
+                20,
+                "random",
+                "desc",
+                null,
+                null,
+                [videoId],
+                null,
+                Seed: seed), cancellationToken: TestContext.Current.CancellationToken);
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadApiJsonAsync<SegmentSpanSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.NotNull(payload);
+            return payload.Items.Select(item => item.Span.StartSec).ToList();
+        }
+
+        var orders = new List<List<double>>();
+        foreach (var seed in new[] { 11, 22, 33, 44 })
+        {
+            orders.Add(await SearchStartsAsync(seed));
+        }
+
+        var byStart = orders[0].Order().ToList();
+        Assert.All(orders, order => Assert.Equal(byStart, order.Order().ToList()));
+        Assert.True(byStart.Count >= 8);
+        Assert.Contains(orders, order => !order.SequenceEqual(byStart) && !order.SequenceEqual(Enumerable.Reverse(byStart)));
+        Assert.Equal(orders[0], await SearchStartsAsync(11));
+    }
 }
 
