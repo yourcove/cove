@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Cove.Api.Http;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Common;
@@ -45,6 +46,8 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         Response.Headers["Cache-Control"] = useLongCache
             ? "public, max-age=86400"
             : "no-store, no-cache, max-age=0, must-revalidate";
+        // The screenshot can be the video's custom cover blob, served with its stored content type.
+        UntrustedContentHeaders.Apply(Response);
         return File(stream, contentType);
     }
 
@@ -169,6 +172,8 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var (stream, contentType, supportsRangeRequests) = result.Value;
 
         Response.Headers["Cache-Control"] = "public, max-age=86400";
+        // Library files are untrusted: an SVG opened directly must not run script on Cove's origin.
+        UntrustedContentHeaders.Apply(Response);
 
         if (supportsRangeRequests)
         {
@@ -187,6 +192,8 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         var (stream, contentType, supportsRangeRequests) = result.Value;
         Response.Headers["Cache-Control"] = "public, max-age=86400";
+        // Thumbnails of SVG sources are the SVG itself, so they need the same protection.
+        UntrustedContentHeaders.Apply(Response);
 
         if (supportsRangeRequests)
         {

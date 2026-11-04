@@ -96,6 +96,8 @@ public class EntityImageController(
         if (screenshot == null) return NotFound();
 
         Response.Headers.CacheControl = "public, max-age=300";
+        // The screenshot can be the video's custom cover, served with whatever type it was stored as.
+        UntrustedContentHeaders.Apply(Response);
         return File(screenshot.Value.stream, screenshot.Value.contentType);
     }
 
@@ -226,6 +228,8 @@ public class EntityImageController(
                 : screenshot.Value.useLongCache
                     ? "public, max-age=86400"
                     : "no-store, no-cache, max-age=0, must-revalidate";
+            // Normally a generated frame, but a cover uploaded concurrently could be served from here.
+            UntrustedContentHeaders.Apply(Response);
             return File(screenshot.Value.stream, screenshot.Value.contentType);
         }
 
@@ -1006,6 +1010,9 @@ public class EntityImageController(
             : "public, max-age=3600";
 
         Response.Headers.CacheControl = cacheControl;
+        // Blobs keep the content type they arrived with — an upload's, a scraped site's, or a library
+        // SVG's after "Set as cover" — so they must not be able to run script when opened directly.
+        UntrustedContentHeaders.Apply(Response);
         return File(result.Value.stream, result.Value.contentType, enableRangeProcessing: result.Value.supportsRangeRequests);
     }
 

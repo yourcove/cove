@@ -142,6 +142,32 @@ public class StreamControllerTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibrarySvg_IsSandboxed_SoOpeningItDirectlyCannotRunScript(bool thumbnail)
+    {
+        var thumbnails = new FakeThumbnailService("missing.mp4")
+        {
+            ImageContentType = "image/svg+xml",
+            ImageBytes = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"u8.ToArray(),
+        };
+        var controller = new StreamController(null!, thumbnails, null!, null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = thumbnail
+            ? await controller.GetImageThumbnail(1, max: null, TestContext.Current.CancellationToken)
+            : await controller.GetImage(1, TestContext.Current.CancellationToken);
+
+        var file = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("image/svg+xml", file.ContentType);
+        var headers = controller.Response.Headers;
+        Assert.Equal("default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox", headers.ContentSecurityPolicy.ToString());
+        Assert.Equal("nosniff", headers.XContentTypeOptions.ToString());
+    }
+
     private static StreamController CreateController(string previewPath)
     {
         return new StreamController(null!, new FakeThumbnailService(previewPath), null!, null!)
@@ -382,10 +408,19 @@ public class StreamControllerTests
 
     private sealed class FakeThumbnailService(string previewPath) : IThumbnailService
     {
+        /// <summary>Served for both the image and its thumbnail, as happens for an SVG source.</summary>
+        public string? ImageContentType { get; init; }
+        public byte[] ImageBytes { get; init; } = [];
+
+        private Task<(Stream stream, string contentType, bool supportsRangeRequests)?> ServeImage()
+            => ImageContentType is null
+                ? throw new NotImplementedException()
+                : Task.FromResult<(Stream stream, string contentType, bool supportsRangeRequests)?>((new MemoryStream(ImageBytes), ImageContentType, true));
+
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct = default) => throw new NotImplementedException();
-        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension = 640, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct = default) => ServeImage();
+        public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension = 640, CancellationToken ct = default) => ServeImage();
         public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetBlobImageThumbnailStreamAsync(string blobId, int maxDimension = 640, CancellationToken ct = default) => throw new NotImplementedException();
         public Task DeleteVideoGeneratedFilesAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
         public Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default) => Task.CompletedTask;
