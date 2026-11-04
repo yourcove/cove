@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import type { Video } from "../api/types";
 import { navigateToUrl } from "../router/location";
+import { mediaCacheRevision } from "../api/mediaCacheRevisions";
 import {
   cancelSessionHandoff,
   formatVrLayout,
@@ -851,8 +852,10 @@ export function wallPageFor(source: Pick<VrListSource, "page" | "perPage">, page
 
 // ---- URLs -----------------------------------------------------------------------------------------------------
 
+const entityImageRevision = mediaCacheRevision("entityImages").r;
 const coverUrl = (video: Video, max = 640) =>
-  `/api/videos/${video.id}/image?max=${max}&v=${encodeURIComponent(video.updatedAt)}`;
+  `/api/videos/${video.id}/image?max=${max}&v=${encodeURIComponent(video.updatedAt)}` +
+  (entityImageRevision ? `&r=${entityImageRevision}` : "");
 /** Both eyes' flat view of the scene side by side (each 16:9); made by the generate job. */
 const stereoCardUrl = (video: Video) =>
   `/api/stream/video/${video.id}/vr-card?v=${encodeURIComponent(video.updatedAt)}`;

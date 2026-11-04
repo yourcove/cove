@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Net;
+using System.Web;
+using Cove.Api.Http;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
@@ -176,5 +179,8 @@ internal static class RedirectedEntityImageAssertions
         actual.Content.Should().NotBeEmpty();
         actual.RedirectTarget.Should().NotBeNull();
         actual.RedirectTarget!.AbsolutePath.Should().Be($"/api/stream/image/{image.Id}/thumbnail");
+        // The target carries its own family's cache revision, so bumping it refreshes covers too.
+        HttpUtility.ParseQueryString(actual.RedirectTarget.Query)[MediaCacheRevisions.QueryKey]
+            .Should().Be(MediaCacheRevisions.LibraryImages.ToString(CultureInfo.InvariantCulture));
     }
 }

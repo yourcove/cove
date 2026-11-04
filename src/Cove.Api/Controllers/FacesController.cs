@@ -2560,8 +2560,8 @@ public class FacesController(
 
     private static string ResolveAppearanceThumbnailUrl(FaceAppearanceHostType hostType, int hostId) => hostType switch
     {
-        FaceAppearanceHostType.Video => $"/api/stream/video/{hostId}/screenshot",
-        FaceAppearanceHostType.Image => $"/api/stream/image/{hostId}/thumbnail?max=320",
+        FaceAppearanceHostType.Video => EntityImageUrls.UnversionedVideoScreenshot(hostId),
+        FaceAppearanceHostType.Image => EntityImageUrls.LibraryThumbnail(hostId, 320),
         _ => string.Empty,
     };
 

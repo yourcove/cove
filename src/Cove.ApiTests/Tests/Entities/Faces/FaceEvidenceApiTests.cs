@@ -1,3 +1,4 @@
+using Cove.Api.Http;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -36,7 +37,7 @@ public sealed class FaceEvidenceApiTests(
         var videoAppearance = appearances.Items.Single(item => item.HostType == "video");
         videoAppearance.HostId.Should().Be(video.Id);
         videoAppearance.Title.Should().Be(video.Title);
-        videoAppearance.ThumbnailUrl.Should().Be($"/api/stream/video/{video.Id}/screenshot");
+        videoAppearance.ThumbnailUrl.Should().Be($"/api/stream/video/{video.Id}/screenshot?r={MediaCacheRevisions.VideoScreenshots}");
         videoAppearance.FrameSampleCount.Should().Be(1);
         videoAppearance.RetainedSpatialSampleCount.Should().Be(1);
         videoAppearance.SegmentCount.Should().Be(0);
@@ -46,7 +47,7 @@ public sealed class FaceEvidenceApiTests(
         var imageAppearance = appearances.Items.Single(item => item.HostType == "image");
         imageAppearance.HostId.Should().Be(image.Id);
         imageAppearance.Title.Should().Be(image.Title);
-        imageAppearance.ThumbnailUrl.Should().Be($"/api/stream/image/{image.Id}/thumbnail?max=320");
+        imageAppearance.ThumbnailUrl.Should().Be($"/api/stream/image/{image.Id}/thumbnail?max=320&r={MediaCacheRevisions.LibraryImages}");
         imageAppearance.FrameSampleCount.Should().Be(1);
         imageAppearance.RetainedSpatialSampleCount.Should().Be(1);
         imageAppearance.SegmentCount.Should().Be(0);

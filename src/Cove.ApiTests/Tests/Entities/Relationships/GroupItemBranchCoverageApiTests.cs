@@ -1,3 +1,4 @@
+using Cove.Api.Http;
 using System.Globalization;
 using System.Text.Json;
 using Cove.ApiTests.Builders;
@@ -198,15 +199,15 @@ public sealed class GroupItemBranchCoverageApiTests(
         page.Items.Select(item => item.OrderIndex).Should().Equal(Enumerable.Range(0, 11));
         manifest.Items.Select(ManifestState.From).Should().Equal(
             new ManifestState(videoRangeItem.Id, "video", video.Id, video.Id, null, null, null, null, video.Title,
-                $"/api/stream/video/{video.Id}", 1, 4, 3, null, $"/api/stream/video/{video.Id}/screenshot", "Video range item title", null, false),
+                $"/api/stream/video/{video.Id}", 1, 4, 3, null, $"/api/stream/video/{video.Id}/screenshot?r={MediaCacheRevisions.VideoScreenshots}", "Video range item title", null, false),
             new ManifestState(audioItem.Id, "audio", audio.Id, null, audio.Id, null, null, null, null,
                 $"/api/audios/{audio.Id}/stream", 3, 7, 4, null, null, "Audio item title", null, false),
             new ManifestState(imageItem.Id, "image", image.Id, null, null, image.Id, null, null, null,
-                $"/api/stream/image/{image.Id}", 0, null, null, null, $"/api/stream/image/{image.Id}/thumbnail", "Image item title", null, false),
+                $"/api/stream/image/{image.Id}?r={MediaCacheRevisions.LibraryImages}", 0, null, null, null, $"/api/stream/image/{image.Id}/thumbnail?r={MediaCacheRevisions.LibraryImages}", "Image item title", null, false),
             new ManifestState(textItem.Id, "text", text.Id, null, null, null, text.Id, null, null,
                 $"/api/texts/{text.Id}/file", 0, null, null, null, null, "Text item title", null, false),
             new ManifestState(segmentItem.Id, "segment", segment.Id, video.Id, null, null, null, segment.Id, video.Title,
-                $"/api/stream/video/{video.Id}", 4, 9, 5, null, $"/api/stream/video/{video.Id}/screenshot", "Segment item title", null, false));
+                $"/api/stream/video/{video.Id}", 4, 9, 5, null, $"/api/stream/video/{video.Id}/screenshot?r={MediaCacheRevisions.VideoScreenshots}", "Segment item title", null, false));
         foreach (var item in nonPlayable)
             manifest.Items.Should().NotContain(candidate => candidate.GroupItemId == item.Id);
     }
@@ -270,15 +271,15 @@ public sealed class GroupItemBranchCoverageApiTests(
         firstPage.Items.Concat(secondPage.Items).Concat(thirdPage.Items).Select(item => item.Id).Should().OnlyHaveUniqueItems();
         manifest.Items.Select(ManifestState.From).Should().Equal(
             new ManifestState(-1, "video", video.Id, video.Id, null, null, null, null, video.Title,
-                $"/api/stream/video/{video.Id}", 0, null, null, null, $"/api/stream/video/{video.Id}/screenshot", video.Title, null, false),
+                $"/api/stream/video/{video.Id}", 0, null, null, null, $"/api/stream/video/{video.Id}/screenshot?r={MediaCacheRevisions.VideoScreenshots}", video.Title, null, false),
             new ManifestState(-2, "audio", audio.Id, null, audio.Id, null, null, null, null,
                 $"/api/audios/{audio.Id}/stream", 0, null, null, null, null, audio.Title, null, false),
             new ManifestState(-3, "image", image.Id, null, null, image.Id, null, null, null,
-                $"/api/stream/image/{image.Id}", 0, null, null, null, $"/api/stream/image/{image.Id}/thumbnail", image.Title, null, false),
+                $"/api/stream/image/{image.Id}?r={MediaCacheRevisions.LibraryImages}", 0, null, null, null, $"/api/stream/image/{image.Id}/thumbnail?r={MediaCacheRevisions.LibraryImages}", image.Title, null, false),
             new ManifestState(-4, "text", text.Id, null, null, null, text.Id, null, null,
                 $"/api/texts/{text.Id}/file", 0, null, null, null, null, text.Title, null, false),
             new ManifestState(-5, "segment", segment.Id, video.Id, null, null, null, segment.Id, video.Title,
-                $"/api/stream/video/{video.Id}", 2, 5, 3, null, $"/api/stream/video/{video.Id}/screenshot", segment.Title, null, false));
+                $"/api/stream/video/{video.Id}", 2, 5, 3, null, $"/api/stream/video/{video.Id}/screenshot?r={MediaCacheRevisions.VideoScreenshots}", segment.Title, null, false));
     }
 
     private static async Task AssertBadRequestAndNoItemsAsync(CoveClient reader, int groupId, Func<Task> action)

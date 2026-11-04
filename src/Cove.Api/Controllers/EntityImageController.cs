@@ -85,9 +85,7 @@ public class EntityImageController(
         var frame = await OpenFrameAsync(thumbnailService.GetTimestampedThumbnailPath(sourceVideoId.Value, atSeconds), max, ct);
         if (frame != null)
         {
-            Response.Headers.CacheControl = immutable
-                ? "public, max-age=31536000, immutable"
-                : "public, max-age=86400";
+            if (immutable) MediaCache.Versioned(Response); else MediaCache.Stable(Response);
             return File(frame, "image/jpeg");
         }
 
@@ -95,7 +93,7 @@ public class EntityImageController(
         var screenshot = await streamService.GetVideoScreenshot(segment.HostId, atSeconds, ct);
         if (screenshot == null) return NotFound();
 
-        Response.Headers.CacheControl = "public, max-age=300";
+        MediaCache.StandIn(Response);
         // The screenshot can be the video's custom cover, served with whatever type it was stored as.
         UntrustedContentHeaders.Apply(Response);
         return File(screenshot.Value.stream, screenshot.Value.contentType);
@@ -223,11 +221,9 @@ public class EntityImageController(
             var screenshot = await streamService.GetVideoScreenshot(id, null, ct);
             if (screenshot == null) return NotFound();
 
-            Response.Headers.CacheControl = !string.IsNullOrWhiteSpace(v)
-                ? "public, max-age=31536000, immutable"
-                : screenshot.Value.useLongCache
-                    ? "public, max-age=86400"
-                    : "no-store, no-cache, max-age=0, must-revalidate";
+            if (!string.IsNullOrWhiteSpace(v)) MediaCache.Versioned(Response);
+            else if (screenshot.Value.useLongCache) MediaCache.Stable(Response);
+            else MediaCache.None(Response);
             // Normally a generated frame, but a cover uploaded concurrently could be served from here.
             UntrustedContentHeaders.Apply(Response);
             return File(screenshot.Value.stream, screenshot.Value.contentType);
@@ -659,10 +655,10 @@ public class EntityImageController(
             .FirstOrDefaultAsync(ct);
 
         if (fallback?.ImageId is int imageId)
-            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{imageId}/thumbnail", max, v)));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.LibraryImages, $"/api/stream/image/{imageId}/thumbnail", max, v)));
 
         if (fallback?.VideoId is int videoId)
-            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/video/{videoId}/screenshot", null, v, fallback.StartSec)));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.VideoScreenshots, $"/api/stream/video/{videoId}/screenshot", null, v, fallback.StartSec)));
 
         return NotFound();
     }
@@ -1005,23 +1001,22 @@ public class EntityImageController(
 
         if (result == null) return NotFound();
 
-        var cacheControl = immutable
-            ? "public, max-age=31536000, immutable"
-            : "public, max-age=3600";
-
-        Response.Headers.CacheControl = cacheControl;
+        if (immutable) MediaCache.Versioned(Response); else MediaCache.Replaceable(Response);
         // Blobs keep the content type they arrived with — an upload's, a scraped site's, or a library
         // SVG's after "Set as cover" — so they must not be able to run script when opened directly.
         UntrustedContentHeaders.Apply(Response);
         return File(result.Value.stream, result.Value.contentType, enableRangeProcessing: result.Value.supportsRangeRequests);
     }
 
-    private static string WithQuery(string path, int? max, string? version, double? seconds = null)
+    // A redirect target carries the cache revision of its own route family, so bumping that family also
+    // refreshes what these fallbacks point at.
+    private static string WithQuery(int revision, string path, int? max, string? version, double? seconds = null)
     {
         var query = new List<string>();
         if (max.HasValue && max.Value > 0) query.Add($"max={max.Value}");
         if (!string.IsNullOrWhiteSpace(version)) query.Add($"v={Uri.EscapeDataString(version)}");
         if (seconds.HasValue) query.Add($"seconds={seconds.Value.ToString(CultureInfo.InvariantCulture)}");
+        if (revision > 0) query.Add($"{MediaCacheRevisions.QueryKey}={revision.ToString(CultureInfo.InvariantCulture)}");
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
     }
 }

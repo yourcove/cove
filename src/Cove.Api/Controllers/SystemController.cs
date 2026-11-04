@@ -549,7 +549,7 @@ public class SystemController(
             throw;
         }
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         // Uploaded SVGs are user content and must not run script when opened directly.
         UntrustedContentHeaders.Apply(Response);
         var result = File(stream, contentType);
