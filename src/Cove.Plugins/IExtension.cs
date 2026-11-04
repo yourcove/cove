@@ -510,6 +510,11 @@ public class ExtensionManifestFile
     public List<ExtensionSettingManifest> Settings { get; set; } = [];
     /// <summary>In-app Cove Manual topics contributed by this extension.</summary>
     public List<UITutorialTopic> TutorialTopics { get; set; } = [];
+    /// <summary>
+    /// Package-relative paths of User Guide topics written as shared feature-guide JSON files, the format
+    /// of Cove's own guides in <c>docs/feature-guides/</c>.
+    /// </summary>
+    public List<string> FeatureGuides { get; set; } = [];
     /// <summary>Configurable keyboard actions contributed by a manifest-only extension.</summary>
     public List<UIKeyboardAction> KeyboardActions { get; set; } = [];
     /// <summary>Shareable keyboard presets contributed by a manifest-only extension.</summary>
@@ -682,6 +687,11 @@ public class UIManifest
     public List<UIKeyboardAction> KeyboardActions { get; set; } = [];
     public List<UIKeyboardShortcutPreset> KeyboardShortcutPresets { get; set; } = [];
     public List<UITutorialTopic> TutorialTopics { get; set; } = [];
+    /// <summary>
+    /// User Guide topics extensions ship as shared feature-guide JSON files. The host fills this from each
+    /// extension's <c>extension.json</c> <c>featureGuides</c> list; guides returned from <c>GetUIManifest</c> are ignored.
+    /// </summary>
+    public List<UIFeatureGuide> FeatureGuides { get; set; } = [];
     public List<UIListFilterContribution> ListFilters { get; set; } = [];
     public List<UIListSortContribution> ListSorts { get; set; } = [];
     public List<UIDashboardWidgetContribution> DashboardWidgets { get; set; } = [];
@@ -751,6 +761,20 @@ public record UITutorialTopic(
     string? ParentTopicId = null,
     string? Kind = null
 );
+
+/// <summary>
+/// A User Guide topic an extension ships as a shared feature-guide JSON file. Cove checks the guide's
+/// identity and outline; the in-app User Guide renders the blocks it recognizes.
+/// </summary>
+public sealed class UIFeatureGuide
+{
+    /// <summary>The extension that ships the guide.</summary>
+    public required string ExtensionId { get; init; }
+    /// <summary>The guide file's package-relative path. Relative image sources resolve against its directory.</summary>
+    public required string Path { get; init; }
+    /// <summary>The guide document, in the shared feature-guide format with <c>schemaVersion</c> 1.</summary>
+    public required JsonElement Guide { get; init; }
+}
 
 /// <summary>Single tutorial slide shown inside a tutorial topic.</summary>
 public record UITutorialSlide(

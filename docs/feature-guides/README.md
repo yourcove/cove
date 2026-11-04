@@ -13,3 +13,5 @@ To add a guide:
 3. Add the website route to the Starlight sidebar and the relevant landing page. The in-app User Guide discovers valid guide JSON files automatically.
 
 The route wrappers contain only Starlight metadata and the renderer call. Do not copy the guide body into either consumer.
+
+Extensions can ship guides in this format too, listed under `featureGuides` in their `extension.json`. The in-app User Guide renders them next to these guides; see the User Guide topics section of the website's UI extension points page for the rules Cove applies to them.

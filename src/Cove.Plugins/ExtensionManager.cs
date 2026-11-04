@@ -47,6 +47,7 @@ public class ExtensionManager : IExtensionContributionRuntime
     private IServiceScopeFactory? _scopeFactory;
     private IServiceProvider? _rootServices;
     private ILogger<ExtensionManager>? _logger;
+    private readonly ExtensionFeatureGuideLoader _featureGuideLoader = new();
     private IEndpointRouteBuilder? _routeBuilder;
     private ExtensionEndpointRegistry? _endpointRegistry;
     private IReadOnlyList<ServiceDescriptor>? _hostDescriptors;
@@ -1925,6 +1926,38 @@ public class ExtensionManager : IExtensionContributionRuntime
                         entry => entry.Value,
                         StringComparer.Ordinal),
                 }));
+            }
+        }
+
+        // Slide topics are all collected first, so a feature guide never displaces one.
+        foreach (var extensionId in manifestIds)
+        {
+            if (!IsEnabled(extensionId)) continue;
+            var manifestFile = GetManifestFile(extensionId);
+            if (manifestFile is not { FeatureGuides.Count: > 0 }) continue;
+            var packageDirectory = ResolveExtensionDirectory(manifestFile.Id);
+            if (packageDirectory is null) continue;
+            var version = GetInstallation(manifestFile.Id)?.Version ?? manifestFile.Version;
+
+            IReadOnlyList<UIFeatureGuide> guides;
+            try
+            {
+                guides = _featureGuideLoader.Load(manifestFile.Id, version, packageDirectory, manifestFile.FeatureGuides, _logger);
+            }
+            catch (Exception ex)
+            {
+                // One package's guides must never take down the manifest every page depends on.
+                _logger?.LogWarning(ex, "Could not read the feature guides of extension {ExtensionId}", manifestFile.Id);
+                continue;
+            }
+
+            foreach (var guide in guides)
+            {
+                var guideId = guide.Guide.GetProperty("id").GetString()!;
+                if (tutorialTopicIds.Add(guideId))
+                    manifest.FeatureGuides.Add(guide);
+                else
+                    _featureGuideLoader.Report(_logger, manifestFile.Id, version, guide.Path, $"reuses the User Guide topic ID {guideId}");
             }
         }
 

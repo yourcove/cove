@@ -466,6 +466,7 @@ public class ExtensionsController(
             ".svg" => "image/svg+xml",
             ".png" => "image/png",
             ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
             ".woff2" => "font/woff2",
             ".woff" => "font/woff",
             _ => "application/octet-stream"

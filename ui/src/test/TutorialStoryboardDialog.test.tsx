@@ -887,4 +887,273 @@ describe("TutorialStoryboardDialog", () => {
     expect(screen.getByRole("heading", { name: "Related Docs" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Find related items" })).toBeInTheDocument();
   });
+
+  it("renders an extension's feature guide as a User Guide article with package images", () => {
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "example-hashing" }}
+        extensionGuides={[
+          {
+            extensionId: "com.example.hashing",
+            path: "docs/guides/hashing.json",
+            guide: {
+              schemaVersion: 1,
+              id: "example-hashing",
+              title: "Example hashing",
+              description: "Calculate extra fingerprints.",
+              order: 300,
+              sections: [
+                {
+                  id: "choose",
+                  title: "Choose fingerprints",
+                  blocks: [
+                    { type: "steps", items: ["Open the extension settings.", "Enable SHA-256."] },
+                    { type: "image", src: "../images/settings.webp", alt: "Hashing settings" },
+                  ],
+                },
+              ],
+            },
+          },
+          {
+            extensionId: "com.example.hashing",
+            path: "docs/guides/shortcuts.json",
+            guide: {
+              schemaVersion: 1,
+              id: "keyboard-shortcuts",
+              title: "Hijacked shortcuts",
+              description: "Must not replace Cove's topic.",
+              order: 0,
+              sections: [{ id: "s", title: "S", blocks: [{ type: "paragraph", text: "Replaced" }] }],
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 3, name: "Example hashing" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Choose fingerprints" })).toBeInTheDocument();
+    expect(screen.getByText("Enable SHA-256.")).toBeInTheDocument();
+    expect(screen.getByAltText("Hashing settings")).toHaveAttribute(
+      "src",
+      "/api/extensions/assets/com.example.hashing/docs/images/settings.webp",
+    );
+    expect(screen.queryByText("Hijacked shortcuts")).not.toBeInTheDocument();
+  });
+
+  it("nests extension feature guides under their own and Cove's topics", async () => {
+    const user = userEvent.setup();
+    const guide = (id: string, title: string, order: number, parentTopicId?: string) => ({
+      extensionId: "com.example.hashing",
+      path: `docs/guides/${id}.json`,
+      guide: {
+        schemaVersion: 1,
+        id,
+        title,
+        description: `${title} description.`,
+        order,
+        ...(parentTopicId ? { parentTopicId } : {}),
+        sections: [{ id: "body", title: `${title} section`, blocks: [{ type: "paragraph", text: `${title} body.` }] }],
+      },
+    });
+
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "example-hashing" }}
+        extensionGuides={[
+          guide("example-hashing", "Example hashing", 1200),
+          guide("example-hashing-failures", "Example failures", 1201, "example-hashing"),
+          guide("example-under-extensions", "Example under extensions", 1202, "extensions"),
+          guide("example-orphan", "Example orphan", 1203, "missing-parent"),
+        ]}
+      />,
+    );
+
+    const topicButton = (name: string) =>
+      screen
+        .getAllByRole("button", { name: new RegExp(name) })
+        .find((button) => button.hasAttribute("data-topic-depth"));
+
+    expect(topicButton("Example hashing")).toHaveAttribute("data-topic-depth", "0");
+    expect(topicButton("Example orphan")).toHaveAttribute("data-topic-depth", "0");
+
+    const child = topicButton("Example failures");
+    expect(child).toHaveAttribute("data-topic-depth", "1");
+
+    await user.click(child!);
+    expect(screen.getByRole("heading", { name: "Example failures section" })).toBeInTheDocument();
+    expect(screen.getByText("Example failures body.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand Discover and install extensions" }));
+    expect(topicButton("Example under extensions")).toHaveAttribute("data-topic-depth", "1");
+  });
+
+  it("keeps extension feature guides with circular parents reachable", async () => {
+    const user = userEvent.setup();
+    const guide = (id: string, parentTopicId: string) => ({
+      extensionId: "com.example.loop",
+      path: `docs/guides/${id}.json`,
+      guide: {
+        schemaVersion: 1,
+        id,
+        title: `Loop ${id}`,
+        description: "Circular parent.",
+        order: 1300,
+        parentTopicId,
+        sections: [{ id: "body", title: "Body", blocks: [{ type: "paragraph", text: "Body." }] }],
+      },
+    });
+
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "extensions" }}
+        extensionGuides={[
+          guide("loop-self", "loop-self"),
+          guide("loop-a", "loop-b"),
+          guide("loop-b", "loop-a"),
+          guide("loop-c", "loop-a"),
+        ]}
+      />,
+    );
+
+    for (const id of ["loop-self", "loop-a", "loop-b"]) {
+      const button = screen
+        .getAllByRole("button", { name: new RegExp(`Loop ${id}`) })
+        .find((candidate) => candidate.hasAttribute("data-topic-depth"));
+      expect(button, `Loop ${id} must stay in the topic list`).toHaveAttribute("data-topic-depth", "0");
+    }
+
+    await user.click(screen.getByRole("button", { name: "Expand Loop loop-a" }));
+    const child = screen
+      .getAllByRole("button", { name: /Loop loop-c/ })
+      .find((candidate) => candidate.hasAttribute("data-topic-depth"));
+    expect(child, "a topic below a loop keeps its parent").toHaveAttribute("data-topic-depth", "1");
+  });
+
+  it("keeps extension feature guides within two User Guide levels", () => {
+    const guide = (id: string, parentTopicId?: string) => ({
+      extensionId: "com.example.deep",
+      path: `docs/guides/${id}.json`,
+      guide: {
+        schemaVersion: 1,
+        id,
+        title: `Deep ${id}`,
+        description: "Nested guide.",
+        order: 1400,
+        ...(parentTopicId ? { parentTopicId } : {}),
+        sections: [{ id: "body", title: "Body", blocks: [{ type: "paragraph", text: "Body." }] }],
+      },
+    });
+
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "deep-grandchild" }}
+        extensionGuides={[
+          guide("deep-root"),
+          guide("deep-child", "deep-root"),
+          guide("deep-grandchild", "deep-child"),
+          guide("deep-great-grandchild", "deep-grandchild"),
+        ]}
+      />,
+    );
+
+    const topicButton = (name: string) =>
+      screen
+        .getAllByRole("button", { name: new RegExp(name) })
+        .find((button) => button.hasAttribute("data-topic-depth"));
+
+    expect(topicButton("Deep deep-root")).toHaveAttribute("data-topic-depth", "0");
+    for (const id of ["deep-child", "deep-grandchild", "deep-great-grandchild"]) {
+      expect(topicButton(`Deep ${id}`), `Deep ${id} is listed under the top-level guide`).toHaveAttribute(
+        "data-topic-depth",
+        "1",
+      );
+    }
+    expect(screen.getByRole("heading", { level: 3, name: "Deep deep-grandchild" })).toBeInTheDocument();
+  });
+
+  it("lists an extension feature guide below a built-in child topic under that topic's parent", async () => {
+    const user = userEvent.setup();
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "media-types" }}
+        extensionGuides={[
+          {
+            extensionId: "com.example.galleries",
+            path: "docs/guides/galleries.json",
+            guide: {
+              schemaVersion: 1,
+              id: "example-gallery-tips",
+              title: "Example gallery tips",
+              description: "Nested below a built-in child topic.",
+              order: 1500,
+              parentTopicId: "media-type-galleries",
+              sections: [{ id: "body", title: "Body", blocks: [{ type: "paragraph", text: "Body." }] }],
+            },
+          },
+        ]}
+      />,
+    );
+
+    if (screen.queryByRole("button", { name: "Expand Media types" })) {
+      await user.click(screen.getByRole("button", { name: "Expand Media types" }));
+    }
+    const button = screen
+      .getAllByRole("button", { name: /Example gallery tips/ })
+      .find((candidate) => candidate.hasAttribute("data-topic-depth"));
+    expect(button).toHaveAttribute("data-topic-depth", "1");
+  });
+
+  it("labels the topics an extension adds with its name where they begin", async () => {
+    const user = userEvent.setup();
+    const guide = (extensionId: string, id: string, title: string, parentTopicId?: string) => ({
+      extensionId,
+      path: `docs/guides/${id}.json`,
+      guide: {
+        schemaVersion: 1,
+        id,
+        title,
+        description: `${title} description.`,
+        order: 1600,
+        ...(parentTopicId ? { parentTopicId } : {}),
+        sections: [{ id: "body", title: "Body", blocks: [{ type: "paragraph", text: "Body." }] }],
+      },
+    });
+
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "badge-child" }}
+        extensionNames={new Map([["com.example.badge", "Example Badge"]])}
+        extensionGuides={[
+          guide("com.example.badge", "badge-root", "Badge root"),
+          guide("com.example.badge", "badge-child", "Badge child", "badge-root"),
+          guide("com.example.badge", "badge-under-extensions", "Badge under extensions", "extensions"),
+          guide("com.example.unnamed", "unnamed-root", "Unnamed root"),
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand Discover and install extensions" }));
+
+    const topicButton = (name: string) =>
+      screen
+        .getAllByRole("button", { name: new RegExp(name) })
+        .find((button) => button.hasAttribute("data-topic-depth"))!;
+
+    expect(within(topicButton("Badge root")).getByText("Example Badge")).toBeInTheDocument();
+    expect(within(topicButton("Badge child")).queryByText("Example Badge")).not.toBeInTheDocument();
+    expect(within(topicButton("Badge under extensions")).getByText("Example Badge")).toBeInTheDocument();
+    expect(within(topicButton("Unnamed root")).getByText("Extension")).toBeInTheDocument();
+    expect(within(topicButton("Discover and install extensions")).queryByText("Extension")).not.toBeInTheDocument();
+  });
 });
