@@ -33,6 +33,7 @@ public sealed class ExtensionStateJobAndAssetApiTests(
             ["api-test-asset.svg"] = ("image/svg+xml", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><path d=\"M0 0h1v1H0z\"/></svg>\n"),
             ["api-test-asset.png"] = ("image/png", "api-test-png\n"),
             ["api-test-asset.jpg"] = ("image/jpeg", "api-test-jpeg\n"),
+            ["api-test-asset.webp"] = ("image/webp", "api-test-webp\n"),
             ["api-test-asset.woff2"] = ("font/woff2", "api-test-woff2\n"),
             ["api-test-asset.woff"] = ("font/woff", "api-test-woff\n"),
             ["api-test-asset.bin"] = ("application/octet-stream", "api-test-binary\n"),

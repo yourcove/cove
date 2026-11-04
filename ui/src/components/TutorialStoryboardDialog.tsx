@@ -11,6 +11,7 @@ import {
   ImageIcon,
   LayoutGrid,
   Play,
+  Puzzle,
   RefreshCw,
   Search,
   Settings,
@@ -18,8 +19,15 @@ import {
   X,
 } from "lucide-react";
 import { LazyMarkdown } from "./LazyMarkdown";
-import type { ExtensionTutorialTopic } from "../api/types";
+import type { ExtensionFeatureGuide, ExtensionTutorialTopic } from "../api/types";
 import { normalizeManualContext, uniqueManualContexts, type TutorialOpenRequest } from "./ManualContext";
+import {
+  normalizeExtensionFeatureGuide,
+  toInAppRoute,
+  type SharedFeatureGuideArticle,
+  type SharedFeatureGuideBlock,
+  type SharedFeatureGuideContentBlock,
+} from "./featureGuideContent";
 
 const sharedFeatureGuideImages = import.meta.glob("../../../docs/feature-guides/assets/**/*", {
   eager: true,
@@ -73,36 +81,6 @@ export interface TutorialStoryboardSlide {
   guideArticle?: SharedFeatureGuideArticle;
 }
 
-type SharedFeatureGuideContentBlock =
-  | { type: "paragraph" | "note"; text: string }
-  | { type: "steps"; items: string[] }
-  | { type: "heading"; level: 3 | 4; text: string }
-  | { type: "list"; items: string[] }
-  | {
-      type: "links";
-      items: { label: string; href: string; appHref?: string; topicId?: string; slideId?: string }[];
-    }
-  | { type: "image"; src: string; alt: string; caption?: string }
-  | { type: "table"; caption?: string; columns: string[]; rows: string[][] }
-  | { type: "code"; language?: string; lines: string[] };
-
-type SharedFeatureGuideBlock =
-  | SharedFeatureGuideContentBlock
-  | {
-      type: "recipes";
-      items: {
-        id: string;
-        title: string;
-        description?: string;
-        blocks: SharedFeatureGuideContentBlock[];
-      }[];
-    };
-
-interface SharedFeatureGuideArticle {
-  description: string;
-  sections: { id: string; title: string; blocks: SharedFeatureGuideBlock[] }[];
-}
-
 interface SharedFeatureGuideSource extends SharedFeatureGuideArticle {
   schemaVersion: 1;
   id: string;
@@ -117,7 +95,10 @@ function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideContentBl
 function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideBlock): SharedFeatureGuideBlock;
 function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideBlock): SharedFeatureGuideBlock {
   if (block.type === "image") {
-    return { ...block, src: resolveSharedFeatureGuideImage(block.src) ?? block.src };
+    return {
+      ...block,
+      src: resolveSharedFeatureGuideImage(block.src) ?? block.src,
+    };
   }
   if (block.type === "recipes") {
     return {
@@ -188,6 +169,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = sharedFeatureGui
 
 // Stable default so an omitted prop does not rebuild the topic list on every render.
 const noExtensionTopics: ExtensionTutorialTopic[] = [];
+const noExtensionGuides: ExtensionFeatureGuide[] = [];
+const noExtensionNames: ReadonlyMap<string, string> = new Map();
 
 interface Props {
   open: boolean;
@@ -195,6 +178,9 @@ interface Props {
   request?: TutorialOpenRequest;
   currentPage?: string;
   extensionTopics?: ExtensionTutorialTopic[];
+  extensionGuides?: ExtensionFeatureGuide[];
+  /** Installed extension names by ID, for labelling the topics an extension adds. */
+  extensionNames?: ReadonlyMap<string, string>;
   onTopicChange?: (topicId: string, slideId?: string) => void;
   onAppNavigate?: (href: string) => void;
 }
@@ -205,10 +191,15 @@ export function TutorialStoryboardDialog({
   request,
   currentPage,
   extensionTopics = noExtensionTopics,
+  extensionGuides = noExtensionGuides,
+  extensionNames = noExtensionNames,
   onTopicChange,
   onAppNavigate,
 }: Props) {
-  const topics = useMemo(() => mergeTutorialTopics(extensionTopics), [extensionTopics]);
+  const topics = useMemo(
+    () => mergeTutorialTopics(extensionTopics, extensionGuides),
+    [extensionTopics, extensionGuides],
+  );
   const availableTopicIds = useMemo(() => new Set(topics.map((topic) => topic.id)), [topics]);
   const topicEntries = useMemo(() => buildTopicEntries(topics), [topics]);
   const orderedTopicIds = useMemo(() => topicEntries.map((entry) => entry.topic.id), [topicEntries]);
@@ -222,6 +213,14 @@ export function TutorialStoryboardDialog({
     return map;
   }, [topics]);
   const parentIdsWithChildren = useMemo(() => new Set(parentByChild.values()), [parentByChild]);
+  // Label where an extension's topics begin: a child of the same extension's topic needs no badge of its own.
+  const extensionBadgeLabel = (topic: TutorialStoryboardTopic) => {
+    if (!topic.extensionId) return undefined;
+    const parentId = parentByChild.get(topic.id);
+    const parent = parentId ? topics.find((candidate) => candidate.id === parentId) : undefined;
+    if (parent?.extensionId === topic.extensionId) return undefined;
+    return extensionNames.get(topic.extensionId)?.trim() || "Extension";
+  };
 
   const [selectedTopicId, setSelectedTopicId] = useState(() => pickInitialTopicId(topics, request, currentPage));
   const [index, setIndex] = useState(0);
@@ -469,6 +468,7 @@ export function TutorialStoryboardDialog({
                   const hasChildren = parentIdsWithChildren.has(topic.id);
                   const expanded = isTopicOpen(topic.id);
                   const showToggle = hasChildren && !trimmedSearch;
+                  const extensionBadge = extensionBadgeLabel(topic);
                   return (
                     <div
                       key={topic.id}
@@ -500,8 +500,11 @@ export function TutorialStoryboardDialog({
                         {topic.description ? (
                           <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{topic.description}</span>
                         ) : null}
-                        {topic.extensionId ? (
-                          <span className="mt-1 block text-[11px] text-muted">Extension</span>
+                        {extensionBadge ? (
+                          <span className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border border-border px-1.5 py-px text-[11px] font-medium text-secondary">
+                            <Puzzle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{extensionBadge}</span>
+                          </span>
                         ) : null}
                       </button>
                     </div>
@@ -679,7 +682,10 @@ export function TutorialStoryboardDialog({
   );
 }
 
-function mergeTutorialTopics(extensionTopics: ExtensionTutorialTopic[]): TutorialStoryboardTopic[] {
+function mergeTutorialTopics(
+  extensionTopics: ExtensionTutorialTopic[],
+  extensionGuides: ExtensionFeatureGuide[],
+): TutorialStoryboardTopic[] {
   const normalizedExtensionTopics = extensionTopics
     .filter((topic) => topic.id && topic.title && (topic.slides?.length ?? 0) > 0)
     .map<TutorialStoryboardTopic>((topic) => ({
@@ -705,9 +711,85 @@ function mergeTutorialTopics(extensionTopics: ExtensionTutorialTopic[]): Tutoria
       })),
     }));
 
-  return [...builtinTutorialTopics, ...normalizedExtensionTopics].sort(
+  const guideTopics = extensionGuides.flatMap<TutorialStoryboardTopic>((entry) => {
+    const guide = normalizeExtensionFeatureGuide(entry);
+    if (!guide) return [];
+    return [
+      {
+        id: guide.id,
+        title: guide.title,
+        description: guide.description,
+        pages: guide.pages,
+        contexts: normalizeManualContexts(guide.contexts),
+        extensionId: entry.extensionId,
+        parentTopicId: guide.parentTopicId,
+        order: guide.order,
+        slides: [
+          {
+            id: "guide",
+            title: guide.title,
+            guideArticle: {
+              description: guide.description,
+              sections: guide.sections,
+            },
+          },
+        ],
+      },
+    ];
+  });
+
+  // Cove's own topics come first, so an extension cannot replace one by reusing its ID.
+  const seenTopicIds = new Set<string>();
+  const topics = [...builtinTutorialTopics, ...normalizedExtensionTopics, ...guideTopics].filter((topic) => {
+    if (seenTopicIds.has(topic.id)) return false;
+    seenTopicIds.add(topic.id);
+    return true;
+  });
+  return withTwoLevelParents(topics).sort(
     (left, right) => left.order - right.order || left.title.localeCompare(right.title),
   );
+}
+
+/**
+ * Keeps the User Guide's topic list two levels deep for every topic, as tests already require of Cove's
+ * own. An extension topic can name any topic as its parent, so a topic whose parent chain leads back to
+ * itself is listed at the top level, where it can still be found, and a topic below a child topic is
+ * listed under that child's top-level topic instead.
+ */
+function withTwoLevelParents(topics: TutorialStoryboardTopic[]): TutorialStoryboardTopic[] {
+  const parentById = new Map(topics.map((topic) => [topic.id, topic.parentTopicId]));
+  const isCircular = (topicId: string) => {
+    const seen = new Set([topicId]);
+    for (let current = parentById.get(topicId); current && parentById.has(current); current = parentById.get(current)) {
+      if (current === topicId) return true;
+      if (seen.has(current)) return false;
+      seen.add(current);
+    }
+    return false;
+  };
+  // Find every circular topic before detaching any, so a loop is detected whichever of its topics comes first.
+  const circularIds = topics.filter((topic) => topic.parentTopicId && isCircular(topic.id)).map((topic) => topic.id);
+  for (const topicId of circularIds) parentById.set(topicId, undefined);
+
+  const topLevelAncestor = (topicId: string) => {
+    let ancestor: string | undefined;
+    const seen = new Set([topicId]);
+    for (
+      let current = parentById.get(topicId);
+      current && parentById.has(current) && !seen.has(current);
+      current = parentById.get(current)
+    ) {
+      seen.add(current);
+      ancestor = current;
+    }
+    return ancestor;
+  };
+  return topics.map((topic) => {
+    if (!topic.parentTopicId) return topic;
+    const parentTopicId =
+      parentById.get(topic.id) === undefined ? undefined : (topLevelAncestor(topic.id) ?? topic.parentTopicId);
+    return parentTopicId === topic.parentTopicId ? topic : { ...topic, parentTopicId };
+  });
 }
 
 function buildTopicEntries(topics: TutorialStoryboardTopic[]): TutorialTopicEntry[] {
@@ -1333,7 +1415,7 @@ function resolveInAppGuideHref(href: string) {
 }
 
 function resolveInAppRouteHref(href: string | undefined) {
-  return href?.startsWith("/") && !href.startsWith("//") ? href : undefined;
+  return toInAppRoute(href);
 }
 
 function TasksMock() {

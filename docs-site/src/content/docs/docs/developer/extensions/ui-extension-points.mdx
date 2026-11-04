@@ -247,9 +247,46 @@ Theme, component-style, and layout ids become stored user preferences. Keep them
 
 ## User Guide topics
 
-`UITutorialTopic` contributes a topic to the in-app Cove User Guide. Topics can be scoped by page and runtime context, nested with `ParentTopicId`, and ordered alongside built-in and other extension topics.
+`UITutorialTopic` contributes a topic to the in-app Cove User Guide. Topics can be scoped by page and runtime context, nested with `ParentTopicId` (two levels deep, with the same rules as [feature guides](#feature-guides)), and ordered alongside built-in and other extension topics.
 
 Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown body, image, mock kind, and external links. Set `Kind` to `setup` when the topic is an installation or first-run guide that Cove should surface after install.
+
+### Feature guides
+
+An extension can instead write a topic in the same JSON format as Cove's own User Guide, described by `docs/feature-guides/schema.json` in the Cove repository. One file is one scrollable article of sections with paragraphs, steps, lists, notes, tables, code, recipes, links, and images. The same file can be rendered by a documentation website, so the in-app topic and the published page never drift apart.
+
+List the files in `extension.json`, relative to the package root:
+
+```json
+{
+  "featureGuides": ["docs/guides/overview.json", "docs/guides/settings.json"]
+}
+```
+
+Cove reads each listed file when it builds the extension manifest, up to 32 guides per extension, and logs a warning once for each file it skips because it:
+
+- is not a `.json` file inside the package,
+- is larger than 256 KiB or is not valid JSON,
+- is not `schemaVersion` 1, or lacks a kebab-case `id`, a `title`, a `description`, a non-negative integer `order`, or at least one section with a kebab-case `id`, a `title`, and `blocks`, or
+- reuses the `id` of an extension slide topic or an earlier feature guide.
+
+Cove's own guides always win: an extension guide that reuses the `id` of a built-in topic is not shown. Built-in topic IDs are unprefixed kebab-case words, so give your guides a prefix of your own, such as `hash-the-cove-settings`, to stay clear of topics later Cove versions add.
+
+The User Guide renders each section and block the schema defines and drops the ones it cannot render, so a guide written for a newer Cove still shows the content an older Cove understands. Links keep the schema's rules: `href` must start with `/docs/`, which opens Cove's documentation website, or `https://` (or `http://`), and `appHref` must be a Cove route such as `/settings/extensions`. Use `topicId` to link to another User Guide topic, including your own. It must be kebab-case, so it can reach feature guides and built-in topics but not slide topics with dotted IDs.
+
+Set `parentTopicId` to list a guide under another User Guide topic: one of your own guides, such as an overview guide with one child guide per workflow, or a built-in topic, such as `extensions`. The topic list is two levels deep, the same as for Cove's own topics:
+
+- A guide whose parent is a child topic is listed under that child's top-level topic instead.
+- A guide whose parent does not exist, for example because it belongs to an extension that is disabled, is listed at the top level.
+- A guide whose parent chain leads back to itself is listed at the top level.
+
+Each child guide is its own file, listed in `featureGuides` like any other.
+
+Cove fills `UIManifest.FeatureGuides` from `extension.json` only. Guides an `IUIExtension` adds to the manifest it returns from `GetUIManifest` are ignored.
+
+Image `src` values resolve relative to the guide file and must stay inside the package, so `../images/settings.webp` in `docs/guides/overview.json` is served from `docs/images/settings.webp`. `https://` URLs and `data:image/` sources are used as written. Package images are served by the extension asset endpoint, which serves only packages with a loaded `entryDll`, so a manifest-only package should use `https://` or `data:image/` images.
+
+Validate your guides against the schema in your extension's own build. Cove's host checks only the outline above.
 
 ## Feature declarations
 

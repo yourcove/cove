@@ -3904,6 +3904,7 @@ export interface ExtensionManifest {
   keyboardActions?: ExtensionKeyboardAction[];
   keyboardShortcutPresets?: ExtensionKeyboardShortcutPreset[];
   tutorialTopics?: ExtensionTutorialTopic[];
+  featureGuides?: ExtensionFeatureGuide[];
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
   dashboardWidgets?: ExtensionDashboardWidgetContribution[];
@@ -4061,6 +4062,15 @@ export interface ExtensionTutorialTopic {
   parentTopicId?: string;
   /** When "setup", this topic is the extension's setup guide and is surfaced after install. */
   kind?: string;
+}
+
+/** A User Guide topic an extension ships as a shared feature-guide JSON file. */
+export interface ExtensionFeatureGuide {
+  extensionId: string;
+  /** Package-relative path of the guide file; relative image sources resolve against its directory. */
+  path: string;
+  /** The guide in the shared feature-guide format. Cove checks only its outline, so render it through a normalizer. */
+  guide: unknown;
 }
 
 export interface ExtensionTutorialSlide {
