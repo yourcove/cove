@@ -48,6 +48,7 @@ import { useMediaRecoveryController } from "./useMediaRecoveryController";
 import { serverAwareFetch } from "../state/serverAvailability";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { findSpriteIndex, spriteTileStyle, type VideoSprites } from "../hooks/useVideoSprites";
+import { usePopoverPosition } from "../hooks/usePopoverPosition";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
@@ -314,12 +315,14 @@ export function VideoPlayer({
   const [showCaptions, setShowCaptions] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
   const [showMobileOptions, setShowMobileOptions] = useState(false);
-  const [mobileOptionsPosition, setMobileOptionsPosition] = useState<{
-    top?: number;
-    bottom?: number;
-    right: number;
-    maxHeight: number;
-  }>({ top: 0, right: 0, maxHeight: 0 });
+  const { style: mobileOptionsStyle } = usePopoverPosition(
+    showMobileOptions,
+    mobileOptionsButtonRef,
+    mobileOptionsMenuRef,
+    {
+      offset: 8,
+    },
+  );
   useEffect(() => {
     if (!showMobileOptions) return;
 
@@ -2509,20 +2512,7 @@ export function VideoPlayer({
             <div className="relative md:hidden">
               <button
                 ref={mobileOptionsButtonRef}
-                onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const spaceBelow = window.innerHeight - rect.bottom - 16;
-                  const spaceAbove = rect.top - 16;
-                  const openBelow = spaceBelow >= 240 || spaceBelow >= spaceAbove;
-                  setMobileOptionsPosition({
-                    ...(openBelow
-                      ? { top: rect.bottom + 8, bottom: undefined }
-                      : { top: undefined, bottom: window.innerHeight - rect.top + 8 }),
-                    right: Math.max(8, window.innerWidth - rect.right),
-                    maxHeight: Math.max(0, openBelow ? spaceBelow : spaceAbove),
-                  });
-                  setShowMobileOptions((visible) => !visible);
-                }}
+                onClick={() => setShowMobileOptions((visible) => !visible)}
                 className="p-1 hover:text-accent"
                 title="Playback options"
                 aria-label="Playback options"
@@ -2535,12 +2525,7 @@ export function VideoPlayer({
                     <div
                       ref={mobileOptionsMenuRef}
                       className="fixed z-[100] min-w-56 overflow-y-auto rounded border border-border bg-surface p-2 text-sm text-primary shadow-xl"
-                      style={{
-                        top: mobileOptionsPosition.top,
-                        bottom: mobileOptionsPosition.bottom,
-                        right: mobileOptionsPosition.right,
-                        maxHeight: mobileOptionsPosition.maxHeight,
-                      }}
+                      style={mobileOptionsStyle}
                       role="dialog"
                       aria-label="Playback options menu"
                     >
