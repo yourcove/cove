@@ -29,6 +29,7 @@ import {
 import { images } from "../api/client";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 import { performers } from "../api/client";
+import { mediaCacheRevision } from "../api/mediaCacheRevisions";
 
 const videoFile = {
   id: 10,
@@ -241,7 +242,10 @@ describe("VideoCard navigation", () => {
     expect(screen.getByRole("tooltip", { name: "About Featured" })).toHaveTextContent("List preview");
     expect(screen.queryByRole("img", { name: "Featured" })).not.toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByRole("link", { name: "Second tag" }));
-    expect(screen.getByRole("img", { name: "Second tag" })).toHaveAttribute("src", "/api/tags/10/image?max=640");
+    expect(screen.getByRole("img", { name: "Second tag" })).toHaveAttribute(
+      "src",
+      `/api/tags/10/image?max=640&r=${mediaCacheRevision("entityImages").r}`,
+    );
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/tags/"))).toBe(false);
   });
 

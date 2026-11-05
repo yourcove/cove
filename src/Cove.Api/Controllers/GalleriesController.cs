@@ -103,11 +103,11 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (gallery == null) return NotFound();
 
         if (gallery.ImageBlobId != null)
-            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/galleries/{id}/image", max, v)));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.EntityImages, $"/api/galleries/{id}/image", max, v)));
 
         if (gallery.CoverImageId.HasValue
             && await db.Images.AsNoTracking().AnyAsync(image => image.Id == gallery.CoverImageId.Value, ct))
-            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v)));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.LibraryImages, $"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v)));
 
         var firstImageId = await db.Set<ImageGallery>()
             .Where(ig => ig.GalleryId == id)
@@ -116,7 +116,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             .FirstOrDefaultAsync(ct);
 
         if (firstImageId.HasValue)
-            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{firstImageId.Value}/thumbnail", max, v)));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.LibraryImages, $"/api/stream/image/{firstImageId.Value}/thumbnail", max, v)));
 
         var firstVideoId = await db.Set<VideoGallery>()
             .Where(sg => sg.GalleryId == id)
@@ -125,7 +125,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             .FirstOrDefaultAsync(ct);
 
         return firstVideoId.HasValue
-            ? Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/video/{firstVideoId.Value}/screenshot", null, v)))
+            ? Redirect(QueryCredentials.Preserve(Request, WithQuery(MediaCacheRevisions.VideoScreenshots, $"/api/stream/video/{firstVideoId.Value}/screenshot", null, v)))
             : NotFound();
     }
 
@@ -370,11 +370,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         return null;
     }
 
-    private static string WithQuery(string path, int? max, string? version)
+    // A redirect target carries the cache revision of its own route family, so bumping that family also
+    // refreshes what the cover points at.
+    private static string WithQuery(int revision, string path, int? max, string? version)
     {
         var query = new List<string>();
         if (max.HasValue && max.Value > 0) query.Add($"max={max.Value}");
         if (!string.IsNullOrWhiteSpace(version)) query.Add($"v={Uri.EscapeDataString(version)}");
+        if (revision > 0) query.Add($"{MediaCacheRevisions.QueryKey}={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
     }
 

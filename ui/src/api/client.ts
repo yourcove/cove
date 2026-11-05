@@ -240,6 +240,7 @@ const UPLOAD_REQUEST_TIMEOUT_MS = 5 * 60_000;
 import { authStore } from "../auth/authStore";
 import { serverAwareFetch, type ServerAwareFetchOptions } from "../state/serverAvailability";
 import { serializeSortClauses } from "../utils/sortClauses";
+import { mediaCacheRevision } from "./mediaCacheRevisions";
 
 let refreshInFlight: Promise<boolean> | null = null;
 const REFRESH_LOCK_NAME = "cove-auth-refresh";
@@ -730,7 +731,10 @@ export const videos = {
     }),
   streamUrl: (id: number, fileId?: number) => buildMediaUrl(`/stream/video/${id}`, undefined, undefined, { fileId }),
   screenshotUrl: (id: number, version?: string, seconds?: number) =>
-    buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
+    buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, {
+      seconds,
+      ...mediaCacheRevision("videoScreenshots"),
+    }),
   previewUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview`),
   previewStatusUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview/status`),
   captionUrl: (videoId: number, captionId: number) => buildMediaUrl(`/stream/video/${videoId}/caption/${captionId}`),
@@ -955,11 +959,6 @@ type FaceListOptions = {
   perPage?: number;
 };
 
-// Cache revision of detection crops, bumped when crops start coming from different frames; keep it in
-// step with DetectionCropFrameRevision in src/Cove.Api/Controllers/EntityImageUrls.cs. 2: cut from each
-// detection's exact frame.
-const DETECTION_CROP_FRAME_REVISION = 2;
-
 export const faces: {
   list: (opts?: FaceListOptions) => Promise<PaginatedResponse<Face>>;
   get: (id: number) => Promise<Face>;
@@ -1091,7 +1090,7 @@ export const faces: {
   detectionCropUrl: (detectionId: number, max?: number, context?: number) =>
     buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max, {
       context,
-      frame: DETECTION_CROP_FRAME_REVISION,
+      ...mediaCacheRevision("detectionCrops"),
     }),
   deleteImpact: (id: number) => request<FaceDeleteImpact>(`/faces/${id}/delete-impact`),
   create: (data: FaceCreate) => request<Face>("/faces", { method: "POST", body: JSON.stringify(data) }),
@@ -1551,8 +1550,10 @@ export const galleries = {
       timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
     });
   },
-  coverUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/cover`, version, max),
-  getCoverImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/image`, version, max),
+  coverUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/galleries/${id}/cover`, version, max, mediaCacheRevision("entityImages")),
+  getCoverImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/galleries/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   deleteCoverImage: (id: number) => request<void>(`/galleries/${id}/image`, { method: "DELETE" }),
   setCover: (id: number, imageId: number) =>
     request<void>(`/galleries/${id}/cover`, { method: "PUT", body: JSON.stringify({ imageId }) }),
@@ -1625,8 +1626,10 @@ export const images = {
       request<Detection>(`/images/${imageId}/detections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (imageId: number, id: number) => request<void>(`/images/${imageId}/detections/${id}`, { method: "DELETE" }),
   },
-  imageUrl: (id: number) => buildMediaUrl(`/stream/image/${id}`),
-  thumbnailUrl: (id: number, max?: number) => buildMediaUrl(`/stream/image/${id}/thumbnail`, undefined, max),
+  imageUrl: (id: number) =>
+    buildMediaUrl(`/stream/image/${id}`, undefined, undefined, mediaCacheRevision("libraryImages")),
+  thumbnailUrl: (id: number, max?: number) =>
+    buildMediaUrl(`/stream/image/${id}/thumbnail`, undefined, max, mediaCacheRevision("libraryImages")),
 };
 
 // ===== Audios =====
@@ -1835,17 +1838,14 @@ async function deleteImage(path: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error(`Delete failed: ${res.status}`);
 }
 
-// Bumped when the frame shown for a segment without a chosen cover changes. Versioned image URLs
-// are cached as immutable, so browsers only fetch the new frame under a new URL.
-const SEGMENT_COVER_FRAME_REVISION = 3;
-
 export const entityImages = {
-  videoCoverUrl: (id: number, version?: string, max = 1600) => buildMediaUrl(`/videos/${id}/image`, version, max),
+  videoCoverUrl: (id: number, version?: string, max = 1600) =>
+    buildMediaUrl(`/videos/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadVideoCoverImage: (id: number, file: File) => uploadImage(`/videos/${id}/image`, file),
   deleteVideoCoverImage: (id: number) => deleteImage(`/videos/${id}/image`),
 
   segmentCoverUrl: (id: number, version?: string, max = 1600) =>
-    buildMediaUrl(`/segments/${id}/image`, version, max, { frame: SEGMENT_COVER_FRAME_REVISION }),
+    buildMediaUrl(`/segments/${id}/image`, version, max, mediaCacheRevision("segmentCovers")),
   uploadSegmentCoverImage: (id: number, file: File) => uploadImage(`/segments/${id}/image`, file),
   deleteSegmentCoverImage: (id: number) => deleteImage(`/segments/${id}/image`),
   setSegmentCoverFromFrame: (id: number, atSeconds?: number) =>
@@ -1855,41 +1855,45 @@ export const entityImages = {
     }),
 
   performerImageUrl: (id: number, version?: string, max = 640) =>
-    buildMediaUrl(`/performers/${id}/image`, version, max),
+    buildMediaUrl(`/performers/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadPerformerImage: (id: number, file: File) => uploadImage(`/performers/${id}/image`, file),
   deletePerformerImage: (id: number) => deleteImage(`/performers/${id}/image`),
   setPerformerImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/performers/${id}/image/source`, { method: "PUT", body: JSON.stringify(source) }),
 
-  audioImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/audios/${id}/image`, version, max),
+  audioImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/audios/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadAudioImage: (id: number, file: File) => uploadImage(`/audios/${id}/image`, file),
   deleteAudioImage: (id: number) => deleteImage(`/audios/${id}/image`),
 
-  textImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/texts/${id}/image`, version, max),
+  textImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/texts/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadTextImage: (id: number, file: File) => uploadImage(`/texts/${id}/image`, file),
   deleteTextImage: (id: number) => deleteImage(`/texts/${id}/image`),
 
-  studioImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/studios/${id}/image`, version, max),
+  studioImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/studios/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadStudioImage: (id: number, file: File) => uploadImage(`/studios/${id}/image`, file),
   deleteStudioImage: (id: number) => deleteImage(`/studios/${id}/image`),
   setStudioImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/studios/${id}/image/source`, { method: "PUT", body: JSON.stringify(source) }),
 
-  tagImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/tags/${id}/image`, version, max),
+  tagImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/tags/${id}/image`, version, max, mediaCacheRevision("entityImages")),
   uploadTagImage: (id: number, file: File) => uploadImage(`/tags/${id}/image`, file),
   deleteTagImage: (id: number) => deleteImage(`/tags/${id}/image`),
   setTagImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/tags/${id}/image/source`, { method: "PUT", body: JSON.stringify(source) }),
 
   groupFrontImageUrl: (id: number, version?: string, max = 640) =>
-    buildMediaUrl(`/groups/${id}/image/front`, version, max),
+    buildMediaUrl(`/groups/${id}/image/front`, version, max, mediaCacheRevision("entityImages")),
   uploadGroupFrontImage: (id: number, file: File) => uploadImage(`/groups/${id}/image/front`, file),
   deleteGroupFrontImage: (id: number) => deleteImage(`/groups/${id}/image/front`),
   setGroupFrontImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/groups/${id}/image/front/source`, { method: "PUT", body: JSON.stringify(source) }),
 
   groupBackImageUrl: (id: number, version?: string, max = 640) =>
-    buildMediaUrl(`/groups/${id}/image/back`, version, max),
+    buildMediaUrl(`/groups/${id}/image/back`, version, max, mediaCacheRevision("entityImages")),
   uploadGroupBackImage: (id: number, file: File) => uploadImage(`/groups/${id}/image/back`, file),
   deleteGroupBackImage: (id: number) => deleteImage(`/groups/${id}/image/back`),
 

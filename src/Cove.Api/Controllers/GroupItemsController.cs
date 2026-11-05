@@ -817,7 +817,7 @@ public class GroupItemsController(
             EndSec: endSec,
             DurationSec: durationSec,
             DisplayDurationSec: null,
-            PosterPath: $"/api/stream/video/{videoId}/screenshot",
+            PosterPath: EntityImageUrls.UnversionedVideoScreenshot(videoId),
             Title: title,
             Format: null,
             HasVideoTrack: false);
@@ -889,12 +889,12 @@ public class GroupItemsController(
             TextId: null,
             SegmentId: segmentId,
             VideoTitle: null,
-            Src: $"/api/stream/image/{image.Id}",
+            Src: EntityImageUrls.LibraryImage(image.Id),
             StartSec: 0,
             EndSec: null,
             DurationSec: null,
             DisplayDurationSec: null,
-            PosterPath: $"/api/stream/image/{image.Id}/thumbnail",
+            PosterPath: EntityImageUrls.LibraryThumbnail(image.Id),
             Title: title ?? image.Title ?? image.MinPath ?? $"Image {image.Id}",
             Format: file?.Format,
             HasVideoTrack: false);
@@ -927,7 +927,7 @@ public class GroupItemsController(
             EndSec: null,
             DurationSec: null,
             DisplayDurationSec: null,
-            PosterPath: text.ImageBlobId is null ? null : $"/api/texts/{text.Id}/image",
+            PosterPath: text.ImageBlobId is null ? null : EntityImageUrls.UnversionedText(text.Id),
             Title: title ?? text.Title ?? text.MinPath ?? $"Text {text.Id}",
             Format: file?.Format,
             HasVideoTrack: false);

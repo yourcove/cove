@@ -1,3 +1,7 @@
+using System.Globalization;
+using System.Net;
+using System.Web;
+using Cove.Api.Http;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
@@ -125,6 +129,31 @@ public sealed class SourceEntityImageApiTests(
         (await AsUser().GetGalleryCoverAsync(gallery, TestContext.Current.CancellationToken)).ShouldRedirectTo(fallbackImage);
     }
 
+    [Fact]
+    public async Task GivenSvgCopiedFromLibraryAndUploadedAsCover_WhenEntityImagesAreRead_ThenTheyAreServedSandboxed()
+    {
+        var svg = "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><script>alert(1)</script></svg>"u8.ToArray();
+        var image = await AsUser().CreateImageAsync($"Svg source {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var svgPath = AsTestFileSystem().CreateLibraryFile($"entity-svg-{image.Id}.svg", svg);
+        await AsDbUser().AttachStreamImageFileAsync(image.Id, svgPath, width: 1, height: 1, cancellationToken: TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Svg tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync($"Svg video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var segment = await AsUser().CreateVideoSegmentAsync(video, "Svg segment", TestContext.Current.CancellationToken);
+
+        await AsUser(ApiTestUsers.Eva).SetTagImageFromSourceAsync(tag, new EntityImageCoverSourceDto(ImageId: image.Id), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).UploadVideoImageAsync(video, svg, "image/svg+xml", TestContext.Current.CancellationToken);
+
+        using var client = AsUser().CreateHttpClient();
+        foreach (var path in new[] { $"/api/tags/{tag.Id}/image", $"/api/videos/{video.Id}/image", $"/api/segments/{segment.Id}/image", $"/api/stream/video/{video.Id}/screenshot" })
+        {
+            using var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, path);
+            response.Content.Headers.ContentType?.MediaType.Should().Be("image/svg+xml", path);
+            string.Join(";", response.Headers.GetValues("Content-Security-Policy")).Should().Contain("sandbox", path);
+            response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        }
+    }
+
     private async Task AssertCopiedImages(PerformerDto performer, StudioDto studio, TagDetailDto tag, GroupDto group, GalleryDto gallery, byte[] expected)
     {
         (await AsUser().GetPerformerImageAsync(performer)).ShouldMatch(expected);
@@ -150,5 +179,8 @@ internal static class RedirectedEntityImageAssertions
         actual.Content.Should().NotBeEmpty();
         actual.RedirectTarget.Should().NotBeNull();
         actual.RedirectTarget!.AbsolutePath.Should().Be($"/api/stream/image/{image.Id}/thumbnail");
+        // The target carries its own family's cache revision, so bumping it refreshes covers too.
+        HttpUtility.ParseQueryString(actual.RedirectTarget.Query)[MediaCacheRevisions.QueryKey]
+            .Should().Be(MediaCacheRevisions.LibraryImages.ToString(CultureInfo.InvariantCulture));
     }
 }

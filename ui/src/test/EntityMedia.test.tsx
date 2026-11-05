@@ -32,6 +32,7 @@ vi.mock("../extensions/ExtensionLoader", () => ({
 import { EntityMedia, EntityMediaHover, PerformerMediaHover, TagMediaHover } from "../components/EntityMedia";
 import { TagBadge } from "../components/shared";
 import { TagChipHover } from "../components/TagProvenanceHover";
+import { mediaCacheRevision } from "../api/mediaCacheRevisions";
 
 describe("EntityMedia", () => {
   beforeEach(() => {
@@ -128,7 +129,10 @@ describe("EntityMedia", () => {
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
 
-    expect(screen.getByRole("img", { name: "API-backed tag" })).toHaveAttribute("src", "/api/tags/21/image?max=640");
+    expect(screen.getByRole("img", { name: "API-backed tag" })).toHaveAttribute(
+      "src",
+      `/api/tags/21/image?max=640&r=${mediaCacheRevision("entityImages").r}`,
+    );
   });
 
   it("leaves a reference unchanged when neither core nor an extension has hover media", () => {

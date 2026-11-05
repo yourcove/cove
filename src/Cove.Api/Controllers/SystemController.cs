@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Serilog.Events;
+using Cove.Api.Http;
 using Cove.Api.Middleware;
 using Cove.Api.Services;
 using Cove.Core.Auth;
@@ -548,11 +549,9 @@ public class SystemController(
             throw;
         }
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
-        // Uploaded SVGs are user content. Opened directly, an SVG is a document that could run script
-        // on Cove's origin; the sandbox stops that. Used as an <img> or CSS image it is unaffected.
-        Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox";
-        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        MediaCache.Stable(Response);
+        // Uploaded SVGs are user content and must not run script when opened directly.
+        UntrustedContentHeaders.Apply(Response);
         var result = File(stream, contentType);
         result.LastModified = lastModified;
         return result;

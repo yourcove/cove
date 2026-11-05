@@ -283,6 +283,8 @@ public sealed class StreamDeliveryApiTests(
         imageResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 0-7/{imageBytes.Length}");
         imageResponse.Headers.AcceptRanges.Should().Equal("bytes");
         imageResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
+        string.Join(";", imageResponse.Headers.GetValues("Content-Security-Policy")).Should().Contain("sandbox");
+        imageResponse.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
 
         using var thumbnailResponse = await client.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64", TestContext.Current.CancellationToken);
         var thumbnailBytes = await thumbnailResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
@@ -290,6 +292,8 @@ public sealed class StreamDeliveryApiTests(
         thumbnailResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
         thumbnailResponse.Headers.AcceptRanges.Should().Equal("bytes");
         thumbnailResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
+        string.Join(";", thumbnailResponse.Headers.GetValues("Content-Security-Policy")).Should().Contain("sandbox");
+        thumbnailResponse.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
         using (var thumbnail = Image.Load(thumbnailBytes))
         {
             thumbnail.Width.Should().Be(64);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Cove.Api.Http;
 using Cove.Core.Entities;
 using Microsoft.AspNetCore.Http;
 
@@ -9,9 +10,6 @@ internal static class EntityImageUrls
     private const string AccessCookieName = "cove_access_token";
     public const int DefaultEntityImageMaxDimension = 640;
     public const int DefaultGalleryCoverMaxDimension = 640;
-    // Cache revision of detection crops, bumped when crops start coming from different frames; keep it in
-    // step with DETECTION_CROP_FRAME_REVISION in ui/src/api/client.ts. 2: cut from each detection's exact frame.
-    private const string DetectionCropFrameRevision = "2";
 
     public static string Video(int id, DateTime updatedAt, int maxDimension = DefaultEntityImageMaxDimension)
         => Build(null, $"/api/videos/{id}/image", updatedAt, maxDimension);
@@ -29,6 +27,7 @@ internal static class EntityImageUrls
         {
             query.Add(new("seconds", seconds.Value.ToString(CultureInfo.InvariantCulture)));
         }
+        MediaCacheRevisions.Append(query, MediaCacheRevisions.VideoScreenshots);
 
         AppendAuthQuery(context, query);
         return $"/api/stream/video/{id}/screenshot" + QueryString.Create(query);
@@ -107,18 +106,41 @@ internal static class EntityImageUrls
         => Build(context, $"/api/galleries/{id}/image/back", updatedAt, maxDimension);
 
     // A face with no cover blob falls back to a crop of its best detection (mirrors the detail-page hero).
-    // The crop endpoint takes no per-entity `v`; the `frame` revision drops cached crops when crops start
+    // The crop endpoint takes no per-entity `v`; its cache revision drops cached crops when crops start
     // coming from different frames. Auth is appended like every other image URL.
     public static string DetectionCrop(HttpContext? context, int detectionId, int maxDimension = DefaultEntityImageMaxDimension)
     {
         var query = new List<KeyValuePair<string, string?>>
         {
             new("max", maxDimension.ToString(CultureInfo.InvariantCulture)),
-            new("frame", DetectionCropFrameRevision),
         };
+        MediaCacheRevisions.Append(query, MediaCacheRevisions.DetectionCrops);
 
         AppendAuthQuery(context, query);
         return $"/api/stream/detection/{detectionId}/crop" + QueryString.Create(query);
+    }
+
+    // Media URLs without an entity version, for DTOs that point at library files or generated frames.
+    // They still carry their family's cache revision, so they match the URLs the UI builds itself.
+    public static string LibraryImage(int imageId)
+        => Unversioned($"/api/stream/image/{imageId}", MediaCacheRevisions.LibraryImages);
+
+    public static string LibraryThumbnail(int imageId, int? maxDimension = null)
+        => Unversioned($"/api/stream/image/{imageId}/thumbnail", MediaCacheRevisions.LibraryImages, maxDimension);
+
+    public static string UnversionedVideoScreenshot(int videoId)
+        => Unversioned($"/api/stream/video/{videoId}/screenshot", MediaCacheRevisions.VideoScreenshots);
+
+    public static string UnversionedText(int textId)
+        => Unversioned($"/api/texts/{textId}/image", MediaCacheRevisions.EntityImages);
+
+    private static string Unversioned(string path, int revision, int? maxDimension = null)
+    {
+        var query = new List<KeyValuePair<string, string?>>();
+        if (maxDimension > 0)
+            query.Add(new("max", maxDimension.Value.ToString(CultureInfo.InvariantCulture)));
+        MediaCacheRevisions.Append(query, revision);
+        return path + QueryString.Create(query);
     }
 
     private static string Build(HttpContext? context, string path, DateTime updatedAt, int maxDimension)
@@ -128,6 +150,7 @@ internal static class EntityImageUrls
             new("max", maxDimension.ToString(CultureInfo.InvariantCulture)),
             new("v", updatedAt.ToString("o", CultureInfo.InvariantCulture)),
         };
+        MediaCacheRevisions.Append(query, MediaCacheRevisions.EntityImages);
 
         AppendAuthQuery(context, query);
         return path + QueryString.Create(query);

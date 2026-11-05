@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Cove.Api.Http;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Common;
@@ -42,9 +43,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (result == null) return NotFound();
 
         var (stream, contentType, useLongCache) = result.Value;
-        Response.Headers["Cache-Control"] = useLongCache
-            ? "public, max-age=86400"
-            : "no-store, no-cache, max-age=0, must-revalidate";
+        if (useLongCache) MediaCache.Stable(Response); else MediaCache.None(Response);
+        // The screenshot can be the video's custom cover blob, served with its stored content type.
+        UntrustedContentHeaders.Apply(Response);
         return File(stream, contentType);
     }
 
@@ -60,7 +61,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (!assets.HasVrCard(videoId)) return NotFound();
         var stream = FileReadRace.TryOpenRead(assets.GetVrCardPath(videoId), bufferSize: 8192, pathWasObserved: true);
         if (stream == null) return NotFound();
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         return File(stream, "image/jpeg");
     }
 
@@ -75,7 +76,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (!assets.HasVrPreview(videoId)) return NotFound();
         var stream = FileReadRace.TryOpenRead(assets.GetVrPreviewPath(videoId), bufferSize: 8192, pathWasObserved: true);
         if (stream == null) return NotFound();
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         return File(stream, "video/mp4", enableRangeProcessing: true);
     }
 
@@ -124,7 +125,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
     private void SetPreviewHeaders()
     {
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         Response.Headers["Accept-Ranges"] = "bytes";
     }
 
@@ -140,7 +141,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var stream = FileReadRace.TryOpenRead(path, bufferSize: 8192, pathWasObserved: true);
         if (stream == null) return NotFound();
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         return File(stream, "image/jpeg");
     }
 
@@ -156,7 +157,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var stream = FileReadRace.TryOpenRead(path, bufferSize: 8192, pathWasObserved: true);
         if (stream == null) return NotFound();
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         return File(stream, "text/vtt");
     }
 
@@ -168,7 +169,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         var (stream, contentType, supportsRangeRequests) = result.Value;
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
+        // Library files are untrusted: an SVG opened directly must not run script on Cove's origin.
+        UntrustedContentHeaders.Apply(Response);
 
         if (supportsRangeRequests)
         {
@@ -186,7 +189,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (result == null) return NotFound();
 
         var (stream, contentType, supportsRangeRequests) = result.Value;
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
+        // Thumbnails of SVG sources are the SVG itself, so they need the same protection.
+        UntrustedContentHeaders.Apply(Response);
 
         if (supportsRangeRequests)
         {
@@ -265,7 +270,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var stream = FileReadRace.TryOpenRead(captionPath, bufferSize: 8192, pathWasObserved: true);
         if (stream == null) return NotFound();
 
-        Response.Headers["Cache-Control"] = "public, max-age=3600";
+        MediaCache.Replaceable(Response);
         return File(stream, contentType);
     }
 
@@ -331,7 +336,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
             lines.Add(AppendMediaAuthQuery(AppendFileQuery($"/api/stream/video/{videoId}/hls/{res}.m3u8", selectedFileId)));
         }
 
-        Response.Headers["Cache-Control"] = "no-cache";
+        MediaCache.Revalidate(Response);
         return Content(string.Join("\n", lines), "application/vnd.apple.mpegurl");
     }
 
@@ -354,7 +359,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         manifest = RewriteHlsSegmentUrls(manifest, videoId, resolution ?? "original", selected.Id);
 
-        Response.Headers["Cache-Control"] = "no-cache";
+        MediaCache.Revalidate(Response);
         return Content(manifest, "application/vnd.apple.mpegurl");
     }
 
@@ -366,7 +371,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var stream = await transcodeService.GetHlsSegmentAsync(-selected.Id, segment, ct);
         if (stream == null) return NotFound();
 
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        MediaCache.Stable(Response);
         return File(stream, "video/mp2t");
     }
 
@@ -469,7 +474,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (output is null)
             return NotFound();
 
-        Response.Headers["Cache-Control"] = longCache ? "public, max-age=86400" : "public, max-age=300";
+        if (longCache) MediaCache.Stable(Response); else MediaCache.StandIn(Response);
         return File(output, "image/jpeg");
     }
 

@@ -1,3 +1,4 @@
+using Cove.Api.Http;
 using System.Text.Json;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
@@ -2281,7 +2282,7 @@ public class SegmentCoreControllerTests
         var manifest = Assert.IsType<GroupPlaybackManifestDto>(manifestOk.Value);
         Assert.Contains(manifest.Items, item => item.AudioId == audio.Id && item.Src == $"/api/audios/{audio.Id}/stream");
         Assert.Contains(manifest.Items, item => item.TextId == text.Id && item.Src == $"/api/texts/{text.Id}/file");
-        Assert.Contains(manifest.Items, item => item.ImageId == image.Id && item.Src == $"/api/stream/image/{image.Id}");
+        Assert.Contains(manifest.Items, item => item.ImageId == image.Id && item.Src == $"/api/stream/image/{image.Id}?r={MediaCacheRevisions.LibraryImages}");
         var segmentManifestItem = Assert.Single(manifest.Items, item => item.SegmentId == segment.Id);
         Assert.Equal("segment", segmentManifestItem.HostType);
         Assert.Equal(video.Id, segmentManifestItem.VideoId);
