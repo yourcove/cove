@@ -1079,8 +1079,7 @@ describe("TutorialStoryboardDialog", () => {
     expect(screen.getByRole("heading", { level: 3, name: "Deep deep-grandchild" })).toBeInTheDocument();
   });
 
-  it("lists an extension feature guide below a built-in child topic under that topic's parent", async () => {
-    const user = userEvent.setup();
+  it("lists an extension feature guide below a built-in child topic under that topic's parent", () => {
     render(
       <TutorialStoryboardDialog
         open
@@ -1104,9 +1103,6 @@ describe("TutorialStoryboardDialog", () => {
       />,
     );
 
-    if (screen.queryByRole("button", { name: "Expand Media types" })) {
-      await user.click(screen.getByRole("button", { name: "Expand Media types" }));
-    }
     const button = screen
       .getAllByRole("button", { name: /Example gallery tips/ })
       .find((candidate) => candidate.hasAttribute("data-topic-depth"));
@@ -1155,5 +1151,100 @@ describe("TutorialStoryboardDialog", () => {
     expect(within(topicButton("Badge under extensions")).getByText("Example Badge")).toBeInTheDocument();
     expect(within(topicButton("Unnamed root")).getByText("Extension")).toBeInTheDocument();
     expect(within(topicButton("Discover and install extensions")).queryByText("Extension")).not.toBeInTheDocument();
+  });
+
+  it("does not list extension topics that reuse an earlier ID of a Cove topic", () => {
+    const guide = (id: string, title: string) => ({
+      extensionId: "com.example.alias",
+      path: `docs/guides/${id}.json`,
+      guide: {
+        schemaVersion: 1,
+        id,
+        title,
+        description: "Reuses an old topic ID.",
+        order: 1700,
+        sections: [{ id: "body", title: "Body", blocks: [{ type: "paragraph", text: "Body." }] }],
+      },
+    });
+
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "search" }}
+        extensionTopics={[
+          {
+            id: "tagging",
+            title: "Extension tagging slides",
+            extensionId: "com.example.alias",
+            order: 1700,
+            slides: [{ id: "one", title: "One" }],
+          },
+        ]}
+        extensionGuides={[guide("search", "Extension search guide"), guide("alias-example", "Alias example")]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 3, name: "Search and filters" })).toBeInTheDocument();
+    expect(screen.queryByText("Extension search guide")).not.toBeInTheDocument();
+    expect(screen.queryByText("Extension tagging slides")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("button", { name: /Alias example/ })
+        .some((button) => button.hasAttribute("data-topic-depth")),
+    ).toBe(true);
+  });
+
+  it("renders repeated content in an extension guide without duplicate keys or element ids", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { container } = render(
+        <TutorialStoryboardDialog
+          open
+          onClose={vi.fn()}
+          request={{ topicId: "repeat-guide" }}
+          extensionGuides={[
+            {
+              extensionId: "com.example.repeat",
+              path: "docs/guides/repeat.json",
+              guide: {
+                schemaVersion: 1,
+                id: "repeat-guide",
+                title: "Repeat guide",
+                description: "Repeats content.",
+                order: 1800,
+                sections: [
+                  {
+                    id: "same",
+                    title: "First",
+                    blocks: [
+                      { type: "list", items: ["Again", "Again"] },
+                      { type: "steps", items: ["Again", "Again"] },
+                      {
+                        type: "links",
+                        items: [
+                          { label: "Docs", href: "/docs/user/" },
+                          { label: "Docs", href: "https://example.com/" },
+                        ],
+                      },
+                      { type: "table", columns: ["Same", "Same"], rows: [["1", "2"]] },
+                    ],
+                  },
+                  { id: "same", title: "Second", blocks: [{ type: "paragraph", text: "Body." }] },
+                ],
+              },
+            },
+          ]}
+        />,
+      );
+
+      const duplicateKeyWarnings = consoleError.mock.calls.filter((call) => String(call[0]).includes("same key"));
+      expect(duplicateKeyWarnings).toEqual([]);
+      const ids = [...container.ownerDocument.querySelectorAll("[id^='manual-guide-']")].map((element) => element.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toEqual(["manual-guide-same", "manual-guide-same-2"]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
