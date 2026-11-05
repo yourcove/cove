@@ -18,7 +18,8 @@ import { AuthBootstrapPage } from "./pages/AuthBootstrapPage";
 import { RedeemInvitePage } from "./pages/RedeemInvitePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import type { AuthUser } from "./auth/authStore";
-import { auth, database, extensions, jobs } from "./api/client";
+import { auth, database, jobs } from "./api/client";
+import { useExtensionNames } from "./components/useExtensionNames";
 import { dashboardPrincipalKey, prefetchDashboardPage } from "./pages/dashboardPageQuery";
 import { useKeySequence } from "./hooks/useKeySequence";
 import { KeyboardShortcutProvider, useKeyboardShortcuts } from "./keyboard/KeyboardShortcutProvider";
@@ -463,18 +464,8 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   const [tutorialOpen, setTutorialOpen] = useState(false);
   // Mounted from the first opening on, so it keeps its state across closing and reopening.
   const [tutorialLoaded, setTutorialLoaded] = useState(false);
-  // The manifest identifies an extension topic only by its extension ID; the User Guide labels it with the
-  // extension's name, so load the installed extensions when the guide first opens on a Cove with any.
   const hasExtensionGuideTopics = Boolean(manifest?.tutorialTopics?.length || manifest?.featureGuides?.length);
-  const { data: installedExtensions } = useQuery({
-    queryKey: ["extensions-list"],
-    queryFn: () => extensions.list(),
-    enabled: tutorialOpen && hasExtensionGuideTopics,
-  });
-  const extensionNames = useMemo(
-    () => new Map((installedExtensions ?? []).map((extension) => [extension.id, extension.name])),
-    [installedExtensions],
-  );
+  const extensionNames = useExtensionNames(tutorialOpen && hasExtensionGuideTopics);
   if (tutorialOpen && !tutorialLoaded) setTutorialLoaded(true);
   const [tutorialRequest, setTutorialRequest] = useState<TutorialOpenRequest | undefined>();
 
