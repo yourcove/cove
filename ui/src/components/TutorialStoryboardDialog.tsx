@@ -738,13 +738,20 @@ function mergeTutorialTopics(
     ];
   });
 
-  // Cove's own topics come first, so an extension cannot replace one by reusing its ID.
-  const seenTopicIds = new Set<string>();
-  const topics = [...builtinTutorialTopics, ...normalizedExtensionTopics, ...guideTopics].filter((topic) => {
+  // Cove's own topics come first, so an extension cannot replace one by reusing its ID. The IDs Cove's
+  // topics used to have are reserved too: requests and links for them open the topic that replaced them,
+  // so an extension topic with one of those IDs could be listed but never opened. The reservation applies
+  // only to extension topics, so a built-in topic can never be hidden by an alias.
+  const seenTopicIds = new Set<string>([
+    ...builtinTutorialTopics.map((topic) => topic.id),
+    ...Object.keys(legacyTopicAliases),
+  ]);
+  const extensionTopicsToShow = [...normalizedExtensionTopics, ...guideTopics].filter((topic) => {
     if (seenTopicIds.has(topic.id)) return false;
     seenTopicIds.add(topic.id);
     return true;
   });
+  const topics = [...builtinTutorialTopics, ...extensionTopicsToShow];
   return withTwoLevelParents(topics).sort(
     (left, right) => left.order - right.order || left.title.localeCompare(right.title),
   );
@@ -1221,8 +1228,8 @@ function SharedFeatureGuideBlocks({
     if (block.type === "steps") {
       return (
         <ol key={key} className="list-decimal space-y-2 pl-6">
-          {block.items.map((item) => (
-            <li key={item}>{item}</li>
+          {block.items.map((item, itemIndex) => (
+            <li key={itemIndex}>{item}</li>
           ))}
         </ol>
       );
@@ -1241,8 +1248,8 @@ function SharedFeatureGuideBlocks({
     if (block.type === "list") {
       return (
         <ul key={key} className="list-disc space-y-2 pl-6">
-          {block.items.map((item) => (
-            <li key={item}>{item}</li>
+          {block.items.map((item, itemIndex) => (
+            <li key={itemIndex}>{item}</li>
           ))}
         </ul>
       );
@@ -1250,11 +1257,11 @@ function SharedFeatureGuideBlocks({
     if (block.type === "links") {
       return (
         <div key={key} className="flex flex-wrap gap-2">
-          {block.items.map((item) => {
+          {block.items.map((item, itemIndex) => {
             const appHref = resolveInAppRouteHref(item.appHref);
             return item.topicId && availableTopicIds.has(item.topicId) ? (
               <button
-                key={item.label}
+                key={itemIndex}
                 type="button"
                 onClick={() => onChooseTopic(item.topicId!, item.slideId)}
                 className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-accent transition-colors hover:border-accent"
@@ -1263,7 +1270,7 @@ function SharedFeatureGuideBlocks({
               </button>
             ) : (
               <a
-                key={item.label}
+                key={itemIndex}
                 href={appHref ?? resolveInAppGuideHref(item.href)}
                 target={appHref ? undefined : "_blank"}
                 rel={appHref ? undefined : "noopener noreferrer"}
@@ -1308,8 +1315,8 @@ function SharedFeatureGuideBlocks({
             ) : null}
             <thead className="bg-card text-foreground">
               <tr>
-                {block.columns.map((column) => (
-                  <th key={column} scope="col" className="border-b border-border px-4 py-3 font-semibold">
+                {block.columns.map((column, columnIndex) => (
+                  <th key={columnIndex} scope="col" className="border-b border-border px-4 py-3 font-semibold">
                     {column}
                   </th>
                 ))}

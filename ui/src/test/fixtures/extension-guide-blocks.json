@@ -1,0 +1,463 @@
+{
+  "description": "Blocks an extension feature guide at docs/guides/guide.json may contain, and whether the User Guide can render each one. The host loader (src/Cove.Plugins/ExtensionFeatureGuideLoader.cs) and the UI normalizer (ui/src/components/featureGuideContent.ts) must agree: the host only lists a guide with a block the UI renders. Both test suites check every case.",
+  "guidePath": "docs/guides/guide.json",
+  "cases": [
+    {
+      "name": "paragraph",
+      "renderable": true,
+      "block": {
+        "type": "paragraph",
+        "text": "Read this first."
+      }
+    },
+    {
+      "name": "note",
+      "renderable": true,
+      "block": {
+        "type": "note",
+        "text": "Remember this."
+      }
+    },
+    {
+      "name": "steps",
+      "renderable": true,
+      "block": {
+        "type": "steps",
+        "items": ["", "Open Settings."]
+      }
+    },
+    {
+      "name": "list",
+      "renderable": true,
+      "block": {
+        "type": "list",
+        "items": ["One"]
+      }
+    },
+    {
+      "name": "heading level 3",
+      "renderable": true,
+      "block": {
+        "type": "heading",
+        "level": 3,
+        "text": "Heading"
+      }
+    },
+    {
+      "name": "heading level written as 4.0",
+      "renderable": true,
+      "block": {
+        "type": "heading",
+        "level": 4.0,
+        "text": "Heading"
+      }
+    },
+    {
+      "name": "website link",
+      "renderable": true,
+      "block": {
+        "type": "links",
+        "items": [
+          {
+            "label": "Docs",
+            "href": "/docs/user/"
+          }
+        ]
+      }
+    },
+    {
+      "name": "https link beside an invalid one",
+      "renderable": true,
+      "block": {
+        "type": "links",
+        "items": [
+          {
+            "label": "Bad",
+            "href": "javascript:alert(1)"
+          },
+          {
+            "label": "Site",
+            "href": "https://example.com/"
+          }
+        ]
+      }
+    },
+    {
+      "name": "package image",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "../images/settings.webp",
+        "alt": "Settings"
+      }
+    },
+    {
+      "name": "https image",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "https://example.com/a.png",
+        "alt": "Remote"
+      }
+    },
+    {
+      "name": "inline image",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "data:image/png;base64,AAAA",
+        "alt": "Inline"
+      }
+    },
+    {
+      "name": "table",
+      "renderable": true,
+      "block": {
+        "type": "table",
+        "columns": ["A", "B"],
+        "rows": [["1"], ["1", "2"]]
+      }
+    },
+    {
+      "name": "code",
+      "renderable": true,
+      "block": {
+        "type": "code",
+        "lines": ["echo hi", ""]
+      }
+    },
+    {
+      "name": "recipe with a paragraph",
+      "renderable": true,
+      "block": {
+        "type": "recipes",
+        "items": [
+          {
+            "id": "first",
+            "title": "First",
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": "Do this."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "text that is only a next-line character",
+      "renderable": true,
+      "block": {
+        "type": "paragraph",
+        "text": "\u0085"
+      }
+    },
+    {
+      "name": "image whose first letter is the Kelvin sign",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "\u212a:settings.webp",
+        "alt": "Kelvin"
+      }
+    },
+    {
+      "name": "image with an upper-case https scheme",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "HTTPS://example.com/a.png",
+        "alt": "Upper case"
+      }
+    },
+    {
+      "name": "not an object",
+      "renderable": false,
+      "block": "paragraph"
+    },
+    {
+      "name": "no type",
+      "renderable": false,
+      "block": {
+        "text": "Untyped"
+      }
+    },
+    {
+      "name": "unknown type",
+      "renderable": false,
+      "block": {
+        "type": "video",
+        "src": "intro.mp4"
+      }
+    },
+    {
+      "name": "empty paragraph",
+      "renderable": false,
+      "block": {
+        "type": "paragraph",
+        "text": ""
+      }
+    },
+    {
+      "name": "blank note",
+      "renderable": false,
+      "block": {
+        "type": "note",
+        "text": "   "
+      }
+    },
+    {
+      "name": "steps without text",
+      "renderable": false,
+      "block": {
+        "type": "steps",
+        "items": ["", " "]
+      }
+    },
+    {
+      "name": "list that is not an array",
+      "renderable": false,
+      "block": {
+        "type": "list",
+        "items": "One"
+      }
+    },
+    {
+      "name": "heading level 2",
+      "renderable": false,
+      "block": {
+        "type": "heading",
+        "level": 2,
+        "text": "Heading"
+      }
+    },
+    {
+      "name": "heading level as text",
+      "renderable": false,
+      "block": {
+        "type": "heading",
+        "level": "3",
+        "text": "Heading"
+      }
+    },
+    {
+      "name": "script link",
+      "renderable": false,
+      "block": {
+        "type": "links",
+        "items": [
+          {
+            "label": "Bad",
+            "href": "javascript:alert(1)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "in-app route as href",
+      "renderable": false,
+      "block": {
+        "type": "links",
+        "items": [
+          {
+            "label": "Settings",
+            "href": "/settings"
+          }
+        ]
+      }
+    },
+    {
+      "name": "link without label",
+      "renderable": false,
+      "block": {
+        "type": "links",
+        "items": [
+          {
+            "label": "",
+            "href": "/docs/user/"
+          }
+        ]
+      }
+    },
+    {
+      "name": "image outside the package",
+      "renderable": false,
+      "block": {
+        "type": "image",
+        "src": "../../../outside.webp",
+        "alt": "Outside"
+      }
+    },
+    {
+      "name": "image at the package root path",
+      "renderable": false,
+      "block": {
+        "type": "image",
+        "src": "../..",
+        "alt": "Root"
+      }
+    },
+    {
+      "name": "absolute image path",
+      "renderable": false,
+      "block": {
+        "type": "image",
+        "src": "/etc/image.png",
+        "alt": "Absolute"
+      }
+    },
+    {
+      "name": "http image",
+      "renderable": false,
+      "block": {
+        "type": "image",
+        "src": "http://example.com/a.png",
+        "alt": "Insecure"
+      }
+    },
+    {
+      "name": "image without alt",
+      "renderable": false,
+      "block": {
+        "type": "image",
+        "src": "../images/settings.webp",
+        "alt": ""
+      }
+    },
+    {
+      "name": "table without matching rows",
+      "renderable": false,
+      "block": {
+        "type": "table",
+        "columns": ["A", "B"],
+        "rows": [["1"], ["1", 2]]
+      }
+    },
+    {
+      "name": "table without columns",
+      "renderable": false,
+      "block": {
+        "type": "table",
+        "columns": [],
+        "rows": [[]]
+      }
+    },
+    {
+      "name": "empty code",
+      "renderable": false,
+      "block": {
+        "type": "code",
+        "lines": []
+      }
+    },
+    {
+      "name": "code with a number",
+      "renderable": false,
+      "block": {
+        "type": "code",
+        "lines": ["one", 2]
+      }
+    },
+    {
+      "name": "recipe with only a nested recipe",
+      "renderable": false,
+      "block": {
+        "type": "recipes",
+        "items": [
+          {
+            "id": "outer",
+            "title": "Outer",
+            "blocks": [
+              {
+                "type": "recipes",
+                "items": [
+                  {
+                    "id": "inner",
+                    "title": "Inner",
+                    "blocks": [
+                      {
+                        "type": "paragraph",
+                        "text": "Hidden."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "recipe without a kebab-case id",
+      "renderable": false,
+      "block": {
+        "type": "recipes",
+        "items": [
+          {
+            "id": "First Recipe",
+            "title": "First",
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": "Do this."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "text that is only a byte order mark",
+      "renderable": false,
+      "block": {
+        "type": "paragraph",
+        "text": "\ufeff"
+      }
+    },
+    {
+      "name": "steps that are only byte order marks",
+      "renderable": false,
+      "block": {
+        "type": "steps",
+        "items": ["\ufeff"]
+      }
+    },
+    {
+      "name": "image with a long s in https, which is a relative path",
+      "renderable": true,
+      "block": {
+        "type": "image",
+        "src": "http\u017f://example.com/a.png",
+        "alt": "Long s"
+      }
+    }
+  ],
+  "sectionIdCases": [
+    {
+      "id": "start",
+      "valid": true
+    },
+    {
+      "id": "step-2",
+      "valid": true
+    },
+    {
+      "id": "start\n",
+      "valid": false
+    },
+    {
+      "id": "Start",
+      "valid": false
+    },
+    {
+      "id": "start-",
+      "valid": false
+    },
+    {
+      "id": "",
+      "valid": false
+    }
+  ]
+}

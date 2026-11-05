@@ -247,7 +247,7 @@ Theme, component-style, and layout ids become stored user preferences. Keep them
 
 ## User Guide topics
 
-`UITutorialTopic` contributes a topic to the in-app Cove User Guide. Topics can be scoped by page and runtime context, nested with `ParentTopicId` (two levels deep, with the same rules as [feature guides](#feature-guides)), and ordered alongside built-in and other extension topics.
+`UITutorialTopic` contributes a topic to the in-app Cove User Guide. Topics can be scoped by page and runtime context, nested with `ParentTopicId` (two levels deep, with the same rules as [feature guides](#feature-guides)), and ordered alongside built-in and other extension topics. A topic needs at least one slide to be shown. Built-in topic IDs, and the IDs Cove's topics had in earlier versions, such as `search`, `metadata`, and `tagging`, are reserved: an extension topic that reuses one is not shown.
 
 Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown body, image, mock kind, and external links. Set `Kind` to `setup` when the topic is an installation or first-run guide that Cove should surface after install.
 
@@ -263,14 +263,16 @@ List the files in `extension.json`, relative to the package root:
 }
 ```
 
-Cove reads each listed file when it builds the extension manifest, up to 32 guides per extension, and logs a warning once for each file it skips because it:
+Cove reads the first 32 files listed when it builds the extension manifest and ignores the rest. Every listed path counts, including repeats and ones it cannot read. It logs a warning once, naming the reason, for each file it skips because it:
 
-- is not a `.json` file inside the package,
-- is larger than 256 KiB or is not valid JSON,
-- is not `schemaVersion` 1, or lacks a kebab-case `id`, a `title`, a `description`, a non-negative integer `order`, or at least one section with a kebab-case `id`, a `title`, and `blocks`, or
+- is not a `.json` file inside the package, or is missing,
+- is larger than 256 KiB, or nested more than 32 levels deep,
+- is not valid JSON, is not saved as UTF-8 (a byte order mark is fine), or contains a string with an unpaired surrogate escape such as `\ud800`,
+- is not `schemaVersion` 1, or lacks a kebab-case `id`, a `title`, a `description`, or a non-negative whole-number `order`,
+- has no section with a kebab-case `id`, a `title`, and at least one block this Cove can show, so it would appear in the topic list and then show nothing, or
 - reuses the `id` of an extension slide topic or an earlier feature guide.
 
-Cove's own guides always win: an extension guide that reuses the `id` of a built-in topic is not shown. Built-in topic IDs are unprefixed kebab-case words, so give your guides a prefix of your own, such as `hash-the-cove-settings`, to stay clear of topics later Cove versions add.
+Cove's own guides always win: an extension guide that reuses the `id` of a built-in topic is not shown. The IDs Cove's topics had in earlier versions, such as `search`, `metadata`, and `tagging`, are reserved the same way, because links and requests for them open the topic that replaced them. Built-in topic IDs are unprefixed kebab-case words, so give your guides a prefix of your own, such as `hash-the-cove-settings`, to stay clear of topics later Cove versions add.
 
 The User Guide renders each section and block the schema defines and drops the ones it cannot render, so a guide written for a newer Cove still shows the content an older Cove understands. Links keep the schema's rules: `href` must start with `/docs/`, which opens Cove's documentation website, or `https://` (or `http://`), and `appHref` must be a Cove route such as `/settings/extensions`. Use `topicId` to link to another User Guide topic, including your own. It must be kebab-case, so it can reach feature guides and built-in topics but not slide topics with dotted IDs.
 
@@ -279,6 +281,7 @@ Set `parentTopicId` to list a guide under another User Guide topic: one of your 
 - A guide whose parent is a child topic is listed under that child's top-level topic instead.
 - A guide whose parent does not exist, for example because it belongs to an extension that is disabled, is listed at the top level.
 - A guide whose parent chain leads back to itself is listed at the top level.
+- A guide whose `parentTopicId` is not a kebab-case ID, such as a slide topic's dotted ID, is listed at the top level.
 
 Each child guide is its own file, listed in `featureGuides` like any other.
 
@@ -286,7 +289,7 @@ Cove fills `UIManifest.FeatureGuides` from `extension.json` only. Guides an `IUI
 
 Image `src` values resolve relative to the guide file and must stay inside the package, so `../images/settings.webp` in `docs/guides/overview.json` is served from `docs/images/settings.webp`. `https://` URLs and `data:image/` sources are used as written. Package images are served by the extension asset endpoint, which serves only packages with a loaded `entryDll`, so a manifest-only package should use `https://` or `data:image/` images.
 
-Validate your guides against the schema in your extension's own build. Cove's host checks only the outline above.
+Validate your guides against the schema in your extension's own build. Cove's host checks only the outline above and that each guide has something to show.
 
 ## Feature declarations
 

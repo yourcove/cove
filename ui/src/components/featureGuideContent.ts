@@ -84,8 +84,32 @@ export function normalizeExtensionFeatureGuide(entry: ExtensionFeatureGuide): No
     pages: strings(guide.pages),
     contexts: strings(guide.contexts),
     parentTopicId: slug(guide.parentTopicId),
-    sections,
+    sections: withUniqueIds(sections),
   };
+}
+
+/**
+ * Section IDs become element IDs and React keys, so a guide that repeats one would render two elements
+ * with the same ID. Later repeats get a numbered suffix instead of being dropped.
+ */
+function withUniqueIds<T extends { id: string }>(items: T[]): T[] {
+  const taken = new Set(items.map((item) => item.id));
+  const seen = new Set<string>();
+  const nextSuffix = new Map<string, number>();
+  return items.map((item) => {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      return item;
+    }
+    // Resume from the last suffix used for this ID, so a guide repeating one ID many times stays linear.
+    let suffix = nextSuffix.get(item.id) ?? 2;
+    while (taken.has(`${item.id}-${suffix}`)) suffix++;
+    nextSuffix.set(item.id, suffix + 1);
+    const id = `${item.id}-${suffix}`;
+    taken.add(id);
+    seen.add(id);
+    return { ...item, id };
+  });
 }
 
 function normalizeBlock(
@@ -177,7 +201,7 @@ function normalizeBlock(
         const description = text(recipe.description);
         return blocks.length > 0 ? [{ id, title, blocks, ...(description ? { description } : {}) }] : [];
       });
-      return items.length > 0 ? [{ type: "recipes", items }] : [];
+      return items.length > 0 ? [{ type: "recipes", items: withUniqueIds(items) }] : [];
     }
     default:
       return [];

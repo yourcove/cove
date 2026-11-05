@@ -51,6 +51,11 @@ jobs:
 
           while IFS= read -r -d '' path; do
             case "$path" in
+              ui/src/test/fixtures/extension-guide-blocks.json|ui/src/components/featureGuideContent.ts)
+                # Cove.Tests checks the host's feature-guide rules against the same fixture.
+                backend=true
+                frontend=true
+                ;;
               ui/*)
                 frontend=true
                 ;;

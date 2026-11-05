@@ -1832,6 +1832,9 @@ public class ExtensionManager : IExtensionContributionRuntime
     {
         var manifest = _context.UI.ToManifest();
         var tutorialTopicIds = new HashSet<string>(manifest.TutorialTopics.Select(t => t.Id), StringComparer.OrdinalIgnoreCase);
+        // IDs a feature guide cannot take. The User Guide drops a slide topic with no slides, so such a topic
+        // stays in the manifest but does not keep a feature guide with its ID from being shown.
+        var shownTopicIds = new HashSet<string>(tutorialTopicIds, StringComparer.OrdinalIgnoreCase);
 
         void AddTutorialTopics(IEnumerable<UITutorialTopic> topics, string? extensionId)
         {
@@ -1847,6 +1850,8 @@ public class ExtensionManager : IExtensionContributionRuntime
                 if (tutorialTopicIds.Add(normalized.Id))
                 {
                     manifest.TutorialTopics.Add(normalized);
+                    if (normalized.Slides is { Count: > 0 })
+                        shownTopicIds.Add(normalized.Id);
                 }
             }
         }
@@ -1954,7 +1959,7 @@ public class ExtensionManager : IExtensionContributionRuntime
             foreach (var guide in guides)
             {
                 var guideId = guide.Guide.GetProperty("id").GetString()!;
-                if (tutorialTopicIds.Add(guideId))
+                if (shownTopicIds.Add(guideId))
                     manifest.FeatureGuides.Add(guide);
                 else
                     _featureGuideLoader.Report(_logger, manifestFile.Id, version, guide.Path, $"reuses the User Guide topic ID {guideId}");

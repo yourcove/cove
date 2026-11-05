@@ -4,6 +4,7 @@ import {
   resolveExtensionGuideImage,
   toInAppRoute,
 } from "../components/featureGuideContent";
+import blockCases from "./fixtures/extension-guide-blocks.json";
 
 const extensionId = "com.example.guides";
 
@@ -154,5 +155,76 @@ describe("resolveExtensionGuideImage", () => {
     ["http://example.com/a.png", undefined],
   ])("resolves %s", (source, expected) => {
     expect(resolveExtensionGuideImage(extensionId, "docs/guides/overview.json", source)).toBe(expected);
+  });
+});
+
+describe("extension guide blocks shared with the host loader", () => {
+  // The host lists a guide only when it has a block this normalizer keeps, so a guide it lists never
+  // renders as nothing. ExtensionFeatureGuideTests checks the same cases against the host.
+  it.each(blockCases.cases)("$name", ({ block, renderable }) => {
+    const normalized = normalizeExtensionFeatureGuide({
+      extensionId,
+      path: blockCases.guidePath,
+      guide: {
+        schemaVersion: 1,
+        id: "block-case",
+        title: "Block case",
+        description: "One block.",
+        order: 1,
+        sections: [{ id: "only", title: "Only section", blocks: [block] }],
+      },
+    });
+    expect(normalized !== null).toBe(renderable);
+  });
+
+  it.each(blockCases.sectionIdCases.map(({ id, valid }) => [id, valid] as const))("section id %j", (id, valid) => {
+    const normalized = normalizeExtensionFeatureGuide({
+      extensionId,
+      path: blockCases.guidePath,
+      guide: {
+        schemaVersion: 1,
+        id: "section-case",
+        title: "Section case",
+        description: "One section.",
+        order: 1,
+        sections: [{ id, title: "Only section", blocks: [{ type: "paragraph", text: "Body." }] }],
+      },
+    });
+    expect(normalized !== null).toBe(valid);
+  });
+});
+
+describe("repeated IDs in extension guides", () => {
+  it("gives repeated section and recipe IDs a numbered suffix instead of dropping them", () => {
+    const paragraph = { type: "paragraph", text: "Body." };
+    const normalized = normalizeExtensionFeatureGuide(
+      guide([
+        { id: "setup", title: "First", blocks: [paragraph] },
+        { id: "setup", title: "Second", blocks: [paragraph] },
+        { id: "setup-2", title: "Third", blocks: [paragraph] },
+        {
+          id: "recipes",
+          title: "Recipes",
+          blocks: [
+            {
+              type: "recipes",
+              items: [
+                { id: "tip", title: "Tip one", blocks: [paragraph] },
+                { id: "tip", title: "Tip two", blocks: [paragraph] },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(normalized?.sections.map((section) => `${section.id}:${section.title}`)).toEqual([
+      "setup:First",
+      "setup-3:Second",
+      "setup-2:Third",
+      "recipes:Recipes",
+    ]);
+    const recipes = normalized?.sections[3].blocks[0];
+    expect(recipes?.type === "recipes" ? recipes.items.map((recipe) => recipe.id) : []).toEqual(["tip", "tip-2"]);
   });
 });
