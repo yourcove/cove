@@ -1017,6 +1017,17 @@ describe("VideoPlayer source lifecycle", () => {
     });
     const originalInnerHeight = window.innerHeight;
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 740 });
+    // jsdom does no layout: give the options menu a real size so the placement has something to fit.
+    const offsetWidthSpy = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "dialog" ? 224 : 0;
+    });
+    const offsetHeightSpy = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "dialog" ? 300 : 0;
+    });
 
     fireEvent.click(optionsButton);
 
@@ -1025,8 +1036,10 @@ describe("VideoPlayer source lifecycle", () => {
     expect(getByText("Loop video")).toBeInTheDocument();
     expect(getByText("Picture-in-Picture")).toBeInTheDocument();
     const optionsMenu = getByRole("dialog", { name: "Playback options menu" });
+    // No room below the button, so the menu opens above it, right-aligned with the button.
     expect(optionsMenu).toHaveStyle({
-      bottom: "48px",
+      top: "392px",
+      left: "140px",
       maxHeight: "684px",
     });
 
@@ -1041,6 +1054,8 @@ describe("VideoPlayer source lifecycle", () => {
 
     expect(queryByText("Playback speed")).not.toBeInTheDocument();
     Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    offsetWidthSpy.mockRestore();
+    offsetHeightSpy.mockRestore();
   });
 
   it("lets registered seeks preserve pause state when requested", async () => {

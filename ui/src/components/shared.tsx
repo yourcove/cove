@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, MoreVertical, SlidersHorizontal } from "lucide-react";
 import type { FieldProvenance, Tag, TagProvenance } from "../api/types";
@@ -12,6 +12,7 @@ export { CustomFieldsDisplay, CustomFieldsEditor } from "./CustomFields";
 export { FieldProvenanceHover } from "./FieldProvenanceHover";
 export { TagProvenanceHover } from "./TagProvenanceHover";
 import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
+import { usePopoverPosition } from "../hooks/usePopoverPosition";
 
 type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> &
   Partial<Pick<Tag, "id" | "name" | "description" | "imagePath" | "hasImage" | "tagGroupName">>;
@@ -189,39 +190,25 @@ export function TagActionMenu({
   iconClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Position the menu against the viewport from the trigger's rect, clamped so it never spills off any
-  // edge (a chip near the left or bottom would otherwise push an absolutely-positioned menu off-screen).
-  const place = () => {
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const margin = 8;
-    const width = 256; // w-64
-    const height = menuRef.current?.offsetHeight ?? 96;
-    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
-    const top =
-      rect.bottom + 4 + height > window.innerHeight - margin
-        ? Math.max(margin, rect.top - height - 4)
-        : rect.bottom + 4;
-    setCoords({ left, top });
-  };
+  // Keep the menu inside the viewport: a chip near the left or bottom edge would otherwise push it off-screen.
+  const { style: menuStyle } = usePopoverPosition(open, triggerRef, menuRef);
 
-  // Measure once the menu is in the DOM (so height is known), then re-clamp.
-  useLayoutEffect(() => {
-    if (open) place();
-  }, [open]);
-
-  // The fixed-positioned menu can't follow the trigger, so dismiss it on scroll/resize instead.
+  // Dismiss on scroll/resize rather than follow: the backdrop is invisible, so a menu scrolled out of view
+  // would leave it silently swallowing the next click.
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
-    window.addEventListener("scroll", close, true);
+    const closeOnPageScroll = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      close();
+    };
+    window.addEventListener("scroll", closeOnPageScroll, true);
     window.addEventListener("resize", close);
     return () => {
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", closeOnPageScroll, true);
       window.removeEventListener("resize", close);
     };
   }, [open]);
@@ -244,7 +231,7 @@ export function TagActionMenu({
       >
         <MoreVertical className={iconClassName ?? "h-3.5 w-3.5"} />
       </button>
-      {open && coords
+      {open
         ? createPortal(
             <>
               <div
@@ -257,8 +244,8 @@ export function TagActionMenu({
               />
               <div
                 ref={menuRef}
-                className="fixed z-[61] w-64 rounded-md border border-border bg-surface p-1 shadow-xl"
-                style={{ left: coords.left, top: coords.top }}
+                className="fixed z-[61] w-64 overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-xl"
+                style={menuStyle}
               >
                 {onAdjustThreshold ? (
                   <button

@@ -1,5 +1,6 @@
-import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useRef } from "react";
 import { createPortal } from "react-dom";
+import { type PopoverAlign, usePopoverPosition } from "../hooks/usePopoverPosition";
 
 interface FloatingActionMenuProps {
   open: boolean;
@@ -8,6 +9,8 @@ interface FloatingActionMenuProps {
   children: ReactNode;
   className?: string;
   offset?: number;
+  /** Anchor edge the menu lines up with first; it switches edges, then clamps, when that would leave the viewport. */
+  align?: PopoverAlign;
   role?: string;
 }
 
@@ -18,42 +21,12 @@ export function FloatingActionMenu({
   children,
   className = "min-w-[220px] py-1",
   offset = 4,
+  align = "end",
   role = "menu",
 }: FloatingActionMenuProps) {
-  const [position, setPosition] = useState<CSSProperties | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const backdropPointerDownRef = useRef(false);
-
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (prevOpen !== open) {
-    setPrevOpen(open);
-    if (!open) setPosition(null);
-  }
-
-  useEffect(() => {
-    if (!open) return;
-
-    const updatePosition = () => {
-      const anchor = anchorRef.current;
-      if (!anchor) return;
-
-      const rect = anchor.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const gutter = 8;
-      setPosition({
-        top: rect.bottom + offset,
-        right: Math.max(gutter, viewportWidth - rect.right),
-        maxWidth: `calc(100vw - ${gutter * 2}px)`,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [anchorRef, offset, open]);
+  const { style } = usePopoverPosition(open, anchorRef, menuRef, { align, offset });
 
   if (!open || typeof document === "undefined") return null;
 
@@ -71,24 +44,26 @@ export function FloatingActionMenu({
         backdropPointerDownRef.current = false;
       }}
     >
-      {position ? (
-        <div
-          className={["absolute z-[60] overflow-hidden rounded-lg border border-border bg-surface shadow-xl", className]
-            .filter(Boolean)
-            .join(" ")}
-          style={position}
-          role={role}
-          // Stop pointerdown/mousedown from reaching document-level "click outside" handlers on the
-          // host page. Some pages close their ops menu on `pointerdown`; since this menu is portaled
-          // outside their ref, an un-stopped pointerdown would close (unmount) the menu before the
-          // item's onClick fires — making the item appear to do nothing.
-          onPointerDown={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {children}
-        </div>
-      ) : null}
+      <div
+        ref={menuRef}
+        className={[
+          "absolute z-[60] overflow-x-hidden overflow-y-auto rounded-lg border border-border bg-surface shadow-xl",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={style}
+        role={role}
+        // Stop pointerdown/mousedown from reaching document-level "click outside" handlers on the
+        // host page. Some pages close their ops menu on `pointerdown`; since this menu is portaled
+        // outside their ref, an un-stopped pointerdown would close (unmount) the menu before the
+        // item's onClick fires — making the item appear to do nothing.
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
     </div>,
     document.body,
   );

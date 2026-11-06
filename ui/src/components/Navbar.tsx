@@ -45,8 +45,8 @@ const NAV_LINK_CLASS =
   "flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium whitespace-nowrap transition-colors cursor-pointer";
 
 /**
- * Items of the "More" overflow menu. Mounts only once the floating menu has been positioned, so the
- * mount effect can move focus into it; arrow keys, Home and End then move between the items.
+ * Items of the "More" overflow menu. The floating menu keeps its items focusable while it is measured, so
+ * the mount effect can move focus into it; arrow keys, Home and End then move between the items.
  */
 function NavOverflowMenuItems({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   const listRef = useRef<HTMLDivElement>(null);
