@@ -108,7 +108,7 @@ import { canReadEntity } from "../auth/visibility";
 import { resolveGroupFeedHost } from "../components/GroupItemFeed";
 import { canAccessExtensionContribution } from "../extensions/extension-permissions";
 import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
-import { emitLocationChange, registerNavigationBlocker, type Route } from "../router/location";
+import { emitLocationChange, historyStateForNewEntry, registerNavigationBlocker, type Route } from "../router/location";
 import { buildSpanSearchRequest } from "./segments/useDerivedSpansQuery";
 import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
 import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
@@ -1288,7 +1288,7 @@ function DashboardEditor({
     };
     const handlePopState = () => {
       if (confirmNavigation()) return;
-      window.history.pushState(editorHistoryState.current, "", editorUrl.current);
+      window.history.pushState(historyStateForNewEntry(editorHistoryState.current), "", editorUrl.current);
       emitLocationChange();
     };
     const unregisterBlocker = registerNavigationBlocker(confirmNavigation);

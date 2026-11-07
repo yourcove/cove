@@ -1,6 +1,8 @@
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Heart, RefreshCw } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Heart, RefreshCw } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { EntityMedia, type EntityMediaRenderProps } from "./EntityMedia";
+import { BackNavigationButton } from "./BackNavigationButton";
+import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
 
 // Cove standard EntityHero action button styles. Use these for favorite/organized/edit/overflow
 // so corner rounding, size, and border treatment stay consistent across all EntityHero pages.
@@ -21,6 +23,8 @@ export interface EntityHeroLayoutProps {
   entityId: number;
   backLabel: string;
   onGoBack: () => void;
+  /** The other place Back can lead, offered in a menu beside the Back button. */
+  backAlternative?: BackNavigationAlternative;
   backgroundImageUrl?: string | null;
   backgroundImageAlt?: string;
   backgroundImageClassName?: string;
@@ -70,6 +74,7 @@ export function EntityHeroLayout({
   entityId,
   backLabel,
   onGoBack,
+  backAlternative,
   backgroundImageUrl,
   backgroundImageAlt,
   backgroundImageClassName,
@@ -314,13 +319,12 @@ export function EntityHeroLayout({
 
         <div className="relative mx-auto max-w-7xl px-4 py-8">
           <div className="mb-5 flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={onGoBack}
-              className="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" /> {backLabel}
-            </button>
+            <BackNavigationButton
+              label={backLabel}
+              onGoBack={onGoBack}
+              alternative={backAlternative}
+              buttonClassName="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
+            />
             {hasHeaderActions ? (
               <div className="flex items-center gap-2">
                 {organizedAction}

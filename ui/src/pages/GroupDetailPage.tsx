@@ -237,7 +237,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   );
   const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "asc", sort: "date" });
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "groups" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "groups" }, onNavigate);
   const canReadGroups = canReadEntity("group", hasPermission);
   const canReadVideos = canReadEntity("video", hasPermission);
   const canWriteGroup = canWriteEntity("group", hasPermission);
@@ -293,7 +293,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => groups.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -519,6 +519,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         }
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         imageUrl={group.frontImagePath}
         imageAlt={group.name}
         alternateImageUrl={group.backImagePath}

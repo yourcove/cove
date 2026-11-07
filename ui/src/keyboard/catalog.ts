@@ -60,6 +60,13 @@ export const COVE_KEYBOARD_ACTIONS: KeyboardActionDefinition[] = [
   { id: "list.filters", group: "List Pages", label: "Filters", defaultBindings: ["f"] },
   { id: "list.zoom.in", group: "List Pages", label: "Zoom in", defaultBindings: ["+"], repeatable: true },
   { id: "list.zoom.out", group: "List Pages", label: "Zoom out", defaultBindings: ["-"], repeatable: true },
+  { id: "detail.back", group: "Detail Pages", label: "Go back", defaultBindings: ["b"] },
+  {
+    id: "detail.back.alternate",
+    group: "Detail Pages",
+    label: "Go back to the other choice",
+    defaultBindings: ["Shift+b"],
+  },
   { id: "detail.edit", group: "Detail Pages", label: "Edit", defaultBindings: ["e"] },
   { id: "detail.favorite", group: "Detail Pages", label: "Toggle favorite", defaultBindings: ["o"] },
   { id: "detail.performer.videos", group: "Performer Detail", label: "Open videos", defaultBindings: ["c"] },

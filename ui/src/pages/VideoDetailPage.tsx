@@ -418,7 +418,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     setSegmentFilter(EMPTY_SEGMENT_FILTER);
   }
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "videos" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "videos" }, onNavigate);
   const canWriteVideo = canWriteEntity("video", hasPermission);
   const canReadVideo = canReadEntity("video", hasPermission);
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
@@ -549,7 +549,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
     mutationFn: (deleteFile?: boolean) => videos.delete(id, deleteFile),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["videos"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -1629,6 +1629,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         subtitle={videoSubtitle}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         media={videoMedia}
         mediaAspectRatio="auto"
         mediaFullBleed

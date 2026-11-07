@@ -187,7 +187,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
     queryFn: () => texts.content(id),
     enabled: !!text && !(primaryFileIsPdf && canStreamTextFile),
   });
-  const { backLabel, goBack } = useBackNavigation({ page: "texts" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "texts" }, onNavigate);
   const [activeTab, setActiveTab] = useState<TextTab>("details");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -231,7 +231,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
     mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => texts.delete(id, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["texts"] });
-      goBack();
+      goToOrigin();
     },
   });
   const incrementLikeMut = useMutation({
@@ -432,6 +432,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
         }
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         headerImage={
           <StudioHeaderImage studioId={text.studioId} studioName={text.studioName} onNavigate={onNavigate} />
         }

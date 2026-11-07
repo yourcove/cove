@@ -64,11 +64,12 @@ public class ExtensionAbiRecordCompatibilityTests
     public void UserUiPreferencesDto_DeserializesMembersAddedAfterCove13()
     {
         var restored = JsonSerializer.Deserialize<UserUiPreferencesDto>(
-            """{"homePageContent":"rows","renderMarkdown":true,"keyboardShortcuts":{"activePresetId":"cove:native","showChordHints":false}}""",
+            """{"homePageContent":"rows","renderMarkdown":true,"backNavigationTarget":"previous","keyboardShortcuts":{"activePresetId":"cove:native","showChordHints":false}}""",
             Options);
 
         Assert.Equal("rows", restored?.HomePageContent);
         Assert.True(restored?.RenderMarkdown);
+        Assert.Equal("previous", restored?.BackNavigationTarget);
         Assert.False(restored?.KeyboardShortcuts?.ShowChordHints);
     }
 

@@ -89,7 +89,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
     "performer",
     audio?.performers?.map((p) => p.id) ?? [],
   );
-  const { backLabel, goBack } = useBackNavigation({ page: "audios" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "audios" }, onNavigate);
   const [activeTab, setActiveTab] = useState<AudioTab>("details");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -135,7 +135,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
     mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => audios.delete(id, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["audios"] });
-      goBack();
+      goToOrigin();
     },
   });
   const incrementLikeMut = useMutation({
@@ -356,6 +356,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
         }
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         headerImage={
           <StudioHeaderImage studioId={audio.studioId} studioName={audio.studioName} onNavigate={onNavigate} />
         }

@@ -169,7 +169,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "galleries" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "galleries" }, onNavigate);
   const canWriteGallery = canWriteEntity("gallery", hasPermission);
   const canEngageGallery =
     canReadEntity("gallery", hasPermission) && (user?.kind === "user" || user?.kind === "system");
@@ -276,7 +276,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => galleries.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["galleries"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -434,6 +434,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         entityId={gallery.id}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         imageUrl={gallery.coverPath}
         imageAlt={galleryTitle}
         imageFit="contain"

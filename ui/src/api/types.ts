@@ -2237,7 +2237,15 @@ export interface UserUiPreferences {
   defaultFilters?: Record<string, string> | null;
   /** Whether narrative metadata is rendered as safe Markdown instead of literal text. */
   renderMarkdown?: boolean | null;
+  /** Where a detail page's Back button leads. Unset means "origin". */
+  backNavigationTarget?: BackNavigationTarget | null;
 }
+
+/**
+ * "origin": the page a run of same-type pages (video to video, performer to performer) started from.
+ * "previous": the page just before, one step back.
+ */
+export type BackNavigationTarget = "origin" | "previous";
 
 export interface UserKeyboardShortcutPreferences {
   activePresetId?: string | null;

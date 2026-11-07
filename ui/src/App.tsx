@@ -35,6 +35,7 @@ import {
   parseLegacyHashRoute,
   readStoredRoute,
   resolveCurrentRoute,
+  routeFromHistoryState,
   syncRouteHistory,
 } from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
@@ -237,10 +238,7 @@ export default function App() {
       // Recover route from history.state first, then from session-scoped route history.
       // This keeps derived-query provenance available even if a navigation path only preserved the URL.
       const rawState = event instanceof PopStateEvent ? event.state : window.history.state;
-      const stateRoute =
-        rawState && typeof rawState === "object" && typeof (rawState as Route).page === "string"
-          ? (rawState as Route)
-          : undefined;
+      const stateRoute = routeFromHistoryState(rawState);
       setRoute(normalizeRoute(stateRoute ?? readStoredRoute(currentUrl) ?? parseCurrentRoute()));
     };
     window.addEventListener("popstate", handleLocationChange);

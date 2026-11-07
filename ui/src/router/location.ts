@@ -29,6 +29,88 @@ export interface Route {
 interface RouteHistoryEntry {
   url: string;
   route: Route;
+  /** The history entry's id, when it has one; matched before the URL, which entries can share. */
+  id?: string;
+}
+
+function findRouteHistoryIndex(history: RouteHistoryEntry[], id: string | undefined, url: string): number {
+  if (id) {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].id === id) return index;
+    }
+  }
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    // An entry with a different id is another visit to the same URL, not this one.
+    if (history[index].url === url && !(id && history[index].id)) return index;
+  }
+  return -1;
+}
+
+/**
+ * A copy of the page a run of same-type pages started from, kept on every history entry of the run.
+ * It lives in `history.state` beside the route, so it survives reloads and back/forward moves without
+ * depending on how much of the session's route history is still recorded.
+ */
+export interface BackOrigin {
+  url: string;
+  route: Route;
+  /** Window scroll offset of the origin page when it was left. */
+  scrollY: number;
+  /**
+   * The origin page's own origin, restored when returning to it, so Back from there still reaches
+   * the page its run started from. Nesting is capped at {@link MAX_BACK_ORIGIN_DEPTH}.
+   */
+  origin?: BackOrigin;
+  /** The history entry the origin page had, telling it apart from other visits to the same URL. */
+  entryId?: string;
+}
+
+const MAX_BACK_ORIGIN_DEPTH = 4;
+
+const BACK_ORIGIN_STATE_KEY = "backOrigin";
+/** Marks an entry opened by returning to a saved origin, as opposed to reached by browsing. */
+const BACK_RETURNED_STATE_KEY = "backReturned";
+/** Identifies a history entry, so entries with the same URL are told apart. */
+const ENTRY_ID_STATE_KEY = "entryId";
+const ENTRY_STATE_KEYS = [BACK_ORIGIN_STATE_KEY, BACK_RETURNED_STATE_KEY, ENTRY_ID_STATE_KEY] as const;
+
+/** What the app keeps in `history.state` next to the route; each field is optional. */
+interface EntryState {
+  [BACK_ORIGIN_STATE_KEY]?: BackOrigin;
+  [BACK_RETURNED_STATE_KEY]?: true;
+  [ENTRY_ID_STATE_KEY]?: string;
+}
+type RouteHistoryState = Partial<Route> & EntryState;
+
+let entryIdCounter = 0;
+function newEntryId(): string {
+  entryIdCounter += 1;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${entryIdCounter}`;
+}
+
+function readEntryState(): EntryState {
+  const state: unknown = window.history.state;
+  return state != null && typeof state === "object" ? (state as EntryState) : {};
+}
+
+function readEntryId(): string | undefined {
+  const id = readEntryState()[ENTRY_ID_STATE_KEY];
+  return typeof id === "string" && id ? id : undefined;
+}
+
+/**
+ * A copy of a saved history state to push as a new entry. The entry id is left out, because two
+ * entries must not share one; the next route-history sync gives the new entry its own.
+ */
+export function historyStateForNewEntry(state: unknown): unknown {
+  if (state == null || typeof state !== "object" || !(ENTRY_ID_STATE_KEY in state)) return state;
+  const { [ENTRY_ID_STATE_KEY]: _id, ...rest } = state as EntryState & Record<string, unknown>;
+  return rest;
+}
+
+/** Whether the current entry was opened by returning to a saved origin. */
+export function readBackReturned(): boolean {
+  return readEntryState()[BACK_RETURNED_STATE_KEY] === true;
 }
 
 export const LOCATION_CHANGE_EVENT = "cove-locationchange";
@@ -136,8 +218,127 @@ export function resolveContextualDetailRoute(route: Route, sourcePage: string = 
   return { ...route, detailTab };
 }
 
+/** The route stored in a history state, without the entry details that travel with it. */
+export function routeFromHistoryState(state: unknown): Route | undefined {
+  if (!isRouteState(state)) return undefined;
+  if (!ENTRY_STATE_KEYS.some((key) => key in state)) return state;
+  const route = { ...state } as Record<string, unknown>;
+  for (const key of ENTRY_STATE_KEYS) delete route[key];
+  return route as unknown as Route;
+}
+
+/** Whether a history state is one the app writes: a route, an entry-details-only object, or none. */
+function isAppHistoryState(state: unknown): boolean {
+  if (state == null || isRouteState(state)) return true;
+  if (typeof state !== "object") return false;
+  const keys = Object.keys(state);
+  return keys.length > 0 && keys.every((key) => (ENTRY_STATE_KEYS as readonly string[]).includes(key));
+}
+
 function readCurrentStateRoute(): Route | undefined {
-  return isRouteState(window.history.state) ? window.history.state : undefined;
+  return routeFromHistoryState(window.history.state);
+}
+
+function isBackOrigin(value: unknown): value is BackOrigin {
+  if (value == null || typeof value !== "object") return false;
+  const origin = value as BackOrigin;
+  return typeof origin.url === "string" && isRouteState(origin.route) && typeof origin.scrollY === "number";
+}
+
+/** The page the current run of same-type pages started from, when the app recorded one. */
+export function readBackOrigin(): BackOrigin | undefined {
+  const state: unknown = window.history.state;
+  if (state == null || typeof state !== "object") return undefined;
+  return sanitizeBackOrigin((state as RouteHistoryState)[BACK_ORIGIN_STATE_KEY], MAX_BACK_ORIGIN_DEPTH);
+}
+
+function sanitizeBackOrigin(value: unknown, depth: number): BackOrigin | undefined {
+  if (depth <= 0 || !isBackOrigin(value)) return undefined;
+  const { url, route, scrollY } = value;
+  const entryId = typeof value.entryId === "string" && value.entryId ? value.entryId : undefined;
+  const parent = sanitizeBackOrigin(value.origin, depth - 1);
+  return { url, route, scrollY, ...(entryId ? { entryId } : {}), ...(parent ? { origin: parent } : {}) };
+}
+
+/**
+ * The origin to store with a new entry for `nextRoute`. Moving between pages of the same type
+ * (video to video, performer to performer) keeps the current run's origin; any other move starts a
+ * new run whose origin is the page being left.
+ */
+function nextBackOrigin(nextRoute: Route): BackOrigin | undefined {
+  const currentRoute = readCurrentStateRoute() ?? parseCurrentRoute();
+  if (currentRoute.page === nextRoute.page) return readBackOrigin();
+
+  const parentOrigin = sanitizeBackOrigin(readBackOrigin(), MAX_BACK_ORIGIN_DEPTH - 1);
+  const entryId = ensureCurrentEntryId();
+  return {
+    url: buildCurrentUrl(window.location.pathname, window.location.search),
+    route: currentRoute,
+    scrollY: Math.max(0, Math.round(window.scrollY)),
+    ...(entryId ? { entryId } : {}),
+    ...(parentOrigin ? { origin: parentOrigin } : {}),
+  };
+}
+
+function parseUrlRoute(url: string): Route {
+  const parsed = new URL(url, window.location.origin);
+  return parsePath(parsed.pathname, parsed.search);
+}
+
+/**
+ * Attach the entry details (id, back origin, returned marker) to the state of the entry being
+ * written. `explicitOrigin` marks a return to a saved origin and stores that page's own origin
+ * (`null` stores none).
+ */
+function withEntryState(
+  state: unknown,
+  url: string,
+  replace: boolean | undefined,
+  explicitOrigin: BackOrigin | null | undefined,
+): unknown {
+  const route = routeFromHistoryState(state);
+  // Leave state written by someone else alone; only route states and empty states carry details.
+  if (state != null && !route) return state;
+
+  const current = readEntryState();
+  let origin: BackOrigin | undefined;
+  let returned = false;
+  if (explicitOrigin !== undefined) {
+    origin = explicitOrigin ?? undefined;
+    returned = true;
+  } else if (replace) {
+    // A replaced entry is the same step, so it keeps what it had. Most tab and filter changes
+    // replace without a state, which must not lose the origin either.
+    origin = readBackOrigin();
+    returned = current[BACK_RETURNED_STATE_KEY] === true;
+  } else {
+    origin = nextBackOrigin(route ?? parseUrlRoute(url));
+  }
+
+  const details: EntryState = {
+    [ENTRY_ID_STATE_KEY]: (replace ? readEntryId() : undefined) ?? newEntryId(),
+    ...(origin ? { [BACK_ORIGIN_STATE_KEY]: origin } : {}),
+    ...(returned ? { [BACK_RETURNED_STATE_KEY]: true as const } : {}),
+  };
+  // Without a route, store the details alone: a stale route here would override what the URL says.
+  return route ? { ...route, ...details } : details;
+}
+
+/** Give the current entry an id if the app owns its state and it has none yet, e.g. a fresh tab. */
+function ensureCurrentEntryId(): string | undefined {
+  const existing = readEntryId();
+  if (existing) return existing;
+  const state: unknown = window.history.state;
+  if (!isAppHistoryState(state)) return undefined;
+
+  const id = newEntryId();
+  const nextState = state == null ? { [ENTRY_ID_STATE_KEY]: id } : { ...(state as object), [ENTRY_ID_STATE_KEY]: id };
+  window.history.replaceState(
+    nextState,
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
+  return id;
 }
 
 export function buildRoutePath(route: Route): string {
@@ -272,7 +473,13 @@ export function registerNavigationBlocker(blocker: NavigationBlocker): () => voi
 
 export function navigateToUrl(
   url: string,
-  options?: { replace?: boolean; state?: unknown; bypassBlockers?: boolean },
+  options?: {
+    replace?: boolean;
+    state?: unknown;
+    bypassBlockers?: boolean;
+    /** The back origin to store with the entry instead of the computed one; `null` stores none. */
+    backOrigin?: BackOrigin | null;
+  },
 ): boolean {
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   if (currentUrl === url) {
@@ -281,10 +488,11 @@ export function navigateToUrl(
 
   if (!options?.bypassBlockers && [...navigationBlockers].some((blocker) => !blocker())) return false;
 
+  const state = withEntryState(options?.state ?? null, url, options?.replace, options?.backOrigin);
   if (options?.replace) {
-    window.history.replaceState(options?.state ?? null, "", url);
+    window.history.replaceState(state, "", url);
   } else {
-    window.history.pushState(options?.state ?? null, "", url);
+    window.history.pushState(state, "", url);
   }
 
   emitLocationChange({ replace: options?.replace });
@@ -339,29 +547,43 @@ export function resolveCurrentRoute(): Route {
 }
 
 export function syncRouteHistory(mode: RouteHistoryMode = "push") {
+  // An id given only now cannot identify an earlier record, so matching then goes by URL.
+  const knownId = readEntryId();
+  const id = knownId ?? ensureCurrentEntryId();
   const currentEntry: RouteHistoryEntry = {
     url: buildCurrentUrl(window.location.pathname, window.location.search),
     route: readCurrentStateRoute() ?? parseCurrentRoute(),
+    ...(id ? { id } : {}),
   };
 
   const history = readRouteHistory();
   if (mode === "replace" && history.length > 0) {
-    history[history.length - 1] = currentEntry;
+    // Replace this entry's record; an entry without an id falls back to the latest record.
+    let index = -1;
+    for (let candidate = history.length - 1; knownId && candidate >= 0; candidate -= 1) {
+      if (history[candidate].id === knownId) {
+        index = candidate;
+        break;
+      }
+    }
+    history[index >= 0 ? index : history.length - 1] = currentEntry;
     writeRouteHistory(history);
     return;
   }
 
   if (mode === "history") {
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-      if (history[index].url === currentEntry.url) {
-        writeRouteHistory(history.slice(0, index + 1));
-        return;
-      }
+    const index = findRouteHistoryIndex(history, knownId, currentEntry.url);
+    if (index >= 0) {
+      history[index] = currentEntry;
+      writeRouteHistory(history.slice(0, index + 1));
+      return;
     }
   }
 
   const lastEntry = history.length > 0 ? history[history.length - 1] : undefined;
-  if (lastEntry?.url === currentEntry.url) {
+  if (lastEntry && (knownId && lastEntry.id ? lastEntry.id === knownId : lastEntry.url === currentEntry.url)) {
+    history[history.length - 1] = currentEntry;
+    writeRouteHistory(history);
     return;
   }
 
@@ -369,7 +591,7 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
   writeRouteHistory(history);
 }
 
-function getRouteLabel(route: Route): string {
+export function getRouteLabel(route: Route): string {
   switch (route.page) {
     case "home":
       return "Home";
@@ -483,18 +705,17 @@ function applyRouteSearch(route: Route, search?: string): Route {
   };
 }
 
-export function getPreviousInternalRoute(fallbackRoute: Route): { route: Route; label: string; hasHistory: boolean } {
+export function getPreviousInternalRoute(fallbackRoute: Route): {
+  route: Route;
+  label: string;
+  hasHistory: boolean;
+  url?: string;
+  entryId?: string;
+} {
   const history = readRouteHistory();
   const currentUrl = buildCurrentUrl(window.location.pathname, window.location.search);
 
-  let currentIndex = -1;
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    if (history[index].url === currentUrl) {
-      currentIndex = index;
-      break;
-    }
-  }
-
+  const currentIndex = findRouteHistoryIndex(history, readEntryId(), currentUrl);
   const previousEntry = currentIndex > 0 ? history[currentIndex - 1] : undefined;
   const route = previousEntry?.route ?? fallbackRoute;
 
@@ -502,5 +723,7 @@ export function getPreviousInternalRoute(fallbackRoute: Route): { route: Route; 
     route,
     label: getRouteLabel(route),
     hasHistory: previousEntry != null,
+    url: previousEntry?.url,
+    entryId: previousEntry?.id,
   };
 }

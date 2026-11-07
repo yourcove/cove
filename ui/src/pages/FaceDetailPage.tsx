@@ -138,7 +138,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const canDeleteFace = canDeleteEntity("face", hasPermission);
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canEngageFace = canReadEntity("face", hasPermission) && (user?.kind === "user" || user?.kind === "system");
-  const { backLabel, goBack } = useBackNavigation({ page: "faces" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "faces" }, onNavigate);
   const [appearanceFilter, setAppearanceFilter] = useState<FindFilter>({
     page: 1,
     perPage: 24,
@@ -431,7 +431,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => faces.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["faces"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -948,6 +948,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         entityId={face.id}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         imageUrl={face.coverImageUrl}
         imageCarouselUrls={heroImageUrls}
         imageCarouselIndex={heroImageIndex}

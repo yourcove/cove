@@ -21,7 +21,7 @@ import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLa
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { VideoPlayer, type VideoPlayerSeek } from "../components/VideoPlayer";
 import { ProvenanceBadge, TagBadge } from "../components/shared";
-import { useBackNavigation } from "../hooks/useBackNavigation";
+import { useBackNavigation, type BackNavigationAlternative } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
@@ -40,7 +40,7 @@ interface Props {
 type ResolvedSpanTab = "overview" | "context" | "intervals" | "similar";
 
 export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQueryDescriptor, onNavigate }: Props) {
-  const { backLabel, goBack } = useBackNavigation({ page: "video", id: videoId }, onNavigate);
+  const { backLabel, goBack, backAlternative } = useBackNavigation({ page: "video", id: videoId }, onNavigate);
   const {
     data: detail,
     isLoading,
@@ -92,6 +92,7 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
       onNavigate={onNavigate}
       backLabel={backLabel}
       onGoBack={goBack}
+      backAlternative={backAlternative}
     />
   );
 }
@@ -101,12 +102,14 @@ function ResolvedSpanPlayerCard({
   derivedQueryDescriptor,
   backLabel,
   onGoBack,
+  backAlternative,
   onNavigate,
 }: {
   detail: ResolvedSpanDetail;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
   backLabel: string;
   onGoBack: () => void;
+  backAlternative?: BackNavigationAlternative;
   onNavigate: (r: any) => void;
 }) {
   const queryClient = useQueryClient();
@@ -589,6 +592,7 @@ function ResolvedSpanPlayerCard({
       subtitle={`${formatTime(detail.span.startSec)} - ${formatTime(detail.span.endSec)} • ${formatTime(detail.span.endSec - detail.span.startSec)} long`}
       backLabel={backLabel}
       onGoBack={onGoBack}
+      backAlternative={backAlternative}
       media={playerMedia}
       mediaAspectRatio="auto"
       mediaFullBleed

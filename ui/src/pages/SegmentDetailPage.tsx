@@ -174,7 +174,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const canReadTags = canReadEntity("tag", hasPermission);
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
-  const { backLabel, goBack } = useBackNavigation({ page: "segments" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "segments" }, onNavigate);
 
   const {
     data: segment,
@@ -356,7 +356,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     onSuccess: () => {
       invalidateSegmentQueries(segment);
       setConfirmDelete(false);
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -974,6 +974,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         subtitle={subtitleWithProvenance}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         media={
           <SegmentPlaybackPanel
             segment={segment}

@@ -22,6 +22,7 @@ import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
 import { VideoPlayer } from "./VideoPlayer";
 import { useAppConfig } from "../state/AppConfigContext";
+import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
 
 interface Props {
   groupId: number;
@@ -31,6 +32,7 @@ interface Props {
   embedded?: boolean;
   backLabel?: string;
   onGoBack?: () => void;
+  backAlternative?: BackNavigationAlternative;
 }
 
 type CompilationTab = "playlist" | "current" | "filters";
@@ -48,6 +50,7 @@ export function CompilationPlayer({
   embedded = false,
   backLabel,
   onGoBack,
+  backAlternative,
 }: Props) {
   const { config, configLoading } = useAppConfig();
   const automaticPlayback = config?.ui.autostartVideo ?? false;
@@ -604,6 +607,7 @@ export function CompilationPlayer({
         }
         backLabel={backLabel}
         onGoBack={onGoBack}
+        backAlternative={backAlternative}
         media={playerMedia}
         mediaAspectRatio="auto"
         mediaFullBleed
