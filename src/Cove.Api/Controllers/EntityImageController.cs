@@ -9,10 +9,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Processing;
+using Cove.Api.Imaging;
 
 namespace Cove.Api.Controllers;
 
@@ -108,7 +105,7 @@ public class EntityImageController(
         try
         {
             // The synchronous identify reads only the header; the async one buffers the whole file.
-            var info = SixLabors.ImageSharp.Image.Identify(stream);
+            var info = ImageCodec.Default.Identify(stream);
             stream.Position = 0;
             if (max is not > 0 || (info.Width <= max && info.Height <= max))
                 return stream;
@@ -116,17 +113,17 @@ public class EntityImageController(
             // Decoding toward the fitted size, rather than the max-by-max box, lets the JPEG decoder skip
             // most of a large frame's pixels.
             var scale = Math.Min((double)max.Value / info.Width, (double)max.Value / info.Height);
-            var fitted = new Size(Math.Max(1, (int)Math.Round(info.Width * scale)), Math.Max(1, (int)Math.Round(info.Height * scale)));
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync(new DecoderOptions { TargetSize = fitted }, stream, ct);
+            var fitted = new PixelSize(Math.Max(1, (int)Math.Round(info.Width * scale)), Math.Max(1, (int)Math.Round(info.Height * scale)));
+            using var image = await ImageCodec.Default.LoadAsync(stream, new ImageLoadOptions(fitted), ct);
             if (image.Width != fitted.Width || image.Height != fitted.Height)
-                image.Mutate(context => context.Resize(fitted));
+                image.Resize(fitted);
             var output = new MemoryStream();
-            await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 85 }, ct);
+            await image.SaveAsync(output, ImageOutput.Jpeg(85), ct);
             output.Position = 0;
             await stream.DisposeAsync();
             return output;
         }
-        catch (ImageFormatException ex)
+        catch (ImageDecodeException ex)
         {
             await stream.DisposeAsync();
             // Removed so the stand-in is served until Generate makes the frame again.

@@ -106,8 +106,7 @@ public sealed class ScanFileValidator(
             throw;
         }
         catch (Exception ex) when (ex is InvalidDataException
-            or SixLabors.ImageSharp.InvalidImageContentException
-            or SixLabors.ImageSharp.UnknownImageFormatException
+            or Cove.Api.Imaging.ImageDecodeException
             or XmlException
             or JsonException)
         {
@@ -166,8 +165,7 @@ public sealed class ScanFileValidator(
             throw;
         }
         catch (Exception ex) when (ex is InvalidDataException
-            or SixLabors.ImageSharp.InvalidImageContentException
-            or SixLabors.ImageSharp.UnknownImageFormatException
+            or Cove.Api.Imaging.ImageDecodeException
             or XmlException
             or JsonException)
         {
@@ -318,7 +316,7 @@ public sealed class ScanFileValidator(
 
     private static async Task<(int Width, int Height)> ValidateImageStreamAsync(Stream stream, CancellationToken ct)
     {
-        var image = await SixLabors.ImageSharp.Image.IdentifyAsync(stream, ct);
+        var image = await Cove.Api.Imaging.ImageCodec.Default.IdentifyAsync(stream, ct);
         if (image == null || image.Width <= 0 || image.Height <= 0)
             throw new InvalidDataException("the image has invalid dimensions");
 

@@ -6,11 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Webp;
+using Cove.Api.Imaging;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
@@ -3077,30 +3073,30 @@ query Me {
 
     /// <summary>
     /// stash-box rejects the whole draft over an image that is not JPEG, PNG or a still WebP (its WebP decoder
-    /// cannot read animation), so re-encodes any other image ImageSharp can read (GIF, BMP, TIFF, animated WebP,
-    /// ...) as a PNG of its first frame. Returns null to send the image unchanged, including data ImageSharp does
+    /// cannot read animation), so re-encodes any other image the codec can read (GIF, BMP, TIFF, animated WebP,
+    /// ...) as a PNG of its first frame. Returns null to send the image unchanged, including data the codec does
     /// not recognise, such as SVG, which stash-box also accepts.
     /// </summary>
     private static async Task<MetadataServerUpload?> ConvertUnacceptedImageAsync(ArraySegment<byte> data, CancellationToken ct)
     {
-        ImageInfo info;
+        await using var source = new MemoryStream(data.Array!, data.Offset, data.Count, writable: false);
+        ImageHeader info;
         try
         {
-            info = SixLabors.ImageSharp.Image.Identify(data);
+            info = ImageCodec.Default.Identify(source);
         }
-        catch (UnknownImageFormatException)
+        catch (UnsupportedImageFormatException)
         {
             return null;
         }
 
-        var format = info.Metadata.DecodedImageFormat;
-        if (format is JpegFormat or PngFormat || (format is WebpFormat && info.FrameMetadataCollection.Count == 0))
+        if (info.Format is ImageFormat.Jpeg or ImageFormat.Png || (info.Format == ImageFormat.Webp && info.FrameCount == 1))
             return null;
 
-        await using var source = new MemoryStream(data.Array!, data.Offset, data.Count, writable: false);
-        using var image = await SixLabors.ImageSharp.Image.LoadAsync(new DecoderOptions { MaxFrames = 1 }, source, ct);
+        source.Position = 0;
+        using var image = await ImageCodec.Default.LoadAsync(source, cancellationToken: ct);
         var png = new MemoryStream();
-        await image.SaveAsPngAsync(png, ct);
+        await image.SaveAsync(png, ImageOutput.Png, ct);
         return new MetadataServerUpload(new ArraySegment<byte>(png.GetBuffer(), 0, (int)png.Length), "image/png");
     }
 

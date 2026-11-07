@@ -2,9 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -291,29 +289,22 @@ public class FingerprintService(
             return null;
         }
 
-        try
-        {
-            // Unlike a sprite, a pHash cannot tolerate substituted frames: filling a gap from a
-            // neighbour would produce a hash that no other extraction of the same file reproduces.
-            // A missing frame means no hash.
-            var missing = 0;
-            for (var i = 0; i < extracted.Length; i++)
-                if (extracted[i] is null) missing++;
+        // Unlike a sprite, a pHash cannot tolerate substituted frames: filling a gap from a
+        // neighbour would produce a hash that no other extraction of the same file reproduces.
+        // A missing frame means no hash.
+        var missing = 0;
+        for (var i = 0; i < extracted.Length; i++)
+            if (extracted[i] is null) missing++;
 
-            if (missing > 0)
-            {
-                logger.LogWarning(
-                    "Video pHash extraction failed for {Path} - {Missing} of {Total} sample frames could not be decoded",
-                    path, missing, extracted.Length);
-                return null;
-            }
-
-            return BuildSpritePhash(extracted!);
-        }
-        finally
+        if (missing > 0)
         {
-            DisposeFrames(extracted);
+            logger.LogWarning(
+                "Video pHash extraction failed for {Path} - {Missing} of {Total} sample frames could not be decoded",
+                path, missing, extracted.Length);
+            return null;
         }
+
+        return BuildSpritePhash(extracted!);
     }
 
     /// <summary>
@@ -322,32 +313,26 @@ public class FingerprintService(
     /// blended. Its alpha is dropped: ffmpeg writes a source with an alpha channel as a 32-bit BMP with
     /// a BITMAPINFOHEADER, whose alpha byte Go's BMP decoder ignores.
     /// </summary>
-    private static string BuildSpritePhash(Image<Rgba32>[] frames)
+    private static string BuildSpritePhash(PixelBuffer<Rgba32>[] frames)
     {
         var cellWidth = frames[0].Width;
         var cellHeight = frames[0].Height;
-        using var sprite = new Image<Rgba32>(cellWidth * SpriteColumns, cellHeight * SpriteRows);
-        var canvas = sprite.Frames.RootFrame;
+        var canvas = new PixelBuffer<Rgba32>(cellWidth * SpriteColumns, cellHeight * SpriteRows);
         for (var index = 0; index < frames.Length; index++)
         {
             var x = cellWidth * (index % SpriteColumns);
             var y = cellHeight * (index / SpriteRows);
-            var frame = frames[index].Frames.RootFrame;
+            var frame = frames[index];
             var width = Math.Min(frame.Width, canvas.Width - x);
             for (var row = 0; row < frame.Height && y + row < canvas.Height; row++)
             {
-                var source = frame.DangerousGetPixelRowMemory(row).Span[..width];
-                var target = canvas.DangerousGetPixelRowMemory(y + row).Span.Slice(x, width);
+                var source = frame.Row(row)[..width];
+                var target = canvas.Row(y + row).Slice(x, width);
                 for (var column = 0; column < width; column++)
                     target[column] = source[column] with { A = 255 };
             }
         }
-        return GoImageHash.Format(StashImagePhash.ComputeNrgba(sprite));
-    }
-
-    private static void DisposeFrames(Image<Rgba32>?[] frames)
-    {
-        foreach (var f in frames) { try { f?.Dispose(); } catch { } }
+        return GoImageHash.Format(StashImagePhash.ComputeNrgba(canvas));
     }
 
     /// <summary>

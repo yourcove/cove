@@ -192,7 +192,7 @@ public sealed class StashImagePhashTests
         // gif_transparent puts a graphic control extension ahead of the image descriptor.
         using var stream = new MemoryStream(StashImagePhashFixtures.Create("gif_transparent", 130, 41));
 
-        Assert.Equal(new SixLabors.ImageSharp.Rectangle(0, 0, 130, 41), StashImagePhash.ReadGifFirstFrameBounds(stream));
+        Assert.Equal(new Cove.Api.Imaging.PixelRect(0, 0, 130, 41), StashImagePhash.ReadGifFirstFrameBounds(stream));
     }
 
     [Theory]

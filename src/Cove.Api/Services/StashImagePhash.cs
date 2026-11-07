@@ -1,15 +1,4 @@
-using System.Buffers.Binary;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Gif;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Tiff;
-using SixLabors.ImageSharp.Formats.Tiff.Constants;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Api.Services;
 
@@ -20,13 +9,14 @@ namespace Cove.Api.Services;
 ///
 /// nfnt/resize has a separate fixed-point path for each Go image type, and each rounds
 /// differently, so the hash depends on which type Go's decoder returns. This class works out that
-/// type from the file's metadata, loads the pixels in a matching ImageSharp format, and runs a
-/// port of that path (<see cref="NfntBilinear"/>).
+/// type from the file's headers (<see cref="EncodedImageHeaders"/>), decodes the pixels at a
+/// matching depth through <see cref="ImageCodec"/>, and runs a port of that path
+/// (<see cref="NfntBilinear"/>).
 ///
-/// PNG, GIF, BMP, lossless WebP and TIFF decode to the same pixels in both libraries, so their
-/// hashes match Stash's exactly. The exceptions are hashes that would need pixels ImageSharp does
-/// not expose: lossy JPEG and WebP (Go's decoders round differently), CMYK JPEG, and TIFF with
-/// premultiplied alpha (ImageSharp un-premultiplies it). Those hashes come out close to Stash's.
+/// PNG, GIF, BMP, lossless WebP and TIFF decode to the same pixels in every correct decoder, so
+/// their hashes match Stash's exactly. The exceptions are hashes that would need pixels the codec
+/// does not expose: lossy JPEG and WebP (Go's decoders round differently), CMYK JPEG, and TIFF with
+/// premultiplied alpha (decoders un-premultiply it). Those hashes come out close to Stash's.
 /// </summary>
 internal static class StashImagePhash
 {
@@ -45,7 +35,7 @@ internal static class StashImagePhash
         Rgba64,
         /// <summary>
         /// <c>*image.YCbCr</c>, from lossy JPEG and WebP: the Y, Cb and Cr planes are filtered at 8 bits
-        /// and converted to RGB afterwards. ImageSharp does not expose the decoded planes, so they are
+        /// and converted to RGB afterwards. The codec does not expose the decoded planes, so they are
         /// recovered from its RGB output with Go's own conversion.
         /// </summary>
         YCbCr,
@@ -68,38 +58,40 @@ internal static class StashImagePhash
     /// <see cref="GoImageKind.Rgba"/> path reads it, the only one a BMP of that kind takes.
     /// </param>
     /// <param name="ColorKey16">
-    /// A 16-bit PNG's tRNS colour key (one gray sample, or red, green and blue). ImageSharp keeps the key
-    /// only as an 8-bit colour and so applies it to no pixel; Go makes every exact match transparent.
+    /// A 16-bit PNG's tRNS colour key (one gray sample, or red, green and blue). Go makes every exact
+    /// match transparent and every other pixel opaque. Decoders differ in whether they apply the key,
+    /// so the alpha is derived from it here and the decoded alpha ignored.
     /// </param>
     /// <param name="Background">
     /// A GIF frame's palette entry 0, which Go's <c>Paletted.At</c> returns outside the frame.
     /// </param>
     internal readonly record struct Plan(
         GoImageKind Kind,
-        Rectangle? Crop = null,
+        PixelRect? Crop = null,
         bool ForceOpaque = false,
         ushort[]? ColorKey16 = null,
         Rgba64 Background = default);
 
     /// <summary>Hashes an encoded image. The stream must be seekable.</summary>
-    public static Result Compute(Stream stream)
+    public static Result Compute(Stream stream) => Compute(stream, ImageCodec.Default);
+
+    internal static Result Compute(Stream stream, IImageCodec codec)
     {
         var start = stream.Position;
-        var info = Image.Identify(stream);
+        var info = codec.Identify(stream);
         stream.Position = start;
         var plan = PlanFor(info, stream);
         stream.Position = start;
 
-        var options = new DecoderOptions { MaxFrames = 1 };
         var gray = plan.Kind switch
         {
-            GoImageKind.Gray => Reduce(stream, options, plan, Gray8Pixels.Instance),
-            GoImageKind.Gray16 => Reduce(stream, options, plan, Gray16Pixels.Instance),
-            GoImageKind.Rgba => Reduce(stream, options, plan, RgbaPixels.Instance),
-            GoImageKind.Rgba64 => Reduce(stream, options, plan, Rgba64Pixels.Instance),
-            GoImageKind.YCbCr => Reduce(stream, options, plan, YCbCrPixels.Instance),
-            GoImageKind.NYCbCrA => Reduce(stream, options, plan, NYCbCrAPixels.Instance),
-            _ => Reduce(stream, options, plan, GenericPixels.Instance),
+            GoImageKind.Gray => Reduce(codec.DecodePixels<L8>(stream), plan, Gray8Pixels.Instance),
+            GoImageKind.Gray16 => Reduce(codec.DecodePixels<L16>(stream), plan, Gray16Pixels.Instance),
+            GoImageKind.Rgba => Reduce(codec.DecodePixels<Rgba32>(stream), plan, RgbaPixels.Instance),
+            GoImageKind.Rgba64 => Reduce(codec.DecodePixels<Rgba64>(stream), plan, Rgba64Pixels.Instance),
+            GoImageKind.YCbCr => Reduce(codec.DecodePixels<Rgba32>(stream), plan, YCbCrPixels.Instance),
+            GoImageKind.NYCbCrA => Reduce(codec.DecodePixels<Rgba32>(stream), plan, NYCbCrAPixels.Instance),
+            _ => Reduce(codec.DecodePixels<Rgba64>(stream), plan, GenericPixels.Instance),
         };
         return new Result(GoImageHash.Hash(gray), info.Width, info.Height);
     }
@@ -110,176 +102,98 @@ internal static class StashImagePhash
     /// golang.org/x/image/bmp and golang.org/x/image/tiff. Stash converts any other format to BMP
     /// with ffmpeg first; that BMP is usually 24-bit, which the final case follows.
     /// </summary>
-    internal static Plan PlanFor(ImageInfo info, Stream stream)
+    internal static Plan PlanFor(ImageHeader info, Stream stream)
     {
-        var format = info.Metadata.DecodedImageFormat;
-
-        if (format is PngFormat)
+        var start = stream.Position;
+        try
         {
-            var png = info.Metadata.GetPngMetadata();
-            var sixteenBit = png.BitDepth == PngBitDepth.Bit16;
-            return png.ColorType switch
+            return PlanFromHeaders(info, stream, start);
+        }
+        finally
+        {
+            stream.Position = start;
+        }
+    }
+
+    private static Plan PlanFromHeaders(ImageHeader info, Stream stream, long start)
+    {
+        switch (info.Format)
+        {
+            case ImageFormat.Png when EncodedImageHeaders.ReadPng(stream) is { } png:
             {
-                PngColorType.Palette => new Plan(GoImageKind.Generic),
+                var sixteenBit = png.BitDepth == 16;
+                if (png.ColorType == EncodedImageHeaders.PngHeader.Palette)
+                    return new Plan(GoImageKind.Generic);
                 // A tRNS colour key turns grayscale into NRGBA so the keyed pixels can be transparent.
-                PngColorType.Grayscale when png.TransparentColor is null
-                    => new Plan(sixteenBit ? GoImageKind.Gray16 : GoImageKind.Gray),
-                _ when sixteenBit && png.TransparentColor is not null
-                    => new Plan(GoImageKind.Rgba64, ColorKey16: ReadPngColorKey16(stream)),
-                _ => new Plan(sixteenBit ? GoImageKind.Rgba64 : GoImageKind.Rgba),
-            };
-        }
+                if (png.ColorType == EncodedImageHeaders.PngHeader.Grayscale && !png.HasColorKey)
+                    return new Plan(sixteenBit ? GoImageKind.Gray16 : GoImageKind.Gray);
+                if (sixteenBit && png.HasColorKey)
+                {
+                    stream.Position = start;
+                    return new Plan(GoImageKind.Rgba64, ColorKey16: EncodedImageHeaders.ReadPngColorKey16(stream));
+                }
+                return new Plan(sixteenBit ? GoImageKind.Rgba64 : GoImageKind.Rgba);
+            }
 
-        if (format is JpegFormat)
-        {
-            return info.Metadata.GetJpegMetadata().ColorType switch
+            case ImageFormat.Jpeg:
+                return EncodedImageHeaders.ReadJpeg(stream) switch
+                {
+                    EncodedImageHeaders.JpegColor.Gray => new Plan(GoImageKind.Gray),
+                    EncodedImageHeaders.JpegColor.Cmyk => new Plan(GoImageKind.Generic),
+                    EncodedImageHeaders.JpegColor.Rgb => new Plan(GoImageKind.Rgba),
+                    _ => new Plan(GoImageKind.YCbCr),
+                };
+
+            case ImageFormat.Gif:
             {
-                JpegEncodingColor.Luminance => new Plan(GoImageKind.Gray),
-                JpegEncodingColor.Cmyk or JpegEncodingColor.Ycck => new Plan(GoImageKind.Generic),
-                // Three components with an Adobe RGB transform.
-                JpegEncodingColor.Rgb => new Plan(GoImageKind.Rgba),
-                _ => new Plan(GoImageKind.YCbCr),
-            };
-        }
+                var gif = EncodedImageHeaders.ReadGif(stream);
+                var crop = gif?.FirstFrame is { } bounds && bounds != new PixelRect(0, 0, info.Width, info.Height) ? bounds : (PixelRect?)null;
+                return new Plan(GoImageKind.Generic, crop, Background: gif?.PaletteEntryZero ?? default);
+            }
 
-        if (format is GifFormat)
-        {
-            var frame = ReadGifFirstFrameBounds(stream);
-            var crop = frame is { } bounds && bounds != new Rectangle(0, 0, info.Width, info.Height) ? frame : null;
-            return new Plan(GoImageKind.Generic, crop, Background: GifBackground(info));
-        }
-
-        if (format is WebpFormat)
-        {
-            if (info.Metadata.GetWebpMetadata().FileFormat == WebpFileFormatType.Lossless)
-                return new Plan(GoImageKind.Rgba);
-            // Lossy WebP is *image.YCbCr, or *image.NYCbCrA when it has an alpha channel. ImageSharp
-            // reports the alpha channel only through the pixel size.
-            return new Plan(info.PixelType.BitsPerPixel > 24 ? GoImageKind.NYCbCrA : GoImageKind.YCbCr);
-        }
-
-        if (format is BmpFormat)
-        {
-            var bmp = info.Metadata.GetBmpMetadata();
-            if ((int)bmp.BitsPerPixel <= 8)
-                return new Plan(GoImageKind.Generic);
-            var opaque = bmp.BitsPerPixel != BmpBitsPerPixel.Pixel32 || bmp.InfoHeaderType == BmpInfoHeaderType.WinVersion3;
-            return new Plan(GoImageKind.Rgba, ForceOpaque: opaque);
-        }
-
-        if (format is TiffFormat)
-        {
-            var tiff = info.FrameMetadataCollection.Count > 0 ? info.FrameMetadataCollection[0].GetTiffMetadata() : null;
-            var sixteenBit = tiff?.BitsPerSample is { } samples && samples.Channel0 == 16;
-            return tiff?.PhotometricInterpretation switch
+            case ImageFormat.Webp:
             {
-                TiffPhotometricInterpretation.BlackIsZero or TiffPhotometricInterpretation.WhiteIsZero
-                    => new Plan(sixteenBit ? GoImageKind.Gray16 : GoImageKind.Gray),
-                TiffPhotometricInterpretation.PaletteColor => new Plan(GoImageKind.Generic),
-                _ => new Plan(sixteenBit ? GoImageKind.Rgba64 : GoImageKind.Rgba),
-            };
+                var webp = EncodedImageHeaders.ReadWebp(stream);
+                if (webp is null or { Lossless: true })
+                    return new Plan(GoImageKind.Rgba);
+                // Lossy WebP is *image.YCbCr, or *image.NYCbCrA when an ALPH chunk gives it alpha.
+                return new Plan(webp.HasAlpha ? GoImageKind.NYCbCrA : GoImageKind.YCbCr);
+            }
+
+            case ImageFormat.Bmp when EncodedImageHeaders.ReadBmp(stream) is { } bmp:
+            {
+                if (bmp.BitsPerPixel <= 8)
+                    return new Plan(GoImageKind.Generic);
+                var opaque = bmp.BitsPerPixel != 32 || bmp.InfoHeaderSize == 40;
+                return new Plan(GoImageKind.Rgba, ForceOpaque: opaque);
+            }
+
+            case ImageFormat.Tiff:
+            {
+                var tiff = EncodedImageHeaders.ReadTiff(stream);
+                var sixteenBit = tiff?.BitsPerSample == 16;
+                return tiff?.Photometric switch
+                {
+                    EncodedImageHeaders.TiffHeader.BlackIsZero or EncodedImageHeaders.TiffHeader.WhiteIsZero
+                        => new Plan(sixteenBit ? GoImageKind.Gray16 : GoImageKind.Gray),
+                    EncodedImageHeaders.TiffHeader.PaletteColor => new Plan(GoImageKind.Generic),
+                    _ => new Plan(sixteenBit ? GoImageKind.Rgba64 : GoImageKind.Rgba),
+                };
+            }
         }
 
         return new Plan(GoImageKind.Rgba, ForceOpaque: true);
     }
 
-    /// <summary>Palette entry 0 of a GIF's first frame, transparent when it is the transparent index.</summary>
-    private static Rgba64 GifBackground(ImageInfo info)
-    {
-        var frame = info.FrameMetadataCollection.Count > 0 ? info.FrameMetadataCollection[0].GetGifMetadata() : null;
-        if (frame is { HasTransparency: true, TransparencyIndex: 0 })
-            return default;
-        var palette = frame?.LocalColorTable ?? info.Metadata.GetGifMetadata().GlobalColorTable;
-        return palette is { Length: > 0 } entries ? entries.Span[0].ToPixel<Rgba64>() : default;
-    }
-
     /// <summary>
     /// The bounds of a GIF's first image descriptor, or null when the stream does not reach one.
     /// </summary>
-    internal static Rectangle? ReadGifFirstFrameBounds(Stream stream)
-    {
-        Span<byte> header = stackalloc byte[13];
-        if (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length)
-            return null;
-
-        var packed = header[10];
-        if ((packed & 0x80) != 0 && !Skip(stream, 3 << ((packed & 0x07) + 1)))
-            return null;
-
-        Span<byte> descriptor = stackalloc byte[9];
-        while (true)
-        {
-            switch (stream.ReadByte())
-            {
-                case 0x2C:
-                    if (stream.ReadAtLeast(descriptor, descriptor.Length, throwOnEndOfStream: false) < descriptor.Length)
-                        return null;
-                    return new Rectangle(
-                        BinaryPrimitives.ReadUInt16LittleEndian(descriptor),
-                        BinaryPrimitives.ReadUInt16LittleEndian(descriptor[2..]),
-                        BinaryPrimitives.ReadUInt16LittleEndian(descriptor[4..]),
-                        BinaryPrimitives.ReadUInt16LittleEndian(descriptor[6..]));
-                case 0x21:
-                    if (stream.ReadByte() < 0)
-                        return null;
-                    // Extension data is a chain of length-prefixed sub-blocks ending at a zero length.
-                    int size;
-                    while ((size = stream.ReadByte()) > 0)
-                    {
-                        if (!Skip(stream, size))
-                            return null;
-                    }
-                    if (size < 0)
-                        return null;
-                    break;
-                default:
-                    return null;
-            }
-        }
-    }
+    internal static PixelRect? ReadGifFirstFrameBounds(Stream stream) => EncodedImageHeaders.ReadGif(stream)?.FirstFrame;
 
     /// <summary>
     /// The samples of a 16-bit grayscale or truecolour PNG's tRNS chunk, or null when it has none.
     /// </summary>
-    internal static ushort[]? ReadPngColorKey16(Stream stream)
-    {
-        Span<byte> header = stackalloc byte[8];
-        Span<byte> data = stackalloc byte[6];
-        if (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length)
-            return null;
-
-        while (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) == header.Length)
-        {
-            var length = BinaryPrimitives.ReadUInt32BigEndian(header);
-            var type = header[4..];
-            if (type.SequenceEqual("IDAT"u8) || type.SequenceEqual("IEND"u8))
-                return null;
-
-            if (type.SequenceEqual("tRNS"u8) && length is 2 or 6)
-            {
-                var samples = data[..(int)length];
-                if (stream.ReadAtLeast(samples, samples.Length, throwOnEndOfStream: false) < samples.Length)
-                    return null;
-                var key = new ushort[samples.Length / 2];
-                for (var i = 0; i < key.Length; i++)
-                    key[i] = BinaryPrimitives.ReadUInt16BigEndian(samples[(i * 2)..]);
-                return key;
-            }
-
-            // Chunk data and its CRC.
-            if (!Skip(stream, length + 4L))
-                return null;
-        }
-        return null;
-    }
-
-    private static bool Skip(Stream stream, long count)
-    {
-        if (stream.Position + count > stream.Length)
-            return false;
-        stream.Position += count;
-        return true;
-    }
+    internal static ushort[]? ReadPngColorKey16(Stream stream) => EncodedImageHeaders.ReadPngColorKey16(stream);
 
     // ---- Pixel sources: the values each nfnt path filters, and Go's RGBA() of a decoded pixel ----
 
@@ -291,6 +205,7 @@ internal static class StashImagePhash
     private interface IPixels<TPixel> where TPixel : unmanaged, IPixel<TPixel>
     {
         int Channels { get; }
+        TPixel FromRgba64(Rgba64 pixel);
         (uint R, uint G, uint B) GoRgba(TPixel pixel, in Plan plan);
     }
 
@@ -313,36 +228,39 @@ internal static class StashImagePhash
     {
         public static readonly Gray8Pixels Instance = new();
         public int Channels => 1;
+        public L8 FromRgba64(Rgba64 pixel) => new((byte)(pixel.R >> 8));
 
         public void Fill(ReadOnlySpan<L8> row, Span<byte> destination, in Plan plan)
         {
             for (var i = 0; i < row.Length; i++)
-                destination[i] = row[i].PackedValue;
+                destination[i] = row[i].Value;
         }
 
         public (uint R, uint G, uint B) Output(ReadOnlySpan<byte> pixel) => Widen(pixel[0], pixel[0], pixel[0]);
 
-        public (uint R, uint G, uint B) GoRgba(L8 pixel, in Plan plan) => Widen(pixel.PackedValue, pixel.PackedValue, pixel.PackedValue);
+        public (uint R, uint G, uint B) GoRgba(L8 pixel, in Plan plan) => Widen(pixel.Value, pixel.Value, pixel.Value);
     }
 
     private sealed class Gray16Pixels : IPixels16<L16>
     {
         public static readonly Gray16Pixels Instance = new();
         public int Channels => 1;
+        public L16 FromRgba64(Rgba64 pixel) => new(pixel.R);
 
         public void Fill(ReadOnlySpan<L16> row, Span<ushort> destination, in Plan plan)
         {
             for (var i = 0; i < row.Length; i++)
-                destination[i] = row[i].PackedValue;
+                destination[i] = row[i].Value;
         }
 
-        public (uint R, uint G, uint B) GoRgba(L16 pixel, in Plan plan) => (pixel.PackedValue, pixel.PackedValue, pixel.PackedValue);
+        public (uint R, uint G, uint B) GoRgba(L16 pixel, in Plan plan) => (pixel.Value, pixel.Value, pixel.Value);
     }
 
     private sealed class RgbaPixels : IPixels8<Rgba32>
     {
         public static readonly RgbaPixels Instance = new();
         public int Channels => 4;
+        public Rgba32 FromRgba64(Rgba64 pixel) => Narrow(pixel);
 
         // resizeNRGBA premultiplies each 8-bit sample by alpha with integer division before
         // filtering. For opaque images that is the identity, which makes it resizeRGBA too.
@@ -373,6 +291,7 @@ internal static class StashImagePhash
     {
         public static readonly Rgba64Pixels Instance = new();
         public int Channels => 4;
+        public Rgba64 FromRgba64(Rgba64 pixel) => pixel;
 
         // resizeNRGBA64's premultiplication, which is also color.NRGBA64's RGBA().
         public void Fill(ReadOnlySpan<Rgba64> row, Span<ushort> destination, in Plan plan)
@@ -402,6 +321,7 @@ internal static class StashImagePhash
     {
         public static readonly GenericPixels Instance = new();
         public int Channels => 4;
+        public Rgba64 FromRgba64(Rgba64 pixel) => pixel;
 
         // resizeGeneric filters the 16-bit premultiplied values each pixel's RGBA() returns. Palette
         // entries are color.RGBA (opaque), color.NRGBA (from a PNG tRNS chunk) or color.RGBA64 (TIFF's
@@ -421,6 +341,7 @@ internal static class StashImagePhash
     {
         public static readonly YCbCrPixels Instance = new();
         public int Channels => 3;
+        public Rgba32 FromRgba64(Rgba64 pixel) => Narrow(pixel);
 
         public void Fill(ReadOnlySpan<Rgba32> row, Span<byte> destination, in Plan plan)
         {
@@ -447,6 +368,7 @@ internal static class StashImagePhash
     {
         public static readonly NYCbCrAPixels Instance = new();
         public int Channels => 4;
+        public Rgba32 FromRgba64(Rgba64 pixel) => Narrow(pixel);
 
         public void Fill(ReadOnlySpan<Rgba32> row, Span<ushort> destination, in Plan plan)
         {
@@ -469,6 +391,8 @@ internal static class StashImagePhash
             return (r * a / 0xffff, g * a / 0xffff, b * a / 0xffff);
         }
     }
+
+    private static Rgba32 Narrow(Rgba64 pixel) => new((byte)(pixel.R >> 8), (byte)(pixel.G >> 8), (byte)(pixel.B >> 8), (byte)(pixel.A >> 8));
 
     private static (uint R, uint G, uint B) Widen(byte r, byte g, byte b) => (r * 0x101u, g * 0x101u, b * 0x101u);
 
@@ -508,24 +432,17 @@ internal static class StashImagePhash
     /// Hashes an image already in memory, such as a video sprite, the way goimagehash hashes the
     /// <c>*image.NRGBA</c> montage Stash pastes its BMP frames into.
     /// </summary>
-    public static ulong ComputeNrgba(Image<Rgba32> image)
-        => GoImageHash.Hash(Reduce(image.Frames.RootFrame, new Plan(GoImageKind.Rgba), RgbaPixels.Instance));
+    public static ulong ComputeNrgba(PixelBuffer<Rgba32> image)
+        => GoImageHash.Hash(Reduce(image, new Plan(GoImageKind.Rgba), RgbaPixels.Instance));
 
-    private static double[] Reduce<TPixel>(Stream stream, DecoderOptions options, Plan plan, IPixels<TPixel> source)
+    private static double[] Reduce<TPixel>(PixelBuffer<TPixel> frame, Plan plan, IPixels<TPixel> source)
         where TPixel : unmanaged, IPixel<TPixel>
     {
-        using var image = Image.Load<TPixel>(options, stream);
-        return Reduce(image.Frames.RootFrame, plan, source);
-    }
-
-    private static double[] Reduce<TPixel>(ImageFrame<TPixel> frame, Plan plan, IPixels<TPixel> source)
-        where TPixel : unmanaged, IPixel<TPixel>
-    {
-        var bounds = plan.Crop is { } crop ? Rectangle.Intersect(crop, frame.Bounds()) : frame.Bounds();
+        var bounds = plan.Crop is { } crop ? PixelRect.Intersect(crop, frame.Bounds) : frame.Bounds;
         if (bounds.Width <= 0 || bounds.Height <= 0)
-            throw new InvalidImageContentException("The image has no pixels to hash.");
+            throw new InvalidImageException("The image has no pixels to hash.");
 
-        ReadOnlySpan<TPixel> Row(int y) => frame.DangerousGetPixelRowMemory(bounds.Y + y).Span.Slice(bounds.X, bounds.Width);
+        ReadOnlySpan<TPixel> Row(int y) => frame.Row(bounds.Y + y).Slice(bounds.X, bounds.Width);
 
         const int size = GoImageHash.Size;
         var gray = new double[size * size];
@@ -535,11 +452,10 @@ internal static class StashImagePhash
             // nfnt/resize returns an image that is already the target size unchanged, bounds and all,
             // and goimagehash reads its pixels at (0,0)–(63,63). For a GIF frame placed elsewhere on the
             // screen those coordinates are partly outside the frame, where Go reports palette entry 0.
-            var background = default(TPixel);
-            background.FromRgba64(plan.Background);
+            var background = source.FromRgba64(plan.Background);
             for (var y = 0; y < size; y++)
             {
-                var screenRow = frame.DangerousGetPixelRowMemory(y).Span;
+                var screenRow = frame.Row(y);
                 for (var x = 0; x < size; x++)
                 {
                     var pixel = bounds.Contains(x, y) || plan.Crop is null ? screenRow[x] : background;
