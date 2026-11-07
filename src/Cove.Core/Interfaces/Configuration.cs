@@ -17,6 +17,8 @@ public class CoveConfiguration
     // rest of the system, and use the rest. On a typical 8-core/16-thread machine that
     // is 13; floored at 1 so low-core machines still work. Users can override this.
     public int MaxParallelTasks { get; set; } = System.Math.Max(1, System.Environment.ProcessorCount - 3);
+    /// <summary>Maximum background jobs running at once. Missing settings default to one.</summary>
+    public int MaxSimultaneousJobs { get; set; } = 1;
     public int MaxConcurrentDownloads { get; set; } = 3;
     /// <summary>Highest frame height a download may ask for when a request wants the best available quality. 0 means no limit.</summary>
     public int MaxDownloadHeight { get; set; }

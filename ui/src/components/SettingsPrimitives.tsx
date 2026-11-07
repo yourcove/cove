@@ -2,8 +2,10 @@ import { ChevronDown, ChevronUp, Loader2, PlayCircle } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const fieldDescriptionFallbacks: Record<string, string> = {
-  "Max parallel tasks (-1 = all CPU threads)":
-    "Caps concurrent background work. Use -1 to let Cove scale to available CPU threads.",
+  "Max CPU threads for a single job (-1 = all CPU threads)":
+    "Limits parallel work items within each job. Use -1 for available CPU threads; individual tools may use additional threads.",
+  "Max simultaneous jobs":
+    "Limits running background jobs, including extensions. Defaults to 1. Changes apply without restarting; lowering the limit lets running jobs finish.",
   // Scan & generate task options (shared labels)
   "Thumbnails / screenshots":
     "A still cover frame captured from the video, used as its poster image on cards, lists, and the detail page.",

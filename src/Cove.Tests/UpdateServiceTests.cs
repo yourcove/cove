@@ -22,7 +22,7 @@ namespace Cove.Tests;
 /// Install and automatic-update decisions of <see cref="UpdateService"/> for a native install, against a
 /// fake release feed. Downloads fail (the feed serves no archives), so nothing is ever installed.
 /// </summary>
-public sealed class UpdateServiceTests : IAsyncDisposable
+public sealed class UpdateServiceTests : IAsyncLifetime
 {
     private const string Offered = "999.0.0";
     private static readonly string OldSha = new('a', 64);
@@ -71,9 +71,15 @@ public sealed class UpdateServiceTests : IAsyncDisposable
             _root);
     }
 
+    public async ValueTask InitializeAsync()
+    {
+        await _jobs.StartAsync(CancellationToken.None);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _jobs.CancelAllAndWaitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
+        await _jobs.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
         await _services.DisposeAsync();
         await _sqlite.DisposeAsync();
         Directory.Delete(_root, recursive: true);

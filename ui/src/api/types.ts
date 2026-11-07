@@ -2508,6 +2508,7 @@ export interface CoveConfig {
   /** Memory the managed database keeps for caching, in MB; applied on restart. */
   databaseCacheMb?: number;
   maxParallelTasks: number;
+  maxSimultaneousJobs: number;
   maxConcurrentDownloads: number;
   maxDownloadHeight: number;
   calculateMd5: boolean;
