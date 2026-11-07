@@ -6340,7 +6340,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
         }
       : null;
   const optimizeStatus = optimizeMut.isSuccess
-    ? { type: "success" as const, text: "Database optimized successfully" }
+    ? { type: "success" as const, text: "Optimization queued. Follow its progress under Operations → Jobs." }
     : optimizeMut.isError
       ? {
           type: "error" as const,

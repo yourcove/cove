@@ -52,14 +52,9 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 
-    public Task<DatabaseOperationMessage> OptimizeDatabaseAsync(
+    public Task<string> StartDatabaseOptimizeJobAsync(
         CancellationToken cancellationToken = default)
-        => SendForExpectedStatusAsync<DatabaseOperationMessage>(
-            HttpMethod.Post,
-            "/api/database/optimize",
-            payload: null,
-            HttpStatusCode.OK,
-            cancellationToken);
+        => StartJobAsync("/api/database/optimize", cancellationToken);
 
     public Task<WipeResultDto> WipeDatabaseAsync(
         CancellationToken cancellationToken = default)
@@ -83,8 +78,6 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 }
-
-public sealed record DatabaseOperationMessage(string Message);
 
 public sealed record LatestBackupResponse(string Path);
 

@@ -169,25 +169,52 @@ public class DatabaseController(
     // string (password intact) rather than db.Database.GetConnectionString(): EF is backed by an
     // NpgsqlDataSource, so GetConnectionString() returns a password-REDACTED string, which throws
     // "No password has been provided (SASL/SCRAM-SHA-256)" against a password-protected server.
+    // TCP keepalive lets a long statement without a command timeout notice a connection that was
+    // dropped silently, instead of waiting on it forever.
     private string BuildMaintenanceConnectionString()
-        => new NpgsqlConnectionStringBuilder(config.DatabaseConnectionString) { Pooling = false }.ConnectionString;
+        => new NpgsqlConnectionStringBuilder(config.DatabaseConnectionString) { Pooling = false, TcpKeepAlive = true }.ConnectionString;
 
+    internal const string OptimizeJobType = "optimize";
+
+    // VACUUM ANALYZE over a large library takes far longer than an HTTP request should stay open, and
+    // a reverse proxy's idle timeout or a closed tab would abort the request and cancel it. Run it as a
+    // job instead: it continues server-side, reports per-table progress, and stops only when the job is
+    // cancelled or the server shuts down. Plain VACUUM does not block reads or writes, so the job is not
+    // exclusive and does not hold up scans or other jobs; a request while one is pending or running
+    // returns that job instead of queueing another full pass.
     [HttpPost("optimize")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
-    public async Task<IActionResult> OptimizeDatabase(CancellationToken ct)
+    public ActionResult<object> OptimizeDatabase([FromServices] IJobService jobService)
     {
-        // VACUUM cannot run inside a transaction — use a raw connection
+        var active = jobService.GetAllJobs().FirstOrDefault(job =>
+            job.Type == OptimizeJobType && job.Status is JobStatus.Pending or JobStatus.Running);
+        if (active is not null)
+            return Accepted(new { jobId = active.Id });
+
         var connStr = BuildMaintenanceConnectionString();
-        await using var conn = new NpgsqlConnection(connStr);
-        await conn.OpenAsync(ct);
+        var log = logger;
+        var jobId = jobService.Enqueue(OptimizeJobType, "Optimizing database", async (progress, ct) =>
+        {
+            // VACUUM cannot run inside a transaction — use a raw connection
+            await using var conn = new NpgsqlConnection(connStr);
+            await conn.OpenAsync(ct);
 
-        var relationCount = await OptimizeRelationsAsync(conn, ct);
+            var result = await OptimizeRelationsAsync(conn, ct, progress);
 
-        logger.LogInformation("Database optimized (VACUUM ANALYZE) for {RelationCount} relation(s)", relationCount);
-        return Ok(new { message = "Database optimized" });
+            log.LogInformation(
+                "Database optimized (VACUUM ANALYZE) for {RelationCount} relation(s); {SkippedCount} no longer existed",
+                result.Vacuumed, result.Skipped.Count);
+            progress.SetSummary(result.Skipped.Count == 0
+                ? $"Vacuumed and analyzed {result.Vacuumed} table(s)"
+                : $"Vacuumed and analyzed {result.Vacuumed} table(s); skipped {result.Skipped.Count} that no longer existed");
+        }, exclusive: false);
+
+        return Accepted(new { jobId });
     }
 
-    internal static async Task<int> OptimizeRelationsAsync(NpgsqlConnection conn, CancellationToken ct = default)
+    internal sealed record OptimizeResult(int Vacuumed, IReadOnlyList<DatabaseRelation> Skipped);
+
+    internal static async Task<OptimizeResult> OptimizeRelationsAsync(NpgsqlConnection conn, CancellationToken ct = default, IJobProgress? progress = null)
     {
         var relations = new List<DatabaseRelation>();
         await using var cmd = conn.CreateCommand();
@@ -227,13 +254,30 @@ public class DatabaseController(
                 relations.Add(new DatabaseRelation(reader.GetString(0), reader.GetString(1)));
         }
 
-        if (relations.Count > 0)
+        // One table per statement so the job reports which table it is on. A single table can still
+        // outlast the connection's command timeout, or wait behind a conflicting lock, so the statement
+        // has no timeout of its own; the cancellation token cancels it on the server.
+        cmd.CommandTimeout = 0;
+        var skipped = new List<DatabaseRelation>();
+        for (var i = 0; i < relations.Count; i++)
         {
-            cmd.CommandText = BuildVacuumAnalyzeCommand(relations);
-            await cmd.ExecuteNonQueryAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            var relation = relations[i];
+            progress?.Report((double)i / relations.Count, $"Vacuuming {relation.Schema}.{relation.Name}");
+            cmd.CommandText = BuildVacuumAnalyzeCommand([relation]);
+            try
+            {
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (PostgresException exception) when (exception.SqlState is PostgresErrorCodes.UndefinedTable or PostgresErrorCodes.InvalidSchemaName)
+            {
+                // Dropped or renamed since it was listed, for example by an extension or a migration
+                // that ran during the pass. There is nothing left to vacuum.
+                skipped.Add(relation);
+            }
         }
 
-        return relations.Count;
+        return new OptimizeResult(relations.Count - skipped.Count, skipped);
     }
 
     internal static string BuildVacuumAnalyzeCommand(IReadOnlyList<DatabaseRelation> relations)

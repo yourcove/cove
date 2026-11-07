@@ -30,9 +30,9 @@ dotnet build src/Cove.slnx -c Release --no-restore
 
 test_commands=$(cat <<'TEST_COMMANDS'
 set -euo pipefail
-dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
-dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
-dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
+dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-build --no-restore --output detailed
+dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --no-restore --output detailed
+dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --no-build --no-restore --output detailed
 TEST_COMMANDS
 )
 
