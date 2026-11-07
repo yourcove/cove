@@ -1,26 +1,24 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Tiff;
-using SixLabors.ImageSharp.Formats.Tiff.Constants;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Tests;
 
 /// <summary>
 /// Deterministic images in every encoding that makes Go's decoders return a different image type,
 /// for <see cref="StashImagePhashTests"/>. PNG, GIF and BMP are written byte by byte so the colour
-/// type, bit depth, tRNS key, palette, frame offset and BMP header are exactly what each case names;
-/// interlaced PNG, lossless WebP and TIFF use ImageSharp's lossless encoders, whose decoded pixels do
-/// not depend on how the encoder compresses them.
+/// type, bit depth, tRNS key, palette, frame offset and BMP header are exactly what each case names.
+/// Interlaced PNG, WebP, JPEG and 8-bit TIFF were encoded once by ImageSharp and are kept as files
+/// (Fixtures/StashImagePhash): the expected hashes are Stash's hashes of those exact bytes, which a
+/// different encoder would not reproduce for the lossy formats.
 /// </summary>
 internal static class StashImagePhashFixtures
 {
     public static byte[] Create(string kind, int width, int height)
     {
+        if (Recorded(kind, width, height) is { } recorded)
+            return recorded;
+
         // Noise-free shapes put DCT coefficients level with the median, where the last bit of the
         // DCT's cosine table decides the hash bit.
         if (kind == "png_g8_diagonal")
@@ -67,54 +65,32 @@ internal static class StashImagePhashFixtures
                 [.. Enumerable.Range(0, palette.Count).Select(i => (byte)(i % 7 == 0 ? 0 : 255 - i))]),
             "png_p4" => Png(width, height, 3, 4, (x, y) => [(ushort)(Gray8(At(x, y)) >> 4)],
                 [.. Enumerable.Range(0, 16).Select(i => ((byte)(i * 17), (byte)(255 - i * 13), (byte)(i * 29 % 256)))], null),
-            "png_rgb8_adam7" => Encode<Rgb24>(pixels, width, height, p => new Rgb24((byte)p.R, (byte)p.G, (byte)p.B),
-                new PngEncoder { InterlaceMethod = PngInterlaceMode.Adam7, ColorType = PngColorType.Rgb, BitDepth = PngBitDepth.Bit8 }),
-            "gif_full" => Gif(width, height, new Rectangle(0, 0, width, height), Index, palette, null),
-            "gif_transparent" => Gif(width, height, new Rectangle(0, 0, width, height), (x, y) => Keyed(x, y) ? (byte)7 : Index(x, y), palette, 7),
-            "gif_offset" => Gif(width, height, new Rectangle(width / 5, height / 6, width - width / 5 - width / 7, height - height / 6 - height / 9),
+            "gif_full" => Gif(width, height, new PixelRect(0, 0, width, height), Index, palette, null),
+            "gif_transparent" => Gif(width, height, new PixelRect(0, 0, width, height), (x, y) => Keyed(x, y) ? (byte)7 : Index(x, y), palette, 7),
+            "gif_offset" => Gif(width, height, new PixelRect(width / 5, height / 6, width - width / 5 - width / 7, height - height / 6 - height / 9),
                 Index, palette, null),
             // An already-64×64 first frame away from the origin: Go hashes screen coordinates 0–63, and
             // reports palette entry 0 (here a colour no other entry uses, or transparent) outside the frame.
-            "gif_frame64" => Gif(width, height, new Rectangle(width / 5, height / 6, 64, 64), Index, [(200, 60, 120), .. palette.Skip(1)], null),
-            "gif_frame64_t0" => Gif(width, height, new Rectangle(width / 5, height / 6, 64, 64), Index, [(200, 60, 120), .. palette.Skip(1)], 0),
+            "gif_frame64" => Gif(width, height, new PixelRect(width / 5, height / 6, 64, 64), Index, [(200, 60, 120), .. palette.Skip(1)], null),
+            "gif_frame64_t0" => Gif(width, height, new PixelRect(width / 5, height / 6, 64, 64), Index, [(200, 60, 120), .. palette.Skip(1)], 0),
             "bmp_24" => Bmp(width, height, 24, At, v5: false),
             "bmp_32_v3" => Bmp(width, height, 32, At, v5: false),
             "bmp_32_v5" => Bmp(width, height, 32, At, v5: true),
             "bmp_8" => Bmp8(width, height, Index, palette),
-            "webp_lossless" => Encode<Rgb24>(pixels, width, height, p => new Rgb24((byte)p.R, (byte)p.G, (byte)p.B),
-                new WebpEncoder { FileFormat = WebpFileFormatType.Lossless, Quality = 100 }),
-            "webp_lossless_alpha" => Encode<Rgba32>(pixels, width, height, p => new Rgba32((byte)p.R, (byte)p.G, (byte)p.B, (byte)p.A),
-                new WebpEncoder { FileFormat = WebpFileFormatType.Lossless, Quality = 100 }),
-            "webp_lossy" => Encode<Rgb24>(pixels, width, height, p => new Rgb24((byte)p.R, (byte)p.G, (byte)p.B),
-                new WebpEncoder { FileFormat = WebpFileFormatType.Lossy, Quality = 80 }),
-            "webp_lossy_alpha" => Encode<Rgba32>(pixels, width, height, p => new Rgba32((byte)p.R, (byte)p.G, (byte)p.B, (byte)p.A),
-                new WebpEncoder { FileFormat = WebpFileFormatType.Lossy, Quality = 80 }),
-            "jpg_420" or "jpg_444" or "jpg_gray" => Encode<Rgb24>(pixels, width, height, p => new Rgb24((byte)p.R, (byte)p.G, (byte)p.B),
-                new JpegEncoder
-                {
-                    Quality = 85,
-                    ColorType = kind switch
-                    {
-                        "jpg_420" => JpegEncodingColor.YCbCrRatio420,
-                        "jpg_444" => JpegEncodingColor.YCbCrRatio444,
-                        _ => JpegEncodingColor.Luminance,
-                    },
-                }),
             // A colour map of v << 8 rather than v * 257, so 16-bit precision changes the result.
             "tiff_palette16" => Tiff(width, height, Index, [.. palette.Select(p => ((ushort)(p.R << 8), (ushort)(p.G << 8), (ushort)(p.B << 8)))]),
-            "tiff_rgb" or "tiff_gray" or "tiff_palette" => Encode<Rgb24>(pixels, width, height, p => new Rgb24((byte)p.R, (byte)p.G, (byte)p.B),
-                new TiffEncoder
-                {
-                    BitsPerPixel = kind == "tiff_rgb" ? TiffBitsPerPixel.Bit24 : TiffBitsPerPixel.Bit8,
-                    PhotometricInterpretation = kind switch
-                    {
-                        "tiff_rgb" => TiffPhotometricInterpretation.Rgb,
-                        "tiff_gray" => TiffPhotometricInterpretation.BlackIsZero,
-                        _ => TiffPhotometricInterpretation.PaletteColor,
-                    },
-                }),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown fixture kind."),
         };
+    }
+
+    private static byte[]? Recorded(string kind, int width, int height)
+    {
+        using var stream = typeof(StashImagePhashFixtures).Assembly.GetManifestResourceStream($"StashImagePhash/{kind}_{width}x{height}.bin");
+        if (stream is null)
+            return null;
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        return copy.ToArray();
     }
 
     private static int Depth(string kind)
@@ -166,19 +142,6 @@ internal static class StashImagePhashFixtures
     }
 
     private static byte[] Be16(ushort value) => [(byte)(value >> 8), (byte)value];
-
-    private static byte[] Encode<TPixel>((int R, int G, int B, int A)[] pixels, int width, int height,
-        Func<(int R, int G, int B, int A), TPixel> convert, SixLabors.ImageSharp.Formats.IImageEncoder encoder)
-        where TPixel : unmanaged, IPixel<TPixel>
-    {
-        using var image = new Image<TPixel>(width, height);
-        for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++)
-                image[x, y] = convert(pixels[y * width + x]);
-        using var stream = new MemoryStream();
-        image.Save(stream, encoder);
-        return stream.ToArray();
-    }
 
     private static byte[] Png(int width, int height, byte colorType, int depth, Func<int, int, ushort[]> sample,
         IReadOnlyList<(byte R, byte G, byte B)>? palette, byte[]? transparency)
@@ -262,7 +225,7 @@ internal static class StashImagePhashFixtures
     }
 
     // LZW with 9-bit codes and a clear code every 254 symbols, so the code table never grows.
-    private static byte[] Gif(int width, int height, Rectangle frame, Func<int, int, byte> index,
+    private static byte[] Gif(int width, int height, PixelRect frame, Func<int, int, byte> index,
         IReadOnlyList<(byte R, byte G, byte B)> palette, int? transparent)
     {
         var gif = new MemoryStream();

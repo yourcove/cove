@@ -1,5 +1,4 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -102,23 +101,14 @@ public class StreamServiceTests
             var vttPath = Path.Combine(tempRoot, "42_thumbs.vtt");
             var timestampPath = Path.Combine(tempRoot, "42_t6.jpg");
 
-            using (var sprite = new Image<Rgba32>(320, 90))
+            var sprite = new PixelBuffer<Rgba32>(320, 90);
+            for (var y = 0; y < sprite.Height; y++)
             {
-                var red = new Rgba32(255, 0, 0);
-                var green = new Rgba32(0, 128, 0);
-                sprite.ProcessPixelRows(accessor =>
-                {
-                    for (var y = 0; y < accessor.Height; y++)
-                    {
-                        var row = accessor.GetRowSpan(y);
-                        for (var x = 0; x < row.Length; x++)
-                        {
-                            row[x] = x < 160 ? red : green;
-                        }
-                    }
-                });
-                await sprite.SaveAsJpegAsync(spritePath, cancellationToken: TestContext.Current.CancellationToken);
+                var row = sprite.Row(y);
+                for (var x = 0; x < row.Length; x++)
+                    row[x] = x < 160 ? new Rgba32(255, 0, 0) : new Rgba32(0, 128, 0);
             }
+            await TestImages.WriteAsync(spritePath, TestImages.Encode(sprite, "jpeg"));
 
             await File.WriteAllTextAsync(vttPath, """
                 WEBVTT
@@ -138,7 +128,7 @@ public class StreamServiceTests
             Assert.Equal("image/jpeg", screenshot.Value.contentType);
 
             await using var stream = screenshot.Value.stream;
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
+            var image = TestImages.Decode(stream);
 
             Assert.Equal(160, image.Width);
             Assert.Equal(90, image.Height);
@@ -159,10 +149,8 @@ public class StreamServiceTests
         try
         {
             // An older frame for 6 s (blue) could hold any moment of that second, so the sprite tile (green) is served.
-            using (var wholeSecond = new Image<Rgba32>(160, 90, new Rgba32(0, 0, 255)))
-                await wholeSecond.SaveAsJpegAsync(Path.Combine(tempRoot, "42_t6.jpg"), TestContext.Current.CancellationToken);
-            using (var sprite = new Image<Rgba32>(160, 90, new Rgba32(0, 128, 0)))
-                await sprite.SaveAsJpegAsync(Path.Combine(tempRoot, "42_sprite.jpg"), TestContext.Current.CancellationToken);
+            await TestImages.WriteAsync(Path.Combine(tempRoot, "42_t6.jpg"), TestImages.Jpeg(160, 90, new Rgba32(0, 0, 255)));
+            await TestImages.WriteAsync(Path.Combine(tempRoot, "42_sprite.jpg"), TestImages.Jpeg(160, 90, new Rgba32(0, 128, 0)));
             await File.WriteAllTextAsync(Path.Combine(tempRoot, "42_thumbs.vtt"), """
                 WEBVTT
 
@@ -176,7 +164,7 @@ public class StreamServiceTests
 
             Assert.NotNull(screenshot);
             await using var stream = screenshot.Value.stream;
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
+            var image = TestImages.Decode(stream);
             Assert.True(image[80, 45].G > image[80, 45].B, "The sprite tile should be served, not the whole-second frame.");
         }
         finally

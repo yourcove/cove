@@ -177,7 +177,7 @@ internal static class VideoFrameBatchExtractor
                 var timeout = BaseBatchTimeout + PerFrameTimeout * batch.Count;
 
                 // Held only for the decode itself. Loading the extracted frames afterwards is
-                // ImageSharp work on already-written files and must not keep decode slots reserved.
+                // in-process work on already-written files and must not keep decode slots reserved.
                 FfmpegProcessResult result;
                 await using (await limiter.AcquireAsync(batch.Count, ct))
                     result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);

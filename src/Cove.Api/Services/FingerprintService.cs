@@ -234,12 +234,47 @@ public class FingerprintService(
             // Decoding and resizing are CPU-bound; read the file up front so the decoder can seek.
             var data = await File.ReadAllBytesAsync(path, ct);
             using var stream = new MemoryStream(data, writable: false);
-            return GoImageHash.Format(StashImagePhash.Compute(stream).Hash);
+            try
+            {
+                return GoImageHash.Format(StashImagePhash.Compute(stream).Hash);
+            }
+            catch (UnsupportedImageFormatException) when (FindFfmpeg() is { } ffmpegPath)
+            {
+                // Stash hashes a format Go cannot decode by converting it to a bitmap with ffmpeg first.
+                return await ComputeConvertedImagePhashAsync(ffmpegPath, path, ct);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to compute image phash for {Path}", path);
             return null;
+        }
+    }
+
+    private async Task<string?> ComputeConvertedImagePhashAsync(string ffmpegPath, string path, CancellationToken ct)
+    {
+        var bitmapPath = Path.Combine(Path.GetTempPath(), $"cove-phash-{Guid.NewGuid():N}.bmp");
+        try
+        {
+            FfmpegProcessResult result;
+            await using (await ffmpegConcurrency.AcquireAsync(1, ct))
+            {
+                result = await FfmpegProcessRunner.RunAsync(ffmpegPath,
+                    ["-v", "error", "-y", "-i", path, "-frames:v", "1", "-c:v", "bmp", "-f", "image2", bitmapPath],
+                    TimeSpan.FromMinutes(1), ct);
+            }
+            if (result.ExitCode != 0 || !File.Exists(bitmapPath))
+            {
+                logger.LogWarning("Failed to compute image phash for {Path}: ffmpeg could not convert it ({Error})", path, result.StandardError.Trim());
+                return null;
+            }
+
+            using var bitmap = new MemoryStream(await File.ReadAllBytesAsync(bitmapPath, ct), writable: false);
+            return GoImageHash.Format(StashImagePhash.Compute(bitmap).Hash);
+        }
+        finally
+        {
+            try { File.Delete(bitmapPath); } catch (IOException) { }
         }
     }
 

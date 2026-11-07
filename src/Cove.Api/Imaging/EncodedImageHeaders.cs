@@ -27,7 +27,7 @@ internal static class EncodedImageHeaders
 
     internal sealed record GifHeader(int ScreenWidth, int ScreenHeight, PixelRect? FirstFrame, Rgba64 PaletteEntryZero);
 
-    internal sealed record WebpHeader(bool Lossless, bool HasAlpha);
+    internal sealed record WebpHeader(bool Lossless, bool HasAlpha, bool Animated = false);
 
     internal sealed record BmpHeader(int InfoHeaderSize, int BitsPerPixel);
 
@@ -246,30 +246,42 @@ internal static class EncodedImageHeaders
         Span<byte> riff = stackalloc byte[12];
         if (!ReadExactly(stream, riff) || !riff[..4].SequenceEqual("RIFF"u8) || !riff[8..].SequenceEqual("WEBP"u8))
             return null;
-        return ReadWebpChunks(stream, stream.Length);
-    }
-
-    private static WebpHeader? ReadWebpChunks(Stream stream, long end)
-    {
+        // The top-level chunks, then (once) the sub-chunks of the first ANMF frame. A frame nested in a
+        // frame is not valid WebP and ends the search rather than being followed.
         Span<byte> chunk = stackalloc byte[8];
+        var end = stream.Length;
         var hasAlpha = false;
+        var animated = false;
+        var inFrame = false;
         while (stream.Position + 8 <= end && ReadExactly(stream, chunk))
         {
             var type = chunk[..4];
             var size = BinaryPrimitives.ReadUInt32LittleEndian(chunk[4..]);
             var padded = size + (size & 1);
             if (type.SequenceEqual("VP8L"u8))
-                return new WebpHeader(Lossless: true, HasAlpha: true);
+                return new WebpHeader(Lossless: true, HasAlpha: true, animated);
             if (type.SequenceEqual("VP8 "u8))
-                return new WebpHeader(Lossless: false, hasAlpha);
+                return new WebpHeader(Lossless: false, hasAlpha, animated);
             if (type.SequenceEqual("ALPH"u8))
                 hasAlpha = true;
-            if (type.SequenceEqual("ANMF"u8) && size >= 16)
+            if (type.SequenceEqual("VP8X"u8) && size >= 1 && !inFrame)
             {
-                var frameEnd = stream.Position + size;
+                var flags = stream.ReadByte();
+                if (flags < 0)
+                    return null;
+                animated = (flags & 0x02) != 0;
+                stream.Position -= 1;
+            }
+            if (type.SequenceEqual("ANMF"u8))
+            {
+                if (inFrame || size < 16)
+                    return null;
+                animated = true;
+                inFrame = true;
+                end = Math.Min(stream.Position + size, stream.Length);
                 if (!Skip(stream, 16))
                     return null;
-                return ReadWebpChunks(stream, Math.Min(frameEnd, stream.Length));
+                continue;
             }
             if (!Skip(stream, padded))
                 return null;

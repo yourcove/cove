@@ -1,8 +1,5 @@
 using Cove.Api.Imaging;
 using Cove.Api.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 
 namespace Cove.Tests;
 
@@ -15,14 +12,7 @@ public class ExifDisplayOrientationTests
     private static async Task<string> WriteJpegAsync(int width, int height, ushort? orientation, CancellationToken ct)
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-exif-{Guid.NewGuid():N}.jpg");
-        using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
-        if (orientation is not null)
-        {
-            image.Metadata.ExifProfile = new ExifProfile();
-            image.Metadata.ExifProfile.SetValue(ExifTag.Orientation, orientation.Value);
-        }
-
-        await image.SaveAsync(path, new JpegEncoder(), ct);
+        await File.WriteAllBytesAsync(path, TestImages.Jpeg(width, height, orientation: orientation), ct);
         return path;
     }
 

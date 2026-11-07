@@ -23,6 +23,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <EmbeddedResource Include="FrontendFixtures/**" />
+    <EmbeddedResource Include="Fixtures/StashImagePhash/*.bin" LogicalName="StashImagePhash/%(Filename)%(Extension)" />
     <None Update="FrontendFixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

@@ -620,7 +620,7 @@ public class AiCoreControllerTests
         var file = Assert.IsType<FileStreamResult>(result);
         Assert.Equal("image/jpeg", file.ContentType);
         Assert.Equal("public, max-age=31536000, immutable", controller.Response.Headers.CacheControl.ToString());
-        using var served = await SixLabors.ImageSharp.Image.LoadAsync(file.FileStream, TestContext.Current.CancellationToken);
+        var served = TestImages.Identify(file.FileStream);
         Assert.Equal((servedWidth, servedHeight), (served.Width, served.Height));
 
         controller.Response.Headers.CacheControl = string.Empty;
@@ -635,8 +635,7 @@ public class AiCoreControllerTests
 
     private static void WriteFrame(string path, int width, int height)
     {
-        using var frame = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgb24>(width, height);
-        SixLabors.ImageSharp.ImageExtensions.SaveAsJpeg(frame, path);
+        File.WriteAllBytes(path, TestImages.Jpeg(width, height, new Cove.Api.Imaging.Rgba32(0, 0, 0)));
     }
 
     [Fact]
@@ -714,7 +713,7 @@ public class AiCoreControllerTests
 
         Assert.Equal("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
         // A frame already within max is never enlarged.
-        using var served = await SixLabors.ImageSharp.Image.LoadAsync(Assert.IsType<FileStreamResult>(result).FileStream, TestContext.Current.CancellationToken);
+        var served = TestImages.Identify(Assert.IsType<FileStreamResult>(result).FileStream);
         Assert.Equal((640, 360), (served.Width, served.Height));
     }
 

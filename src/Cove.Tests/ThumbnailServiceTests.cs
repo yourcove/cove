@@ -3,8 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
@@ -405,10 +404,7 @@ public class ThumbnailServiceTests
         try
         {
             var imagePath = Path.Combine(tempRoot, "large.jpg");
-            using (var sourceImage = new Image<Rgba32>(2200, 1400))
-            {
-                await sourceImage.SaveAsJpegAsync(imagePath, cancellationToken: TestContext.Current.CancellationToken);
-            }
+            await TestImages.WriteAsync(imagePath, TestImages.Jpeg(2200, 1400));
 
             var sourceModTime = DateTime.UtcNow.AddMinutes(-1);
             File.SetLastWriteTimeUtc(imagePath, sourceModTime);
@@ -467,7 +463,7 @@ public class ThumbnailServiceTests
             await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             buffer.Position = 0;
 
-            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync(buffer, TestContext.Current.CancellationToken);
+            var thumbnail = TestImages.Identify(buffer);
             Assert.True(Math.Max(thumbnail.Width, thumbnail.Height) <= 640);
 
             var thumbnailFiles = Directory.GetFiles(Path.Combine(config.GeneratedPath, "thumbnails"), "*.jpg", SearchOption.AllDirectories);
@@ -488,20 +484,14 @@ public class ThumbnailServiceTests
         try
         {
             var imagePath = Path.Combine(tempRoot, "transparent.png");
-            using (var sourceImage = new Image<Rgba32>(120, 120))
+            var sourceImage = TestImages.Blank(120, 120);
+            for (var y = 30; y < 90; y++)
             {
-                sourceImage.ProcessPixelRows(accessor =>
-                {
-                    for (var y = 30; y < 90; y++)
-                    {
-                        var row = accessor.GetRowSpan(y);
-                        for (var x = 30; x < 90; x++)
-                            row[x] = new Rgba32(255, 64, 64, 255);
-                    }
-                });
-
-                await sourceImage.SaveAsPngAsync(imagePath, cancellationToken: TestContext.Current.CancellationToken);
+                var row = sourceImage.Row(y);
+                for (var x = 30; x < 90; x++)
+                    row[x] = new Rgba32(255, 64, 64, 255);
             }
+            await TestImages.WriteAsync(imagePath, TestImages.Encode(sourceImage, "png"));
 
             var sourceModTime = DateTime.UtcNow.AddMinutes(-1);
             File.SetLastWriteTimeUtc(imagePath, sourceModTime);
@@ -560,7 +550,7 @@ public class ThumbnailServiceTests
             await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             buffer.Position = 0;
 
-            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(buffer, TestContext.Current.CancellationToken);
+            var thumbnail = TestImages.Decode(buffer);
             Assert.Equal(0, thumbnail[0, 0].A);
             Assert.True(thumbnail[Math.Min(thumbnail.Width - 1, thumbnail.Width / 2), Math.Min(thumbnail.Height - 1, thumbnail.Height / 2)].A > 0);
 
@@ -627,9 +617,7 @@ public class ThumbnailServiceTests
 
         try
         {
-            using var image = new Image<Rgba32>(1000, 500);
-            using var buffer = new MemoryStream();
-            image.SaveAsJpeg(buffer);
+            using var buffer = new MemoryStream(TestImages.Jpeg(1000, 500));
             var service = new ThumbnailService(
                 new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
                 new StubJobService(),

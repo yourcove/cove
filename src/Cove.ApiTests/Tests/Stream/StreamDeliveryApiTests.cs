@@ -7,7 +7,6 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities.Auth;
-using SixLabors.ImageSharp;
 using EntityKinds = Cove.Core.Entities.EntityKinds;
 
 namespace Cove.ApiTests.Tests.Stream;
@@ -294,11 +293,7 @@ public sealed class StreamDeliveryApiTests(
         thumbnailResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
         string.Join(";", thumbnailResponse.Headers.GetValues("Content-Security-Policy")).Should().Contain("sandbox");
         thumbnailResponse.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
-        using (var thumbnail = Image.Load(thumbnailBytes))
-        {
-            thumbnail.Width.Should().Be(64);
-            thumbnail.Height.Should().Be(48);
-        }
+        ApiTestImages.Size(thumbnailBytes).Should().Be((64, 48));
 
         using var thumbnailRangeRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}/thumbnail?max=64");
         thumbnailRangeRequest.Headers.Range = new RangeHeaderValue(1, 4);
@@ -316,9 +311,7 @@ public sealed class StreamDeliveryApiTests(
         cropResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
         cropResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
         cropBytes.Should().NotBeEmpty();
-        using var crop = Image.Load(cropBytes);
-        crop.Width.Should().Be(64);
-        crop.Height.Should().Be(64);
+        ApiTestImages.Size(cropBytes).Should().Be((64, 64));
 
         using var missingResponse = await client.GetAsync("/api/stream/image/2147483647", TestContext.Current.CancellationToken);
         missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -341,24 +334,6 @@ public sealed class StreamDeliveryApiTests(
 
     private sealed record StreamCaptionResponse(int Id, string LanguageCode, string CaptionType, string Filename);
 
-    private static async Task<byte[]> CreateImageAsync(string format, int width, int height)
-    {
-        using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height, new(40, 90, 180, 255));
-        await using var output = new MemoryStream();
-        switch (format)
-        {
-            case "jpeg":
-                await image.SaveAsJpegAsync(output);
-                break;
-            case "png":
-                await image.SaveAsPngAsync(output);
-                break;
-            case "webp":
-                await image.SaveAsWebpAsync(output);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(format));
-        }
-        return output.ToArray();
-    }
+    private static Task<byte[]> CreateImageAsync(string format, int width, int height)
+        => Task.FromResult(ApiTestImages.Solid(format, width, height, new Cove.Api.Imaging.Rgba32(40, 90, 180, 255)));
 }

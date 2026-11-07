@@ -121,6 +121,7 @@ public class ThumbnailService(
         [".pgm"] = "image/x-portable-graymap", [".ppm"] = "image/x-portable-pixmap",
         [".pam"] = "image/x-portable-anymap",
     };
+    // The formats ImageCodec decodes. Anything else, such as QOI, TGA or Netpbm, goes to ffmpeg.
     private static readonly HashSet<string> CodecImageContentTypes =
     [
         "image/jpeg",
@@ -129,12 +130,6 @@ public class ThumbnailService(
         "image/webp",
         "image/bmp",
         "image/tiff",
-        "image/qoi",
-        "image/x-tga",
-        "image/x-portable-bitmap",
-        "image/x-portable-graymap",
-        "image/x-portable-pixmap",
-        "image/x-portable-anymap",
     ];
     private static readonly Dictionary<string, string> ImageContentTypeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {

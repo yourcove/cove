@@ -64,7 +64,7 @@ internal static class PixelConverter
             switch (image.Format)
             {
                 case Enums.BandFormat.Uchar:
-                    return Convert<TPixel, Bytes>(new Bytes(image.WriteToMemory()), image.Width, image.Height, model.Value, bands, alpha);
+                    return Convert<TPixel, Bytes>(new Bytes(image.WriteToMemory<byte>()), image.Width, image.Height, model.Value, bands, alpha);
                 case Enums.BandFormat.Ushort:
                     return Convert<TPixel, Shorts>(new Shorts(image.WriteToMemory<ushort>()), image.Width, image.Height, model.Value, bands, alpha);
                 default:

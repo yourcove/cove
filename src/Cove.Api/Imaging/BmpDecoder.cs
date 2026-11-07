@@ -31,23 +31,36 @@ internal static class BmpDecoder
     public static PixelBuffer<Rgba32> Decode(ReadOnlySpan<byte> data)
     {
         var header = ReadHeader(data);
-        var pixels = new PixelBuffer<Rgba32>(header.Width, header.Height);
         if (header.PixelOffset < 0 || header.PixelOffset > data.Length)
             throw new InvalidImageException("The bitmap's pixel data offset is outside the file.");
         var payload = data[header.PixelOffset..];
 
-        switch (header.Compression)
+        // The header alone decides the allocation, so it is checked against the data that has to fill it
+        // first: a forged header on a small file must not cost gigabytes.
+        var rle = header.Compression switch
         {
-            case Rle8 when header.BitsPerPixel == 8:
-            case Rle4 when header.BitsPerPixel == 4:
-                DecodeRle(payload, header, pixels);
-                break;
-            case Rgb or BitFields or AlphaBitFields:
-                DecodeUncompressed(payload, header, pixels);
-                break;
-            default:
-                throw new UnsupportedImageFormatException($"Bitmap compression {header.Compression} with {header.BitsPerPixel} bits per pixel is not supported.");
+            Rle8 when header.BitsPerPixel == 8 => true,
+            Rle4 when header.BitsPerPixel == 4 => true,
+            Rgb or BitFields or AlphaBitFields => false,
+            _ => throw new UnsupportedImageFormatException($"Bitmap compression {header.Compression} with {header.BitsPerPixel} bits per pixel is not supported."),
+        };
+        if (rle)
+        {
+            // A two-byte run covers at most 255 pixels; allowing 256 per byte leaves room for deltas.
+            if ((long)header.Width * header.Height > (long)payload.Length * 256)
+                throw new InvalidImageException("The bitmap declares more pixels than its run-length data can describe.");
         }
+        else if (Stride(header) * (header.Height - 1) + ((long)header.BitsPerPixel * header.Width + 7) / 8 > payload.Length)
+        {
+            // A bitmap may omit the padding after its last row, but no more.
+            throw new InvalidImageException("The bitmap's pixel data is truncated.");
+        }
+
+        var pixels = new PixelBuffer<Rgba32>(header.Width, header.Height);
+        if (rle)
+            DecodeRle(payload, header, pixels);
+        else
+            DecodeUncompressed(payload, header, pixels);
         return pixels;
     }
 
@@ -103,6 +116,9 @@ internal static class BmpDecoder
         }
         if (width <= 0 || height <= 0 || (long)width * height > MaxPixels)
             throw new InvalidImageException($"The bitmap's dimensions {width}×{height} are out of range.");
+        // OS/2 headers give compression 3 and 4 to Huffman 1D and RLE24, not to bit-field masks.
+        if (infoSize is 16 or 64 && compression is 3 or 4)
+            throw new UnsupportedImageFormatException($"OS/2 bitmap compression {compression} is not supported.");
         if (bitsPerPixel is not (1 or 2 or 4 or 8 or 16 or 24 or 32))
             throw new UnsupportedImageFormatException($"Bitmaps with {bitsPerPixel} bits per pixel are not supported.");
 
@@ -136,7 +152,7 @@ internal static class BmpDecoder
         if (bitsPerPixel <= 8)
         {
             var entrySize = infoSize == 12 ? 3 : 4;
-            var count = colorsUsed is > 0 and <= 256 ? (int)colorsUsed : 1 << bitsPerPixel;
+            var count = colorsUsed > 0 ? (int)Math.Min(colorsUsed, 1u << bitsPerPixel) : 1 << bitsPerPixel;
             var tableStart = 14 + infoSize + (compression == BitFields && infoSize == 40 ? 12 : 0);
             count = Math.Min(count, Math.Max(0, (data.Length - tableStart) / entrySize));
             palette = new Rgba32[1 << bitsPerPixel];
@@ -152,16 +168,12 @@ internal static class BmpDecoder
         return new Header(width, height, topDown, bitsPerPixel, compression, pixelOffset, palette, red, green, blue, alpha);
     }
 
+    private static long Stride(Header header) => ((long)header.BitsPerPixel * header.Width + 31) / 32 * 4;
+
     private static void DecodeUncompressed(ReadOnlySpan<byte> payload, Header header, PixelBuffer<Rgba32> pixels)
     {
-        var stride = (int)(((long)header.BitsPerPixel * header.Width + 31) / 32 * 4);
-        if ((long)stride * header.Height > payload.Length)
-        {
-            // A bitmap may omit the padding after its last row.
-            var lastRow = ((long)header.BitsPerPixel * header.Width + 7) / 8;
-            if ((long)stride * (header.Height - 1) + lastRow > payload.Length)
-                throw new InvalidImageException("The bitmap's pixel data is truncated.");
-        }
+        // Decode has checked the rows fit in the payload, so the stride fits in an int.
+        var stride = (int)Stride(header);
 
         var red = new Channel(header.RedMask);
         var green = new Channel(header.GreenMask);

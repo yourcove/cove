@@ -1,8 +1,7 @@
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Tests;
 
@@ -150,24 +149,18 @@ public sealed class ImageSignatureTests
     /// <summary>A deterministic gradient with a corner block, scaled to the requested size.</summary>
     private static byte[] EncodePng(int width, int height)
     {
-        using var image = new SixLabors.ImageSharp.Image<Rgba32>(width, height);
-        image.ProcessPixelRows(accessor =>
+        var image = new PixelBuffer<Rgba32>(width, height);
+        for (var y = 0; y < height; y++)
         {
-            for (var y = 0; y < accessor.Height; y++)
+            var row = image.Row(y);
+            for (var x = 0; x < row.Length; x++)
             {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    var shade = (byte)(255L * x / Math.Max(row.Length - 1, 1));
-                    var corner = x < row.Length / 4 && y < accessor.Height / 4;
-                    row[x] = corner ? new Rgba32(20, 20, 20) : new Rgba32(shade, (byte)(255 - shade), 128);
-                }
+                var shade = (byte)(255L * x / Math.Max(row.Length - 1, 1));
+                var corner = x < row.Length / 4 && y < height / 4;
+                row[x] = corner ? new Rgba32(20, 20, 20) : new Rgba32(shade, (byte)(255 - shade), 128);
             }
-        });
-
-        using var buffer = new MemoryStream();
-        image.SaveAsPng(buffer);
-        return buffer.ToArray();
+        }
+        return TestImages.Encode(image, "png");
     }
 
     // Signature computation reads nothing but the bytes and the logger; the scheduling collaborators

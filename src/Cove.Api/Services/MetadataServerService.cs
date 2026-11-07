@@ -3090,8 +3090,15 @@ query Me {
             return null;
         }
 
-        if (info.Format is ImageFormat.Jpeg or ImageFormat.Png || (info.Format == ImageFormat.Webp && info.FrameCount == 1))
+        if (info.Format is ImageFormat.Jpeg or ImageFormat.Png)
             return null;
+        if (info.Format == ImageFormat.Webp)
+        {
+            // An animation of one frame is still an animation to stash-box's decoder, so the VP8X flag decides.
+            source.Position = 0;
+            if (info.FrameCount == 1 && EncodedImageHeaders.ReadWebp(source) is { Animated: false })
+                return null;
+        }
 
         source.Position = 0;
         using var image = await ImageCodec.Default.LoadAsync(source, cancellationToken: ct);

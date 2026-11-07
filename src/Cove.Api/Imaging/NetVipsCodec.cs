@@ -58,7 +58,13 @@ public sealed class NetVipsCodec : IImageCodec
         var read = stream.ReadAtLeast(signature, signature.Length, throwOnEndOfStream: false);
         stream.Position = start;
         if (read == 2 && signature[0] == 'B' && signature[1] == 'M')
-            return IdentifyBuffered(ReadAll(stream));
+        {
+            // The size is in the first few hundred bytes; the pixels are not needed.
+            var head = new byte[1024];
+            var length = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            var (width, height) = BmpDecoder.ReadSize(head.AsSpan(0, length));
+            return new ImageHeader(ImageFormat.Bmp, width, height, 1, 1);
+        }
 
         string? loader;
         try
@@ -357,6 +363,10 @@ public sealed class NetVipsCodec : IImageCodec
 
                 if (image.Interpretation == Enums.Interpretation.Cmyk)
                     image = Keep(image.Colourspace(Enums.Interpretation.Srgb));
+                else if (image.Interpretation is not (Enums.Interpretation.Bw or Enums.Interpretation.Grey16 or Enums.Interpretation.Srgb
+                    or Enums.Interpretation.Rgb or Enums.Interpretation.Rgb16 or Enums.Interpretation.Multiband))
+                    // Lab, scRGB and other colour spaces convert, rather than having their samples cast as if sRGB.
+                    image = Keep(image.Colourspace(image.Format == Enums.BandFormat.Uchar ? Enums.Interpretation.Srgb : Enums.Interpretation.Rgb16));
                 if (image.Format is not (Enums.BandFormat.Uchar or Enums.BandFormat.Ushort))
                     image = Keep(image.Cast(Enums.BandFormat.Ushort));
 
