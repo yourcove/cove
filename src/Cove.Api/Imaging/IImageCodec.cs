@@ -51,5 +51,5 @@ public interface ILoadedImage : IDisposable
 public static class ImageCodec
 {
     /// <summary>The codec the application uses.</summary>
-    public static IImageCodec Default { get; } = new ImageSharpCodec();
+    public static IImageCodec Default { get; } = new NetVipsCodec();
 }
