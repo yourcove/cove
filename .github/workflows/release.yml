@@ -410,6 +410,11 @@ jobs:
           find artifacts/ -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' | while read f; do
             cp "$f" release-files/
           done
+          # The archives hold only the two executables, which is all the built-in updater accepts, so the
+          # licence texts and notices for the bundled libraries (libvips among them) are separate assets.
+          cp THIRD-PARTY-NOTICES.md release-files/
+          cp licenses/LGPL-3.0.txt release-files/LICENSE-LGPL-3.0.txt
+          cp licenses/GPL-3.0.txt release-files/LICENSE-GPL-3.0.txt
 
       - name: Extract release version from tag
         id: version

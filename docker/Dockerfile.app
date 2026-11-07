@@ -144,6 +144,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/opt/cove-python/bin:${PATH}"
 
 COPY --from=api-build /app /opt/cove
+# Licence and third-party notices for the libraries the image ships, such as libvips.
+COPY LICENSE THIRD-PARTY-NOTICES.md /opt/cove/
+COPY licenses/ /opt/cove/licenses/
 
 RUN mkdir -p /data /config /generated /cache /backups \
     && chown -R cove:cove /data /config /generated /cache /backups /opt/cove

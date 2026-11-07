@@ -331,6 +331,11 @@ jobs:
           mkdir -p release-files
           find artifacts/ -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -exec cp '{}' release-files/ \;
           test "$(find release-files -type f | wc -l)" -eq 6
+          # The archives hold only the two executables, which is all the built-in updater accepts, so the
+          # licence texts and notices for the bundled libraries (libvips among them) are separate assets.
+          cp THIRD-PARTY-NOTICES.md release-files/
+          cp licenses/LGPL-3.0.txt release-files/LICENSE-LGPL-3.0.txt
+          cp licenses/GPL-3.0.txt release-files/LICENSE-GPL-3.0.txt
 
           (
             cd release-files
