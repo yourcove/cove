@@ -138,8 +138,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpPost("{id:int}/like")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.IncrementLikeAsync(AffinityHostType.Audio, id, ct);
@@ -147,8 +147,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpPost("{id:int}/like/historical")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
     {
         var at = request.At.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc) : request.At.ToUniversalTime();
@@ -158,8 +158,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpDelete("{id:int}/like/history")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
     {
         var snapshot = await EngagementService.DeleteLikeAtAsync(AffinityHostType.Audio, id, at, ct);
@@ -168,8 +168,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpDelete("{id:int}/like")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.DecrementLikeAsync(AffinityHostType.Audio, id, ct);
@@ -177,8 +177,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpPost("{id:int}/like/reset")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.ResetLikeAsync(AffinityHostType.Audio, id, ct);
@@ -186,8 +186,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpPost("{id:int}/activity/reset")]
-    [RequiresPermission(Permissions.AudiosWrite)]
-    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresPermission(Permissions.AudiosRead)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosRead)]
     public async Task<IActionResult> ResetActivity(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.ResetActivityAsync(AffinityHostType.Audio, id, ct);

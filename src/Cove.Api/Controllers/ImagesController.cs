@@ -389,8 +389,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     // ===== Activity Tracking =====
 
     [HttpPost("{id:int}/like")]
-    [RequiresPermission(Permissions.ImagesWrite)]
-    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresPermission(Permissions.ImagesRead)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
     public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.IncrementImageLikeAsync(id, ct);
@@ -399,8 +399,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpPost("{id:int}/like/historical")]
-    [RequiresPermission(Permissions.ImagesWrite)]
-    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresPermission(Permissions.ImagesRead)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
     public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
     {
         var at = NormalizeHistoricalLikeAt(request.At);
@@ -418,8 +418,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpDelete("{id:int}/like/history")]
-    [RequiresPermission(Permissions.ImagesWrite)]
-    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresPermission(Permissions.ImagesRead)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
     public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
     {
         var snapshot = await engagementService.DeleteLikeAtAsync(AffinityHostType.Image, id, at, ct);
@@ -428,8 +428,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpDelete("{id:int}/like")]
-    [RequiresPermission(Permissions.ImagesWrite)]
-    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresPermission(Permissions.ImagesRead)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
     public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.DecrementImageLikeAsync(id, ct);
@@ -438,8 +438,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpPost("{id:int}/like/reset")]
-    [RequiresPermission(Permissions.ImagesWrite)]
-    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresPermission(Permissions.ImagesRead)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
     public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.ResetImageLikeAsync(id, ct);

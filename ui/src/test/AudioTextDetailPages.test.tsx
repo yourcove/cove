@@ -16,15 +16,18 @@ const {
   mockSetRating,
   mockGoBack,
   mockTrackInteraction,
+  mockHasPermission,
 } = vi.hoisted(() => ({
   mockAudios: {
     get: vi.fn(),
     update: vi.fn(),
+    incrementLike: vi.fn(),
     streamUrl: vi.fn((id: number) => `/api/audios/${id}/stream`),
   },
   mockTexts: {
     get: vi.fn(),
     update: vi.fn(),
+    incrementLike: vi.fn(),
     content: vi.fn(),
     fileUrl: vi.fn((id: number) => `/api/texts/${id}/file`),
   },
@@ -53,6 +56,7 @@ const {
   mockSetRating: vi.fn(),
   mockGoBack: vi.fn(),
   mockTrackInteraction: vi.fn(),
+  mockHasPermission: vi.fn((_permission: string) => true),
 }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
@@ -119,7 +123,7 @@ vi.mock("../hooks/useBackNavigation", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     user: { kind: "user", uiPreferences: { tracking: { enabled: true } } },
-    hasPermission: () => true,
+    hasPermission: mockHasPermission,
   }),
 }));
 
@@ -222,6 +226,7 @@ function renderWithQueryClient(ui: React.ReactNode) {
 describe("Audio and text detail pages", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockHasPermission.mockImplementation(() => true);
     mockAudios.get.mockReset();
     mockTexts.get.mockReset();
     mockTexts.content.mockReset();
@@ -280,6 +285,27 @@ describe("Audio and text detail pages", () => {
     for (const [index, section] of orderedSections.slice(1).entries()) {
       expect(orderedSections[index].compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+
+  it("lets a read-only viewer like audio and text", async () => {
+    mockHasPermission.mockImplementation((permission: string) => permission.endsWith(".read"));
+    mockAudios.get.mockResolvedValue(buildAudio());
+    mockAudios.incrementLike.mockResolvedValue(1);
+    mockTexts.get.mockResolvedValue(buildText());
+    mockTexts.content.mockResolvedValue({ format: "md", renderMode: "markdown", content: "Notes" });
+    mockTexts.incrementLike.mockResolvedValue(1);
+
+    const audioView = renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "Night Drive" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /edit/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Likes" }));
+    await waitFor(() => expect(mockAudios.incrementLike).toHaveBeenCalledWith(14));
+    audioView.unmount();
+
+    renderWithQueryClient(<TextDetailPage id={22} onNavigate={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "Project Notes" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Likes" }));
+    await waitFor(() => expect(mockTexts.incrementLike).toHaveBeenCalledWith(22));
   });
 
   it("labels the shared audio edit field Details", async () => {

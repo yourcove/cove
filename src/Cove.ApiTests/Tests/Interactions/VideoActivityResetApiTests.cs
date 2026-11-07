@@ -37,10 +37,10 @@ public sealed class VideoActivityResetApiTests(
         anthonyBefore.Sessions.Should().ContainSingle();
         viewerBefore.Sessions.Should().ContainSingle();
 
-        await viewerSession.Client.Invoking(client => client.ResetVideoActivityAsync(primary))
-            .Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*returned 403 (Forbidden)*");
-        (await viewerSession.Client.GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle();
+        await viewerSession.Client.ResetVideoActivityAsync(primary, TestContext.Current.CancellationToken);
+        (await viewerSession.Client.GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken)).Sessions.Should().BeEmpty();
+        (await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken)).Sessions.Should().BeEquivalentTo(evaBefore.Sessions);
+        (await AsUser(ApiTestUsers.Anthony).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken)).Sessions.Should().BeEquivalentTo(anthonyBefore.Sessions);
 
         await AsUser(ApiTestUsers.Eva).ResetVideoActivityAsync(primary, TestContext.Current.CancellationToken);
 
@@ -60,8 +60,8 @@ public sealed class VideoActivityResetApiTests(
         anthonyAfter.Sessions.Should().BeEquivalentTo(anthonyBefore.Sessions);
         anthonyAfter.TotalDistinctWatchedSec.Should().Be(anthonyBefore.TotalDistinctWatchedSec);
         anthonyEngagement.PlayDuration.Should().Be(anthonyBefore.TotalDistinctWatchedSec);
-        viewerAfter.Sessions.Should().BeEquivalentTo(viewerBefore.Sessions);
-        viewerAfter.TotalDistinctWatchedSec.Should().Be(viewerBefore.TotalDistinctWatchedSec);
+        viewerAfter.Sessions.Should().BeEmpty();
+        viewerAfter.TotalDistinctWatchedSec.Should().Be(0);
         controlAfter.Sessions.Should().ContainSingle();
         controlAfter.TotalDistinctWatchedSec.Should().Be(6);
 

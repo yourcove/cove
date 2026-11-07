@@ -35,8 +35,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpPost("{id:int}/like")]
-    [RequiresPermission(Permissions.TextsWrite)]
-    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresPermission(Permissions.TextsRead)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
     public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.IncrementLikeAsync(AffinityHostType.Text, id, ct);
@@ -44,8 +44,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpPost("{id:int}/like/historical")]
-    [RequiresPermission(Permissions.TextsWrite)]
-    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresPermission(Permissions.TextsRead)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
     public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
     {
         var at = request.At.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc) : request.At.ToUniversalTime();
@@ -55,8 +55,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpDelete("{id:int}/like/history")]
-    [RequiresPermission(Permissions.TextsWrite)]
-    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresPermission(Permissions.TextsRead)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
     public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
     {
         var snapshot = await EngagementService.DeleteLikeAtAsync(AffinityHostType.Text, id, at, ct);
@@ -65,8 +65,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpDelete("{id:int}/like")]
-    [RequiresPermission(Permissions.TextsWrite)]
-    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresPermission(Permissions.TextsRead)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
     public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.DecrementLikeAsync(AffinityHostType.Text, id, ct);
@@ -74,8 +74,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpPost("{id:int}/like/reset")]
-    [RequiresPermission(Permissions.TextsWrite)]
-    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresPermission(Permissions.TextsRead)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
     public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
     {
         var snapshot = await EngagementService.ResetLikeAsync(AffinityHostType.Text, id, ct);

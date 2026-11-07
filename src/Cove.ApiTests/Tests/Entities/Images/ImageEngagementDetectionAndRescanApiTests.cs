@@ -156,33 +156,30 @@ public sealed class ImageEngagementDetectionAndRescanApiTests(
 
         var viewerUsername = $"image-like-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Image like viewer 123!";
-        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
-        var viewerHistoricalAt = historicalAt.AddHours(1);
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
+        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using (var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            (await memberSession.Client.AddHistoricalImageLikeAsync(image, viewerHistoricalAt, TestContext.Current.CancellationToken)).Should().Be(1);
-            (await memberSession.Client.IncrementImageLikeAsync(image, TestContext.Current.CancellationToken)).Should().Be(2);
+            var viewer = viewerSession.Client;
+            (await viewer.AddHistoricalImageLikeAsync(image, historicalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+            (await viewer.IncrementImageLikeAsync(image, TestContext.Current.CancellationToken)).Should().Be(2);
+            AssertLikeHistory(await viewer.GetImageHistoryAsync(image, TestContext.Current.CancellationToken), historicalAt, expectedCount: 2);
+            await viewer.DeleteHistoricalImageLikeAsync(image, historicalAt, TestContext.Current.CancellationToken);
+            var viewerAfterHistoricalDelete = await viewer.GetImageHistoryAsync(image, TestContext.Current.CancellationToken);
+            AssertLikeHistory(viewerAfterHistoricalDelete, expectedCount: 1);
+            viewerAfterHistoricalDelete.LikeHistory.Select(value => DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
+                .Should().NotContain(historicalAt);
+            (await viewer.IncrementImageLikeAsync(image, TestContext.Current.CancellationToken)).Should().Be(2);
+            (await viewer.DecrementImageLikeAsync(image, TestContext.Current.CancellationToken)).Should().Be(1);
+            (await viewer.ResetImageLikeAsync(image, TestContext.Current.CancellationToken)).Should().Be(0);
+            (await viewer.GetImageHistoryAsync(image, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
         }
-        VideoHistoryDto seededViewerHistory;
-        using (var memberReadSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
-            seededViewerHistory = await memberReadSession.Client.GetImageHistoryAsync(image, TestContext.Current.CancellationToken);
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
-        var viewer = viewerSession.Client;
-        var forbiddenWrites = new Func<Task>[]
+        AssertLikeHistory(await eva.GetImageHistoryAsync(image, TestContext.Current.CancellationToken), historicalAt);
+        AssertLikeHistory(await anthony.GetImageHistoryAsync(image, TestContext.Current.CancellationToken), expectedCount: 1);
+        _ = await owner.SetUserRolesAsync(viewerUser.Id, [], TestContext.Current.CancellationToken);
+        using (var noRoleSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            async () => _ = await viewer.AddHistoricalImageLikeAsync(image, historicalAt.AddHours(2)),
-            () => viewer.DeleteHistoricalImageLikeAsync(image, viewerHistoricalAt),
-            async () => _ = await viewer.DecrementImageLikeAsync(image),
-            async () => _ = await viewer.ResetImageLikeAsync(image),
-        };
-        foreach (var forbiddenWrite in forbiddenWrites)
-        {
-            await forbiddenWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            var viewerHistory = await viewer.GetImageHistoryAsync(image, TestContext.Current.CancellationToken);
-            viewerHistory.Should().BeEquivalentTo(seededViewerHistory);
-            AssertLikeHistory(viewerHistory, viewerHistoricalAt, expectedCount: 2);
-            (await viewer.GetEntityEngagementAsync(AffinityHostType.Image, image.Id, TestContext.Current.CancellationToken)).LikeCount.Should().Be(2);
+            var noRoleLike = () => noRoleSession.Client.IncrementImageLikeAsync(image);
+            await noRoleLike.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         }
 
         await eva.DeleteHistoricalImageLikeAsync(image, historicalAt, TestContext.Current.CancellationToken);
