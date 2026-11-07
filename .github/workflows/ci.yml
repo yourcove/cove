@@ -175,6 +175,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Backup and restore shell out to pg_dump/psql, and a plain dump from a newer client sets
+      # parameters an older server rejects. Match the client to the pgvector:pg16 service above
+      # instead of taking whatever major version the runner image ships.
+      - name: Install PostgreSQL 16 client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -q postgresql-client-16
+          echo "PG_BIN=/usr/lib/postgresql/16/bin" >> "$GITHUB_ENV"
+          /usr/lib/postgresql/16/bin/pg_dump --version
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
