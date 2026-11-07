@@ -242,21 +242,36 @@ jobs:
             ${{ matrix.artifact }}${{ matrix.ext }}.sha256
           retention-days: 1
 
+  # Each platform builds natively on its own runner and pushes an untagged image by digest;
+  # merge-docker then tags the multi-platform image. Building arm64 under QEMU on an x64 runner was
+  # about 10x slower and intermittently hung until the job timeout.
   build-docker:
     needs: [prepare, build-ui]
     if: needs.prepare.outputs.publish == 'true'
-    runs-on: ubuntu-26.04
+    runs-on: ${{ matrix.runner }}
+    # A healthy build takes a few minutes. Fail a hung build here instead of at the 6-hour default.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
+        image: [all-in-one, app]
+        platform: [linux/amd64, linux/arm64]
         include:
-          - dockerfile: docker/Dockerfile
+          - image: all-in-one
+            dockerfile: docker/Dockerfile
             suffix: ""
-          - dockerfile: docker/Dockerfile.app
+          - image: app
+            dockerfile: docker/Dockerfile.app
             suffix: "-app"
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-26.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-26.04-arm
 
     steps:
       - uses: actions/checkout@v7
@@ -274,34 +289,116 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Registry names must be lowercase, and a fork's owner may not be.
+      - name: Image name
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: echo "IMAGE=${REGISTRY}/${IMAGE_NAME,,}${SUFFIX}" >> "$GITHUB_ENV"
+
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.version }}
-            type=raw,value=sha-${{ needs.prepare.outputs.short_sha }}
+          images: ${{ env.IMAGE }}
 
       - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=image,"name=${{ env.IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+          # One scope per image and platform, so the four builds don't overwrite each other's cache.
+          cache-from: type=gha,scope=docker-${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.image }}-${{ matrix.arch }}
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
             FFMPEG_MIRROR_BASE=https://github.com/${{ github.repository }}/releases/download/ffmpeg-payload
 
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docker-digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-docker:
+    needs: [prepare, build-docker]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: all-in-one
+            suffix: ""
+          - image: app
+            suffix: "-app"
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: docker-digests-${{ matrix.image }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: echo "IMAGE=${REGISTRY}/${IMAGE_NAME,,}${SUFFIX}" >> "$GITHUB_ENV"
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=sha-${{ needs.prepare.outputs.short_sha }}
+
+      - name: Create the multi-platform image
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          # One digest per platform; anything else means a build is missing.
+          test "$(ls | wc -l)" -eq 2
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Inspect the image
+        run: |
+          set -euo pipefail
+          tag="$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          docker buildx imagetools inspect "$tag"
+          platforms="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r '[.manifests[].platform | select(.os != "unknown") | .os + "/" + .architecture] | sort | join(",")')"
+          echo "Platforms: $platforms"
+          test "$platforms" = "linux/amd64,linux/arm64"
+
   publish:
-    needs: [prepare, build-native, build-docker]
+    needs: [prepare, build-native, merge-docker]
     if: >-
       needs.prepare.outputs.publish == 'true'
       && needs.build-native.result == 'success'
-      && needs.build-docker.result == 'success'
+      && needs.merge-docker.result == 'success'
     runs-on: ubuntu-26.04
     permissions:
       contents: write
