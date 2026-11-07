@@ -112,10 +112,10 @@ jobs:
         run: dotnet build src/Cove.InstanceManager/Cove.InstanceManager.csproj -c Release
 
       - name: Test (Non-Integration)
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --filter "FullyQualifiedName!~Cove.Tests.Integration"
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --output detailed --filter "FullyQualifiedName!~Cove.Tests.Integration"
 
       - name: Test (Integration smoke)
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --filter "FullyQualifiedName~Cove.Tests.Integration"
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --output detailed --filter "FullyQualifiedName~Cove.Tests.Integration"
 
   windows-file-read-races:
     needs: changes
@@ -136,13 +136,13 @@ jobs:
         run: dotnet build src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-restore
 
       - name: Verify Windows filesystem semantics
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests" --output detailed
 
       - name: Stress concurrent blob reads and deletion
         shell: pwsh
         run: |
           1..12 | ForEach-Object {
-            dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.BlobServiceTests.ConcurrentGetAndDelete_DoNotExposeLookupOpenRace" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
+            dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.BlobServiceTests.ConcurrentGetAndDelete_DoNotExposeLookupOpenRace" --output detailed
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
             }
@@ -213,7 +213,7 @@ jobs:
         if: ${{ !inputs.api_coverage }}
         run: >-
           dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
-          -c Release --no-restore --verbosity normal
+          -c Release --no-restore --verbosity normal --output detailed
 
       - name: Test (Fluent API with coverage)
         if: ${{ inputs.api_coverage }}
@@ -223,7 +223,7 @@ jobs:
           --output artifacts/coverage/api-tests.cobertura.xml
           --output-format cobertura
           dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
-          -c Release --no-restore --verbosity normal
+          -c Release --no-restore --verbosity normal --output detailed
 
       - name: Verify API controller coverage
         if: ${{ inputs.api_coverage }}
@@ -272,7 +272,7 @@ jobs:
         run: dotnet restore src/Cove.PerformanceTests/Cove.PerformanceTests.csproj
 
       - name: Test
-        run: dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --verbosity normal
+        run: dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --verbosity normal --output detailed
 
   frontend:
     needs: changes

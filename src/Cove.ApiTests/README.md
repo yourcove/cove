@@ -72,7 +72,7 @@ To collect production-assembly coverage:
 
 ```sh
 dotnet tool restore
-dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage.config --output artifacts/coverage/api-tests.cobertura.xml --output-format cobertura dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage.config --output artifacts/coverage/api-tests.cobertura.xml --output-format cobertura dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal --output detailed
 node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 ```
 
