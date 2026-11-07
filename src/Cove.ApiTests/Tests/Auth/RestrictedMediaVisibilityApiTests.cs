@@ -193,6 +193,82 @@ public sealed class RestrictedMediaVisibilityApiTests(
     }
 
     [Fact]
+    public async Task GivenReadOnlyRoleWithHiddenMedia_WhenLikesAndPlaysAreChanged_ThenOnlyVisibleMediaAccepts()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var visibleVideo = await owner.CreateVideoAsync($"Visible engagement video {suffix}", TestContext.Current.CancellationToken);
+        var hiddenVideo = await owner.CreateVideoAsync($"Hidden engagement video {suffix}", TestContext.Current.CancellationToken);
+        var visibleAudio = await owner.CreateAudioAsync(new AudioBuilder().WithTitle($"Visible engagement audio {suffix}").Build(), TestContext.Current.CancellationToken);
+        var hiddenAudio = await owner.CreateAudioAsync(new AudioBuilder().WithTitle($"Hidden engagement audio {suffix}").Build(), TestContext.Current.CancellationToken);
+        var visibleText = await owner.CreateTextAsync(new TextDocumentBuilder().WithTitle($"Visible engagement text {suffix}").Build(), TestContext.Current.CancellationToken);
+        var hiddenText = await owner.CreateTextAsync(new TextDocumentBuilder().WithTitle($"Hidden engagement text {suffix}").Build(), TestContext.Current.CancellationToken);
+        var visibleImage = await owner.CreateImageAsync(new ImageBuilder().WithTitle($"Visible engagement image {suffix}").Build(), TestContext.Current.CancellationToken);
+        var hiddenImage = await owner.CreateImageAsync(new ImageBuilder().WithTitle($"Hidden engagement image {suffix}").Build(), TestContext.Current.CancellationToken);
+        var media = new (string Kind, int VisibleId, int HiddenId)[]
+        {
+            (EntityKinds.Video, visibleVideo.Id, hiddenVideo.Id),
+            (EntityKinds.Audio, visibleAudio.Id, hiddenAudio.Id),
+            (EntityKinds.Text, visibleText.Id, hiddenText.Id),
+            (EntityKinds.Image, visibleImage.Id, hiddenImage.Id),
+        };
+
+        var roleName = $"Read-only engagement role {suffix}";
+        var role = await owner.CreateRoleAsync(new CreateRoleRequest(
+            roleName,
+            "Exercises personal engagement on entity-scoped media.",
+            [Permissions.VideosRead, Permissions.AudiosRead, Permissions.TextsRead, Permissions.ImagesRead]), TestContext.Current.CancellationToken);
+        foreach (var item in media)
+        {
+            await owner.CreateContentRuleAsync(new CreateContentRuleRequest(role.Id, item.Kind, "deny", "all", "{}", "all"), TestContext.Current.CancellationToken);
+            await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+                role.Id,
+                item.Kind,
+                item.VisibleId.ToString(CultureInfo.InvariantCulture),
+                "allow",
+                "all"), TestContext.Current.CancellationToken);
+        }
+
+        var username = $"read-only-engagement-{suffix}";
+        const string password = "Read-only engagement 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var restricted = session.Client;
+        var historicalLike = new { at = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc) };
+
+        foreach (var item in media)
+        {
+            var resource = ResourceName(item.Kind);
+            (await restricted.SendStatusAsync(HttpMethod.Post, $"/api/{resource}/{item.VisibleId}/like", cancellationToken: TestContext.Current.CancellationToken))
+                .Should().Be(HttpStatusCode.OK, $"a read-only user can like a visible {item.Kind}");
+
+            var hiddenRoutes = new List<(HttpMethod Method, string Path, object? Body)>
+            {
+                (HttpMethod.Post, "like", null),
+                (HttpMethod.Post, "like/historical", historicalLike),
+                (HttpMethod.Delete, "like/history?at=2024-01-02T03:04:05Z", null),
+                (HttpMethod.Delete, "like", null),
+                (HttpMethod.Post, "like/reset", null),
+            };
+            if (item.Kind is EntityKinds.Video)
+            {
+                hiddenRoutes.Add((HttpMethod.Delete, "play", null));
+                hiddenRoutes.Add((HttpMethod.Post, "play/reset", null));
+            }
+            if (item.Kind is EntityKinds.Video or EntityKinds.Audio)
+            {
+                hiddenRoutes.Add((HttpMethod.Post, "activity/reset", null));
+            }
+
+            foreach (var (method, path, body) in hiddenRoutes)
+            {
+                (await restricted.SendStatusAsync(method, $"/api/{resource}/{item.HiddenId}/{path}", body, TestContext.Current.CancellationToken))
+                    .Should().Be(HttpStatusCode.NotFound, $"{method} {path} on a hidden {item.Kind} must not reveal or change it");
+            }
+        }
+    }
+
+    [Fact]
     public async Task GivenTagScopedDenyRules_WhenMediaIsRead_ThenTaggedMediaIsHiddenAcrossKinds()
     {
         var owner = AsUser();

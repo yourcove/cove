@@ -46,7 +46,7 @@ vi.mock("../utils/interactionTracking", () => ({
 
 import { Lightbox } from "../components/Lightbox";
 
-function renderLightbox(canEngage = true, canLike = canEngage) {
+function renderLightbox(canEngage = true, canLike?: boolean) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -132,10 +132,10 @@ describe("Lightbox image engagement", () => {
     expect(screen.getByRole("button", { name: "Like image (1 likes)" })).toBeDisabled();
   });
 
-  it("allows ratings but prevents likes without image write permission", () => {
+  it("lets anyone who can engage like images, ignoring the deprecated canLike flag", () => {
     renderLightbox(true, false);
 
     expect(screen.getByRole("button", { name: "Rate image 60" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Like image (1 likes)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Like image (1 likes)" })).toBeEnabled();
   });
 });

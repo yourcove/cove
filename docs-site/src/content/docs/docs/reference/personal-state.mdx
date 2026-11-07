@@ -3,7 +3,7 @@ title: Personal state
 description: Reference for the per-user data a read permission allows a principal to write.
 ---
 
-Personal state is the data a principal records about itself while using the library: bookmarks, favorites, ratings, playback position and history, and interface preferences. It describes the viewer, not the record being viewed.
+Personal state is the data a principal records about itself while using the library: bookmarks, favorites, ratings, likes, playback position and history, and interface preferences. It describes the viewer, not the record being viewed.
 
 Cove authorizes personal state separately from the records it refers to. A read permission on an entity kind allows both reading those entities and writing your own personal state about them. Changing the entities themselves requires the corresponding write permission.
 
@@ -24,7 +24,9 @@ A principal holding only a read permission for an entity kind can, for entities 
 - Add and remove bookmarks.
 - Set and clear favorites.
 - Set and clear ratings, including per-aspect ratings.
+- Like and unlike videos, images, audios, and texts, add a backdated like, delete a like from its like history, and reset its likes.
 - Record playback intervals, resume position, play counts, and completion.
+- Remove its last play of a video or reset its play count.
 - Record behavioral interactions such as page visits and detail opens.
 - Reset or wipe its own recorded activity.
 
@@ -32,7 +34,7 @@ This is deliberate. A role that grants only read permissions — the built-in Vi
 
 ## Scope of a personal-state write
 
-Personal-state writes are confined to the principal's own rows. A principal cannot read, alter, or clear another user's bookmarks, ratings, playback history, or preferences, and no personal-state operation changes a library record, a file on disk, or a value another user sees.
+Personal-state writes are confined to the principal's own rows. A principal cannot read, alter, or clear another user's bookmarks, ratings, likes, playback history, or preferences, and no personal-state operation changes a library record, a file on disk, or a value another user sees.
 
 The reset and wipe operations follow the same boundary. They clear the calling user's own recorded activity only, and they distinguish signals the user set deliberately from signals the system collected: a wipe of collected activity preserves ratings, likes, favorites, and bookmarks.
 
@@ -40,9 +42,9 @@ The reset and wipe operations follow the same boundary. They clear the calling u
 
 An API token carries its user's permissions, narrowed by the token's scope. The tiers apply to it unchanged, which has one consequence worth stating directly:
 
-**A token scoped to read permissions can still write the personal state of the user that owns it.** A read-scoped token can bookmark, favorite, rate, and record playback history for its owner, and can clear that owner's recorded activity. It cannot change library records, and it cannot affect any other user.
+**A token scoped to read permissions can still write the personal state of the user that owns it.** A read-scoped token can bookmark, favorite, rate, like, and record playback history for its owner, and can clear that owner's likes, plays, and recorded activity. It cannot change library records, and it cannot affect any other user.
 
-Scoping a token to read permissions therefore protects the shared library, not the owner's personal state. An integration that must not disturb the owner's bookmarks, ratings, or playback history should run as a dedicated local user created for that integration, so that whatever personal state it records belongs to that account rather than to a person's.
+Scoping a token to read permissions therefore protects the shared library, not the owner's personal state. An integration that must not disturb the owner's bookmarks, ratings, likes, or playback history should run as a dedicated local user created for that integration, so that whatever personal state it records belongs to that account rather than to a person's.
 
 ## Related reference
 

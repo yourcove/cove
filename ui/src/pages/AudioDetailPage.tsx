@@ -384,7 +384,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
               value: audioLikeCount,
               icon: <ThumbsUp className={["h-4 w-4", audioLikeCount > 0 ? "fill-accent text-accent" : ""].join(" ")} />,
               title: "Likes",
-              onClick: canWriteAudio ? () => incrementLikeMut.mutate() : undefined,
+              onClick: canEngageAudio ? () => incrementLikeMut.mutate() : undefined,
               active: audioLikeCount > 0,
             },
           ],
@@ -729,7 +729,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
               historyLoading={audioHistoryQuery.isLoading}
               createdAt={audio.createdAt}
               updatedAt={audio.updatedAt}
-              canAddHistoricalLike={canWriteAudio}
+              canAddHistoricalLike={canEngageAudio}
               onAddHistoricalLike={async (at) => {
                 await audios.addHistoricalLike(id, at);
                 await Promise.all([

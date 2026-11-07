@@ -79,42 +79,45 @@ public sealed class AudioEngagementLifecycleApiTests(
         var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
-        var viewerHistoricalAt = historicalAt.AddHours(1);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
         var viewerSessionId = Guid.NewGuid();
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
+        using (var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            (await memberSession.Client.AddHistoricalAudioLikeAsync(primary, viewerHistoricalAt, TestContext.Current.CancellationToken)).Should().Be(1);
-            await memberSession.Client.RecordAudioPlaybackAsync(primary, viewerSessionId, startSec: 1, endSec: 3, cancellationToken: TestContext.Current.CancellationToken);
-        }
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
-        var viewer = viewerSession.Client;
-        var forbiddenViewerWrites = new Func<Task>[]
-        {
-            async () => _ = await viewer.IncrementAudioLikeAsync(primary),
-            async () => _ = await viewer.AddHistoricalAudioLikeAsync(primary, historicalAt),
-            () => viewer.DeleteHistoricalAudioLikeAsync(primary, viewerHistoricalAt),
-            async () => _ = await viewer.DecrementAudioLikeAsync(primary),
-            async () => _ = await viewer.ResetAudioLikeAsync(primary),
-            () => viewer.ResetAudioActivityAsync(primary),
-        };
-        foreach (var forbiddenViewerWrite in forbiddenViewerWrites)
-        {
-            await forbiddenViewerWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            var viewerAfterForbiddenWrite = await viewer.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
-            viewerAfterForbiddenWrite.LikeHistory.Should().ContainSingle();
+            var viewer = viewerSession.Client;
+            await viewer.RecordAudioPlaybackAsync(primary, viewerSessionId, startSec: 1, endSec: 3, cancellationToken: TestContext.Current.CancellationToken);
+            (await viewer.AddHistoricalAudioLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+            (await viewer.IncrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(2);
+            await viewer.DeleteHistoricalAudioLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken);
+            var viewerAfterHistoricalDelete = await viewer.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
+            viewerAfterHistoricalDelete.LikeHistory.Should().ContainSingle();
             DateTime.Parse(
-                    viewerAfterForbiddenWrite.LikeHistory.Single(),
+                    viewerAfterHistoricalDelete.LikeHistory.Single(),
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind)
-                .Should().Be(viewerHistoricalAt);
-            viewerAfterForbiddenWrite.Sessions.Should().ContainSingle(session => session.SessionId == viewerSessionId);
+                .Should().NotBe(historicalAt);
+            (await viewer.IncrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(2);
+            (await viewer.DecrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(1);
+
+            await viewer.ResetAudioActivityAsync(primary, TestContext.Current.CancellationToken);
+            var viewerAfterActivityReset = await viewer.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
+            viewerAfterActivityReset.Sessions.Should().BeEmpty();
+            viewerAfterActivityReset.LikeHistory.Should().ContainSingle("activity reset must preserve explicit likes");
             var viewerEngagement = await viewer.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken);
             viewerEngagement.LikeCount.Should().Be(1);
-            viewerEngagement.PlayDuration.Should().Be(2);
+            viewerEngagement.PlayDuration.Should().Be(0);
+
+            (await viewer.ResetAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(0);
+            (await viewer.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
         }
-        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        _ = await owner.SetUserRolesAsync(viewerUser.Id, [], TestContext.Current.CancellationToken);
+        using (var noRoleSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
+        {
+            var noRoleLike = () => noRoleSession.Client.IncrementAudioLikeAsync(primary);
+            await noRoleLike.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+            var noRoleActivityReset = () => noRoleSession.Client.ResetAudioActivityAsync(primary);
+            await noRoleActivityReset.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+        }
+        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().Equal(historical.LikeHistory);
         (await anthony.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
         (await owner.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
 

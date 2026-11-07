@@ -9,7 +9,7 @@ An API tokenâ€”also called a personal access token (PAT) in technical contextsâ€
 
 A token belongs to a local user. Requests authenticate as that user and remain subject to the token's scopes plus the user's roles, permissions, content rules, and instance state. Give an integration a dedicated local user when it needs an identity separate from a person. A token cannot safely be treated as portable between instances.
 
-Scoping a token to read permissions protects the shared library, not the owner's personal state. A read-scoped token can still record bookmarks, favorites, ratings, and playback history for the user that owns it, because Cove authorizes those under the read permission for the entity kind rather than under a write permission. It cannot change library records and cannot affect any other user. This is a further reason to give an integration a dedicated local user: whatever personal state it records then belongs to that account rather than to a person's. See [Personal state](../personal-state/).
+Scoping a token to read permissions protects the shared library, not the owner's personal state. A read-scoped token can still record bookmarks, favorites, ratings, likes, and playback history for the user that owns it, because Cove authorizes those under the read permission for the entity kind rather than under a write permission. It cannot change library records and cannot affect any other user. This is a further reason to give an integration a dedicated local user: whatever personal state it records then belongs to that account rather than to a person's. See [Personal state](../personal-state/).
 
 ## Secret lifecycle
 

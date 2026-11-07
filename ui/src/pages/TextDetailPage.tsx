@@ -466,7 +466,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
                 />
               ),
               title: "Likes",
-              onClick: canWriteText ? () => incrementLikeMut.mutate() : undefined,
+              onClick: canEngageText ? () => incrementLikeMut.mutate() : undefined,
               active: (textEngagement?.likeCount ?? 0) > 0,
             },
             {
@@ -776,7 +776,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
               updatedAt={text.updatedAt}
               history={textHistoryQuery.data}
               historyLoading={textHistoryQuery.isLoading}
-              canAddHistoricalLike={canWriteText}
+              canAddHistoricalLike={canEngageText}
               onAddHistoricalLike={async (at) => {
                 await texts.addHistoricalLike(id, at);
                 await Promise.all([

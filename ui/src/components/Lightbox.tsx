@@ -103,6 +103,10 @@ export interface LightboxProps {
   slideshowDelay?: number;
   autoPlay?: boolean;
   canEngage?: boolean;
+  /**
+   * @deprecated Ignored. Likes are personal engagement, so the like button follows `canEngage`.
+   * Kept so extensions built against earlier versions still type-check.
+   */
   canLike?: boolean;
   loadPrevious?: () => Promise<LightboxImage[]>;
   loadNext?: () => Promise<LightboxImage[]>;
@@ -121,7 +125,6 @@ export function Lightbox({
   slideshowDelay = 5000,
   autoPlay = false,
   canEngage = false,
-  canLike = false,
   loadPrevious,
   loadNext,
   hasPrevious = false,
@@ -1176,7 +1179,7 @@ export function Lightbox({
             <div className="flex items-center gap-1 max-sm:order-first">
               <button
                 type="button"
-                disabled={(loading && Boolean(displayed)) || !canLike || likeMutation.isPending}
+                disabled={(loading && Boolean(displayed)) || !canEngage || likeMutation.isPending}
                 onClick={() => likeMutation.mutate(current.id)}
                 className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={`Like image (${likeCount} likes)`}

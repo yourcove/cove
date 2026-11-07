@@ -330,7 +330,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         key: "l",
         description: "Likes",
         handler: () => {
-          if (canWriteImage) {
+          if (canEngageImage) {
             incrementLikeMut.mutate();
           }
         },
@@ -359,7 +359,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         handler: () => closeLightbox(),
       },
     ],
-    [canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox],
+    [canEngageImage, canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox],
   );
 
   if (isLoading) {
@@ -756,7 +756,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       <LikeHistorySection
         likeHistory={imageHistoryQuery.data?.likeHistory}
         loading={imageHistoryQuery.isLoading}
-        canAddHistoricalLike={canWriteImage}
+        canAddHistoricalLike={canEngageImage}
         onAddHistoricalLike={async (at) => {
           await images.addHistoricalLike(id, at);
           await Promise.all([
@@ -874,7 +874,6 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         open={lightboxOpen && lightboxImages.length > 0}
         onClose={closeLightbox}
         canEngage={canEngageImage}
-        canLike={canWriteImage}
       />
       <MediaDetailLayout
         title={
@@ -982,7 +981,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               value: imageLikeCount,
               icon: <ThumbsUp className={["h-4 w-4", imageLikeCount > 0 ? "fill-accent text-accent" : ""].join(" ")} />,
               title: "Likes",
-              onClick: canWriteImage ? () => incrementLikeMut.mutate() : undefined,
+              onClick: canEngageImage ? () => incrementLikeMut.mutate() : undefined,
               active: imageLikeCount > 0,
             },
             {

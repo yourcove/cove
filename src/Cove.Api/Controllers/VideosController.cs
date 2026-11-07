@@ -1340,8 +1340,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpDelete("{id:int}/play")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<IActionResult> DeletePlay(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.DeleteVideoPlayAsync(id, ct);
@@ -1350,8 +1350,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpPost("{id:int}/play/reset")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<IActionResult> ResetPlayCount(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.ResetVideoPlayAsync(id, ct);
@@ -1370,8 +1370,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpPost("{id:int}/like/historical")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
     {
         var at = request.At.Kind == DateTimeKind.Unspecified
@@ -1386,8 +1386,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpDelete("{id:int}/like/history")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
     {
         var snapshot = await engagementService.DeleteLikeAtAsync(AffinityHostType.Video, id, at, ct);
@@ -1406,8 +1406,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpPost("{id:int}/like/reset")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<IActionResult> ResetLike(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.ResetVideoLikeAsync(id, ct);
@@ -1425,8 +1425,8 @@ public partial class VideosController(IVideoRepository videoRepo, Data.CoveConte
     }
 
     [HttpPost("{id:int}/activity/reset")]
-    [RequiresPermission(Permissions.VideosWrite)]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosRead)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<IActionResult> ResetActivity(int id, CancellationToken ct)
     {
         var snapshot = await engagementService.ResetVideoActivityAsync(id, ct);

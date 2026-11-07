@@ -1285,7 +1285,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         video={video}
         playCount={videoPlayCount}
         playDuration={videoPlayDuration}
-        canAddHistoricalLike={canWriteVideo}
+        canEngage={canEngageVideo}
       />
     ) : activeTab === "edit" ? (
       <VideoEditPanel
@@ -2302,12 +2302,12 @@ function HistoryTab({
   video,
   playCount,
   playDuration,
-  canAddHistoricalLike,
+  canEngage,
 }: {
   video: Video;
   playCount: number;
   playDuration: number;
-  canAddHistoricalLike: boolean;
+  canEngage: boolean;
 }) {
   const queryClient = useQueryClient();
   const { data: history } = useQuery({
@@ -2341,14 +2341,16 @@ function HistoryTab({
       <section>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-muted uppercase tracking-wide">Play History</h3>
-          <div className="flex gap-1">
-            <button onClick={() => deletePlayMut.mutate()} className={btnCls} title="Remove last play">
-              -1
-            </button>
-            <button onClick={() => resetPlayMut.mutate()} className={btnCls} title="Reset play count">
-              Reset
-            </button>
-          </div>
+          {canEngage ? (
+            <div className="flex gap-1">
+              <button onClick={() => deletePlayMut.mutate()} className={btnCls} title="Remove last play">
+                -1
+              </button>
+              <button onClick={() => resetPlayMut.mutate()} className={btnCls} title="Reset play count">
+                Reset
+              </button>
+            </div>
+          ) : null}
         </div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div>
@@ -2372,7 +2374,7 @@ function HistoryTab({
 
       <LikeHistorySection
         likeHistory={history?.likeHistory}
-        canAddHistoricalLike={canAddHistoricalLike}
+        canAddHistoricalLike={canEngage}
         onAddHistoricalLike={async (at) => {
           await videos.addHistoricalLike(video.id, at);
           await Promise.all([

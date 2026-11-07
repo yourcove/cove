@@ -69,31 +69,30 @@ public sealed class TextEngagementAndRescanApiTests(
 
         var viewerUsername = $"text-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Text viewer 123!";
-        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
-        var viewerHistoricalAt = historicalAt.AddHours(1);
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
-            (await memberSession.Client.AddHistoricalTextLikeAsync(primary, viewerHistoricalAt, TestContext.Current.CancellationToken)).Should().Be(1);
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
-        var viewer = viewerSession.Client;
-        var forbiddenWrites = new Func<Task>[]
+        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using (var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            async () => _ = await viewer.IncrementTextLikeAsync(primary),
-            async () => _ = await viewer.AddHistoricalTextLikeAsync(primary, historicalAt),
-            () => viewer.DeleteHistoricalTextLikeAsync(primary, viewerHistoricalAt),
-            async () => _ = await viewer.DecrementTextLikeAsync(primary),
-            async () => _ = await viewer.ResetTextLikeAsync(primary),
-        };
-        foreach (var forbiddenWrite in forbiddenWrites)
+            var viewer = viewerSession.Client;
+            (await viewer.AddHistoricalTextLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+            (await viewer.IncrementTextLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(2);
+            await viewer.DeleteHistoricalTextLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken);
+            var viewerAfterHistoricalDelete = await viewer.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken);
+            viewerAfterHistoricalDelete.LikeHistory.Should().ContainSingle();
+            DateTime.Parse(viewerAfterHistoricalDelete.LikeHistory.Single(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+                .Should().NotBe(historicalAt);
+            (await viewer.IncrementTextLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(2);
+            (await viewer.DecrementTextLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(1);
+            (await viewer.ResetTextLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(0);
+            (await viewer.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
+        }
+        _ = await owner.SetUserRolesAsync(viewerUser.Id, [], TestContext.Current.CancellationToken);
+        using (var noRoleSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            await forbiddenWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            var viewerAfterForbiddenWrite = await viewer.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken);
-            viewerAfterForbiddenWrite.LikeHistory.Should().ContainSingle();
-            DateTime.Parse(viewerAfterForbiddenWrite.LikeHistory.Single(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
-                .Should().Be(viewerHistoricalAt);
+            var noRoleLike = () => noRoleSession.Client.IncrementTextLikeAsync(primary);
+            await noRoleLike.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         }
 
-        (await eva.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        (await eva.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().Equal(historical.LikeHistory);
         (await anthony.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
         (await owner.GetTextHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
         await eva.DeleteHistoricalTextLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken);

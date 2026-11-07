@@ -1,5 +1,7 @@
 using System.Globalization;
 using Cove.ApiTests.Infrastructure;
+using Cove.Core.Auth;
+using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Interactions;
 
@@ -68,6 +70,65 @@ public sealed class VideoEngagementLifecycleApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/like/historical")]
+    [CoversEndpoint("DELETE", "/api/videos/{id:int}/like/history")]
+    [CoversEndpoint("DELETE", "/api/videos/{id:int}/like")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/like/reset")]
+    [CoversEndpoint("DELETE", "/api/videos/{id:int}/play")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/play/reset")]
+    public async Task GivenReadOnlyViewer_WhenManagingOwnVideoLikesAndPlays_ThenOnlyTheirStateChanges()
+    {
+        // Arrange
+        var owner = AsUser();
+        var eva = AsUser(ApiTestUsers.Eva);
+        var video = await owner.CreateVideoAsync($"Viewer engagement {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var now = DateTime.UtcNow;
+        var historicalAt = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, DateTimeKind.Utc).AddDays(-1);
+        await eva.AddHistoricalVideoLikeAsync(video, historicalAt, TestContext.Current.CancellationToken);
+        var viewerUsername = $"video-engagement-viewer-{Guid.NewGuid():N}";
+        const string viewerPassword = "Video engagement viewer 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
+        var viewer = viewerSession.Client;
+
+        // Act & Assert
+        (await viewer.AddHistoricalVideoLikeAsync(video, historicalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await viewer.IncrementVideoLikeAsync(video, TestContext.Current.CancellationToken)).Should().Be(2);
+        await viewer.DeleteHistoricalVideoLikeAsync(video, historicalAt, TestContext.Current.CancellationToken);
+        var viewerAfterHistoricalDelete = await viewer.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken);
+        viewerAfterHistoricalDelete.LikeHistory.Should().ContainSingle();
+        DateTime.Parse(viewerAfterHistoricalDelete.LikeHistory.Single(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+            .Should().NotBe(historicalAt);
+        (await viewer.IncrementVideoLikeAsync(video, TestContext.Current.CancellationToken)).Should().Be(2);
+        (await eva.IncrementVideoLikeAsync(video, TestContext.Current.CancellationToken)).Should().Be(2);
+        var evaLikesBefore = (await eva.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).LikeHistory;
+        await viewer.DecrementVideoLikeAsync(video, TestContext.Current.CancellationToken);
+        (await viewer.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken)).LikeCount.Should().Be(1);
+        (await viewer.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        await viewer.ResetVideoLikeAsync(video, TestContext.Current.CancellationToken);
+        (await viewer.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
+
+        await viewer.RecordVideoPlayAsync(video, TestContext.Current.CancellationToken);
+        await viewer.RecordVideoPlayAsync(video, TestContext.Current.CancellationToken);
+        await eva.RecordVideoPlayAsync(video, TestContext.Current.CancellationToken);
+        var evaPlaysBefore = (await eva.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).PlayHistory;
+        await viewer.DeleteVideoPlayAsync(video, TestContext.Current.CancellationToken);
+        (await viewer.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).PlayHistory.Should().ContainSingle();
+        await viewer.ResetVideoPlayAsync(video, TestContext.Current.CancellationToken);
+        (await viewer.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).PlayHistory.Should().BeEmpty();
+        var viewerEngagement = await viewer.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
+        viewerEngagement.LikeCount.Should().Be(0);
+        viewerEngagement.PlayCount.Should().Be(0);
+
+        var evaAfter = await eva.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken);
+        evaAfter.LikeHistory.Should().HaveCount(2).And.Equal(evaLikesBefore);
+        evaAfter.PlayHistory.Should().ContainSingle().And.Equal(evaPlaysBefore);
+        var evaEngagement = await eva.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
+        evaEngagement.LikeCount.Should().Be(2);
+        evaEngagement.PlayCount.Should().Be(1);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/{id:int}/rating")]
     [CoversEndpoint("GET", "/api/videos/{id:int}/ratings")]
     [CoversEndpoint("DELETE", "/api/videos/{id:int}/rating")]
@@ -114,5 +175,34 @@ public sealed class VideoEngagementLifecycleApiTests(
         });
         anthonyAfterClear.HostId.Should().Be(video.Id);
         anthonyAfterClear.Ratings.Should().BeEquivalentTo(anthonyBeforeClear.Ratings);
+    }
+
+    [Fact]
+    public async Task GivenUserWithoutRoles_WhenManagingVideoLikesAndPlays_ThenRequestsAreForbidden()
+    {
+        // Arrange
+        var owner = AsUser();
+        var video = await owner.CreateVideoAsync($"No-role engagement {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var username = $"video-engagement-no-role-{Guid.NewGuid():N}";
+        const string password = "Video engagement no role 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: []), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var client = session.Client;
+        var historicalAt = DateTime.UtcNow.AddDays(-1);
+        var requests = new Func<Task>[]
+        {
+            () => client.IncrementVideoLikeAsync(video),
+            () => client.AddHistoricalVideoLikeAsync(video, historicalAt),
+            () => client.DeleteHistoricalVideoLikeAsync(video, historicalAt),
+            () => client.DecrementVideoLikeAsync(video),
+            () => client.ResetVideoLikeAsync(video),
+            () => client.DeleteVideoPlayAsync(video),
+            () => client.ResetVideoPlayAsync(video),
+            () => client.ResetVideoActivityAsync(video),
+        };
+
+        // Act & Assert
+        foreach (var request in requests)
+            await request.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
     }
 }

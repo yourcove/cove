@@ -3,30 +3,39 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageDetailPage } from "../pages/ImageDetailPage";
 
-const { mockImages, mockFaces, mockEntityImages, mockPlayback, mockSetFavorite, mockSetRating, mockGoBack } =
-  vi.hoisted(() => ({
-    mockImages: {
-      get: vi.fn(),
-      delete: vi.fn(),
-      update: vi.fn(),
-      incrementLike: vi.fn(),
-      thumbnailUrl: vi.fn(() => "/thumb.jpg"),
-      imageUrl: vi.fn(() => "/image.jpg"),
-    },
-    mockFaces: {
-      imageFaces: vi.fn(),
-    },
-    mockEntityImages: {
-      studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
-      tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
-    },
-    mockPlayback: {
-      recordIntervals: vi.fn(() => Promise.resolve()),
-    },
-    mockSetFavorite: vi.fn(),
-    mockSetRating: vi.fn(),
-    mockGoBack: vi.fn(),
-  }));
+const {
+  mockImages,
+  mockFaces,
+  mockEntityImages,
+  mockPlayback,
+  mockSetFavorite,
+  mockSetRating,
+  mockGoBack,
+  mockHasPermission,
+} = vi.hoisted(() => ({
+  mockImages: {
+    get: vi.fn(),
+    delete: vi.fn(),
+    update: vi.fn(),
+    incrementLike: vi.fn(),
+    thumbnailUrl: vi.fn(() => "/thumb.jpg"),
+    imageUrl: vi.fn(() => "/image.jpg"),
+  },
+  mockFaces: {
+    imageFaces: vi.fn(),
+  },
+  mockEntityImages: {
+    studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
+    tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
+  },
+  mockPlayback: {
+    recordIntervals: vi.fn(() => Promise.resolve()),
+  },
+  mockSetFavorite: vi.fn(),
+  mockSetRating: vi.fn(),
+  mockGoBack: vi.fn(),
+  mockHasPermission: vi.fn((_permission: string) => true),
+}));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => {},
@@ -88,7 +97,7 @@ vi.mock("../hooks/useBackNavigation", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     user: { kind: "user" },
-    hasPermission: () => true,
+    hasPermission: mockHasPermission,
   }),
 }));
 
@@ -150,6 +159,7 @@ function getPrimaryDetailTabs() {
 describe("ImageDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockHasPermission.mockImplementation(() => true);
     mockImages.get.mockReset();
     mockFaces.imageFaces.mockReset();
   });
@@ -206,6 +216,25 @@ describe("ImageDetailPage", () => {
 
     fireEvent.keyDown(window, { key: "l" });
     await waitFor(() => expect(mockImages.incrementLike).toHaveBeenCalledWith(12));
+  });
+
+  it("lets a read-only viewer like an image from the metric and the keyboard", async () => {
+    mockHasPermission.mockImplementation((permission: string) => permission.endsWith(".read"));
+    mockImages.get.mockResolvedValue(buildImage());
+    mockFaces.imageFaces.mockResolvedValue([]);
+    mockImages.incrementLike.mockResolvedValue(1);
+
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Sunset Poster" });
+    expect(within(getPrimaryDetailTabs()).queryByRole("tab", { name: /edit/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Likes" }));
+    await waitFor(() => expect(mockImages.incrementLike).toHaveBeenCalledTimes(1));
+
+    fireEvent.keyDown(window, { key: "l" });
+    await waitFor(() => expect(mockImages.incrementLike).toHaveBeenCalledTimes(2));
+    expect(mockImages.incrementLike).toHaveBeenCalledWith(12);
   });
 
   it("records a lightbox dwell interval when the shared lightbox closes", async () => {

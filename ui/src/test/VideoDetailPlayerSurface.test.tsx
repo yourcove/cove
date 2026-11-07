@@ -14,6 +14,7 @@ const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock, cov
       screenshotUrl: vi.fn((id: number) => `/video-${id}.jpg`),
       streamUrl: vi.fn((id: number) => `/video-${id}.mp4`),
       submitMetadataServerDraft: vi.fn(),
+      getHistory: vi.fn(),
     },
     videoPlayerMock: vi.fn(),
     videoQueueMock: {
@@ -29,7 +30,7 @@ const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock, cov
   }));
 
 const { authMock, segmentsPanelMock, layoutShortcutsMock } = vi.hoisted(() => ({
-  authMock: { extraPermissions: new Set<string>() },
+  authMock: { extraPermissions: new Set<string>(), grantsVideoWrite: true },
   segmentsPanelMock: vi.fn(),
   layoutShortcutsMock: vi.fn((_shortcuts: { id?: string; handler: () => void }[]) => undefined),
 }));
@@ -133,7 +134,9 @@ vi.mock("../router/RouteRegistry", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     hasPermission: (permission: string) =>
-      permission === "videos.write" || permission === "files.read" || authMock.extraPermissions.has(permission),
+      (permission === "videos.write" && authMock.grantsVideoWrite) ||
+      permission === "files.read" ||
+      authMock.extraPermissions.has(permission),
     user: { kind: "user", uiPreferences: { tracking: { enabled: false } } },
   }),
 }));
@@ -263,9 +266,59 @@ describe("VideoDetailPage media-player extension surface", () => {
     layoutMock.renderWholeMediaColumn = false;
     layoutMock.renderDetailsTab = false;
     authMock.extraPermissions.clear();
+    authMock.grantsVideoWrite = true;
     videoSpritesMock.mockReturnValue(null);
     appConfigMock.config = { ui: {} };
   });
+
+  it.each([
+    { permissions: ["videos.read"], canEngage: true },
+    { permissions: [], canEngage: false },
+  ])(
+    "gates History play and like controls on engagement rather than write access (canEngage: $canEngage)",
+    async ({ permissions, canEngage }) => {
+      authMock.grantsVideoWrite = false;
+      layoutMock.renderDetailsTab = true;
+      authMock.extraPermissions = new Set(permissions);
+      mockVideos.get.mockResolvedValue({
+        id: 14,
+        title: "History video",
+        organized: false,
+        updatedAt: "2026-07-11T00:00:00Z",
+        files: [],
+        performers: [],
+        tags: [],
+        galleries: [],
+        groups: [],
+        urls: [],
+        remoteIds: [],
+        contextTagApplications: [],
+      });
+      mockVideos.getHistory.mockResolvedValue({
+        playHistory: ["2026-07-10T12:00:00Z"],
+        likeHistory: ["2026-07-09T12:00:00Z"],
+        sessions: [],
+      });
+
+      renderVideoDetail();
+      fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+      await waitFor(() => expect(mockVideos.getHistory).toHaveBeenCalledWith(14));
+      await screen.findByText(/2026-07-09/);
+
+      const controls = {
+        removeLastPlay: screen.queryByTitle("Remove last play"),
+        resetPlayCount: screen.queryByTitle("Reset play count"),
+        likeHistoryActions: screen.queryByRole("button", { name: "Like history actions" }),
+        deleteLike: screen.queryByRole("button", { name: /^Delete like from/ }),
+      };
+      expect(Object.fromEntries(Object.entries(controls).map(([name, control]) => [name, control !== null]))).toEqual({
+        removeLastPlay: canEngage,
+        resetPlayCount: canEngage,
+        likeHistoryActions: canEngage,
+        deleteLike: canEngage,
+      });
+    },
+  );
 
   it("does not offer removal for a generated-only video cover", async () => {
     mockVideos.get.mockResolvedValue({
