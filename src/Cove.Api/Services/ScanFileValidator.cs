@@ -106,8 +106,7 @@ public sealed class ScanFileValidator(
             throw;
         }
         catch (Exception ex) when (ex is InvalidDataException
-            or SixLabors.ImageSharp.InvalidImageContentException
-            or SixLabors.ImageSharp.UnknownImageFormatException
+            or Cove.Api.Imaging.ImageDecodeException
             or XmlException
             or JsonException)
         {
@@ -166,8 +165,7 @@ public sealed class ScanFileValidator(
             throw;
         }
         catch (Exception ex) when (ex is InvalidDataException
-            or SixLabors.ImageSharp.InvalidImageContentException
-            or SixLabors.ImageSharp.UnknownImageFormatException
+            or Cove.Api.Imaging.ImageDecodeException
             or XmlException
             or JsonException)
         {
@@ -283,6 +281,12 @@ public sealed class ScanFileValidator(
         return false;
     }
 
+    /// <summary>Extensions of the formats <see cref="Cove.Api.Imaging.ImageCodec"/> reads; a file named so must be one.</summary>
+    private static readonly HashSet<string> CodecImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".gif", ".webp", ".bmp", ".dib", ".tif", ".tiff",
+    };
+
     private async Task<ScanFileValidationResult> ValidateImageFileAsync(string path, CancellationToken ct)
     {
         if (string.Equals(Path.GetExtension(path), ".avif", StringComparison.OrdinalIgnoreCase))
@@ -296,7 +300,18 @@ public sealed class ScanFileValidator(
             return ScanFileValidationResult.Ready();
         }
 
-        var (width, height) = await ValidateImageStreamAsync(stream, ct);
+        int width, height;
+        try
+        {
+            (width, height) = await ValidateImageStreamAsync(stream, ct);
+        }
+        catch (Cove.Api.Imaging.UnsupportedImageFormatException) when (!CodecImageExtensions.Contains(Path.GetExtension(path)))
+        {
+            // Formats the codec does not read (QOI, TGA, Netpbm and the like) are left to FFprobe, as AVIF is.
+            await stream.DisposeAsync();
+            return await ValidateProbedMediaAsync(path, "video", requireDimensions: true, ct);
+        }
+
         await ValidateImageContainerTailAsync(stream, Path.GetExtension(path), ct);
         return ScanFileValidationResult.Ready() with
         {
@@ -318,7 +333,7 @@ public sealed class ScanFileValidator(
 
     private static async Task<(int Width, int Height)> ValidateImageStreamAsync(Stream stream, CancellationToken ct)
     {
-        var image = await SixLabors.ImageSharp.Image.IdentifyAsync(stream, ct);
+        var image = await Cove.Api.Imaging.ImageCodec.Default.IdentifyAsync(stream, ct);
         if (image == null || image.Width <= 0 || image.Height <= 0)
             throw new InvalidDataException("the image has invalid dimensions");
 

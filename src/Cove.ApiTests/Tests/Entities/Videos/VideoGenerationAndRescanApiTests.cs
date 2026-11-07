@@ -3,7 +3,6 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
-using SixLabors.ImageSharp;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
@@ -70,11 +69,7 @@ public sealed class VideoGenerationAndRescanApiTests(
         generated.MediaType.Should().Be("image/jpeg");
         generated.CacheControl.Should().Be("public, max-age=86400");
         generated.Bytes.Should().NotBeEmpty();
-        using (var frame = Image.Load(generated.Bytes))
-        {
-            frame.Width.Should().Be(160);
-            frame.Height.Should().Be(120);
-        }
+        ApiTestImages.Size(generated.Bytes).Should().Be((160, 120));
 
         (await AsUser(ApiTestUsers.Eva).SetVideoCoverFromFrameAsync(video.Id, 0.5, TestContext.Current.CancellationToken)).Success
             .Should().BeTrue();

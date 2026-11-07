@@ -2,9 +2,7 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Processing;
+using Cove.Api.Imaging;
 using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -147,15 +145,15 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         await using var spriteStream = FileReadRace.TryOpenRead(spritePath, bufferSize: 8192, pathWasObserved: true);
         if (spriteStream == null) return null;
 
-        using var image = await Image.LoadAsync(spriteStream, ct);
-        var bounds = new Rectangle(0, 0, image.Width, image.Height);
-        var crop = Rectangle.Intersect(bounds, frame.Value.Bounds);
-        if (crop.Width <= 0 || crop.Height <= 0) return null;
+        using var image = await ImageCodec.Default.LoadAsync(spriteStream, cancellationToken: ct);
+        var bounds = new PixelRect(0, 0, image.Width, image.Height);
+        var crop = PixelRect.Intersect(bounds, frame.Value.Bounds);
+        if (crop.IsEmpty) return null;
 
-        image.Mutate(context => context.Crop(crop));
+        image.Crop(crop);
 
         var output = new MemoryStream();
-        await image.SaveAsync(output, new JpegEncoder { Quality = 85 }, ct);
+        await image.SaveAsync(output, ImageOutput.Jpeg(85), ct);
         output.Position = 0;
         return (output, "image/jpeg", true);
     }
@@ -249,7 +247,7 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         return frames;
     }
 
-    private static Rectangle? TryParseSpriteBounds(string[] lines, int startIndex)
+    private static PixelRect? TryParseSpriteBounds(string[] lines, int startIndex)
     {
         for (var i = startIndex; i < lines.Length; i++)
         {
@@ -270,7 +268,7 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
                 && int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var height)
                 && width > 0
                 && height > 0
-                    ? new Rectangle(x, y, width, height)
+                    ? new PixelRect(x, y, width, height)
                     : null;
         }
 
@@ -317,6 +315,6 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         return true;
     }
 
-    private readonly record struct SpriteFrame(double StartSeconds, double EndSeconds, Rectangle Bounds);
+    private readonly record struct SpriteFrame(double StartSeconds, double EndSeconds, PixelRect Bounds);
     private sealed record SpriteFrameCache(DateTime LastWriteTimeUtc, long Length, IReadOnlyList<SpriteFrame> Frames);
 }

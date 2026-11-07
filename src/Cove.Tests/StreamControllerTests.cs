@@ -7,8 +7,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Tests;
 
@@ -202,9 +201,9 @@ public class StreamControllerTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var frames = new TemporaryFrameDirectory();
-        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgba32(255, 0, 0) };
         // A frame from 12.9 s, written when frames shared a file per whole second (by "Set cover from frame").
-        await WriteFrameAsync(Path.Combine(frames.Path, $"{video.Id}_t12.jpg"), new Rgb24(0, 255, 0));
+        await WriteFrameAsync(Path.Combine(frames.Path, $"{video.Id}_t12.jpg"), new Rgba32(0, 255, 0));
         var streams = new FrameStreamService(thumbnails);
         var controller = new StreamController(streams, thumbnails, null!, db)
         {
@@ -216,7 +215,7 @@ public class StreamControllerTests
         var file = Assert.IsType<FileStreamResult>(result);
         Assert.Equal("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
         Assert.Equal(new[] { (video.Id, 12.0) }, thumbnails.Generated);
-        using var crop = await SixLabors.ImageSharp.Image.LoadAsync<Rgb24>(file.FileStream, TestContext.Current.CancellationToken);
+        var crop = TestImages.Decode(file.FileStream);
         Assert.True(crop[crop.Width / 2, crop.Height / 2].R > 200, "The crop should come from the detection's own (red) frame.");
     }
 
@@ -237,7 +236,7 @@ public class StreamControllerTests
         using var frames = new TemporaryFrameDirectory();
         var thumbnails = new FrameThumbnailService(frames.Path);
         var standIn = Path.Combine(frames.Path, "stand-in.jpg");
-        await WriteFrameAsync(standIn, new Rgb24(0, 0, 255));
+        await WriteFrameAsync(standIn, new Rgba32(0, 0, 255));
         var controller = new StreamController(new FrameStreamService(thumbnails) { StandInPath = standIn }, thumbnails, null!, db)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
@@ -261,8 +260,8 @@ public class StreamControllerTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var frames = new TemporaryFrameDirectory();
-        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
-        await WriteFrameAsync(thumbnails.GetTimestampedThumbnailPath(video.Id, 12.25), new Rgb24(0, 0, 255));
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgba32(255, 0, 0) };
+        await WriteFrameAsync(thumbnails.GetTimestampedThumbnailPath(video.Id, 12.25), new Rgba32(0, 0, 255));
         var detection = new Detection { HostType = DetectionHostType.Video, HostId = video.Id, ObservedAtSec = 12.25 };
 
         await using var frame = await DetectionFrame.OpenAsync(db, thumbnails, detection, TestContext.Current.CancellationToken);
@@ -286,7 +285,7 @@ public class StreamControllerTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var frames = new TemporaryFrameDirectory();
-        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgb24(255, 0, 0) };
+        var thumbnails = new FrameThumbnailService(frames.Path) { FrameColorToGenerate = new Rgba32(255, 0, 0) };
         // Detections on a clip use the source's timeline.
         var detection = new Detection { HostType = DetectionHostType.Video, HostId = clip.Id, ObservedAtSec = 130 };
 
@@ -313,7 +312,7 @@ public class StreamControllerTests
         using var frames = new TemporaryFrameDirectory();
         var thumbnails = new FrameThumbnailService(frames.Path) { GenerateFailure = new UnauthorizedAccessException("generated folder is read-only") };
         var standIn = Path.Combine(frames.Path, "stand-in.jpg");
-        await WriteFrameAsync(standIn, new Rgb24(0, 0, 255));
+        await WriteFrameAsync(standIn, new Rgba32(0, 0, 255));
         var controller = new StreamController(new FrameStreamService(thumbnails) { StandInPath = standIn }, thumbnails, null!, db)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
@@ -325,11 +324,8 @@ public class StreamControllerTests
         Assert.Equal("public, max-age=300", controller.Response.Headers.CacheControl.ToString());
     }
 
-    private static async Task WriteFrameAsync(string path, Rgb24 color)
-    {
-        using var frame = new Image<Rgb24>(160, 90, color);
-        await frame.SaveAsJpegAsync(path, TestContext.Current.CancellationToken);
-    }
+    private static async Task WriteFrameAsync(string path, Rgba32 color)
+        => await TestImages.WriteAsync(path, TestImages.Jpeg(160, 90, color));
 
     private sealed class TemporaryFrameDirectory : IDisposable
     {
@@ -341,7 +337,7 @@ public class StreamControllerTests
     /// <summary>Frames named like the real service; generating one paints it a solid colour, or makes nothing.</summary>
     private sealed class FrameThumbnailService(string directory) : IThumbnailService
     {
-        public Rgb24? FrameColorToGenerate { get; init; }
+        public Rgba32? FrameColorToGenerate { get; init; }
         public Exception? GenerateFailure { get; init; }
         public List<(int VideoId, double Seconds)> Generated { get; } = [];
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);

@@ -70,16 +70,33 @@
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.12" />
   </ItemGroup>
 
+  <!--
+    libvips is native code, published per runtime. A publish for one runtime (the release builds) takes
+    only that runtime's binaries from NetVips.Native. A runtime-neutral build (development, tests and the
+    Docker images, whose build stage runs on the target architecture) would copy every runtime's, about
+    200 MB, so it takes the build machine's own instead. Keep both references on the same version.
+  -->
+  <PropertyGroup>
+    <CoveVipsNativeVersion>8.18.7</CoveVipsNativeVersion>
+    <CoveVipsNativeRids>;linux-x64;linux-arm64;linux-arm;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64;win-x64;win-x86;win-arm64;</CoveVipsNativeRids>
+    <CoveVipsNativeRid Condition="'$(RuntimeIdentifier)' == '' and '$(RuntimeIdentifiers)' == '' and $(CoveVipsNativeRids.Contains(';$(NETCoreSdkRuntimeIdentifier);'))">$(NETCoreSdkRuntimeIdentifier)</CoveVipsNativeRid>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetVips.Native" Version="$(CoveVipsNativeVersion)" Condition="'$(CoveVipsNativeRid)' == ''" />
+    <PackageReference Include="NetVips.Native.$(CoveVipsNativeRid)" Version="$(CoveVipsNativeVersion)" Condition="'$(CoveVipsNativeRid)' != ''" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="HtmlAgilityPack" Version="1.13.0" />
     <PackageReference Include="MediatR" Version="14.2.0" />
+    <PackageReference Include="NetVips" Version="3.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="VersOne.Epub" Version="3.3.6" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />

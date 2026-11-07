@@ -112,4 +112,4 @@ Want to contribute code? Cove can also **pay contributors** for delivered work. 
 
 ## License
 
-Cove is licensed under the [GNU AGPL v3](LICENSE).
+Cove is licensed under the [GNU AGPL v3](LICENSE). It includes third-party libraries under their own licences, listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

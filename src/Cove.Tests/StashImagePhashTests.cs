@@ -132,9 +132,10 @@ public sealed class StashImagePhashTests
     }
 
     /// <summary>
-    /// Lossy JPEG and WebP decode to slightly different pixels in ImageSharp than in Go, so their
-    /// hashes are close to Stash's rather than equal. Against Go, eleven of these cases match and four
-    /// differ by two bits; the bound leaves room for ImageSharp's encoder to change the fixture bytes.
+    /// Lossy JPEG and WebP decode to slightly different pixels in libvips than in Go, so their hashes
+    /// are close to Stash's rather than equal. Against Go, ten of these cases match and five differ by
+    /// two bits (ImageSharp, the previous decoder, matched eleven); the bound leaves a little room for a
+    /// future libvips release to round differently.
     /// </summary>
     [Theory]
     [InlineData("jpg_420", 130, 41, "ecc56b1a562bce0c")] // *image.YCbCr
@@ -186,13 +187,44 @@ public sealed class StashImagePhashTests
         }
     }
 
+    /// <summary>
+    /// A format Go cannot decode is hashed the way Stash hashes it: converted to a bitmap with ffmpeg.
+    /// A lossless TGA of a PNG fixture therefore hashes as the PNG does.
+    /// </summary>
+    [Fact]
+    public async Task ComputeImagePhashAsync_HashesAFormatTheCodecCannotReadThroughFfmpeg()
+    {
+        var ffmpeg = FfmpegExecutableLocator.FindFfmpeg((string?)null);
+        Assert.SkipWhen(ffmpeg is null, "Requires ffmpeg on PATH.");
+        var ct = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), $"cove-phash-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var png = Path.Combine(root, "source.png");
+            var tga = Path.Combine(root, "source.tga");
+            await File.WriteAllBytesAsync(png, StashImagePhashFixtures.Create("png_rgb8", 130, 41), ct);
+            var convert = await FfmpegProcessRunner.RunAsync(ffmpeg!, ["-v", "error", "-y", "-i", png, tga], TimeSpan.FromMinutes(1), ct);
+            Assert.True(convert.ExitCode == 0, convert.StandardError);
+
+            var config = new CoveConfiguration { FfmpegPath = ffmpeg };
+            var service = new FingerprintService(null!, null!, config, new FfmpegConcurrencyLimiter(config), NullLogger<FingerprintService>.Instance);
+
+            Assert.Equal("ecc56b1a562bce0c", await service.ComputeImagePhashAsync(tga, ct));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void ReadGifFirstFrameBounds_SkipsExtensionsBeforeTheFrame()
     {
         // gif_transparent puts a graphic control extension ahead of the image descriptor.
         using var stream = new MemoryStream(StashImagePhashFixtures.Create("gif_transparent", 130, 41));
 
-        Assert.Equal(new SixLabors.ImageSharp.Rectangle(0, 0, 130, 41), StashImagePhash.ReadGifFirstFrameBounds(stream));
+        Assert.Equal(new Cove.Api.Imaging.PixelRect(0, 0, 130, 41), StashImagePhash.ReadGifFirstFrameBounds(stream));
     }
 
     [Theory]

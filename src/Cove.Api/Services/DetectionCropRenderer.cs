@@ -1,8 +1,5 @@
 using Cove.Core.Entities;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using Cove.Api.Imaging;
 
 namespace Cove.Api.Services;
 
@@ -19,26 +16,22 @@ public static class DetectionCropRenderer
     {
         try
         {
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(sourceStream, cancellationToken);
-            image.Mutate(static operation => operation.AutoOrient());
+            using var image = await ImageCodec.Default.LoadAsync(sourceStream, cancellationToken: cancellationToken);
+            image.AutoOrient();
 
             var cropRectangle = BuildRectangle(image.Width, image.Height, detection, context);
             if (cropRectangle is null)
                 return null;
 
-            image.Mutate(operation => operation.Crop(cropRectangle.Value));
+            image.Crop(cropRectangle.Value);
             var maximum = Math.Clamp(maxDimension.GetValueOrDefault(640), 64, 2048);
             if (Math.Max(image.Width, image.Height) > maximum)
             {
-                image.Mutate(operation => operation.Resize(new ResizeOptions
-                {
-                    Mode = ResizeMode.Max,
-                    Size = new Size(maximum, maximum),
-                }));
+                image.Resize(ImageGeometry.FitWithin(new PixelSize(image.Width, image.Height), new PixelSize(maximum, maximum)));
             }
 
             var output = new MemoryStream();
-            await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 88 }, cancellationToken);
+            await image.SaveAsync(output, ImageOutput.Jpeg(88), cancellationToken);
             output.Position = 0;
             return output;
         }
@@ -48,7 +41,7 @@ public static class DetectionCropRenderer
         }
     }
 
-    private static Rectangle? BuildRectangle(int imageWidth, int imageHeight, Detection detection, double? context)
+    private static PixelRect? BuildRectangle(int imageWidth, int imageHeight, Detection detection, double? context)
     {
         if (imageWidth <= 0 || imageHeight <= 0 || detection.W <= 0 || detection.H <= 0)
             return null;
@@ -91,7 +84,7 @@ public static class DetectionCropRenderer
         var centerY = top + boxHeight / 2.0 - boxHeight * 0.1 * headroomFactor;
         var cropLeft = Clamp((int)Math.Round(centerX - side / 2.0), 0, Math.Max(0, imageWidth - side));
         var cropTop = Clamp((int)Math.Round(centerY - side / 2.0), 0, Math.Max(0, imageHeight - side));
-        return new Rectangle(cropLeft, cropTop, side, side);
+        return new PixelRect(cropLeft, cropTop, side, side);
     }
 
     private static int Clamp(int value, int min, int max)

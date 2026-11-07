@@ -3,11 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using Cove.Api.Imaging;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -125,7 +121,8 @@ public class ThumbnailService(
         [".pgm"] = "image/x-portable-graymap", [".ppm"] = "image/x-portable-pixmap",
         [".pam"] = "image/x-portable-anymap",
     };
-    private static readonly HashSet<string> ImageSharpImageContentTypes =
+    // The formats ImageCodec decodes. Anything else, such as QOI, TGA or Netpbm, goes to ffmpeg.
+    private static readonly HashSet<string> CodecImageContentTypes =
     [
         "image/jpeg",
         "image/png",
@@ -133,12 +130,6 @@ public class ThumbnailService(
         "image/webp",
         "image/bmp",
         "image/tiff",
-        "image/qoi",
-        "image/x-tga",
-        "image/x-portable-bitmap",
-        "image/x-portable-graymap",
-        "image/x-portable-pixmap",
-        "image/x-portable-anymap",
     ];
     private static readonly Dictionary<string, string> ImageContentTypeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -575,19 +566,19 @@ public class ThumbnailService(
     {
         try
         {
-            await GenerateImageThumbnailFileWithImageSharpAsync(sourceStream, thumbnailPath, sourceModifiedAt, maxDimension, thumbnailOutput, ct);
+            await GenerateImageThumbnailFileWithCodecAsync(sourceStream, thumbnailPath, sourceModifiedAt, maxDimension, thumbnailOutput, ct);
             return true;
         }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
+        catch (ImageDecodeException)
         {
-            // ImageSharp can't handle this file (unrecognized format, or an unsupported variant such as
+            // The codec can't handle this file (unrecognized format, or an unsupported variant such as
             // a JPEG using lossless arithmetic coding). Fall back to ffmpeg's decoders; if that also
             // can't decode it, the fallback returns false and the caller skips the thumbnail.
             return await TryGenerateImageThumbnailFileWithFfmpegAsync(sourceStream, sourceFilePath, contentType, thumbnailPath, sourceModifiedAt, maxDimension, thumbnailOutput, ct);
         }
     }
 
-    private async Task GenerateImageThumbnailFileWithImageSharpAsync(Stream sourceStream, string thumbnailPath, DateTime sourceModifiedAt, int maxDimension, ImageThumbnailOutput thumbnailOutput, CancellationToken ct)
+    private async Task GenerateImageThumbnailFileWithCodecAsync(Stream sourceStream, string thumbnailPath, DateTime sourceModifiedAt, int maxDimension, ImageThumbnailOutput thumbnailOutput, CancellationToken ct)
     {
         var directory = Path.GetDirectoryName(thumbnailPath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -688,7 +679,7 @@ public class ThumbnailService(
         var thumbnailStream = new MemoryStream();
         try
         {
-            if (CanUseImageSharpForContentType(contentType))
+            if (CanUseCodecForContentType(contentType))
             {
                 await WriteImageThumbnailAsync(sourceStream, thumbnailStream, maxDimension, thumbnailOutput, ct);
                 thumbnailStream.Position = 0;
@@ -834,33 +825,19 @@ public class ThumbnailService(
         if (sourceStream.CanSeek)
             sourceStream.Position = 0;
 
-        using var image = await SixLabors.ImageSharp.Image.LoadAsync(sourceStream, ct);
-        image.Mutate(ctx =>
-        {
-            ctx.AutoOrient();
-            if (image.Width > maxDimension || image.Height > maxDimension)
-            {
-                ctx.Resize(new ResizeOptions
-                {
-                    Mode = ResizeMode.Max,
-                    Size = new Size(maxDimension, maxDimension)
-                });
-            }
-        });
+        using var image = await ImageCodec.Default.LoadAsync(sourceStream, cancellationToken: ct);
+        image.AutoOrient();
+        if (image.Width > maxDimension || image.Height > maxDimension)
+            image.Resize(ImageGeometry.FitWithin(new PixelSize(image.Width, image.Height), new PixelSize(maxDimension, maxDimension)));
 
-        if (thumbnailOutput.ContentType == "image/png")
-        {
-            await image.SaveAsPngAsync(outputStream, new PngEncoder(), ct);
-            return;
-        }
-
-        await image.SaveAsJpegAsync(outputStream, new JpegEncoder { Quality = ImageThumbnailQuality }, ct);
+        var output = thumbnailOutput.ContentType == "image/png" ? ImageOutput.Png : ImageOutput.Jpeg(ImageThumbnailQuality);
+        await image.SaveAsync(outputStream, output, ct);
     }
 
-    private static bool CanUseImageSharpForContentType(string? contentType)
+    private static bool CanUseCodecForContentType(string? contentType)
     {
         var normalized = NormalizeContentType(contentType);
-        return normalized != null && ImageSharpImageContentTypes.Contains(normalized);
+        return normalized != null && CodecImageContentTypes.Contains(normalized);
     }
 
     private static bool CanGenerateImageThumbnail(string contentType)
@@ -1694,7 +1671,6 @@ public class ThumbnailService(
             var frameSet = SpriteFrameGapFiller.Fill(extracted);
             if (frameSet.Frames is not { } frames)
             {
-                foreach (var f in extracted) f?.Dispose();
                 logger.LogWarning(
                     "Sprite generation failed for video {VideoId} - only {Decoded}/{Requested} frames could be decoded",
                     videoId, frameSet.DecodedCount, frameSet.RequestedCount);
@@ -1710,23 +1686,13 @@ public class ThumbnailService(
 
             var fw = frames[0].Width;
             var fh = frames[0].Height;
-            try
-            {
-                // Compose sprite sheet
-                using var sheet = new Image<Rgba32>(fw * cols, fh * rows);
-                for (var idx = 0; idx < frameCount; idx++)
-                {
-                    var x = fw * (idx % cols);
-                    var y = fh * (idx / cols);
-                    sheet.Mutate(ctx => ctx.DrawImage(frames[idx], new Point(x, y), 1f));
-                }
+            var sheet = new PixelBuffer<Rgba32>(fw * cols, fh * rows);
+            for (var idx = 0; idx < frameCount; idx++)
+                Paste(sheet, frames[idx], fw * (idx % cols), fh * (idx / cols));
 
-                await sheet.SaveAsJpegAsync(spritePath, new JpegEncoder { Quality = 75 }, ct);
-            }
-            finally
-            {
-                foreach (var f in frames) f?.Dispose();
-            }
+            using (var encoded = ImageCodec.Default.FromPixels(sheet))
+            await using (var spriteFile = new FileStream(spritePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+                await encoded.SaveAsync(spriteFile, ImageOutput.Jpeg(75), ct);
 
             if (!File.Exists(spritePath))
             {
@@ -1875,7 +1841,9 @@ public class ThumbnailService(
         }
         else
         {
-            var spriteInfo = await SixLabors.ImageSharp.Image.IdentifyAsync(spritePath, ct);
+            ImageHeader? spriteInfo;
+            await using (var spriteFile = new FileStream(spritePath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true))
+                spriteInfo = await ImageCodec.Default.IdentifyAsync(spriteFile, ct);
             if (spriteInfo == null)
                 return;
 
@@ -1904,6 +1872,16 @@ public class ThumbnailService(
         }
 
         await File.WriteAllTextAsync(vttPath, vttBuilder.ToString(), ct);
+    }
+
+    /// <summary>Copies <paramref name="frame"/> onto <paramref name="sheet"/> at (x, y), clipped to the sheet.</summary>
+    private static void Paste(PixelBuffer<Rgba32> sheet, PixelBuffer<Rgba32> frame, int x, int y)
+    {
+        var width = Math.Min(frame.Width, sheet.Width - x);
+        if (width <= 0)
+            return;
+        for (var row = 0; row < frame.Height && y + row < sheet.Height; row++)
+            frame.Row(row)[..width].CopyTo(sheet.Row(y + row).Slice(x, width));
     }
 
     private static string FormatVttTime(double seconds)

@@ -12,7 +12,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
 
 namespace Cove.Tests;
 
@@ -465,6 +464,56 @@ public class ScanServiceTests
             var result = await validator.ValidateAsync(path, info.Length, info.LastWriteTimeUtc, ScanMediaKind.Image, TestContext.Current.CancellationToken);
 
             Assert.Equal(ScanFileValidationStatus.Ready, result.Status);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The codec reads JPEG, PNG, GIF, WebP, BMP and TIFF. A format it does not, such as QOI or TGA,
+    /// is measured by FFprobe instead of being rejected.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_ProbesAnImageFormatTheCodecDoesNotRead()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-qoi-{Guid.NewGuid():N}.qoi");
+        try
+        {
+            // A QOI header for a 16x16 RGBA image, then its end marker.
+            await File.WriteAllBytesAsync(path, [.. "qoif"u8, 0, 0, 0, 16, 0, 0, 0, 16, 4, 0, 0, 0, 0, 0, 0, 0, 0, 1], TestContext.Current.CancellationToken);
+            var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+            var validator = new ScanFileValidator(probe, new ZipGalleryReader(new ZipFileReader()), ReadyTimeProvider);
+            var info = new FileInfo(path);
+
+            var result = await validator.ValidateAsync(path, info.Length, info.LastWriteTimeUtc, ScanMediaKind.Image, TestContext.Current.CancellationToken);
+
+            Assert.Equal(ScanFileValidationStatus.Ready, result.Status);
+            Assert.Equal((16, 16), (result.Width, result.Height));
+            Assert.Equal(1, probe.CallCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ValidateAsync_RejectsAJpegThatIsNotOne()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-fake-{Guid.NewGuid():N}.jpg");
+        try
+        {
+            await File.WriteAllTextAsync(path, "this is not an image, just some text that is long enough", TestContext.Current.CancellationToken);
+            var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+            var validator = new ScanFileValidator(probe, new ZipGalleryReader(new ZipFileReader()), ReadyTimeProvider);
+            var info = new FileInfo(path);
+
+            var result = await validator.ValidateAsync(path, info.Length, info.LastWriteTimeUtc, ScanMediaKind.Image, TestContext.Current.CancellationToken);
+
+            Assert.Equal(ScanFileValidationStatus.Invalid, result.Status);
+            Assert.Equal(0, probe.CallCount);
         }
         finally
         {
@@ -3031,8 +3080,7 @@ public class ScanServiceTests
 
     private static async Task WriteValidImageAsync(string path)
     {
-        using var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(16, 16);
-        await image.SaveAsJpegAsync(path);
+        await File.WriteAllBytesAsync(path, TestImages.Jpeg(16, 16));
     }
 
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options);

@@ -9,8 +9,7 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.ApiTests.Tests.Entities.Images;
 
@@ -223,13 +222,8 @@ public sealed class ImageEngagementDetectionAndRescanApiTests(
             SourceKey: sourceKey,
             SourceRunId: "run-1");
 
-    private static async Task<byte[]> CreatePngAsync(int width, int height, Rgba32 color)
-    {
-        using var image = new Image<Rgba32>(width, height, color);
-        await using var output = new MemoryStream();
-        await image.SaveAsPngAsync(output);
-        return output.ToArray();
-    }
+    private static Task<byte[]> CreatePngAsync(int width, int height, Rgba32 color)
+        => Task.FromResult(ApiTestImages.Solid("png", width, height, color));
 
     private static void AssertDetectionEquivalent(DetectionDto expected, DetectionDto actual)
     {

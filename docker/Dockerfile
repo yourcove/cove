@@ -205,6 +205,9 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d \
 
 # ── Cove application ──────────────────────────────────────────────
 COPY --from=api-build /app /opt/cove
+# Licence and third-party notices for the libraries the image ships, such as libvips.
+COPY LICENSE THIRD-PARTY-NOTICES.md /opt/cove/
+COPY licenses/ /opt/cove/licenses/
 
 # Data directories
 RUN mkdir -p /data /config /generated /cache /backups \

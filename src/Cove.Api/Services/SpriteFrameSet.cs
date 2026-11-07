@@ -1,5 +1,4 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Api.Services;
 
@@ -8,7 +7,7 @@ namespace Cove.Api.Services;
 /// <see cref="Frames"/> is null when too few frames decoded to be worth publishing.
 /// </summary>
 internal readonly record struct SpriteFrameSet(
-    Image<Rgba32>[]? Frames,
+    PixelBuffer<Rgba32>[]? Frames,
     int DecodedCount,
     int SubstitutedCount,
     int RequestedCount)
@@ -25,14 +24,12 @@ internal static class SpriteFrameGapFiller
     /// Fills gaps left by undecodable frames with a copy of the nearest decoded neighbour, so that a
     /// video with a few corrupt GOPs still gets a usable scrubbing preview instead of nothing at all.
     ///
-    /// Returns an unusable result (and disposes nothing) when fewer than
-    /// <see cref="MinimumDecodedRatio"/> of the frames decoded - at that point the sheet would be
-    /// mostly filler and is not worth showing.
+    /// Returns an unusable result when fewer than <see cref="MinimumDecodedRatio"/> of the frames
+    /// decoded - at that point the sheet would be mostly filler and is not worth showing.
     ///
-    /// The caller owns every image in the returned array and must dispose them; substituted slots
-    /// hold clones, never a second reference to a neighbour, so disposal is unambiguous.
+    /// Substituted slots hold clones, never a second reference to a neighbour.
     /// </summary>
-    public static SpriteFrameSet Fill(Image<Rgba32>?[] extracted)
+    public static SpriteFrameSet Fill(PixelBuffer<Rgba32>?[] extracted)
     {
         var requested = extracted.Length;
         var decoded = 0;
@@ -45,7 +42,7 @@ internal static class SpriteFrameGapFiller
         if (decoded == requested)
             return new SpriteFrameSet(extracted!, decoded, 0, requested);
 
-        var filled = new Image<Rgba32>[requested];
+        var filled = new PixelBuffer<Rgba32>[requested];
         var substituted = 0;
         for (var i = 0; i < requested; i++)
         {
@@ -63,7 +60,7 @@ internal static class SpriteFrameGapFiller
     }
 
     /// <summary>Nearest decoded frame by index distance, preferring the earlier one on a tie.</summary>
-    private static Image<Rgba32>? NearestDecoded(Image<Rgba32>?[] frames, int index)
+    private static PixelBuffer<Rgba32>? NearestDecoded(PixelBuffer<Rgba32>?[] frames, int index)
     {
         for (var distance = 1; distance < frames.Length; distance++)
         {

@@ -1,8 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Cove.Api.Imaging;
 
 namespace Cove.Api.Services;
 
@@ -64,7 +63,7 @@ internal static class VideoFrameBatchExtractor
     /// matter to a pHash: a seek rounded across a frame boundary can land on the other side of a scene
     /// cut, and the JPEG path's full-range conversion shifts the colours of limited-range sources.
     /// </param>
-    public static async Task<Image<Rgba32>?[]?> ExtractAsync(
+    public static async Task<PixelBuffer<Rgba32>?[]?> ExtractAsync(
         string ffmpegPath,
         string videoPath,
         IReadOnlyList<double> timestamps,
@@ -86,7 +85,7 @@ internal static class VideoFrameBatchExtractor
         var tmpDir = Path.Combine(Path.GetTempPath(), $"cove_frames_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tmpDir);
 
-        var frames = new Image<Rgba32>?[timestamps.Count];
+        var frames = new PixelBuffer<Rgba32>?[timestamps.Count];
         var fingerprints = new string?[timestamps.Count];
 
         try
@@ -104,7 +103,6 @@ internal static class VideoFrameBatchExtractor
                         videoPath, reseek.Count, timestamps.Count);
                     foreach (var index in reseek)
                     {
-                        frames[index]?.Dispose();
                         frames[index] = null;
                         fingerprints[index] = null;
                     }
@@ -118,14 +116,8 @@ internal static class VideoFrameBatchExtractor
 
             return frames;
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            DisposeFrames(frames);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DisposeFrames(frames);
             logger.LogDebug(ex, "Batched frame extraction failed for {Path}", videoPath);
             return null;
         }
@@ -167,7 +159,7 @@ internal static class VideoFrameBatchExtractor
         int batchSize,
         FfmpegConcurrencyLimiter limiter,
         ILogger logger,
-        Image<Rgba32>?[] frames,
+        PixelBuffer<Rgba32>?[] frames,
         string?[] fingerprints,
         bool exactFrames)
     {
@@ -185,7 +177,7 @@ internal static class VideoFrameBatchExtractor
                 var timeout = BaseBatchTimeout + PerFrameTimeout * batch.Count;
 
                 // Held only for the decode itself. Loading the extracted frames afterwards is
-                // ImageSharp work on already-written files and must not keep decode slots reserved.
+                // in-process work on already-written files and must not keep decode slots reserved.
                 FfmpegProcessResult result;
                 await using (await limiter.AcquireAsync(batch.Count, ct))
                     result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
@@ -217,7 +209,7 @@ internal static class VideoFrameBatchExtractor
                     try
                     {
                         var bytes = await File.ReadAllBytesAsync(framePath, ct);
-                        frames[index] = Image.Load<Rgba32>(bytes);
+                        frames[index] = ImageCodec.Default.DecodePixels<Rgba32>(new MemoryStream(bytes, writable: false));
                         fingerprints[index] = Convert.ToHexString(SHA256.HashData(bytes));
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -343,12 +335,4 @@ internal static class VideoFrameBatchExtractor
         return firstLine.Length > 200 ? firstLine[..200] : firstLine;
     }
 
-    private static void DisposeFrames(Image<Rgba32>?[] frames)
-    {
-        for (var index = 0; index < frames.Length; index++)
-        {
-            try { frames[index]?.Dispose(); } catch { /* best effort */ }
-            frames[index] = null;
-        }
-    }
 }

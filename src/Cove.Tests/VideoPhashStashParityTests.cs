@@ -2,9 +2,6 @@ using System.Globalization;
 using Cove.Api.Services;
 using Cove.Core.Interfaces;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Cove.Tests;
 
@@ -102,38 +99,31 @@ public sealed class VideoPhashStashParityTests
         var rounded = Math.Round(duration * 100, MidpointRounding.AwayFromZero) / 100;
         var offset = 0.05 * rounded;
         var step = 0.9 * rounded / 25;
-        var frames = new List<Image<Rgba32>>();
-        try
+        var frames = new List<Cove.Api.Imaging.PixelBuffer<Cove.Api.Imaging.Rgba32>>();
+        for (var i = 0; i < 25; i++)
         {
-            for (var i = 0; i < 25; i++)
-            {
-                var output = Path.Combine(root, $"stash_{i:D2}.bmp");
-                var seek = (offset + i * step).ToString("R", CultureInfo.InvariantCulture);
-                var result = await FfmpegProcessRunner.RunAsync(ffmpeg,
-                    ["-v", "error", "-y", "-ss", seek, "-i", video, "-frames:v", "1", "-vf", "scale=160:-2", "-c:v", "bmp", output],
-                    TimeSpan.FromMinutes(1), ct);
-                Assert.Equal(0, result.ExitCode);
-                frames.Add(await Image.LoadAsync<Rgba32>(output, ct));
-            }
+            var output = Path.Combine(root, $"stash_{i:D2}.bmp");
+            var seek = (offset + i * step).ToString("R", CultureInfo.InvariantCulture);
+            var result = await FfmpegProcessRunner.RunAsync(ffmpeg,
+                ["-v", "error", "-y", "-ss", seek, "-i", video, "-frames:v", "1", "-vf", "scale=160:-2", "-c:v", "bmp", output],
+                TimeSpan.FromMinutes(1), ct);
+            Assert.Equal(0, result.ExitCode);
+            await using (var bmp = File.OpenRead(output))
+                frames.Add(Cove.Api.Imaging.ImageCodec.Default.DecodePixels<Cove.Api.Imaging.Rgba32>(bmp));
+        }
 
-            // imaging.Paste of each decoded frame into the 5×5 montage. Go's BMP decoder returns these
-            // frames opaque, whatever their alpha byte holds.
-            int width = frames[0].Width, height = frames[0].Height;
-            using var sprite = new Image<Rgba32>(width * 5, height * 5);
-            for (var i = 0; i < frames.Count; i++)
-                for (var y = 0; y < height; y++)
-                {
-                    var source = frames[i].Frames.RootFrame.DangerousGetPixelRowMemory(y).Span;
-                    var target = sprite.Frames.RootFrame.DangerousGetPixelRowMemory(height * (i / 5) + y).Span[(width * (i % 5))..];
-                    for (var x = 0; x < width; x++)
-                        target[x] = source[x] with { A = 255 };
-                }
-            return GoImageHash.Format(StashImagePhash.ComputeNrgba(sprite));
-        }
-        finally
-        {
-            foreach (var frame in frames)
-                frame.Dispose();
-        }
+        // imaging.Paste of each decoded frame into the 5×5 montage. Go's BMP decoder returns these
+        // frames opaque, whatever their alpha byte holds.
+        int width = frames[0].Width, height = frames[0].Height;
+        var sprite = new Cove.Api.Imaging.PixelBuffer<Cove.Api.Imaging.Rgba32>(width * 5, height * 5);
+        for (var i = 0; i < frames.Count; i++)
+            for (var y = 0; y < height; y++)
+            {
+                var source = frames[i].Row(y);
+                var target = sprite.Row(height * (i / 5) + y)[(width * (i % 5))..];
+                for (var x = 0; x < width; x++)
+                    target[x] = source[x] with { A = 255 };
+            }
+        return GoImageHash.Format(StashImagePhash.ComputeNrgba(sprite));
     }
 }
