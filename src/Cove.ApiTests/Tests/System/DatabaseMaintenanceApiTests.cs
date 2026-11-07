@@ -22,7 +22,7 @@ public sealed class DatabaseMaintenanceApiTests(
 
         var forbiddenBackup = () => AsUser(ApiTestUsers.Eva).BackupDatabaseAsync();
         var forbiddenMigrate = () => AsUser(ApiTestUsers.Eva).MigrateDatabaseAsync();
-        var forbiddenOptimize = () => AsUser(ApiTestUsers.Eva).OptimizeDatabaseAsync();
+        var forbiddenOptimize = () => AsUser(ApiTestUsers.Eva).StartDatabaseOptimizeJobAsync();
         var forbiddenBackupJob = () => AsUser(ApiTestUsers.Eva).StartDatabaseBackupJobAsync();
         var forbiddenLatest = () => AsUser(ApiTestUsers.Eva).GetLatestDatabaseBackupAsync();
         await forbiddenBackup.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
@@ -41,7 +41,18 @@ public sealed class DatabaseMaintenanceApiTests(
         migration.PreMigrationBackupPath.Should().BeNull();
         migration.MigrationRequired.Should().BeFalse();
 
-        (await AsUser().OptimizeDatabaseAsync(TestContext.Current.CancellationToken)).Message.Should().Be("Database optimized");
+        var optimizeJobId = await AsUser().StartDatabaseOptimizeJobAsync(TestContext.Current.CancellationToken);
+        var optimized = await AsUser().WaitForTerminalJobAsync(optimizeJobId, TestContext.Current.CancellationToken);
+        optimized.Id.Should().Be(optimizeJobId);
+        optimized.Type.Should().Be("optimize");
+        optimized.Description.Should().Be("Optimizing database");
+        optimized.Status.Should().Be(JobStatus.Completed);
+        optimized.Progress.Should().Be(1);
+        optimized.Error.Should().BeNull();
+        optimized.Summary.Should().MatchRegex(@"^Vacuumed and analyzed [1-9]\d* table\(s\)$");
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken))
+            .Should().ContainSingle(job => job.Id == optimizeJobId)
+            .Which.Status.Should().Be(JobStatus.Completed);
 
         var startedAt = DateTime.UtcNow.AddSeconds(-1);
         var backup = await AsUser().BackupDatabaseAsync(TestContext.Current.CancellationToken);

@@ -96,7 +96,7 @@ describe("job cache invalidation", () => {
     },
   );
 
-  it.each(["backup", "export"])("leaves the cache alone when a %s job ends", (type) => {
+  it.each(["backup", "export", "optimize"])("leaves the cache alone when a %s job ends", (type) => {
     const queryClient = cachedQueryClient();
 
     expect(invalidateContentForTerminalJob(queryClient, { ...job("completed"), type })).toBe(false);
