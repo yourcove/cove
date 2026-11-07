@@ -3085,7 +3085,7 @@ query Me {
         {
             info = ImageCodec.Default.Identify(source);
         }
-        catch (UnsupportedImageFormatException)
+        catch (ImageDecodeException)
         {
             return null;
         }

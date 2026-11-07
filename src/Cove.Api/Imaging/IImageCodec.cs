@@ -17,8 +17,8 @@ public interface IImageCodec
 
     /// <summary>
     /// Decodes the first frame to pixels of the requested layout without applying EXIF orientation.
-    /// Narrower samples widen exactly (an 8-bit value v becomes v × 257); wider ones are not narrowed
-    /// to fit, so asking for 8 bits from a 16-bit image rounds as ImageSharp did.
+    /// Narrower samples widen exactly (an 8-bit value v becomes v × 257); wider ones narrow with
+    /// rounding, and colour becomes BT.709 luminance when a gray layout is asked for.
     /// </summary>
     PixelBuffer<TPixel> DecodePixels<TPixel>(Stream stream) where TPixel : unmanaged, IPixel<TPixel>;
 

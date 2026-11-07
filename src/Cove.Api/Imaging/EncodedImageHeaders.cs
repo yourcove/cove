@@ -31,7 +31,7 @@ internal static class EncodedImageHeaders
 
     internal sealed record BmpHeader(int InfoHeaderSize, int BitsPerPixel);
 
-    internal sealed record TiffHeader(int Photometric, int BitsPerSample)
+    internal sealed record TiffHeader(int Photometric, int BitsPerSample, ushort[]? ColorMap = null)
     {
         public const int WhiteIsZero = 0;
         public const int BlackIsZero = 1;
@@ -289,7 +289,10 @@ internal static class EncodedImageHeaders
         return new BmpHeader(infoSize, bitsPerPixel);
     }
 
-    /// <summary>PhotometricInterpretation and the first BitsPerSample value of the first IFD.</summary>
+    /// <summary>
+    /// PhotometricInterpretation, the first BitsPerSample value and, for a palette image, the ColorMap
+    /// (all red entries, then green, then blue) of the first IFD.
+    /// </summary>
     internal static TiffHeader? ReadTiff(Stream stream)
     {
         Span<byte> header = stackalloc byte[8];
@@ -312,6 +315,7 @@ internal static class EncodedImageHeaders
             return null;
         int? photometric = null;
         var bitsPerSample = 1;
+        uint colorMapOffset = 0, colorMapCount = 0;
         Span<byte> entry = stackalloc byte[12];
         Span<byte> first = stackalloc byte[2];
         for (var i = U16(count); i > 0; i--)
@@ -321,7 +325,12 @@ internal static class EncodedImageHeaders
             var tag = U16(entry);
             var type = U16(entry[2..]);
             var values = U32(entry[4..]);
-            if (tag == 262)
+            if (tag == 320 && type == 3)
+            {
+                colorMapCount = values;
+                colorMapOffset = U32(entry[8..]);
+            }
+            else             if (tag == 262)
             {
                 photometric = Short(entry[8..], type);
             }
@@ -343,7 +352,23 @@ internal static class EncodedImageHeaders
                 }
             }
         }
-        return photometric is { } value ? new TiffHeader(value, bitsPerSample) : null;
+        if (photometric is not { } value)
+            return null;
+
+        ushort[]? colorMap = null;
+        if (value == TiffHeader.PaletteColor && colorMapCount is > 0 and <= 3 * 65536 && colorMapCount % 3 == 0
+            && colorMapOffset + colorMapCount * 2L <= stream.Length)
+        {
+            stream.Position = colorMapOffset;
+            var bytes = new byte[colorMapCount * 2];
+            if (ReadExactly(stream, bytes))
+            {
+                colorMap = new ushort[colorMapCount];
+                for (var i = 0; i < colorMap.Length; i++)
+                    colorMap[i] = (ushort)U16(bytes.AsSpan(i * 2));
+            }
+        }
+        return new TiffHeader(value, bitsPerSample, colorMap);
 
         int U16(ReadOnlySpan<byte> data) => little ? BinaryPrimitives.ReadUInt16LittleEndian(data) : BinaryPrimitives.ReadUInt16BigEndian(data);
         uint U32(ReadOnlySpan<byte> data) => little ? BinaryPrimitives.ReadUInt32LittleEndian(data) : BinaryPrimitives.ReadUInt32BigEndian(data);
