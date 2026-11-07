@@ -15,7 +15,7 @@ on:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       backend: ${{ steps.classify.outputs.backend || steps.all.outputs.backend }}
       frontend: ${{ steps.classify.outputs.frontend || steps.all.outputs.frontend }}
@@ -94,7 +94,7 @@ jobs:
   backend:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -120,7 +120,7 @@ jobs:
   windows-file-read-races:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -151,7 +151,7 @@ jobs:
   api-tests:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -240,7 +240,7 @@ jobs:
   performance:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -277,7 +277,7 @@ jobs:
   frontend:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -310,7 +310,7 @@ jobs:
   cli:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.cli == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

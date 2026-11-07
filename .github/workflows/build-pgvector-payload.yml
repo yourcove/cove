@@ -28,7 +28,7 @@ env:
 
 jobs:
   metadata:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       pgvector_version: ${{ steps.values.outputs.pgvector_version }}
       postgres_major: ${{ steps.values.outputs.postgres_major }}
@@ -58,11 +58,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rid: linux-x64
-          - os: macos-latest
+          - os: macos-26
             rid: osx-arm64
     runs-on: ${{ matrix.os }}
     env:
@@ -177,7 +177,7 @@ jobs:
 
   publish:
     needs: [metadata, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       PGVECTOR_VERSION: ${{ needs.metadata.outputs.pgvector_version }}
       POSTGRES_MAJOR: ${{ needs.metadata.outputs.postgres_major }}
