@@ -29,7 +29,7 @@ env:
 
 jobs:
   mirror:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Download and verify FFmpeg builds from BtbN
         env:

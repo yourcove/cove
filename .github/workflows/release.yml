@@ -16,7 +16,7 @@ jobs:
   # ── Build frontend once, share via artifact ─────────────────────
   build-ui:
     needs: check-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -44,15 +44,15 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             artifact: cove-win-x64
             ext: .zip
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rid: linux-x64
             artifact: cove-linux-x64
             ext: .tar.gz
-          - os: macos-latest
+          - os: macos-26
             rid: osx-arm64
             artifact: cove-osx-arm64
             ext: .tar.gz
@@ -172,7 +172,7 @@ jobs:
   # ── Verify and build standalone CLI executables ─────────────────
   verify-cli:
     needs: check-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -194,7 +194,7 @@ jobs:
 
   build-cli:
     needs: [check-version, verify-cli]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -253,7 +253,7 @@ jobs:
 
   # ── Determine release type ────────────────────────────────────────
   check-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       is_stable: ${{ steps.check.outputs.is_stable }}
       is_latest: ${{ steps.check.outputs.is_latest }}
@@ -332,7 +332,7 @@ jobs:
   # ── Build Docker images for stable and prerelease tags ───────────
   build-docker:
     needs: [build-ui, check-version]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -396,7 +396,7 @@ jobs:
       && needs.build-native.result == 'success'
       && needs.build-cli.result == 'success'
       && needs.build-docker.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -484,7 +484,7 @@ jobs:
   # ── CI checks (runs on all pushes and PRs too) ──────────────────
   ci:
     if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

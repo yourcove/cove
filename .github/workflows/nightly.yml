@@ -18,7 +18,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       publish: ${{ steps.version.outputs.publish }}
       version: ${{ steps.version.outputs.version }}
@@ -90,7 +90,7 @@ jobs:
   build-ui:
     needs: prepare
     if: needs.prepare.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -119,15 +119,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             artifact: cove-win-x64
             ext: .zip
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rid: linux-x64
             artifact: cove-linux-x64
             ext: .tar.gz
-          - os: macos-latest
+          - os: macos-26
             rid: osx-arm64
             artifact: cove-osx-arm64
             ext: .tar.gz
@@ -245,7 +245,7 @@ jobs:
   build-docker:
     needs: [prepare, build-ui]
     if: needs.prepare.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -302,7 +302,7 @@ jobs:
       needs.prepare.outputs.publish == 'true'
       && needs.build-native.result == 'success'
       && needs.build-docker.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       packages: write

@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   metadata:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       postgres_major: ${{ steps.values.outputs.postgres_major }}
       postgres_version: ${{ steps.values.outputs.postgres_version }}
@@ -64,10 +64,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             url: ${{ inputs.windows_url }}
-          - os: macos-latest
+          - os: macos-26
             rid: osx-arm64
             url: ${{ inputs.macos_url }}
     runs-on: ${{ matrix.os }}
@@ -91,7 +91,7 @@ jobs:
 
   build-linux:
     needs: metadata
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # The oldest glibc the payload runs on: Ubuntu 22.04 (glibc 2.35) also covers Debian 12 and later.
     container: ubuntu:22.04
     steps:
@@ -114,7 +114,7 @@ jobs:
 
   publish:
     needs: [metadata, build-edb, build-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       POSTGRES_MAJOR: ${{ needs.metadata.outputs.postgres_major }}
       POSTGRES_VERSION: ${{ needs.metadata.outputs.postgres_version }}
