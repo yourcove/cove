@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function CompilationPlayerPage({ id, itemOrder, onNavigate }: Props) {
-  const { backLabel, goBack } = useBackNavigation({ page: "group", id }, onNavigate);
+  const { backLabel, goBack, backAlternative } = useBackNavigation({ page: "group", id }, onNavigate);
   const { data: group, isLoading: groupLoading } = useQuery({
     queryKey: ["group", id],
     queryFn: () => groups.get(id),
@@ -48,6 +48,7 @@ export function CompilationPlayerPage({ id, itemOrder, onNavigate }: Props) {
       onNavigate={onNavigate}
       backLabel={backLabel}
       onGoBack={goBack}
+      backAlternative={backAlternative}
     />
   );
 }

@@ -208,7 +208,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     id,
   );
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "studios" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "studios" }, onNavigate);
   const canWriteStudio = canWriteEntity("studio", hasPermission);
   const canEngageStudio = canReadEntity("studio", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteStudio = canDeleteEntity("studio", hasPermission);
@@ -286,7 +286,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => studios.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["studios"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -352,6 +352,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         entityId={studio.id}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         backgroundImageUrl={entityImages.studioImageUrl(studio.id, studio.updatedAt, 1600)}
         imageUrl={studioImageUrl}
         imageAlt={studio.name}

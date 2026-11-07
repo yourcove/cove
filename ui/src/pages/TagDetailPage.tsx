@@ -216,7 +216,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     id,
   );
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "tags" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "tags" }, onNavigate);
   const canWriteTag = canWriteEntity("tag", hasPermission);
   const canEngageTag = canReadEntity("tag", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteTag = canDeleteEntity("tag", hasPermission);
@@ -293,7 +293,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => tags.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tags"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -359,6 +359,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         entityId={tag.id}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         imageUrl={tagImageUrl}
         imageAlt={tag.name}
         imageFit="contain"

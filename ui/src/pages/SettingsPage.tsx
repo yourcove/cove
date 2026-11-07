@@ -124,6 +124,7 @@ import { defaultRatingSystemOptions, normalizeRatingOptions } from "../component
 import { readStoredRatingOptionsOverride, writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import {
   readAuthenticatedUserThemePreferences,
+  resolveBackNavigationTarget,
   supportsServerBackedUiPreferences,
   updateAuthenticatedUserUiPreferences,
 } from "../utils/userUiPreferences";
@@ -3846,6 +3847,7 @@ export function SettingsPage() {
           ))}
 
         {resolvedActiveTab === "my-appearance-theme" && <MarkdownRenderingPreferencePanel />}
+        {resolvedActiveTab === "my-appearance-theme" && <BackNavigationPreferencePanel />}
 
         {resolvedActiveTab === "keyboard-shortcuts" && (
           <SectionCard
@@ -4876,6 +4878,41 @@ function LocalInterfacePanel({ serverRatingOptions }: { serverRatingOptions?: Pa
         </div>
       </SectionCard>
     </>
+  );
+}
+
+function BackNavigationPreferencePanel() {
+  const { authEnabled, user } = useAuth();
+  const accountBackedPreferences = supportsServerBackedUiPreferences(user);
+  const sharedProfilePreferences = accountBackedPreferences && !authEnabled;
+  const target = resolveBackNavigationTarget(user?.uiPreferences?.backNavigationTarget);
+
+  return (
+    <SectionCard
+      title="Back navigation"
+      description={
+        sharedProfilePreferences
+          ? "This preference is stored in Cove's shared built-in profile."
+          : "This preference follows your signed-in account across browsers."
+      }
+    >
+      <SelectField
+        label="Back button returns to"
+        description="After moving through several pages of the same kind, such as video after video from a list, Back can return to the page you started from or step back one page at a time. The menu next to the Back button always offers the other choice, and the browser's own Back button always goes back one step."
+        value={target}
+        disabled={!accountBackedPreferences}
+        options={[
+          { value: "origin", label: "Where I started browsing" },
+          { value: "previous", label: "The previous page" },
+        ]}
+        onChange={(value) =>
+          updateAuthenticatedUserUiPreferences((current) => ({
+            ...current,
+            backNavigationTarget: resolveBackNavigationTarget(value),
+          }))
+        }
+      />
+    </SectionCard>
   );
 }
 

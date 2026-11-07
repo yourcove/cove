@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FindFilter } from "../api/types";
-import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
+import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl, syncRouteHistory } from "../router/location";
 import { getSortClauses, parseSortClauses, serializeSortClauses } from "../utils/sortClauses";
 
 export interface ListUrlState<TDisplayMode extends string> {
@@ -300,6 +300,8 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
       // and overwrite a just-applied filter change. Native replaceState is intentionally silent;
       // popstate and explicit app navigation continue to flow through the listeners above.
       window.history.replaceState(window.history.state, "", nextUrl);
+      // Keep the session route history on the same URL, or Back cannot find this page in it.
+      syncRouteHistory("replace");
     }
   }, [options, serializedState, state]);
 

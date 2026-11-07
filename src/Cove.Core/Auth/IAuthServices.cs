@@ -165,6 +165,14 @@ public sealed record UserUiPreferencesDto(
     UserKeyboardShortcutPreferencesDto? KeyboardShortcuts = null,
     bool? RenderMarkdown = null)
 {
+    /// <summary>
+    /// Where a detail page's Back button leads: <c>"origin"</c> for the page a run of same-type pages
+    /// started from, or <c>"previous"</c> for the page just before. <see langword="null"/> uses the
+    /// default, <c>"origin"</c>. An init property rather than a positional parameter, so the primary
+    /// constructor and <c>Deconstruct</c> keep the arity extensions were built against.
+    /// </summary>
+    public string? BackNavigationTarget { get; init; }
+
     // Binary-compatibility shims for extensions compiled against Cove 1.3, before KeyboardShortcuts and
     // RenderMarkdown were appended to the primary constructor.
     [EditorBrowsable(EditorBrowsableState.Never)]

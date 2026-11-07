@@ -53,6 +53,37 @@ public class UserServiceTests
         Assert.Equal(enabled, restored?.RenderMarkdown);
     }
 
+    [Theory]
+    [InlineData("origin")]
+    [InlineData("previous")]
+    public void UiPreferences_RoundTripsBackNavigationTarget(string target)
+    {
+        var preferences = new UserUiPreferencesDto(null, null, null, null, null) { BackNavigationTarget = target };
+
+        var json = Assert.IsType<string>(UserService.SerializeUiPreferences(preferences));
+        var restored = UserService.ParseUiPreferences(json);
+
+        Assert.Equal(target, restored?.BackNavigationTarget);
+    }
+
+    [Fact]
+    public void UiPreferences_NormalizesBackNavigationTargetCase()
+    {
+        var preferences = new UserUiPreferencesDto(null, null, null, null, null) { BackNavigationTarget = " Previous " };
+
+        var restored = UserService.ParseUiPreferences(UserService.SerializeUiPreferences(preferences));
+
+        Assert.Equal("previous", restored?.BackNavigationTarget);
+    }
+
+    [Fact]
+    public void UiPreferences_DropsUnknownBackNavigationTarget()
+    {
+        var preferences = new UserUiPreferencesDto(null, null, null, null, null) { BackNavigationTarget = "sideways" };
+
+        Assert.Null(UserService.SerializeUiPreferences(preferences));
+    }
+
     private static CoveContext NewDb(string name = "users")
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

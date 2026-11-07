@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   Building2,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +25,7 @@ import { MediaDetailLayoutSidebar } from "./Sidebar";
 import { useMediaDetailLayout } from "./useMediaDetailLayout";
 import { useManualContext } from "../ManualContext";
 import type { MediaDetailLayoutProps, MediaDetailTab } from "./types";
+import { BackNavigationButton } from "../BackNavigationButton";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "cove.detailSidebarCollapsed";
 const MEDIA_DETAIL_DESKTOP_TAB_NAV_VAR = "--cove-media-detail-desktop-tab-nav";
@@ -269,6 +269,7 @@ function MediaDetailLayoutRoot({
   subtitle,
   backLabel = "Back",
   onGoBack,
+  backAlternative,
   media,
   mediaAspectRatio,
   mediaFullBleed,
@@ -523,13 +524,13 @@ function MediaDetailLayoutRoot({
           {mobileTabsNav}
           <div className="px-4 pt-4 pb-2 sm:pl-7 sm:pr-6 lg:pl-8">
             {onGoBack ? (
-              <button
-                type="button"
-                onClick={onGoBack}
-                className="mb-3 inline-flex min-h-9 items-center gap-1 rounded-md pr-2 text-sm text-secondary transition hover:text-foreground sm:flex sm:min-h-0 sm:rounded-none sm:pr-0"
-              >
-                <ArrowLeft className="h-4 w-4" /> {backLabel}
-              </button>
+              <BackNavigationButton
+                label={backLabel}
+                onGoBack={onGoBack}
+                alternative={backAlternative}
+                className="mb-3 sm:flex"
+                buttonClassName="inline-flex min-h-9 items-center gap-1 rounded-md pr-2 text-sm text-secondary transition hover:text-foreground sm:min-h-0 sm:rounded-none sm:pr-0"
+              />
             ) : null}
             {headerImage ? <div className="mb-2 empty:hidden">{headerImage}</div> : null}
             <h3 className="mt-1 break-words text-xl font-semibold leading-snug text-foreground sm:text-[1.5rem]">

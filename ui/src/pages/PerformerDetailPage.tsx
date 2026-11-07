@@ -188,7 +188,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { backLabel, goBack } = useBackNavigation({ page: "performers" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "performers" }, onNavigate);
   const canWritePerformer = canWriteEntity("performer", hasPermission);
   const canEngagePerformer =
     canReadEntity("performer", hasPermission) && (user?.kind === "user" || user?.kind === "system");
@@ -220,7 +220,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => performers.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["performers"] });
-      goBack();
+      goToOrigin();
     },
   });
 
@@ -359,6 +359,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         entityId={performer.id}
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         backgroundImageUrl={entityImages.performerImageUrl(performer.id, performer.updatedAt, 1600)}
         imageUrl={performerImageUrl}
         imageAlt={performer.name}

@@ -691,14 +691,24 @@ public sealed class UserService : IUserService
         var homePageContent = string.IsNullOrWhiteSpace(preferences.HomePageContent) ? null : preferences.HomePageContent;
         var defaultFilters = NormalizeDefaultFilters(preferences.DefaultFilters);
         var renderMarkdown = preferences.RenderMarkdown;
+        var backNavigationTarget = NormalizeBackNavigationTarget(preferences.BackNavigationTarget);
         if (theme is null && ratingSystemOptions is null && tracking is null && videos is null && playback is null
             && keybindingOverrides is null && keyboardShortcuts is null && homePageContent is null && defaultFilters is null
-            && renderMarkdown is null)
+            && renderMarkdown is null && backNavigationTarget is null)
         {
             return null;
         }
 
-        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters, keyboardShortcuts, renderMarkdown);
+        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters, keyboardShortcuts, renderMarkdown)
+        {
+            BackNavigationTarget = backNavigationTarget,
+        };
+    }
+
+    private static string? NormalizeBackNavigationTarget(string? target)
+    {
+        var normalized = target?.Trim().ToLowerInvariant();
+        return normalized is "origin" or "previous" ? normalized : null;
     }
 
     private static UserVideosPreferencesDto? NormalizeVideosPreferences(UserVideosPreferencesDto? videos)

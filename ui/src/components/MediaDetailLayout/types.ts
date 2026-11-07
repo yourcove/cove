@@ -1,3 +1,4 @@
+import type { BackNavigationAlternative } from "../../hooks/useBackNavigation";
 import type { ReactNode } from "react";
 
 export type MediaDetailAspectRatio = "video" | "square" | "auto" | "compact";
@@ -51,6 +52,8 @@ export interface MediaDetailLayoutProps {
   subtitle?: ReactNode;
   backLabel?: string;
   onGoBack?: () => void;
+  /** The other place Back can lead, offered in a menu beside the Back button. */
+  backAlternative?: BackNavigationAlternative;
   media?: ReactNode;
   mediaSticky?: boolean;
   mediaAspectRatio?: MediaDetailAspectRatio;

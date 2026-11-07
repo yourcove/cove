@@ -2,6 +2,7 @@ import { auth } from "../api/client";
 import { authStore } from "../auth/authStore";
 import type { AuthUser } from "../auth/authStore";
 import type {
+  BackNavigationTarget,
   KeyboardShortcutPresetDocument,
   RatingSystemOptions,
   UserKeyboardShortcutPreferences,
@@ -188,6 +189,7 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
   const homePageContent = preferences?.homePageContent?.trim() ? preferences.homePageContent : null;
   const defaultFilters = normalizeDefaultFilters(preferences?.defaultFilters);
   const renderMarkdown = typeof preferences?.renderMarkdown === "boolean" ? preferences.renderMarkdown : null;
+  const backNavigationTarget = parseBackNavigationTarget(preferences?.backNavigationTarget);
   if (
     !theme &&
     !ratingSystemOptions &&
@@ -198,7 +200,8 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     !keyboardShortcuts &&
     !homePageContent &&
     !defaultFilters &&
-    renderMarkdown == null
+    renderMarkdown == null &&
+    backNavigationTarget == null
   ) {
     return null;
   }
@@ -214,7 +217,17 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     homePageContent,
     defaultFilters,
     renderMarkdown,
+    backNavigationTarget,
   };
+}
+
+function parseBackNavigationTarget(value: unknown): BackNavigationTarget | null {
+  return value === "origin" || value === "previous" ? value : null;
+}
+
+/** The Back button's target for a stored preference; anything unset or unknown means "origin". */
+export function resolveBackNavigationTarget(value: unknown): BackNavigationTarget {
+  return parseBackNavigationTarget(value) ?? "origin";
 }
 
 function normalizeDefaultFilters(

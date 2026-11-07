@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useListUrlState } from "../hooks/useListUrlState";
+import { getPreviousInternalRoute, syncRouteHistory } from "../router/location";
 
 function ListStateProbe() {
   const { filter, setFilter, displayMode, setDisplayMode } = useListUrlState({
@@ -94,6 +95,20 @@ function MultiSortProbe() {
 describe("useListUrlState", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/videos?view=wall&perPage=infinite&page=2&viewMode=vertical");
+  });
+
+  it("keeps the session route history on the URL it rewrites", async () => {
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/performers");
+    syncRouteHistory("push");
+    window.history.pushState(null, "", "/videos?viewMode=vertical");
+    syncRouteHistory("push");
+
+    render(<ListStateProbe />);
+
+    await waitFor(() => expect(window.location.search).not.toContain("viewMode"));
+    // Back still finds the rewritten page, and the page before it.
+    expect(getPreviousInternalRoute({ page: "videos" })).toMatchObject({ hasHistory: true, url: "/performers" });
   });
 
   it("reads display mode and persists infinite page size through perPage", async () => {

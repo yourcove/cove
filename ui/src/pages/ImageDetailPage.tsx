@@ -110,7 +110,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<ImageTab>("details");
   const queryClient = useQueryClient();
   const opsMenuRef = useRef<HTMLDivElement>(null);
-  const { backLabel, goBack } = useBackNavigation({ page: "images" }, onNavigate);
+  const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "images" }, onNavigate);
   const canWriteImage = canWriteEntity("image", hasPermission);
   const canDeleteImage = canDeleteEntity("image", hasPermission);
   const canDownloadImage = hasPermission("jobs.run") && canWriteImage;
@@ -171,7 +171,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => images.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["images"] });
-      goBack();
+      goToOrigin();
     },
   });
   const updateMut = useMutation({
@@ -919,6 +919,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         }
         backLabel={backLabel}
         onGoBack={goBack}
+        backAlternative={backAlternative}
         media={
           <div className="relative flex h-full min-h-[40vh] flex-1 items-center justify-center bg-black/90 group">
             {imageLoadFailed ? (
