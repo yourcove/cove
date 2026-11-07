@@ -92,45 +92,59 @@ export function spriteTileStyle(sprites: VideoSprites, entry: VideoSpriteEntry, 
 
 /**
  * Loads the scrubber sprite sheet for a video. Returns null while loading, when the video has no
- * sprites, or when `videoId` is null.
+ * sprites, when the sprite list could not be fetched, or when `videoId` is null.
  */
 export function useVideoSprites(videoId: number | null): VideoSprites | null {
-  const [loaded, setLoaded] = useState<{ videoId: number; sprites: VideoSprites | null } | null>(null);
+  return useVideoSpritesLoad(videoId).sprites;
+}
+
+export type VideoSpritesLoad =
+  | { status: "idle" | "loading" | "missing" | "failed"; sprites: null }
+  | { status: "ready"; sprites: VideoSprites };
+
+/**
+ * Loads the scrubber sprite sheet for a video and reports how the load went. `missing` means the video has no
+ * sprites (no list, or an empty one); `failed` means the list could not be fetched, which may be temporary.
+ * The status is `idle` when `videoId` is null.
+ */
+export function useVideoSpritesLoad(videoId: number | null): VideoSpritesLoad {
+  const [loaded, setLoaded] = useState<{ videoId: number; load: VideoSpritesLoad } | null>(null);
 
   useEffect(() => {
     if (videoId == null) return;
     let cancelled = false;
     const imageUrl = `/api/stream/video/${videoId}/sprite`;
+    const settle = (load: VideoSpritesLoad) => {
+      if (!cancelled) setLoaded({ videoId, load });
+    };
 
     serverAwareFetch(`/api/stream/video/${videoId}/vtt/thumbs`)
-      .then((response) => {
-        if (!response.ok) throw new Error("VTT not found");
-        return response.text();
-      })
-      .then((text) => {
-        if (cancelled) return;
+      .then(async (response) => {
+        if (response.status === 404) return settle({ status: "missing", sprites: null });
+        if (!response.ok) return settle({ status: "failed", sprites: null });
+        const text = await response.text();
         const entries = parseSpriteVtt(text);
-        const sprites =
-          entries.length > 0
-            ? {
-                entries,
-                imageUrl,
-                sheetWidth: Math.max(...entries.map((entry) => entry.x + entry.w)),
-                sheetHeight: Math.max(...entries.map((entry) => entry.y + entry.h)),
-                capturedMidTile: isCoveSpriteVtt(text),
-              }
-            : null;
-        setLoaded({ videoId, sprites });
+        if (entries.length === 0) return settle({ status: "missing", sprites: null });
+        settle({
+          status: "ready",
+          sprites: {
+            entries,
+            imageUrl,
+            sheetWidth: Math.max(...entries.map((entry) => entry.x + entry.w)),
+            sheetHeight: Math.max(...entries.map((entry) => entry.y + entry.h)),
+            capturedMidTile: isCoveSpriteVtt(text),
+          },
+        });
       })
-      .catch(() => {
-        if (!cancelled) setLoaded({ videoId, sprites: null });
-      });
+      .catch(() => settle({ status: "failed", sprites: null }));
 
     return () => {
       cancelled = true;
     };
   }, [videoId]);
 
+  if (videoId == null) return { status: "idle", sprites: null };
   // Drop the previous video's sprites as soon as the video changes, before its own load finishes.
-  return loaded != null && loaded.videoId === videoId ? loaded.sprites : null;
+  if (loaded == null || loaded.videoId !== videoId) return { status: "loading", sprites: null };
+  return loaded.load;
 }

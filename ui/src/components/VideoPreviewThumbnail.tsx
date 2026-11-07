@@ -4,7 +4,7 @@ import type { Video } from "../api/types";
 import { EntityMedia, type EntityMediaFit, type EntityMediaSurface } from "./EntityMedia";
 import { formatDuration } from "./shared";
 import { isPlainPrimaryClick } from "./cardNavigation";
-import { findSpriteIndex, spriteCaptureTime, useVideoSprites } from "../hooks/useVideoSprites";
+import { findSpriteIndex, spriteCaptureTime, useVideoSpritesLoad } from "../hooks/useVideoSprites";
 import { VideoCoverImage } from "./VideoCoverImage";
 
 function NativeVideoPreview({
@@ -85,10 +85,6 @@ export function VideoPreviewThumbnail({
       ? Math.max(0, video.clipEndSec - video.clipStartSec)
       : undefined;
   const duration = clipDuration ?? file?.duration ?? 0;
-  // Touch screens have no hover to scrub with, and iOS Safari turns a tap on a hover-reactive strip into a
-  // hover that never clicks. Without a precise hover pointer the strip is left out and taps open the card.
-  const canScrub =
-    enableScrubbing && duration > 0 && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches !== false;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, coverWidth);
   const previewUrl = videos.previewUrl(video.id);
   const coverAlt = video.imagePath ? video.title || "" : "";
@@ -96,7 +92,19 @@ export function VideoPreviewThumbnail({
   const [hoveredSeconds, setHoveredSeconds] = useState<number | null>(null);
   // Load the sprite list on a card's first hover only, so a grid does not fetch one per card.
   const [spritesRequestedFor, setSpritesRequestedFor] = useState<number | null>(null);
-  const sprites = useVideoSprites(spritesRequestedFor === video.id ? video.id : null);
+  const { status: spritesStatus, sprites } = useVideoSpritesLoad(spritesRequestedFor === video.id ? video.id : null);
+  // Touch screens have no hover to scrub with, and iOS Safari turns a tap on a hover-reactive strip into a
+  // hover that never clicks. Without a precise hover pointer the strip is left out and taps open the card.
+  // Scrub frames are cut from the sprite sheet, so a video without one has no frames to show and loses the strip.
+  const canScrub =
+    enableScrubbing &&
+    duration > 0 &&
+    spritesStatus !== "missing" &&
+    window.matchMedia?.("(hover: hover) and (pointer: fine)").matches !== false;
+  // A strip removed under the pointer never sees it leave, so forget the hover rather than bring it back later.
+  if (!canScrub && hoveredSeconds != null) setHoveredSeconds(null);
+  // A sprite list whose sheet image is gone still has no frames to show; stop asking once one fails to load.
+  const [framesFailedFor, setFramesFailedFor] = useState<number | null>(null);
   const clipStart = video.clipStartSec ?? 0;
 
   // The frame shown while scrubbing is the sprite tile covering the hovered time, so open the video at the moment
@@ -122,7 +130,12 @@ export function VideoPreviewThumbnail({
       : 0;
   const scrubTimestamp = scrubSeconds != null ? formatDuration(scrubSeconds) : null;
   const scrubTimestampPercent = scrubSeconds != null ? Math.min(88, Math.max(12, scrubPercent)) : 0;
-  const scrubImageUrl = scrubSeconds != null ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds) : null;
+  // Wait for the sprite list before showing a frame, so a video found to have none never shows a broken image. If
+  // the list could not be fetched, try the frames anyway; one that fails to load stops them.
+  const scrubImageUrl =
+    (sprites || spritesStatus === "failed") && scrubSeconds != null && framesFailedFor !== video.id
+      ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds)
+      : null;
 
   const hoveredSecondsAt = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
@@ -163,6 +176,7 @@ export function VideoPreviewThumbnail({
           className="absolute inset-0 z-[7] h-full w-full"
           style={{ objectFit: fit }}
           draggable={false}
+          onError={() => setFramesFailedFor(video.id)}
         />
       ) : null}
       {children}

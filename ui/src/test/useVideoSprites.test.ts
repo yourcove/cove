@@ -7,6 +7,7 @@ import {
   spriteCaptureTime,
   spriteTileStyle,
   useVideoSprites,
+  useVideoSpritesLoad,
 } from "../hooks/useVideoSprites";
 import { serverAwareFetch } from "../state/serverAvailability";
 
@@ -116,6 +117,40 @@ describe("useVideoSprites", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {});
     expect(empty.result.current).toBeNull();
+  });
+
+  it("reports a sprite list as loading until it arrives", async () => {
+    let resolve!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((done) => (resolve = done)));
+    const { result } = renderHook(() => useVideoSpritesLoad(7));
+    expect(result.current.status).toBe("loading");
+
+    await act(async () => resolve(new Response(VTT)));
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.sprites?.entries).toHaveLength(3);
+  });
+
+  it.each([
+    ["absent", () => new Response(null, { status: 404 })],
+    ["empty", () => new Response("WEBVTT\n")],
+  ])("reports a video whose sprite list is %s as missing", async (_case, response) => {
+    fetchMock.mockResolvedValueOnce(response());
+    const { result } = renderHook(() => useVideoSpritesLoad(7));
+    await waitFor(() => expect(result.current).toEqual({ status: "missing", sprites: null }));
+  });
+
+  it.each([
+    ["a server error", () => Promise.resolve(new Response(null, { status: 500 }))],
+    ["a network error", () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("reports %s as a failure rather than missing sprites", async (_case, response) => {
+    fetchMock.mockImplementationOnce(response);
+    const { result } = renderHook(() => useVideoSpritesLoad(7));
+    await waitFor(() => expect(result.current).toEqual({ status: "failed", sprites: null }));
+  });
+
+  it("reports no video as idle", () => {
+    expect(renderHook(() => useVideoSpritesLoad(null)).result.current).toEqual({ status: "idle", sprites: null });
   });
 
   it("makes no request without a video", () => {

@@ -1,18 +1,30 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPreviewThumbnail } from "../components/VideoPreviewThumbnail";
+import type { VideoSprites, VideoSpritesLoad } from "../hooks/useVideoSprites";
 
 const mocks = vi.hoisted(() => ({
   videoCoverUrl: vi.fn(),
   previewUrl: vi.fn(),
   screenshotUrl: vi.fn(),
-  useVideoSprites: vi.fn((_videoId: number | null) => null as unknown),
+  useVideoSpritesLoad: vi.fn((_videoId: number | null): VideoSpritesLoad => ({ status: "idle", sprites: null })),
 }));
 
 vi.mock("../hooks/useVideoSprites", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks/useVideoSprites")>()),
-  useVideoSprites: (videoId: number | null) => mocks.useVideoSprites(videoId),
+  useVideoSpritesLoad: (videoId: number | null) => mocks.useVideoSpritesLoad(videoId),
 }));
+
+type SpritesOutcome = VideoSprites | "loading" | "missing" | "failed";
+
+/** What the sprite hook reports for video 42 once it is asked for: its sprite list, or how loading it went. */
+function mockSprites(outcome: SpritesOutcome) {
+  mocks.useVideoSpritesLoad.mockImplementation((videoId): VideoSpritesLoad => {
+    if (videoId !== 42) return { status: "idle", sprites: null };
+    if (typeof outcome === "string") return { status: outcome, sprites: null };
+    return { status: "ready", sprites: outcome };
+  });
+}
 
 vi.mock("../api/client", () => ({
   entityImages: { videoCoverUrl: mocks.videoCoverUrl },
@@ -47,7 +59,8 @@ describe("VideoPreviewThumbnail", () => {
     mocks.videoCoverUrl.mockReset().mockReturnValue("/cover/42");
     mocks.previewUrl.mockReset().mockReturnValue("/preview/42");
     mocks.screenshotUrl.mockReset().mockImplementation((_id, _updatedAt, seconds) => `/screenshot/42/${seconds}`);
-    mocks.useVideoSprites.mockReset().mockReturnValue(null);
+    mocks.useVideoSpritesLoad.mockReset();
+    mockSprites("loading");
     observe.mockReset();
     disconnect.mockReset();
     vi.stubGlobal(
@@ -100,6 +113,14 @@ describe("VideoPreviewThumbnail", () => {
   });
 
   it("shows a clip-aware absolute timestamp, screenshot, and progress while scrubbing", () => {
+    // One tile per second, so the shown time is the hovered second.
+    mockSprites({
+      entries: Array.from({ length: 120 }, (_, i) => ({ start: i, end: i + 1, x: 0, y: 0, w: 160, h: 90 })),
+      imageUrl: "/api/stream/video/42/sprite",
+      sheetWidth: 160,
+      sheetHeight: 90,
+      capturedMidTile: false,
+    });
     const { container } = render(<VideoPreviewThumbnail video={video} fit="cover" />);
     const scrubZone = container.querySelector(".cursor-ew-resize") as HTMLDivElement;
     vi.spyOn(scrubZone, "getBoundingClientRect").mockReturnValue({
@@ -107,6 +128,7 @@ describe("VideoPreviewThumbnail", () => {
       width: 100,
     } as DOMRect);
 
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
     fireEvent.mouseMove(scrubZone, { clientX: 50 });
 
     expect(mocks.screenshotUrl).toHaveBeenCalledWith(42, video.updatedAt, 65);
@@ -128,8 +150,8 @@ describe("VideoPreviewThumbnail", () => {
     capturedMidTile: false,
   };
 
-  function renderScrubber(onScrubClick = vi.fn(), sprites: unknown = tiledSprites, scrubVideo = video) {
-    mocks.useVideoSprites.mockImplementation((videoId) => (videoId === 42 ? sprites : null));
+  function renderScrubber(onScrubClick = vi.fn(), sprites: SpritesOutcome = tiledSprites, scrubVideo = video) {
+    mockSprites(sprites);
     const { container, rerender } = render(
       <VideoPreviewThumbnail video={scrubVideo} fit="cover" onScrubClick={onScrubClick} />,
     );
@@ -142,11 +164,11 @@ describe("VideoPreviewThumbnail", () => {
 
   it("loads the sprite list only once the strip is first hovered", () => {
     const { scrubZone } = renderScrubber();
-    expect(mocks.useVideoSprites).not.toHaveBeenCalledWith(42);
+    expect(mocks.useVideoSpritesLoad).not.toHaveBeenCalledWith(42);
 
     fireEvent.mouseEnter(scrubZone, { clientX: 10 });
 
-    expect(mocks.useVideoSprites).toHaveBeenLastCalledWith(42);
+    expect(mocks.useVideoSpritesLoad).toHaveBeenLastCalledWith(42);
   });
 
   it("snaps the preview and the click to the start of a Stash-captured tile", () => {
@@ -194,14 +216,17 @@ describe("VideoPreviewThumbnail", () => {
   });
 
   it("updates the shown time when the sprite list arrives while the pointer rests", () => {
-    const { scrubZone, onScrubClick, rerenderScrubber } = renderScrubber(vi.fn(), null);
+    const { container, scrubZone, onScrubClick, rerenderScrubber } = renderScrubber(vi.fn(), "loading");
     fireEvent.mouseEnter(scrubZone, { clientX: 50 });
     expect(screen.getByText("1:05")).toBeInTheDocument();
+    // No frame is shown until the sprite list confirms there is one to show.
+    expect(container.querySelector("img.z-\\[7\\]")).not.toBeInTheDocument();
 
-    mocks.useVideoSprites.mockImplementation((videoId) => (videoId === 42 ? tiledSprites : null));
+    mockSprites(tiledSprites);
     rerenderScrubber();
 
     expect(screen.getByText("0:50")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/screenshot/42/50"]')).toBeInTheDocument();
     fireEvent.click(scrubZone, { clientX: 50 });
     expect(onScrubClick).toHaveBeenCalledWith(50);
   });
@@ -230,13 +255,79 @@ describe("VideoPreviewThumbnail", () => {
     expect(onScrubClick).toHaveBeenCalledWith(80);
   });
 
-  it("uses the hovered time for videos without sprites", () => {
-    const { scrubZone, onScrubClick } = renderScrubber(vi.fn(), null);
+  it("uses the hovered time for a click before the sprite list arrives", () => {
+    const { scrubZone, onScrubClick } = renderScrubber(vi.fn(), "loading");
 
     fireEvent.mouseEnter(scrubZone, { clientX: 50 });
     fireEvent.click(scrubZone, { clientX: 50 });
 
     expect(onScrubClick).toHaveBeenCalledWith(65);
+  });
+
+  it("drops the scrub surface once the video turns out to have no sprites", () => {
+    const { container, scrubZone, rerenderScrubber } = renderScrubber(vi.fn(), "loading");
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
+
+    mockSprites("missing");
+    rerenderScrubber();
+
+    expect(container.querySelector(".cursor-ew-resize")).not.toBeInTheDocument();
+    expect(container.querySelector("img.z-\\[7\\]")).not.toBeInTheDocument();
+    expect(screen.queryByText("1:05")).not.toBeInTheDocument();
+    expect(mocks.screenshotUrl).not.toHaveBeenCalled();
+  });
+
+  it("lets a click on a card without sprites open the card", () => {
+    mockSprites("missing");
+    const onClick = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    const { container } = render(
+      <a href="/video/42" onClick={onClick}>
+        <VideoPreviewThumbnail video={video} fit="cover" onScrubClick={vi.fn()} />
+      </a>,
+    );
+    fireEvent.mouseEnter(container.querySelector(".cursor-ew-resize")!, { clientX: 50 });
+
+    expect(container.querySelector(".cursor-ew-resize")).not.toBeInTheDocument();
+    fireEvent.click(container.querySelector(".video-card-preview")!);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("keeps scrubbing with frames from the screenshot endpoint when the sprite list could not be fetched", () => {
+    const { container, scrubZone, onScrubClick } = renderScrubber(vi.fn(), "failed");
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
+
+    expect(container.querySelector(".cursor-ew-resize")).toBeInTheDocument();
+    expect(screen.getByText("1:05")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/screenshot/42/65"]')).toBeInTheDocument();
+    fireEvent.click(scrubZone, { clientX: 50 });
+    expect(onScrubClick).toHaveBeenCalledWith(65);
+  });
+
+  it("stops showing frames once one fails to load", () => {
+    const { container, scrubZone } = renderScrubber();
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
+    fireEvent.error(container.querySelector('img[src="/screenshot/42/50"]')!);
+
+    fireEvent.mouseMove(scrubZone, { clientX: 90 });
+
+    expect(container.querySelector("img.z-\\[7\\]")).not.toBeInTheDocument();
+    expect(screen.getByText("1:15")).toBeInTheDocument();
+  });
+
+  it("forgets the hover when scrubbing is turned off under the pointer", () => {
+    mockSprites(tiledSprites);
+    const { container, rerender } = render(<VideoPreviewThumbnail video={video} fit="cover" />);
+    const scrubZone = container.querySelector(".cursor-ew-resize") as HTMLDivElement;
+    vi.spyOn(scrubZone, "getBoundingClientRect").mockReturnValue({ left: 0, width: 100 } as DOMRect);
+    fireEvent.mouseEnter(scrubZone, { clientX: 50 });
+    expect(container.querySelector('img[src="/screenshot/42/50"]')).toBeInTheDocument();
+
+    rerender(<VideoPreviewThumbnail video={video} fit="cover" enableScrubbing={false} />);
+    expect(container.querySelector("img.z-\\[7\\]")).not.toBeInTheDocument();
+
+    rerender(<VideoPreviewThumbnail video={video} fit="cover" />);
+    expect(container.querySelector("img.z-\\[7\\]")).not.toBeInTheDocument();
+    expect(screen.queryByText("0:50")).not.toBeInTheDocument();
   });
 
   it("keeps scrub clicks from activating the surrounding navigation", () => {
