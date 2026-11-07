@@ -13,7 +13,7 @@ public sealed class UpdatesApiTests(
     [Fact]
     [CoversEndpoint("GET", "/api/updates/status")]
     [CoversEndpoint("POST", "/api/updates/check")]
-    public async Task GivenNewerReleaseInFeed_WhenOwnerChecks_ThenStatusOffersItWithoutAnApplyButtonForASourceBuild()
+    public async Task GivenNewerReleaseInFeed_WhenOwnerChecks_ThenStatusOffersItWithoutAnApplyButton()
     {
         var before = await AsUser().GetUpdateStatusAsync(TestContext.Current.CancellationToken);
         before.UpdateAvailable.Should().BeFalse();
@@ -27,10 +27,20 @@ public sealed class UpdatesApiTests(
         status.Latest!.Version.Should().Be(UpdateFeedSimulator.OfferedVersion);
         status.Latest.NotesMarkdown.Should().Be(UpdateFeedSimulator.NotesMarkdown);
         status.Latest.RequiresMigration.Should().BeFalse();
-        // The test host runs `dotnet Cove.dll` without a release marker: check-only.
-        status.InstallKind.Should().Be("source");
+        // The test host runs `dotnet Cove.dll` without a release marker: check-only. A test run inside a
+        // container hands the server the container's markers, which it correctly reports as Docker.
+        if (HostIsContainer())
+        {
+            status.InstallKind.Should().Be("docker");
+            status.CannotApplyReason.Should().Contain("container");
+        }
+        else
+        {
+            status.InstallKind.Should().Be("source");
+            status.CannotApplyReason.Should().Contain("development build");
+        }
+
         status.CanApply.Should().BeFalse();
-        status.CannotApplyReason.Should().Contain("development build");
         status.ApplyState.Should().Be("idle");
         status.ShowBanner.Should().BeTrue();
         (await AsUser().GetUpdateStatusAsync(TestContext.Current.CancellationToken)).Latest!.Version
@@ -49,7 +59,7 @@ public sealed class UpdatesApiTests(
     [Fact]
     [CoversEndpoint("POST", "/api/updates/apply")]
     [CoversEndpoint("POST", "/api/updates/revert")]
-    public async Task GivenSourceBuild_WhenApplyingOrReverting_ThenNothingIsAttempted()
+    public async Task GivenCheckOnlyInstall_WhenApplyingOrReverting_ThenNothingIsAttempted()
     {
         await AsUser().CheckForUpdatesAsync(TestContext.Current.CancellationToken);
 
@@ -102,5 +112,17 @@ public sealed class UpdatesApiTests(
         {
             await owner.SaveUpdateSettingsAsync(new UpdatesConfigDto(), TestContext.Current.CancellationToken);
         }
+    }
+
+    // Mirrors the container markers InstallEnvironment.Detect reads. This holds because CoveApiServer
+    // launches the server through the `dotnet` host, strips COVE_INSTALL_KIND, and otherwise passes on
+    // this process's environment, and the server shares this process's filesystem.
+    private static bool HostIsContainer()
+    {
+        var runningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER")?.Trim();
+        return File.Exists("/.dockerenv")
+            || File.Exists("/run/.containerenv")
+            || string.Equals(runningInContainer, "true", StringComparison.OrdinalIgnoreCase)
+            || runningInContainer == "1";
     }
 }

@@ -304,7 +304,7 @@ public sealed class Phase12SchemaParityTests
                 Assert.Equal(true, await before.ExecuteScalarAsync(TestContext.Current.CancellationToken));
             }
 
-            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection, TestContext.Current.CancellationToken);
+            var relationCount = (await DatabaseController.OptimizeRelationsAsync(connection, TestContext.Current.CancellationToken)).Vacuumed;
 
             Assert.True(relationCount > 0);
             Assert.DoesNotContain(notices, notice =>
@@ -345,7 +345,7 @@ public sealed class Phase12SchemaParityTests
             var notices = new List<PostgresNotice>();
             connection.Notice += (_, args) => notices.Add(args.Notice);
 
-            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection);
+            var relationCount = (await DatabaseController.OptimizeRelationsAsync(connection)).Vacuumed;
 
             Assert.True(relationCount > 0);
             Assert.DoesNotContain(notices, notice =>
@@ -362,6 +362,262 @@ public sealed class Phase12SchemaParityTests
             cleanup.CommandText = $"DROP TABLE IF EXISTS public.{QuoteIdentifier(probeName)}";
             await cleanup.ExecuteNonQueryAsync();
         }
+    }
+
+    // Bounded because both paths VACUUM a whole database; a lock held elsewhere must not hang the run.
+    [Fact(Timeout = 600_000)]
+    public Task OptimizeRelations_WhenVacuumWaitsLongerThanTheCommandTimeout_CompletesAndReportsEachTable()
+        => RunOptimizeScenarioAsync(async connectionString =>
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            await using var scenario = await LockedOptimizeProbe.CreateAsync(connectionString, cancellationToken);
+            var progress = new RecordingJobProgress();
+
+            var optimize = DatabaseController.OptimizeRelationsAsync(scenario.Optimizer, cancellationToken, progress);
+            try
+            {
+                await scenario.WaitForVacuumOnLockedProbeAsync(optimize, cancellationToken);
+                // Hold VACUUM past the optimizing connection's one second command timeout.
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            }
+            finally
+            {
+                await scenario.ReleaseLockAsync();
+            }
+
+            var result = await optimize;
+
+            Assert.Empty(result.Skipped);
+            Assert.True(result.Vacuumed >= 2);
+            Assert.Equal(result.Vacuumed, progress.Reports.Count);
+            Assert.Contains(progress.Reports, report => report.SubTask == $"Vacuuming public.{scenario.LockedProbeName}");
+            Assert.Contains(progress.Reports, report => report.SubTask == $"Vacuuming public.{scenario.LaterProbeName}");
+            Assert.Equal(progress.Reports.Select(report => report.Progress).Order(), progress.Reports.Select(report => report.Progress));
+            Assert.All(progress.Reports, report => Assert.True(report.Progress is >= 0d and < 1d, $"Progress {report.Progress} is outside [0, 1)."));
+            Assert.True(await scenario.WasAnalyzedAsync(scenario.LockedProbeName, cancellationToken));
+            Assert.True(await scenario.WasAnalyzedAsync(scenario.LaterProbeName, cancellationToken));
+        });
+
+    [Fact(Timeout = 600_000)]
+    public Task OptimizeRelations_WhenATableIsDroppedDuringThePass_SkipsItAndVacuumsTheRest()
+        => RunOptimizeScenarioAsync(async connectionString =>
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            await using var scenario = await LockedOptimizeProbe.CreateAsync(connectionString, cancellationToken);
+
+            var optimize = DatabaseController.OptimizeRelationsAsync(scenario.Optimizer, cancellationToken);
+            try
+            {
+                // Both probes were listed before VACUUM reached the locked one. The later probe sorts after
+                // it, so it is dropped while VACUUM waits and is gone by the time VACUUM gets to it.
+                await scenario.WaitForVacuumOnLockedProbeAsync(optimize, cancellationToken);
+                await scenario.DropLaterProbeAsync(cancellationToken);
+            }
+            finally
+            {
+                await scenario.ReleaseLockAsync();
+            }
+
+            var result = await optimize;
+
+            Assert.Equal([new DatabaseController.DatabaseRelation("public", scenario.LaterProbeName)], result.Skipped);
+            Assert.True(result.Vacuumed >= 1);
+            Assert.True(await scenario.WasAnalyzedAsync(scenario.LockedProbeName, cancellationToken));
+        });
+
+    [Fact(Timeout = 600_000)]
+    public Task OptimizeRelations_WhenCancelledWhileVacuumWaits_StopsTheVacuumOnTheServer()
+        => RunOptimizeScenarioAsync(async connectionString =>
+        {
+            await using var scenario = await LockedOptimizeProbe.CreateAsync(connectionString, TestContext.Current.CancellationToken);
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+            var optimize = DatabaseController.OptimizeRelationsAsync(scenario.Optimizer, cancellation.Token);
+            await scenario.WaitForVacuumOnLockedProbeAsync(optimize, TestContext.Current.CancellationToken);
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => optimize);
+            Assert.False(await scenario.VacuumIsRunningAsync(TestContext.Current.CancellationToken));
+            await using var stillUsable = scenario.Optimizer.CreateCommand();
+            stillUsable.CommandText = "SELECT 1";
+            Assert.Equal(1, await stillUsable.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+        });
+
+    private static async Task RunOptimizeScenarioAsync(Func<string, Task> scenario)
+    {
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+        {
+            var devConnectionString = Environment.GetEnvironmentVariable("COVE_DEV_SOURCE_DATABASE_URL");
+            Assert.SkipWhen(string.IsNullOrWhiteSpace(devConnectionString), "Requires a managed PostgreSQL installation or COVE_DEV_SOURCE_DATABASE_URL.");
+            await scenario(NormalizeConnectionString(devConnectionString!));
+            return;
+        }
+
+        var databaseName = $"database_optimize_job_{Guid.NewGuid():N}";
+        await using var environment = await CreateEnvironmentAsync(managedRoot);
+        await CreateDatabaseAsync(environment.AdminConnectionString, databaseName);
+        try
+        {
+            await scenario(BuildConnectionString(environment.Port, databaseName));
+        }
+        finally
+        {
+            await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
+        }
+    }
+
+    /// <summary>
+    /// Two probe tables, the first locked in SHARE UPDATE EXCLUSIVE mode, which conflicts with VACUUM,
+    /// and the second named to sort after it, plus an optimizing connection whose command timeout is one
+    /// second. The blocking connection keeps the default timeout so setup, inspection and cleanup are
+    /// unaffected.
+    /// </summary>
+    private sealed class LockedOptimizeProbe : IAsyncDisposable
+    {
+        // Kept from before the connections open: Npgsql removes the password from an open
+        // connection's ConnectionString, so new connections must not be built from it.
+        private readonly string _connectionString;
+        private readonly NpgsqlConnection _blocker;
+        private NpgsqlTransaction? _lock;
+
+        private LockedOptimizeProbe(string connectionString, NpgsqlConnection optimizer, NpgsqlConnection blocker, string probeName)
+        {
+            _connectionString = connectionString;
+            Optimizer = optimizer;
+            _blocker = blocker;
+            LockedProbeName = probeName;
+            LaterProbeName = $"{probeName}_later";
+        }
+
+        public NpgsqlConnection Optimizer { get; }
+        public string LockedProbeName { get; }
+        public string LaterProbeName { get; }
+
+        private static string Quoted(string name) => $"public.{QuoteIdentifier(name)}";
+
+        public static async Task<LockedOptimizeProbe> CreateAsync(string connectionString, CancellationToken cancellationToken)
+        {
+            var builder = new NpgsqlConnectionStringBuilder(connectionString) { Pooling = false };
+            var blockerConnectionString = builder.ConnectionString;
+            builder.CommandTimeout = 1;
+            var probe = new LockedOptimizeProbe(
+                blockerConnectionString,
+                new NpgsqlConnection(builder.ConnectionString),
+                new NpgsqlConnection(blockerConnectionString),
+                $"optimize_job_probe_{Guid.NewGuid():N}");
+            try
+            {
+                await probe._blocker.OpenAsync(cancellationToken);
+                await probe.Optimizer.OpenAsync(cancellationToken);
+                await using (var setup = probe._blocker.CreateCommand())
+                {
+                    setup.CommandText = string.Join(' ', new[] { probe.LockedProbeName, probe.LaterProbeName }.Select(name =>
+                        $"CREATE TABLE {Quoted(name)} (id integer PRIMARY KEY) WITH (autovacuum_enabled = false); INSERT INTO {Quoted(name)} SELECT generate_series(1, 100);"));
+                    await setup.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                probe._lock = await probe._blocker.BeginTransactionAsync(cancellationToken);
+                await using var hold = probe._blocker.CreateCommand();
+                hold.Transaction = probe._lock;
+                hold.CommandText = $"LOCK TABLE {Quoted(probe.LockedProbeName)} IN SHARE UPDATE EXCLUSIVE MODE";
+                await hold.ExecuteNonQueryAsync(cancellationToken);
+                return probe;
+            }
+            catch
+            {
+                await probe.DisposeAsync();
+                throw;
+            }
+        }
+
+        /// <summary>Waits until the optimizer is queued behind the lock on the locked probe itself.</summary>
+        public async Task WaitForVacuumOnLockedProbeAsync(Task optimize, CancellationToken cancellationToken)
+        {
+            await using var observer = new NpgsqlConnection(_connectionString);
+            await observer.OpenAsync(cancellationToken);
+            await using var probe = observer.CreateCommand();
+            probe.CommandText = """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_locks
+                    WHERE pid = @pid AND NOT granted AND relation = to_regclass(@relation)
+                )
+                """;
+            probe.Parameters.AddWithValue("pid", Optimizer.ProcessID);
+            probe.Parameters.AddWithValue("relation", Quoted(LockedProbeName));
+
+            while (await probe.ExecuteScalarAsync(cancellationToken) is not true)
+            {
+                if (optimize.IsCompleted)
+                {
+                    // Surface the optimizer's own error, such as a command timeout, before failing.
+                    await optimize;
+                    Assert.Fail("VACUUM finished without waiting on the locked probe table.");
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+            }
+        }
+
+        public async Task DropLaterProbeAsync(CancellationToken cancellationToken)
+        {
+            await using var drop = _blocker.CreateCommand();
+            drop.Transaction = _lock;
+            drop.CommandText = $"DROP TABLE {Quoted(LaterProbeName)}";
+            await drop.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public async Task<bool> VacuumIsRunningAsync(CancellationToken cancellationToken)
+        {
+            await using var probe = _blocker.CreateCommand();
+            probe.CommandText = "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = @pid AND state = 'active' AND query ILIKE 'VACUUM%')";
+            probe.Parameters.AddWithValue("pid", Optimizer.ProcessID);
+            return await probe.ExecuteScalarAsync(cancellationToken) is true;
+        }
+
+        public async Task<bool> WasAnalyzedAsync(string tableName, CancellationToken cancellationToken)
+        {
+            await using var verify = _blocker.CreateCommand();
+            verify.CommandText = "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = @table_name";
+            verify.Parameters.AddWithValue("table_name", tableName);
+            return await verify.ExecuteScalarAsync(cancellationToken) is true;
+        }
+
+        public async Task ReleaseLockAsync()
+        {
+            if (_lock is null)
+                return;
+            await _lock.CommitAsync(CancellationToken.None);
+            await _lock.DisposeAsync();
+            _lock = null;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await ReleaseLockAsync();
+                if (_blocker.State == System.Data.ConnectionState.Open)
+                {
+                    await using var cleanup = _blocker.CreateCommand();
+                    cleanup.CommandText = $"DROP TABLE IF EXISTS {Quoted(LockedProbeName)}, {Quoted(LaterProbeName)}";
+                    await cleanup.ExecuteNonQueryAsync(CancellationToken.None);
+                }
+            }
+            finally
+            {
+                await Optimizer.DisposeAsync();
+                await _blocker.DisposeAsync();
+            }
+        }
+    }
+
+    private sealed class RecordingJobProgress : IJobProgress
+    {
+        public List<(double Progress, string? SubTask)> Reports { get; } = [];
+
+        public void Report(double progress, string? subTask = null) => Reports.Add((progress, subTask));
     }
 
     private static string NormalizeConnectionString(string connectionString)

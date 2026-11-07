@@ -1,3 +1,5 @@
+using Xunit.Sdk;
+using Xunit.v3;
 using Cove.ApiTests.Infrastructure;
 using System.Reflection;
 
@@ -19,10 +21,11 @@ public sealed class ApiTestFixtureHarnessTests(CoveApiTestPool assemblyPool)
         assembly.GetCustomAttributes<AssemblyFixtureAttribute>()
             .Select(attribute => attribute.AssemblyFixtureType)
             .Should().Contain(typeof(CoveApiTestPool));
-        var collectionBehavior = assembly.GetCustomAttribute<CollectionBehaviorAttribute>();
-        collectionBehavior.Should().NotBeNull();
-        collectionBehavior!.MaxParallelThreads.Should().Be(CoveApiTestPool.MaxParallelThreads);
-        collectionBehavior.ParallelAlgorithm.Should().Be(Xunit.Sdk.ParallelAlgorithm.Conservative);
+        var parallelization = assembly.GetCustomAttribute<ParallelizationAttribute>();
+        parallelization.Should().NotBeNull();
+        parallelization!.GetMode().Should().Be(ParallelMode.Collections);
+        parallelization.GetMaxThreads().Should().Be(CoveApiTestPool.MaxParallelThreads);
+        parallelization.GetAlgorithm().Should().Be(ParallelAlgorithm.Conservative);
         assemblyPool.ConfiguredCapacity.Should().Be(CoveApiTestPool.DefaultCapacity);
         assemblyPool.IsInitialized.Should().BeTrue();
         typeof(ApiTest).Should().BeAssignableTo<IClassFixture<CoveApiTestFixture>>();

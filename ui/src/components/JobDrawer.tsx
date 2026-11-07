@@ -66,7 +66,7 @@ export function isContentQueryKey(queryKey: readonly unknown[]): boolean {
 }
 
 // Job types that write files outside the library and change no content.
-const JOB_TYPES_WITHOUT_CONTENT_CHANGES = new Set(["backup", "export"]);
+const JOB_TYPES_WITHOUT_CONTENT_CHANGES = new Set(["backup", "export", "optimize"]);
 
 /**
  * Any job can commit part of its work before it fails or is cancelled, and job types range from scans

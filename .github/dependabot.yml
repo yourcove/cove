@@ -26,7 +26,6 @@ updates:
           - "xunit*"
           - "Xunit.*"
           - "Microsoft.NET.Test.Sdk"
-          - "coverlet.*"
           - "Microsoft.AspNetCore.Mvc.Testing"
       serilog:
         patterns:

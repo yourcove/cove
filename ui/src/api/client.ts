@@ -2356,7 +2356,7 @@ export const database = {
     const result = await requestOptional<{ path: string }>("/jobs/backup/latest");
     return result?.path ?? null;
   },
-  optimize: () => request<void>("/database/optimize", { method: "POST", timeoutMs: null }),
+  optimize: () => request<{ jobId: string }>("/database/optimize", { method: "POST" }),
   wipe: () =>
     request<{ message: string; backupPath: string; timestamp: string; configBackupPath: string | null }>(
       "/database/wipe",
