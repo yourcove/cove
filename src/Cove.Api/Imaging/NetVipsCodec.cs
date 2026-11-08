@@ -271,9 +271,17 @@ public sealed class NetVipsCodec : IImageCodec
     {
         if (stream is MemoryStream memory && memory.TryGetBuffer(out var buffer))
         {
-            var start = (int)memory.Position;
+            var start = (int)Math.Min(memory.Position, memory.Length);
             memory.Position = memory.Length;
             return buffer.AsSpan(start, buffer.Count - start).ToArray();
+        }
+        if (stream is MemoryStream fixedSize)
+        {
+            // A stream over a caller's array does not expose it; copy what remains in one exact read
+            // rather than twice through an intermediate MemoryStream.
+            var remaining = new byte[Math.Max(0, fixedSize.Length - fixedSize.Position)];
+            fixedSize.ReadExactly(remaining);
+            return remaining;
         }
         using var copy = new MemoryStream();
         stream.CopyTo(copy);

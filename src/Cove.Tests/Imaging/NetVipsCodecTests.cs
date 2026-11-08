@@ -144,6 +144,18 @@ public sealed class NetVipsCodecTests
     }
 
     [Fact]
+    public void DecodePixels_ReadsFromTheStreamPosition_OfAStreamThatHidesItsBuffer()
+    {
+        var source = Pattern(31, 17, alpha: true);
+        var png = TestImages.Encode(source, "png");
+        var prefixed = new byte[5 + png.Length];
+        png.CopyTo(prefixed, 5);
+        using var stream = new MemoryStream(prefixed, writable: false) { Position = 5 };
+
+        Assert.Equal(source.Pixels, Codec.DecodePixels<Rgba32>(stream).Pixels);
+    }
+
+    [Fact]
     public void SixteenBitPng_DecodesAtFullPrecision()
     {
         var samples = new ushort[13 * 7 * 3];
