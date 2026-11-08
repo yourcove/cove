@@ -214,7 +214,7 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
         _ordered = CompoundSortOrdering.Append(
             _query,
             _ordered,
-            row => row.Rating == null ? (int?)null : row.Rating.Value,
+            row => row.Rating == null ? EngagementQueryHelpers.UnratedSortValue : row.Rating.Value,
             descending);
     }
 

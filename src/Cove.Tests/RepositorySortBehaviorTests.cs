@@ -1,14 +1,19 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
-public class RepositorySortBehaviorTests
+[RequiresPostgres]
+public class RepositorySortBehaviorTests : IAsyncLifetime
 {
+    private CovePostgresDatabase? _database;
+
     [Fact]
     public async Task TagRepository_VideoCountSort_UsesVideoAssociations()
     {
@@ -413,7 +418,7 @@ public class RepositorySortBehaviorTests
     }
 
     [Fact]
-    public async Task RatingSorts_PlaceUnratedAndZeroRatedItemsFirstWhenSortingAscending()
+    public async Task RatingSorts_OrderUnratedBelowZeroRatedInBothDirections()
     {
         await using var context = CreateContext();
 
@@ -475,6 +480,7 @@ public class RepositorySortBehaviorTests
         AddRating(context, RatingHostType.Video, context.Videos.Single(entity => entity.Title == "Video Zero").Id, 0);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
+        var ct = TestContext.Current.CancellationToken;
         var performerRepository = new PerformerRepository(context);
         var imageRepository = new ImageRepository(context);
         var groupRepository = new GroupRepository(context);
@@ -482,24 +488,41 @@ public class RepositorySortBehaviorTests
         var galleryRepository = new GalleryRepository(context);
         var videoRepository = new VideoRepository(context);
 
-        var (performerItems, _) = await performerRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
+        // Each order is checked through the single-key sort and through a compound sort, which build
+        // their rating keys separately. Unrated sorts below a rating of 0 in both directions. Groups have
+        // no compound sorts, so only their single-key sort is checked.
+        foreach (var direction in new[] { Cove.Core.Enums.SortDirection.Asc, Cove.Core.Enums.SortDirection.Desc })
+        {
+            string[] Expected(string prefix)
+            {
+                string[] ascending = [$"{prefix} Unrated", $"{prefix} Zero", $"{prefix} Low", $"{prefix} High"];
+                return direction == Cove.Core.Enums.SortDirection.Asc ? ascending : ascending.Reverse().ToArray();
+            }
 
-        var (imageItems, _) = await imageRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
+            foreach (var findFilter in new[]
+            {
+                new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = direction },
+                new FindFilter { Page = 1, PerPage = 20, Sorts = [new SortClause("rating", direction), new SortClause("created_at", Cove.Core.Enums.SortDirection.Asc)] },
+            })
+            {
+                var (performerItems, _) = await performerRepository.FindAsync(filter: null, findFilter, ct: ct);
+                var (imageItems, _) = await imageRepository.FindAsync(filter: null, findFilter, ct: ct);
+                var (studioItems, _) = await studioRepository.FindAsync(filter: null, findFilter, ct: ct);
+                var (galleryItems, _) = await galleryRepository.FindAsync(filter: null, findFilter, ct: ct);
+                var (videoItems, _) = await videoRepository.FindAsync(filter: null, findFilter, ct: ct);
 
-        var (groupItems, _) = await groupRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
-
-        var (studioItems, _) = await studioRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
-
-        var (galleryItems, _) = await galleryRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
-
-        var (videoItems, _) = await videoRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
-
-        Assert.Equal(["Performer Unrated", "Performer Zero", "Performer Low", "Performer High"], performerItems.Select(performer => performer.Name).ToArray());
-        Assert.Equal(["Image Unrated", "Image Zero", "Image Low", "Image High"], imageItems.Select(image => image.Title ?? string.Empty).ToArray());
-        Assert.Equal(["Group Unrated", "Group Zero", "Group Low", "Group High"], groupItems.Select(group => group.Name).ToArray());
-        Assert.Equal(["Studio Unrated", "Studio Zero", "Studio Low", "Studio High"], studioItems.Select(studio => studio.Name).ToArray());
-        Assert.Equal(["Gallery Unrated", "Gallery Zero", "Gallery Low", "Gallery High"], galleryItems.Select(gallery => gallery.Title ?? string.Empty).ToArray());
-        Assert.Equal(["Video Unrated", "Video Zero", "Video Low", "Video High"], videoItems.Select(video => video.Title ?? string.Empty).ToArray());
+                Assert.Equal(Expected("Performer"), performerItems.Select(performer => performer.Name).ToArray());
+                Assert.Equal(Expected("Image"), imageItems.Select(image => image.Title ?? string.Empty).ToArray());
+                if (findFilter.Sorts is not { Count: > 0 })
+                {
+                    var (groupItems, _) = await groupRepository.FindAsync(filter: null, findFilter, ct: ct);
+                    Assert.Equal(Expected("Group"), groupItems.Select(group => group.Name).ToArray());
+                }
+                Assert.Equal(Expected("Studio"), studioItems.Select(studio => studio.Name).ToArray());
+                Assert.Equal(Expected("Gallery"), galleryItems.Select(gallery => gallery.Title ?? string.Empty).ToArray());
+                Assert.Equal(Expected("Video"), videoItems.Select(video => video.Title ?? string.Empty).ToArray());
+            }
+        }
     }
 
     [Fact]
@@ -927,12 +950,24 @@ public class RepositorySortBehaviorTests
         context.Interactions.Add(new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = videoId, Kind = InteractionKind.LikeCount, At = at });
     }
 
-    private static CoveContext CreateContext()
+    async ValueTask IAsyncLifetime.InitializeAsync()
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"repository-sort-behavior-{Guid.NewGuid():N}")
-            .Options;
+        var ct = TestContext.Current.CancellationToken;
+        _database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var context = _database.CreateContext();
+        context.Users.Add(new User { Id = TestUserId, Username = "test-user", PasswordHash = "test" });
+        await context.SaveChangesAsync(ct);
+        await _database.SyncIdentitySequencesAsync(ct);
+    }
 
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_database != null)
+            await _database.DisposeAsync();
+    }
+
+    private CoveContext CreateContext()
+    {
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(new CovePrincipal
         {
@@ -943,15 +978,6 @@ public class RepositorySortBehaviorTests
             Roles = new HashSet<string>(),
         });
 
-        return new TestCoveContext(options, principalAccessor);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
+        return new CoveContext(_database!.CreateOptions(), principalAccessor);
     }
 }
