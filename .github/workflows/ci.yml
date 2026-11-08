@@ -211,6 +211,10 @@ jobs:
 
       - name: Test (Fluent API)
         if: ${{ !inputs.api_coverage }}
+        # The pool defaults to half the logical processors, which is two on these 4-vCPU runners.
+        # The suite is CPU-bound there: three servers measured fastest, and four were slower than two.
+        env:
+          COVE_API_TEST_WORKERS: 3
         run: >-
           dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
           -c Release --no-restore --verbosity normal --output detailed
