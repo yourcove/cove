@@ -136,7 +136,7 @@ jobs:
         run: dotnet build src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-restore
 
       - name: Verify Windows filesystem semantics
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests" --output detailed
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests|FullyQualifiedName~Cove.Tests.FingerprintServiceMd5Tests" --output detailed
 
       - name: Stress concurrent blob reads and deletion
         shell: pwsh
