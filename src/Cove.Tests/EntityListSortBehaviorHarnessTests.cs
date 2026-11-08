@@ -2,10 +2,12 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
@@ -15,7 +17,8 @@ using CoveSortDirection = Cove.Core.Enums.SortDirection;
 
 namespace Cove.Tests;
 
-public class EntityListSortBehaviorHarnessTests
+[RequiresPostgres]
+public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTests.SeededHarness seeded) : IClassFixture<EntityListSortBehaviorHarnessTests.SeededHarness>
 {
     private const int TestUserId = 81001;
 
@@ -351,7 +354,7 @@ public class EntityListSortBehaviorHarnessTests
     [MemberData(nameof(SortRows))]
     public async Task PublishedSortOrdersMatchSeededFixtureProjection(string entity, string sortKey, CoveSortDirection direction)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        var fixture = seeded.Fixture;
         fixture.ActivatePrincipal();
 
         var actualIds = await QueryIdsAsync(fixture.Context, entity, sortKey, direction);
@@ -748,7 +751,7 @@ public class EntityListSortBehaviorHarnessTests
     [MemberData(nameof(FilterRows))]
     public async Task RepresentativeFiltersMatchSeededFixtureSet(FilterProbe probe)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        var fixture = seeded.Fixture;
         fixture.ActivatePrincipal();
 
         var actualIds = await probe.QueryIds(fixture);
@@ -1109,8 +1112,8 @@ public class EntityListSortBehaviorHarnessTests
             "subgroup_count" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.SubGroupRelations.Count, descending),
             "containing_group_count" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.ContainingGroupRelations.Count, descending),
             "cached_item_count" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.CachedItemCount ?? 0, descending),
-            "last_resolved_at" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.LastResolvedAt, descending),
-            "query_source_key" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.QuerySourceKey, descending),
+            "last_resolved_at" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.LastResolvedAt ?? (descending ? DateTime.MinValue : DateTime.MaxValue), descending),
+            "query_source_key" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.QuerySourceKey ?? string.Empty, descending),
             "show_in_video_lists" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.ShowInVideoLists, descending),
             "aliases" => OrderWithDirectionalIdTieBreaker(fixture.Groups, group => group.Aliases ?? group.Name, descending),
             _ => throw new InvalidOperationException($"No group sort projection configured for '{sortKey}'."),
@@ -1373,13 +1376,34 @@ public class EntityListSortBehaviorHarnessTests
         public override string ToString() => RowId;
     }
 
+    /// <summary>
+    /// One seeded fixture for the theories that only read it, so their hundreds of cases do not each seed
+    /// a database. Tests that change data create their own <see cref="SortHarnessFixture"/>.
+    /// </summary>
+    public sealed class SeededHarness : IAsyncLifetime
+    {
+        private SortHarnessFixture? _fixture;
+
+        public SortHarnessFixture Fixture => _fixture ?? throw new InvalidOperationException("The seeded harness is used before it is initialized.");
+
+        public async ValueTask InitializeAsync() => _fixture = await SortHarnessFixture.CreateAsync();
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_fixture != null)
+                await _fixture.DisposeAsync();
+        }
+    }
+
     public sealed class SortHarnessFixture : IAsyncDisposable
     {
+        private readonly CovePostgresDatabase _database;
         private readonly CurrentPrincipalAccessor _principalAccessor;
         private readonly CovePrincipal _principal;
 
-        private SortHarnessFixture(CoveContext context, CurrentPrincipalAccessor principalAccessor, CovePrincipal principal)
+        private SortHarnessFixture(CovePostgresDatabase database, CoveContext context, CurrentPrincipalAccessor principalAccessor, CovePrincipal principal)
         {
+            _database = database;
             Context = context;
             _principalAccessor = principalAccessor;
             _principal = principal;
@@ -1402,10 +1426,8 @@ public class EntityListSortBehaviorHarnessTests
 
         public static async Task<SortHarnessFixture> CreateAsync()
         {
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase($"entity-list-sort-harness-{Guid.NewGuid():N}")
-                .Options;
-
+            var ct = TestContext.Current.CancellationToken;
+            var database = await CovePostgresDatabase.CreateAsync(ct);
             var principalAccessor = new CurrentPrincipalAccessor();
             var principal = new CovePrincipal
             {
@@ -1417,9 +1439,19 @@ public class EntityListSortBehaviorHarnessTests
             };
             principalAccessor.Set(principal);
 
-            var fixture = new SortHarnessFixture(new HarnessCoveContext(options, principalAccessor), principalAccessor, principal);
-            await fixture.SeedAsync();
-            return fixture;
+            var fixture = new SortHarnessFixture(database, new HarnessCoveContext(database.CreateOptions(), principalAccessor), principalAccessor, principal);
+            try
+            {
+                await fixture.SeedAsync();
+                await database.SyncIdentitySequencesAsync(ct);
+                return fixture;
+            }
+            catch
+            {
+                // Keep the seeding failure; a failed drop of the half-seeded database must not replace it.
+                try { await fixture.DisposeAsync(); } catch { }
+                throw;
+            }
         }
 
         public void ActivatePrincipal() => _principalAccessor.Set(_principal);
@@ -1441,12 +1473,20 @@ public class EntityListSortBehaviorHarnessTests
 
         public async ValueTask DisposeAsync()
         {
-            await Context.DisposeAsync();
+            try
+            {
+                await Context.DisposeAsync();
+            }
+            finally
+            {
+                await _database.DisposeAsync();
+            }
         }
 
         private async Task SeedAsync()
         {
             var now = Now;
+            Context.Users.Add(new User { Id = TestUserId, Username = "sort-harness-user", PasswordHash = "test" });
 
             var folderA = new Folder { Id = 1, Path = "Z:/cove/a", ModTime = now.AddDays(-7) };
             var folderB = new Folder { Id = 2, Path = "Z:/cove/b", ModTime = now.AddDays(-6) };

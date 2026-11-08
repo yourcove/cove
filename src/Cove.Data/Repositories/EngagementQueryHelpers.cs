@@ -196,6 +196,10 @@ public static class EngagementQueryHelpers
                 .FirstOrDefault());
     }
 
+    // Sorts an unrated item below a rating of 0, so the order does not depend on where the database
+    // puts NULLs: PostgreSQL puts them last when ascending and first when descending.
+    internal const int UnratedSortValue = -1;
+
     public static IQueryable<T> ApplyRatingSort<T>(CoveContext db, IQueryable<T> query, int? userId, RatingHostType hostType, bool desc)
         where T : class
     {
@@ -218,8 +222,8 @@ public static class EngagementQueryHelpers
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
-            : sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+            ? sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating ?? UnratedSortValue).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
+            : sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating ?? UnratedSortValue).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
     }
 
     public static IQueryable<T> ApplyAffinityIntSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)

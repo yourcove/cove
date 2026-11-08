@@ -44,6 +44,34 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
     public DbContextOptions<CoveContext> CreateOptions(Action<DbContextOptionsBuilder<CoveContext>>? configure = null)
         => CreateOptions(DataSource, configure);
 
+    /// <summary>
+    /// Moves each identity sequence in the <c>public</c> schema past the largest id in its table, and never
+    /// backwards. Rows seeded with explicit ids do not advance a sequence, so the next row added without an
+    /// id would otherwise collide. Call it after the seed is saved: it runs on its own connection.
+    /// </summary>
+    public async Task SyncIdentitySequencesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var command = DataSource.CreateCommand("""
+            DO $$
+            DECLARE item record;
+            BEGIN
+                FOR item IN
+                    SELECT table_schema, table_name, column_name,
+                           pg_get_serial_sequence(format('%I.%I', table_schema, table_name), column_name) AS sequence_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND (is_identity = 'YES' OR column_default LIKE 'nextval(%')
+                LOOP
+                    CONTINUE WHEN item.sequence_name IS NULL;
+                    EXECUTE format(
+                        'SELECT setval(%L, GREATEST(COALESCE((SELECT max(%I) FROM %I.%I), 0), (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM %s)) + 1, false)',
+                        item.sequence_name, item.column_name, item.table_schema, item.table_name, item.sequence_name);
+                END LOOP;
+            END
+            $$;
+            """);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     ValueTask IAsyncLifetime.InitializeAsync() => InitializeAsync(TestContext.Current.CancellationToken);
 
     public async ValueTask DisposeAsync()

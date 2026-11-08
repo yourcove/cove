@@ -2430,8 +2430,7 @@ public class SegmentCoreControllerTests
                 new User { Id = 9, Username = "user-9", PasswordHash = "test" },
                 new User { Id = 11, Username = "user-11", PasswordHash = "test" });
             await context.SaveChangesAsync(ct);
-            // Explicit ids do not advance the identity sequence; move it past them for users a test adds.
-            await context.Database.ExecuteSqlRawAsync("""SELECT setval(pg_get_serial_sequence('users', 'Id'), 11)""", ct);
+            await database.SyncIdentitySequencesAsync(ct);
             return scope;
         }
         catch
