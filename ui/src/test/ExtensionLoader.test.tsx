@@ -195,7 +195,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     ["scissors", "circle[cx='6'][cy='6']"],
     ["square-scissors", "circle[cx='8.5'][cy='8.5']"],
     ["SCISSORS", "circle[cx='6'][cy='6']"],
-    ["music", "path[d='M9 18V5l12-2v13']"],
+    ["music", "path[d='M21 16V3a1 1 0 0 0-1.28-.96l-10 2.917a1 1 0 0 0-.72.96V19']"],
     ["not-an-icon", ".lucide-puzzle"],
     ["toString", ".lucide-puzzle"],
     [undefined, ".lucide-puzzle"],
