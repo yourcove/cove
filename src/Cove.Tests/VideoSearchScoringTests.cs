@@ -4,18 +4,16 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Npgsql;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class VideoSearchScoringTests
 {
-    public static bool UsesPostgres => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COVE_TEST_POSTGRES_CONNECTION"));
-
-    [Fact(SkipUnless = nameof(UsesPostgres), Skip = "Authorization query filters require PostgreSQL.")]
+    [Fact]
     public async Task DeniedRelatedEntities_DoNotIncludeOrBoostVideos()
     {
         await using var fixture = await SearchFixture.CreateAsync();
@@ -218,14 +216,10 @@ public sealed class VideoSearchScoringTests
         db.Add(new GroupItem { GroupId = group.Id, Kind = GroupItemKind.Video, HostType = "video", HostId = video.Id, VideoId = video.Id });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var connection = db.Database.GetDbConnection();
-        var options = new DbContextOptionsBuilder<CoveContext>();
-        if (db.Database.IsNpgsql())
-            options.UseNpgsql(connection, npgsql => npgsql.UseVector());
-        else
-            options.UseSqlite(connection);
-        options.ConfigureWarnings(warnings => warnings.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning));
-        await using var strict = new CoveContext(options.Options);
+        await using var strict = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(db.Database.GetDbConnection(), npgsql => npgsql.UseVector())
+            .ConfigureWarnings(warnings => warnings.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning))
+            .Options);
 
         var search = await VideoTextSearch.CreateAsync(strict, "orchard", TestContext.Current.CancellationToken);
         var ids = await search.Apply(strict.Videos.AsNoTracking()).Select(row => row.Id).ToListAsync(TestContext.Current.CancellationToken);
@@ -258,9 +252,8 @@ public sealed class VideoSearchScoringTests
         Assert.Equal(1, result.TotalCount);
     }
 
-    // Sub-videos inherit their parent's FileSearchText, which SQLite's substring text match
-    // already searches; only PostgreSQL shows that the path fallback itself excludes them.
-    [Fact(SkipUnless = nameof(UsesPostgres), Skip = "Lexeme-based text matching requires PostgreSQL.")]
+    // Sub-videos inherit their parent's FileSearchText, but the path fallback itself excludes them.
+    [Fact]
     public async Task PathFallback_ExcludesSubVideosOfTheMatchingFile()
     {
         await using var fixture = await SearchFixture.CreateAsync();
@@ -283,9 +276,9 @@ public sealed class VideoSearchScoringTests
         Assert.Equal(1, result.TotalCount);
     }
 
-    // SQLite's text match is itself a substring test over all paths, so only PostgreSQL shows
-    // the path fallback's same-file rule.
-    [Fact(SkipUnless = nameof(UsesPostgres), Skip = "Lexeme-based text matching requires PostgreSQL.")]
+    // Paths are indexed as whole lexemes, so the substring path fallback decides these matches, and
+    // it requires every term to appear in one file.
+    [Fact]
     public async Task PathFallback_RequiresEveryTermInOneFile()
     {
         await using var fixture = await SearchFixture.CreateAsync();
@@ -319,40 +312,18 @@ public sealed class VideoSearchScoringTests
         Assert.Equal(together.Id, Assert.Single(fallbackIds));
     }
 
-    private sealed class SearchFixture(System.Data.Common.DbConnection connection, CoveContext db) : IAsyncDisposable
+    private sealed class SearchFixture(CovePostgresDatabase database, CoveContext db) : IAsyncDisposable
     {
         public CoveContext Db => db;
         public static async Task<SearchFixture> CreateAsync()
         {
-            // Opt in using an existing migrated, disposable Cove PostgreSQL database
-            // (including its public authorization functions). Every test gets its own
-            // schema; no database-creation privilege is needed.
-            var postgres = Environment.GetEnvironmentVariable("COVE_TEST_POSTGRES_CONNECTION");
-            if (!string.IsNullOrWhiteSpace(postgres))
-            {
-                var schema = "video_search_test_" + Guid.NewGuid().ToString("N");
-                var settings = new NpgsqlConnectionStringBuilder(postgres) { SearchPath = schema + ",public" };
-                var pg = new NpgsqlConnection(settings.ConnectionString);
-                await pg.OpenAsync(TestContext.Current.CancellationToken);
-                await using var command = new NpgsqlCommand($"CREATE SCHEMA {schema}", pg);
-                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
-                var pgDb = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseNpgsql(pg, options => options.UseVector()).Options);
-                // The shot set CHECK constraints call these functions, so they must exist before the tables.
-                await pgDb.Database.ExecuteSqlRawAsync(Cove.Data.Services.VideoShotSqlDefinitions.CreateFunctionsSql, TestContext.Current.CancellationToken);
-                await pgDb.Database.ExecuteSqlRawAsync(pgDb.Database.GenerateCreateScript(), TestContext.Current.CancellationToken);
-                // Retain the isolated schema for inspection in the disposable sidecar.
-                return new(pg, pgDb);
-            }
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(TestContext.Current.CancellationToken);
-            var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-            return new(connection, db);
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            return new(database, database.CreateContext());
         }
         public async ValueTask DisposeAsync()
         {
             await db.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 

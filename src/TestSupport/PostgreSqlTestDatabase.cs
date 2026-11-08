@@ -1,10 +1,14 @@
+using System.Reflection;
 using Npgsql;
 
-namespace Cove.ApiTests.Infrastructure;
+namespace Cove.TestSupport;
 
+// Compiled into each test project that needs a disposable PostgreSQL database, so the API tests and
+// the in-process tests share one set of connection settings and one database lifecycle.
 internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
 {
     private const string ConnectionStringEnvironmentVariable = "COVE_API_TEST_PG_ADMIN_CONNECTION_STRING";
+    private static readonly string ClientName = Assembly.GetExecutingAssembly().GetName().Name!;
     private readonly string _adminConnectionString;
     private bool _disposed;
 
@@ -22,10 +26,20 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
 
     public string ConnectionString { get; }
 
+    public static Task<PostgreSqlTestDatabase> CreateAsync(
+        CancellationToken cancellationToken = default)
+        => CreateAsync("cove_api_test", templateDatabase: null, cancellationToken);
+
+    /// <summary>
+    /// Creates an empty database, or a copy of <paramref name="templateDatabase"/>. The name starts
+    /// with <paramref name="namePrefix"/> so leftovers from an interrupted run are easy to recognize.
+    /// </summary>
     public static async Task<PostgreSqlTestDatabase> CreateAsync(
+        string namePrefix,
+        string? templateDatabase,
         CancellationToken cancellationToken = default)
     {
-        var databaseName = $"cove_api_test_{Guid.NewGuid():N}";
+        var databaseName = $"{namePrefix}_{Guid.NewGuid():N}";
         var admin = LoadAdminConnectionString();
 
         try
@@ -33,13 +47,16 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
             await using var connection = new NpgsqlConnection(admin);
             await connection.OpenAsync(cancellationToken);
             await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE {QuoteIdentifier(databaseName)}";
+            command.CommandText = templateDatabase == null
+                ? $"CREATE DATABASE {QuoteIdentifier(databaseName)}"
+                : $"CREATE DATABASE {QuoteIdentifier(databaseName)} TEMPLATE {QuoteIdentifier(templateDatabase)}";
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            var source = templateDatabase == null ? string.Empty : $" from template {templateDatabase}";
             throw new InvalidOperationException(
-                $"Fluent API tests require a reachable PostgreSQL server and a test account that can create databases. Configure {ConnectionStringEnvironmentVariable} or the COVE_API_TEST_PG_* variables.",
+                $"Could not create test database {databaseName}{source} ({exception.Message}). PostgreSQL-backed tests require a reachable PostgreSQL server and a test account that can create databases. Configure {ConnectionStringEnvironmentVariable} or the COVE_API_TEST_PG_* variables.",
                 exception);
         }
 
@@ -48,12 +65,32 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
             Database = databaseName,
             Pooling = true,
             IncludeErrorDetail = true,
-            ApplicationName = "Cove.ApiTests",
+            ApplicationName = ClientName,
             CommandTimeout = 60,
             Timeout = 15,
         };
 
         return new PostgreSqlTestDatabase(databaseName, admin, databaseBuilder.ConnectionString);
+    }
+
+    /// <summary>
+    /// Closes this database to new connections and ends the open ones so it can be the template of
+    /// later databases: PostgreSQL refuses to copy a database while anyone is connected to it.
+    /// </summary>
+    public async Task SealAsTemplateAsync(CancellationToken cancellationToken = default)
+    {
+        await using (var poolConnection = new NpgsqlConnection(ConnectionString))
+            NpgsqlConnection.ClearPool(poolConnection);
+
+        await using var connection = new NpgsqlConnection(_adminConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            ALTER DATABASE {QuoteIdentifier(DatabaseName)} WITH ALLOW_CONNECTIONS false;
+            SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = @databaseName AND pid <> pg_backend_pid();
+            """;
+        command.Parameters.AddWithValue("databaseName", DatabaseName);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     internal static async Task<bool> ExistsAsync(
@@ -94,7 +131,7 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
             {
                 Pooling = false,
                 IncludeErrorDetail = true,
-                ApplicationName = "Cove.ApiTests.Admin",
+                ApplicationName = ClientName + ".Admin",
                 CommandTimeout = 60,
                 Timeout = 15,
             };
@@ -116,7 +153,7 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
             Database = Environment.GetEnvironmentVariable("COVE_API_TEST_PG_ADMIN_DB") ?? "postgres",
             Pooling = false,
             IncludeErrorDetail = true,
-            ApplicationName = "Cove.ApiTests.Admin",
+            ApplicationName = ClientName + ".Admin",
             CommandTimeout = 60,
             Timeout = 15,
         };

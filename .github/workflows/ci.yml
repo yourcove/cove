@@ -95,6 +95,27 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-26.04
+    # PostgreSQL-backed tests ([RequiresPostgres]) each get a copy of a database migrated once per run.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      COVE_API_TEST_PG_HOST: 127.0.0.1
+      COVE_API_TEST_PG_PORT: 5432
+      COVE_API_TEST_PG_USER: postgres
+      COVE_API_TEST_PG_PASSWORD: postgres
+      COVE_API_TEST_PG_ADMIN_DB: postgres
     steps:
       - uses: actions/checkout@v7
 
@@ -136,7 +157,7 @@ jobs:
         run: dotnet build src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-restore
 
       - name: Verify Windows filesystem semantics
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests|FullyQualifiedName~Cove.Tests.FingerprintServiceMd5Tests" --output detailed
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "(FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests|FullyQualifiedName~Cove.Tests.FingerprintServiceMd5Tests)&Requires!=PostgreSQL" --output detailed
 
       - name: Stress concurrent blob reads and deletion
         shell: pwsh

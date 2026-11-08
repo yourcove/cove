@@ -691,9 +691,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     {
         // Cheap fingerprint of the segments table: count covers add/remove, max(updated_at) covers edits.
         var count = await db.Segments.CountAsync(ct);
-        var maxUpdated = db.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true
-            ? (await db.Segments.Select(segment => segment.UpdatedAt).ToListAsync(ct)).Select(value => (DateTimeOffset?)value).Max()
-            : await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
+        var maxUpdated = await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
         return $"{count}:{maxUpdated?.UtcTicks ?? 0}";
     }
 

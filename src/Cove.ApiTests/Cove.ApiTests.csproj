@@ -18,7 +18,9 @@
 
   <ItemGroup>
     <Using Include="AwesomeAssertions" />
+    <Using Include="Cove.TestSupport" />
     <Using Include="Xunit" />
+    <Compile Include="..\TestSupport\**\*.cs" Link="TestSupport\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

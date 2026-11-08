@@ -588,6 +588,27 @@ jobs:
   ci:
     if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
+    # PostgreSQL-backed tests ([RequiresPostgres]) each get a copy of a database migrated once per run.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      COVE_API_TEST_PG_HOST: 127.0.0.1
+      COVE_API_TEST_PG_PORT: 5432
+      COVE_API_TEST_PG_USER: postgres
+      COVE_API_TEST_PG_PASSWORD: postgres
+      COVE_API_TEST_PG_ADMIN_DB: postgres
     steps:
       - uses: actions/checkout@v7
 

@@ -1,5 +1,6 @@
 using Cove.Plugins;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -172,14 +173,13 @@ public sealed class ExtensionServiceOverlayTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Replacing_provider_leaves_real_cove_data_source_usable()
     {
-        var connectionString = DevboxPostgresConnectionString();
-        if (connectionString == null)
-            return;
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
 
         var services = CreateHostServices();
-        services.AddCoveData(connectionString);
+        services.AddCoveData(database.ConnectionString);
         await using var root = services.BuildServiceProvider();
         var dataSource = root.GetRequiredService<NpgsqlDataSource>();
         var overlay = CreateOverlay(root, services);
@@ -258,31 +258,6 @@ public sealed class ExtensionServiceOverlayTests
             CoveVersion = "test",
             DataDirectory = Path.GetTempPath(),
         };
-
-    private static string? DevboxPostgresConnectionString()
-    {
-        var host = Environment.GetEnvironmentVariable("PGHOST");
-        var port = Environment.GetEnvironmentVariable("PGPORT");
-        var database = Environment.GetEnvironmentVariable("PGDATABASE");
-        var username = Environment.GetEnvironmentVariable("PGUSER");
-        var password = Environment.GetEnvironmentVariable("PGPASSWORD");
-        if (string.IsNullOrWhiteSpace(host)
-            || string.IsNullOrWhiteSpace(port)
-            || string.IsNullOrWhiteSpace(database)
-            || string.IsNullOrWhiteSpace(username))
-            return null;
-
-        return new NpgsqlConnectionStringBuilder
-        {
-            Host = host,
-            Port = int.Parse(port),
-            Database = database,
-            Username = username,
-            Password = password,
-            Timeout = 5,
-            CommandTimeout = 5,
-        }.ConnectionString;
-    }
 
     private sealed class TestExtension(Action<IServiceCollection>? configure = null) : IExtension
     {
