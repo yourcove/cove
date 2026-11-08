@@ -1,6 +1,7 @@
 using Cove.Core.DTOs;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using System.Diagnostics;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -105,8 +106,12 @@ public abstract class ApiTest : IAsyncLifetime, IClassFixture<CoveApiTestFixture
         try
         {
             _users = await _fixture.ResetAsync(TestContext.Current.CancellationToken);
-            _output.WriteLine($"Cove API listening at {ApiUri}");
-            _output.WriteLine($"Pause at a breakpoint to call: curl {new Uri(ApiUri, "/health")}");
+            // Only useful while paused at a breakpoint; written for every test, it buries CI logs, which show each passed test's output.
+            if (Debugger.IsAttached)
+            {
+                _output.WriteLine($"Cove API listening at {ApiUri}");
+                _output.WriteLine($"Pause at a breakpoint to call: curl {new Uri(ApiUri, "/health")}");
+            }
         }
         catch
         {
