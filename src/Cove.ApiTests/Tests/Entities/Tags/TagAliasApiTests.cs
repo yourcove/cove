@@ -13,7 +13,7 @@ public sealed class TagAliasApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var tag = await owner.CreateTagAsync($"Big Breasts {suffix}");
+        var tag = await owner.CreateTagAsync($"Big Breasts {suffix}", TestContext.Current.CancellationToken);
         await owner.AddTagAliasAsync(tag.Id, $"Busty {suffix}", TestContext.Current.CancellationToken);
 
         var updated = await owner.AddTagAliasAsync(tag.Id, $" Big Tits {suffix} ", TestContext.Current.CancellationToken);
@@ -29,8 +29,8 @@ public sealed class TagAliasApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var tag = await owner.CreateTagAsync($"Big Breasts {suffix}");
-        await owner.CreateTagAsync($"Big Tits {suffix}");
+        var tag = await owner.CreateTagAsync($"Big Breasts {suffix}", TestContext.Current.CancellationToken);
+        await owner.CreateTagAsync($"Big Tits {suffix}", TestContext.Current.CancellationToken);
 
         var status = await owner.TryAddTagAliasAsync(tag.Id, $"big tits {suffix}", TestContext.Current.CancellationToken);
         var read = await owner.GetTagByIdAsync(tag.Id, TestContext.Current.CancellationToken);
