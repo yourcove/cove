@@ -3003,22 +3003,18 @@ public class ExtensionManager : IExtensionContributionRuntime
             var install = GetInstallation(extensionId);
             if (install == null) return;
 
-            // Raw literals carry no trailing newline, so the fragment supplies the line breaks around it.
-            var enabledUpdate = keepSavedEnabled ? "\n" : "\n    enabled = EXCLUDED.enabled,\n";
-            await db.Database.ExecuteSqlRawAsync("""
+            var enabled = keepSavedEnabled || install.Enabled;
+            await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO extension_installations (extension_id, version, enabled, installed_at, updated_at, manifest_json, source, categories)
-                VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7})
+                VALUES ({install.ExtensionId}, {install.Version}, {enabled}, {EnsureUtc(install.InstalledAt)}, {DateTime.UtcNow}, {install.ManifestJson}, {install.Source}, {install.Categories})
                 ON CONFLICT (extension_id) DO UPDATE SET
                     version = EXCLUDED.version,
-                """ + enabledUpdate + """
+                    enabled = CASE WHEN {keepSavedEnabled} THEN extension_installations.enabled ELSE EXCLUDED.enabled END,
                     updated_at = EXCLUDED.updated_at,
                     manifest_json = EXCLUDED.manifest_json,
                     source = EXCLUDED.source,
                     categories = EXCLUDED.categories
-                """,
-                install.ExtensionId, install.Version, keepSavedEnabled || install.Enabled,
-                EnsureUtc(install.InstalledAt), DateTime.UtcNow, install.ManifestJson,
-                install.Source, install.Categories);
+                """, CancellationToken.None); // The in-memory state has already changed, so the saved row must follow it.
         }
         catch (Exception ex)
         {

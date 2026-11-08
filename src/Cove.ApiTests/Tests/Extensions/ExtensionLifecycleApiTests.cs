@@ -118,6 +118,7 @@ public sealed class ExtensionLifecycleApiTests(
             var disabled = await owner.DisableExtensionAsync(urlExtensionId, TestContext.Current.CancellationToken);
             disabled.DisabledExtensions.Should().Equal(urlExtensionId);
             (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeFalse();
+            (await AsDbUser().GetSavedExtensionEnabledAsync(urlExtensionId, TestContext.Current.CancellationToken)).Should().BeFalse();
             await AssertManifestTopicAsync(owner, urlTopicId, urlExtensionId, expected: false);
 
             var forbiddenEnable = () => member.EnableExtensionAsync(urlExtensionId);
@@ -126,6 +127,7 @@ public sealed class ExtensionLifecycleApiTests(
 
             var enabled = await owner.EnableExtensionAsync(urlExtensionId, TestContext.Current.CancellationToken);
             enabled.EnabledExtensions.Should().Equal(urlExtensionId);
+            (await AsDbUser().GetSavedExtensionEnabledAsync(urlExtensionId, TestContext.Current.CancellationToken)).Should().BeTrue();
             await AssertManifestOnlyExtensionAsync(owner, urlExtensionId, "1.2.3", "url", urlCategory, enabled: true);
             await AssertManifestTopicAsync(owner, urlTopicId, urlExtensionId, expected: true);
 
