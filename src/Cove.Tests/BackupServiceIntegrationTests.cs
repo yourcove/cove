@@ -69,7 +69,7 @@ public class BackupServiceIntegrationTests
             var live = new CoveConfiguration();
             var configService = new ConfigService(live, NullLogger<ConfigService>.Instance, Path.Combine(dataRoot, "cove-config.json"));
             var backupService = new BackupService(new NullJobService(), live, NullLogger<BackupService>.Instance, dataRoot);
-            var controller = new DatabaseController(null!, backupService, live, NullLogger<DatabaseController>.Instance, configService);
+            var controller = new DatabaseController(backupService, live, NullLogger<DatabaseController>.Instance, configService);
             await configService.SaveCurrentConfigAsync();
 
             // A backup written by another instance: a library path and settings the fresh install lacks.
@@ -122,7 +122,7 @@ public class BackupServiceIntegrationTests
             var configPath = Path.Combine(dataRoot, "cove-config.json");
             var configService = new ConfigService(live, NullLogger<ConfigService>.Instance, configPath);
             var backupService = new BackupService(new NullJobService(), live, NullLogger<BackupService>.Instance, dataRoot);
-            var controller = new DatabaseController(null!, backupService, live, NullLogger<DatabaseController>.Instance, configService);
+            var controller = new DatabaseController(backupService, live, NullLogger<DatabaseController>.Instance, configService);
             await configService.SaveCurrentConfigAsync();
             var before = await File.ReadAllTextAsync(configPath, ct);
             var backupPath = Path.Combine(dataRoot, "not-a-config.json");
@@ -154,7 +154,7 @@ public class BackupServiceIntegrationTests
             config,
             NullLogger<ConfigService>.Instance,
             Path.Combine(Path.GetTempPath(), $"cove_config_unused_{Guid.NewGuid():N}", "cove-config.json"));
-        var controller = new DatabaseController(null!, backupService, config, NullLogger<DatabaseController>.Instance, configService);
+        var controller = new DatabaseController(backupService, config, NullLogger<DatabaseController>.Instance, configService);
 
         var action = await controller.RestoreDatabase(new RestoreBackupRequestDto("restore.sql"), CancellationToken.None);
 
