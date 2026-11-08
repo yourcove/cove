@@ -506,18 +506,13 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             .Where(segment => spanSegmentIds.Contains(segment.Id))
             .Select(segment => new { segment.Id, segment.StartSec, segment.UpdatedAt })
             .ToDictionaryAsync(segment => segment.Id, ct);
-        var coverSegmentIdBySpan = items.ToDictionary(
-            item => item,
-            item => item.Span.SegmentIds
-                .Where(segmentsById.ContainsKey)
-                .OrderBy(id => segmentsById[id].StartSec)
-                .ThenBy(id => id)
-                .Select(id => (int?)id)
-                .FirstOrDefault(),
-            ReferenceEqualityComparer.Instance);
-
         return items
-            .Select(item => coverSegmentIdBySpan[item] is { } coverSegmentId
+            .Select(item => item.Span.SegmentIds
+                    .Where(segmentsById.ContainsKey)
+                    .OrderBy(id => segmentsById[id].StartSec)
+                    .ThenBy(id => id)
+                    .Select(id => (int?)id)
+                    .FirstOrDefault() is { } coverSegmentId
                 ? item with
                 {
                     CoverSegmentId = coverSegmentId,
