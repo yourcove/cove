@@ -10,7 +10,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -19,6 +19,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class SegmentCoreControllerTests
 {
     [Fact]
@@ -1022,7 +1023,9 @@ public class SegmentCoreControllerTests
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         // A cover chosen later touches the segment, not its video. Saving would stamp the current time, so
         // the update goes straight to the table to keep the two timestamps a day apart.
-        var coverChangedAt = video.UpdatedAt.AddDays(1);
+        // PostgreSQL keeps microseconds, so the expected stamp drops the last tick digit.
+        var dayLater = video.UpdatedAt.AddDays(1);
+        var coverChangedAt = new DateTime(dayLater.Ticks - dayLater.Ticks % 10, dayLater.Kind);
         await context.Segments.Where(row => row.Id == segment.Id)
             .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.UpdatedAt, coverChangedAt), TestContext.Current.CancellationToken);
 
@@ -1361,7 +1364,6 @@ public class SegmentCoreControllerTests
             });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
             new SegmentRepository(context),
@@ -1462,7 +1464,6 @@ public class SegmentCoreControllerTests
         context.Segments.AddRange(older, matching);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
             new SegmentRepository(context),
@@ -1640,7 +1641,6 @@ public class SegmentCoreControllerTests
         context.Segments.AddRange(stableOld, mid, mergedOldPart, mergedNewestPart);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
             new SegmentRepository(context),
@@ -2418,22 +2418,27 @@ public class SegmentCoreControllerTests
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new SegmentCoreTestContext(options);
-        await context.Database.EnsureCreatedAsync();
-        context.Users.AddRange(
-            new User { Id = 1, Username = "user-1", PasswordHash = "test" },
-            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
-            new User { Id = 9, Username = "user-9", PasswordHash = "test" },
-            new User { Id = 11, Username = "user-11", PasswordHash = "test" });
-        await context.SaveChangesAsync();
-        return new TestContextScope(context, connection);
+        var ct = TestContext.Current.CancellationToken;
+        var database = await CovePostgresDatabase.CreateAsync(ct);
+        var context = new SegmentCoreTestContext(database.CreateOptions());
+        var scope = new TestContextScope(context, database);
+        try
+        {
+            context.Users.AddRange(
+                new User { Id = 1, Username = "user-1", PasswordHash = "test" },
+                new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+                new User { Id = 9, Username = "user-9", PasswordHash = "test" },
+                new User { Id = 11, Username = "user-11", PasswordHash = "test" });
+            await context.SaveChangesAsync(ct);
+            // Explicit ids do not advance the identity sequence; move it past them for users a test adds.
+            await context.Database.ExecuteSqlRawAsync("""SELECT setval(pg_get_serial_sequence('users', 'Id'), 11)""", ct);
+            return scope;
+        }
+        catch
+        {
+            await scope.DisposeAsync();
+            throw;
+        }
     }
 
     private static GroupItemsController CreateGroupItemsController(CoveContext context, SegmentSpanResolver spanResolver)
@@ -2456,19 +2461,6 @@ public class SegmentCoreControllerTests
         }
 
         public bool Has(CovePrincipal? principal, string permission) => true;
-    }
-
-    private static ServiceProvider CreateSegmentControllerServiceProvider(SqliteConnection connection)
-    {
-        var services = new ServiceCollection();
-        services.AddSingleton<ICurrentPrincipalAccessor>(new CurrentPrincipalAccessor());
-        services.AddSingleton<IMemoryCache>(new MemoryCache(new MemoryCacheOptions()));
-        services.AddScoped<CoveContext>(_ => new SegmentCoreTestContext(
-            new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(connection)
-                .Options));
-        services.AddScoped<SegmentSpanResolver>();
-        return services.BuildServiceProvider();
     }
 
     private static CovePrincipal CreatePrincipal(int userId) => new()
@@ -2508,19 +2500,19 @@ public class SegmentCoreControllerTests
 
     private sealed class TestContextScope : IAsyncDisposable
     {
-        public TestContextScope(CoveContext context, SqliteConnection connection)
+        public TestContextScope(CoveContext context, CovePostgresDatabase database)
         {
             Context = context;
-            Connection = connection;
+            Database = database;
         }
 
         public CoveContext Context { get; }
-        public SqliteConnection Connection { get; }
+        public CovePostgresDatabase Database { get; }
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Database.DisposeAsync();
         }
     }
 }
