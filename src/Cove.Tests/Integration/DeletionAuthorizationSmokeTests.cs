@@ -42,11 +42,11 @@ public sealed class DeletionAuthorizationSmokeTests
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             "integration-image-delete-without-file-token");
-        using var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, authorization.EntityAuthorizationCalls);
-        Assert.Contains(Permissions.ImagesDeleteFile, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains(Permissions.ImagesDeleteFile, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class DeletionAuthorizationSmokeTests
         authorization.DeniedEntityId = ids.ChildId;
         using var client = factory.CreateAuthenticatedClient();
 
-        using var response = await client.DeleteAsync($"/api/videos/{ids.ParentId}");
+        using var response = await client.DeleteAsync($"/api/videos/{ids.ParentId}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Contains(ids.ParentId.ToString(), authorization.AuthorizedEntityIds);
@@ -120,7 +120,7 @@ public sealed class DeletionAuthorizationSmokeTests
         };
         using var client = factory.CreateAuthenticatedClient();
 
-        using var response = await client.DeleteAsync($"/api/videos/{parentId}");
+        using var response = await client.DeleteAsync($"/api/videos/{parentId}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.True(childId > 0);
@@ -157,7 +157,7 @@ public sealed class DeletionAuthorizationSmokeTests
             ids = new[] { parentId },
             deleteFiles = false,
             deleteGenerated = false,
-        });
+        }, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
         var childId = await factory.WithDbContextAsync(async db =>

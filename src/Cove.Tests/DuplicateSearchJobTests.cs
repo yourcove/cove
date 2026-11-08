@@ -32,7 +32,7 @@ public sealed class DuplicateSearchJobTests
             [3, 7, 11],
             CancellationToken.None);
 
-        var search = await db.DuplicateSearches.SingleAsync();
+        var search = await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(queued.SearchId, search.Id);
         Assert.Equal("user:29", search.OwnerKey);
         Assert.Equal(DuplicateSearchStatus.Pending, search.Status);
@@ -74,7 +74,7 @@ public sealed class DuplicateSearchJobTests
             [3, 7],
             CancellationToken.None);
 
-        Assert.Equal(DuplicateSearchJobService.MaximumPHashDistance, (await db.DuplicateSearches.SingleAsync()).Distance);
+        Assert.Equal(DuplicateSearchJobService.MaximumPHashDistance, (await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Distance);
     }
 
     [Fact]
@@ -244,13 +244,13 @@ public sealed class DuplicateSearchJobTests
             ],
         });
         db.DuplicateSearches.Add(search);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Videos.Remove(keeper);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Empty(await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, search.Id).ToArrayAsync());
-        Assert.True(await db.Videos.AnyAsync(video => video.Id == unwanted.Id));
+        Assert.Empty(await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, search.Id).ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await db.Videos.AnyAsync(video => video.Id == unwanted.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public sealed class DuplicateSearchJobTests
         await using var db = CreateContext();
         var videos = Enumerable.Range(1, 101).Select(id => new Video { Title = $"Video {id}" }).ToArray();
         db.Videos.AddRange(videos);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var search = CompletedSearch();
         var groups = DuplicateSearchExecutionService.SplitOversizedGroups(
             [videos.Select(video => video.Id)],
@@ -275,11 +275,11 @@ public sealed class DuplicateSearchJobTests
             });
         }
         db.DuplicateSearches.Add(search);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var unwantedIds = await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, search.Id)
             .OrderBy(id => id)
-            .ToArrayAsync();
+            .ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(videos.Skip(1).Select(video => video.Id), unwantedIds);
     }
@@ -292,12 +292,12 @@ public sealed class DuplicateSearchJobTests
 
         var removable = await DuplicateSearchJobService
             .EffectiveUnkeptVideoIds(db, search.Id, db.DuplicateSearchGroups.Where(group => group.Id == groups[1].Id))
-            .ToArrayAsync();
+            .ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Empty(removable);
         Assert.Equal([videos["b"].Id], await DuplicateSearchJobService
             .EffectiveUnkeptVideoIds(db, search.Id, db.DuplicateSearchGroups.Where(group => group.Id == groups[0].Id))
-            .ToArrayAsync());
+            .ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -307,18 +307,18 @@ public sealed class DuplicateSearchJobTests
         var keeper = new Video { Title = "Reserved keeper" };
         var search = CompletedSearch();
         db.AddRange(keeper, search);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
         {
             SearchId = search.Id,
             VideoId = keeper.Id,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.ChangeTracker.Clear();
-        db.Videos.Remove(await db.Videos.SingleAsync(video => video.Id == keeper.Id));
+        db.Videos.Remove(await db.Videos.SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken));
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -333,7 +333,7 @@ public sealed class DuplicateSearchJobTests
         ]);
         await db.DuplicateSearchGroups
             .Where(group => group.Id == groups[2].Id)
-            .ExecuteUpdateAsync(update => update.SetProperty(group => group.Status, DuplicateGroupStatus.Ignored));
+            .ExecuteUpdateAsync(update => update.SetProperty(group => group.Status, DuplicateGroupStatus.Ignored), cancellationToken: TestContext.Current.CancellationToken);
         var jobs = new CapturingJobService();
         var service = new DuplicateResolutionService(db, jobs, null!, new CoveConfiguration());
 
@@ -344,8 +344,8 @@ public sealed class DuplicateSearchJobTests
         Assert.Equal(1, second.QueuedGroupCount);
         Assert.Equal(1, jobs.EnqueueCount);
         Assert.Equal("duplicate-job", second.JobId);
-        Assert.Equal("duplicate-job", (await db.DuplicateSearches.AsNoTracking().SingleAsync()).DeletionJobId);
-        var stored = await db.DuplicateSearchGroups.AsNoTracking().OrderBy(group => group.Position).ToListAsync();
+        Assert.Equal("duplicate-job", (await db.DuplicateSearches.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        var stored = await db.DuplicateSearchGroups.AsNoTracking().OrderBy(group => group.Position).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(
             [DuplicateGroupStatus.Queued, DuplicateGroupStatus.Queued, DuplicateGroupStatus.Ignored],
             stored.Select(group => group.Status));
@@ -363,23 +363,23 @@ public sealed class DuplicateSearchJobTests
         await ClaimAsync(db, search, "lost-job", groups[0], DuplicateGroupStatus.Processing, videos["a"]);
         await db.DuplicateSearchGroups
             .Where(group => group.Id == groups[1].Id)
-            .ExecuteUpdateAsync(update => update.SetProperty(group => group.Status, DuplicateGroupStatus.Queued));
+            .ExecuteUpdateAsync(update => update.SetProperty(group => group.Status, DuplicateGroupStatus.Queued), cancellationToken: TestContext.Current.CancellationToken);
         var jobs = new CapturingJobService
         {
             ReturnedJob = new JobInfo("lost-job", "duplicate-resolution", "Resolving", JobStatus.Failed, 1, null, DateTime.UtcNow, DateTime.UtcNow, "boom"),
         };
         var service = new DuplicateResolutionService(db, jobs, null!, new CoveConfiguration());
 
-        Assert.True(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(), CancellationToken.None));
+        Assert.True(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken), CancellationToken.None));
 
         db.ChangeTracker.Clear();
-        Assert.Null((await db.DuplicateSearches.SingleAsync()).DeletionJobId);
-        Assert.All(await db.DuplicateSearchGroups.ToListAsync(), group =>
+        Assert.Null((await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        Assert.All(await db.DuplicateSearchGroups.ToListAsync(cancellationToken: TestContext.Current.CancellationToken), group =>
         {
             Assert.Equal(DuplicateGroupStatus.Failed, group.Status);
             Assert.Equal(DuplicateResolutionService.LostWorkerError, group.Error);
         });
-        Assert.False(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync());
+        Assert.False(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -394,13 +394,13 @@ public sealed class DuplicateSearchJobTests
         };
         var service = new DuplicateResolutionService(db, jobs, null!, new CoveConfiguration());
 
-        Assert.False(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(), CancellationToken.None));
-        await db.DuplicateSearches.ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, DuplicateSearchDeletionClaim.Create()));
+        Assert.False(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken), CancellationToken.None));
+        await db.DuplicateSearches.ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, DuplicateSearchDeletionClaim.Create()), cancellationToken: TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
-        Assert.False(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(), CancellationToken.None));
+        Assert.False(await service.ReconcileLostWorkerAsync(await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken), CancellationToken.None));
 
-        Assert.Equal(DuplicateGroupStatus.Processing, (await db.DuplicateSearchGroups.AsNoTracking().SingleAsync()).Status);
-        Assert.True(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync());
+        Assert.Equal(DuplicateGroupStatus.Processing, (await db.DuplicateSearchGroups.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
+        Assert.True(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -414,9 +414,9 @@ public sealed class DuplicateSearchJobTests
         Assert.Equal(1, await service.ReleaseCancelledWorkerAsync("queued-job", CancellationToken.None));
 
         db.ChangeTracker.Clear();
-        Assert.Null((await db.DuplicateSearches.SingleAsync()).DeletionJobId);
-        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.SingleAsync()).Status);
-        Assert.True(await db.Videos.AnyAsync(video => video.Id == videos["b"].Id));
+        Assert.Null((await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
+        Assert.True(await db.Videos.AnyAsync(video => video.Id == videos["b"].Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -426,7 +426,7 @@ public sealed class DuplicateSearchJobTests
         var running = CompletedSearch();
         running.Status = DuplicateSearchStatus.Running;
         db.DuplicateSearches.Add(running);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")], [(true, "c"), (false, "d")]]);
         await ClaimAsync(db, search, "lost-job", groups[0], DuplicateGroupStatus.Processing, videos["a"]);
 
@@ -434,15 +434,15 @@ public sealed class DuplicateSearchJobTests
         await DuplicateSearchRecoveryService.RecoverAsync(db, recoveredAt, CancellationToken.None);
 
         db.ChangeTracker.Clear();
-        var interrupted = await db.DuplicateSearches.SingleAsync(item => item.Id == running.Id);
+        var interrupted = await db.DuplicateSearches.SingleAsync(item => item.Id == running.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateSearchStatus.Interrupted, interrupted.Status);
         Assert.Equal(recoveredAt, interrupted.CompletedAt);
-        Assert.Null((await db.DuplicateSearches.SingleAsync(item => item.Id == search.Id)).DeletionJobId);
-        var recovered = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync();
+        Assert.Null((await db.DuplicateSearches.SingleAsync(item => item.Id == search.Id, cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        var recovered = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Failed, recovered[0].Status);
         Assert.Equal(DuplicateSearchRecoveryService.InterruptedResolutionError, recovered[0].Error);
         Assert.Equal(DuplicateGroupStatus.Unresolved, recovered[1].Status);
-        Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToArrayAsync());
+        Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]

@@ -814,14 +814,14 @@ public class VideoFilterBehaviorTests
             ],
         };
 
-        var reusable = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Reuse));
+        var reusable = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Reuse), ct: TestContext.Current.CancellationToken);
         Assert.Equal(2, await reusable.CountAsync(TestContext.Current.CancellationToken));
-        var distinct = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Distinct));
+        var distinct = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Distinct), ct: TestContext.Current.CancellationToken);
         Assert.Equal("two-matches", (await distinct.SingleAsync(TestContext.Current.CancellationToken)).Title);
 
         var compound = Expression(RelatedScopeMatchMode.Distinct);
         compound.Children[0].Filter!.TitleCriterion = new() { Modifier = CriterionModifier.Equals, Value = "missing" };
-        var compoundMatches = await AudioFilterQuery.BuildAsync(context, null, null, expression: compound);
+        var compoundMatches = await AudioFilterQuery.BuildAsync(context, null, null, expression: compound, ct: TestContext.Current.CancellationToken);
         Assert.Empty(await compoundMatches.ToListAsync(TestContext.Current.CancellationToken));
     }
 
@@ -2606,7 +2606,7 @@ public class VideoFilterBehaviorTests
             new EventBus(),
             principalAccessor: principals);
 
-        var result = await controller.Delete(999, deleteFile: true);
+        var result = await controller.Delete(999, deleteFile: true, ct: TestContext.Current.CancellationToken);
 
         Assert.IsType<ForbidResult>(result);
     }
