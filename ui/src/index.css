@@ -66,13 +66,7 @@ html {
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family:
-    "Open Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+  font-family: "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Logical filter colors retain their dark-theme character while meeting text contrast in light themes. */
