@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -46,6 +47,9 @@ public class FingerprintService(
     private const int SpriteColumns = 5;
     private const int SpriteRows = 5;
 
+    // Read size for whole-file MD5. A 4 MB read buffer measured no faster than 1 MB on spinning disks or NVMe.
+    internal const int Md5ReadChunkSize = 1024 * 1024;
+
     public async Task<string?> ComputeMd5Async(string path, CancellationToken ct = default)
     {
         if (!File.Exists(path))
@@ -53,12 +57,31 @@ public class FingerprintService(
 
         try
         {
-            await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+            // Hashing reads every byte, so SequentialScan asks the OS for readahead. The stream is
+            // unbuffered and read in large chunks into a pooled array: MD5.HashDataAsync would pull
+            // 4 KB at a time through a FileStream buffer, and a buffer large enough to matter would be
+            // a fresh large-object-heap allocation for every small image and text file scanned.
+            await using var stream = FileReadRace.TryOpenRead(
+                path,
+                bufferSize: 0,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan,
+                pathWasObserved: true);
             if (stream == null)
                 return null;
 
-            var hash = await MD5.HashDataAsync(stream, ct);
-            return Convert.ToHexStringLower(hash);
+            var buffer = ArrayPool<byte>.Shared.Rent(Md5ReadChunkSize);
+            try
+            {
+                using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+                int read;
+                while ((read = await stream.ReadAsync(buffer.AsMemory(0, Md5ReadChunkSize), ct)) > 0)
+                    md5.AppendData(buffer, 0, read);
+                return Convert.ToHexStringLower(md5.GetHashAndReset());
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
