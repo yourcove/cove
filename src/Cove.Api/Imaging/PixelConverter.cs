@@ -22,7 +22,7 @@ internal static class PixelConverter
     {
         if (TPixel.Layout == PixelLayout.Rgba32)
             return (PixelBuffer<TPixel>)(object)source;
-        var samples = new Bytes(MemoryMarshal.AsBytes(source.Pixels.AsSpan()).ToArray());
+        var samples = new Bytes(MemoryMarshal.AsBytes(source.Pixels.AsSpan()));
         return Convert<TPixel, Bytes>(samples, source.Width, source.Height, Model.Rgb, bands: 4, alpha: true);
     }
 
@@ -30,7 +30,7 @@ internal static class PixelConverter
     {
         if (TPixel.Layout == PixelLayout.Rgba64)
             return (PixelBuffer<TPixel>)(object)source;
-        var samples = new Shorts(MemoryMarshal.Cast<Rgba64, ushort>(source.Pixels.AsSpan()).ToArray());
+        var samples = new Shorts(MemoryMarshal.Cast<Rgba64, ushort>(source.Pixels.AsSpan()));
         return Convert<TPixel, Shorts>(samples, source.Width, source.Height, Model.Rgb, bands: 4, alpha: true);
     }
 
@@ -61,14 +61,27 @@ internal static class PixelConverter
             if (image.Bands > bands)
                 image = Own(image.ExtractBand(0, n: bands));
 
-            switch (image.Format)
+            if (image.Format is not (Enums.BandFormat.Uchar or Enums.BandFormat.Ushort))
+                throw new InvalidImageException($"Images with {image.Format} samples are not supported.");
+
+            // Convert straight from libvips' output buffer. WriteToMemory<T>() would copy the whole
+            // decoded image into a managed array first, a large-object-heap allocation as big as the
+            // samples themselves.
+            var memory = image.WriteToMemory(out var size);
+            try
             {
-                case Enums.BandFormat.Uchar:
-                    return Convert<TPixel, Bytes>(new Bytes(image.WriteToMemory<byte>()), image.Width, image.Height, model.Value, bands, alpha);
-                case Enums.BandFormat.Ushort:
-                    return Convert<TPixel, Shorts>(new Shorts(image.WriteToMemory<ushort>()), image.Width, image.Height, model.Value, bands, alpha);
-                default:
-                    throw new InvalidImageException($"Images with {image.Format} samples are not supported.");
+                unsafe
+                {
+                    return image.Format == Enums.BandFormat.Uchar
+                        ? Convert<TPixel, Bytes>(new Bytes(new ReadOnlySpan<byte>((void*)memory, checked((int)size))),
+                            image.Width, image.Height, model.Value, bands, alpha)
+                        : Convert<TPixel, Shorts>(new Shorts(new ReadOnlySpan<ushort>((void*)memory, checked((int)(size / sizeof(ushort))))),
+                            image.Width, image.Height, model.Value, bands, alpha);
+                }
+            }
+            finally
+            {
+                NetVips.NetVips.Free(memory);
             }
         }
         finally
@@ -91,25 +104,27 @@ internal static class PixelConverter
         byte Narrow(int index);
     }
 
-    private readonly struct Bytes(byte[] data) : ISamples
+    private readonly ref struct Bytes(ReadOnlySpan<byte> data) : ISamples
     {
-        public int Length => data.Length;
-        public ushort Wide(int index) => (ushort)(data[index] * 0x101);
-        public byte Narrow(int index) => data[index];
+        private readonly ReadOnlySpan<byte> _data = data;
+        public int Length => _data.Length;
+        public ushort Wide(int index) => (ushort)(_data[index] * 0x101);
+        public byte Narrow(int index) => _data[index];
     }
 
-    private readonly struct Shorts(ushort[] data) : ISamples
+    private readonly ref struct Shorts(ReadOnlySpan<ushort> data) : ISamples
     {
-        public int Length => data.Length;
-        public ushort Wide(int index) => data[index];
-        public byte Narrow(int index) => To8(data[index]);
+        private readonly ReadOnlySpan<ushort> _data = data;
+        public int Length => _data.Length;
+        public ushort Wide(int index) => _data[index];
+        public byte Narrow(int index) => To8(_data[index]);
     }
 
     private static byte To8(uint value) => (byte)((value * 255 + 32895) >> 16);
 
     private static PixelBuffer<TPixel> Convert<TPixel, TSamples>(TSamples samples, int width, int height, Model model, int bands, bool alpha)
         where TPixel : unmanaged, IPixel<TPixel>
-        where TSamples : struct, ISamples
+        where TSamples : struct, ISamples, allows ref struct
     {
         if (samples.Length != width * height * bands)
             throw new InvalidImageException("The decoder returned an unexpected number of samples.");
@@ -174,7 +189,7 @@ internal static class PixelConverter
         return buffer;
     }
 
-    private static (ushort R, ushort G, ushort B) Wide<TSamples>(TSamples samples, int offset, Model model) where TSamples : struct, ISamples
+    private static (ushort R, ushort G, ushort B) Wide<TSamples>(TSamples samples, int offset, Model model) where TSamples : struct, ISamples, allows ref struct
     {
         switch (model)
         {
@@ -192,7 +207,7 @@ internal static class PixelConverter
         }
     }
 
-    private static (byte R, byte G, byte B) Narrow<TSamples>(TSamples samples, int offset, Model model) where TSamples : struct, ISamples
+    private static (byte R, byte G, byte B) Narrow<TSamples>(TSamples samples, int offset, Model model) where TSamples : struct, ISamples, allows ref struct
     {
         switch (model)
         {
