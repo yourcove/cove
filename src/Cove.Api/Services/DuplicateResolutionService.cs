@@ -21,8 +21,7 @@ public sealed class DuplicateResolutionService(
     CoveContext db,
     IJobService jobService,
     IServiceScopeFactory scopeFactory,
-    CoveConfiguration config,
-    ILogger<DuplicateResolutionService>? logger = null)
+    CoveConfiguration config)
 {
     public const string RemoveAction = "remove";
     public const string MergeAction = "merge";
