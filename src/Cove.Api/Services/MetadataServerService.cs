@@ -2793,9 +2793,11 @@ query Me {
 
         // Tagging a video links a tag; it does not edit one. A tag the library already has keeps its
         // name, aliases and description, and keeps the endpoint link it already has. Only a tag this
-        // import creates takes the remote's identity. (A tag added earlier in this same save is one of
-        // those, so it is still filled in here.)
-        if (tag is { Id: > 0 })
+        // import creates takes the remote's identity. A tag added earlier in this same save is one of
+        // those, so it is still filled in here when the remote id found it; when another remote tag's
+        // name or alias found it, it already has its identity and is only linked. Such a tag has no id
+        // until the save inserts it, so the id alone cannot tell the two apart.
+        if (tag != null && (tag.Id > 0 || matchedTrackedNamespace))
         {
             AddRemoteIdIfMissing(
                 tag.RemoteIds,

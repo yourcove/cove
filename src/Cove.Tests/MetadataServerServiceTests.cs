@@ -2245,13 +2245,15 @@ public sealed class MetadataServerServiceTests
     }
 
     [Theory]
+    [RequiresPostgres]
     [InlineData(" action ")]
     [InlineData("Activity")]
     public async Task MergeVideoWithWarningsAsync_ReusesANewTrackedNamespaceOwnerForAnotherRemoteId(string secondName)
     {
-        // Kept on the in-memory provider, which gives an added tag a real id at once. On PostgreSQL the tag the
-        // first remote tag creates keeps Id 0 until it is saved, so the second remote tag renames it.
-        await using var context = CreateInMemoryContext();
+        // The tag the first remote tag creates has no id until the save, so this checks that the second remote
+        // tag finds it by name or alias and only links it.
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2925,11 +2927,6 @@ public sealed class MetadataServerServiceTests
         public void Report(double progress, string? subTask = null)
             => Reports.Add((progress, subTask));
     }
-
-    private static CoveContext CreateInMemoryContext()
-        => new(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"metadata-server-service-{Guid.NewGuid():N}")
-            .Options);
 
     // A video file in its own library folder, which the files table requires.
     private static VideoFile LibraryVideoFile(double duration)
