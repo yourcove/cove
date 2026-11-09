@@ -5,20 +5,28 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Events;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Cove.Tests;
 
 public class VideoFilterBehaviorTests
 {
+    private readonly Dictionary<string, Folder> _folders = new(StringComparer.Ordinal);
+    private int _defaultFileNames;
+
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerSummaryCountsLoader_BatchesCountsAndHonorsHostReadPermissions()
     {
         var principals = new CurrentPrincipalAccessor();
@@ -30,8 +38,18 @@ public class VideoFilterBehaviorTests
             Permissions = new HashSet<string> { Permissions.PerformersRead, Permissions.VideosRead, Permissions.ImagesRead, Permissions.GalleriesRead, Permissions.TextsRead },
             Roles = new HashSet<string>(),
         });
-        var options = new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase($"performer-summary-counts-{Guid.NewGuid():N}").Options;
-        await using var context = new TestCoveContext(options, principals);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = new CoveContext(database.CreateOptions(), principals);
+        context.AddRange(
+            new Performer { Id = 7, Name = "Counted performer" },
+            new Performer { Id = 8, Name = "Other performer" },
+            new Video { Id = 1, Title = "First video" },
+            new Video { Id = 2, Title = "Second video" },
+            new Image { Id = 1, Title = "Image" },
+            new Gallery { Id = 1, Title = "Gallery" },
+            new Audio { Id = 1, Title = "Audio" },
+            new TextDocument { Id = 1, Title = "Text" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.Set<VideoPerformer>().AddRange(new VideoPerformer { PerformerId = 7, VideoId = 1 }, new VideoPerformer { PerformerId = 8, VideoId = 2 });
         context.Set<ImagePerformer>().Add(new ImagePerformer { PerformerId = 7, ImageId = 1 });
         context.Set<GalleryPerformer>().Add(new GalleryPerformer { PerformerId = 7, GalleryId = 1 });
@@ -46,9 +64,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_Find_PreservesCachedPerformerCountsWithoutDetailQueries()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var performer = new Performer { Name = "List Performer", VideoCount = 4, ImageCount = 3, GalleryCount = 2 };
         var video = CreateVideoWithFile("performer-count-list");
         video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
@@ -73,12 +93,14 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_ListAndDetail_OrderFilesByIdForStableFallbackTitles()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var video = new Video { Title = null };
-        video.Files.Add(new VideoFile { Id = 20, Basename = "later.mp4", Path = "/library/later.mp4" });
-        video.Files.Add(new VideoFile { Id = 10, Basename = "primary.mp4", Path = "/library/primary.mp4" });
+        video.Files.Add(new VideoFile { Id = 20, Basename = "later.mp4", Path = "/library/later.mp4", ParentFolder = FolderAt("/library") });
+        video.Files.Add(new VideoFile { Id = 10, Basename = "primary.mp4", Path = "/library/primary.mp4", ParentFolder = FolderAt("/library") });
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -99,9 +121,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("direct", folderPath: @"C:\library\matching", basename: "direct.mp4"),
             CreateVideoWithFile("nested", folderPath: @"C:\library\matching\nested", basename: "nested.mp4"),
@@ -125,20 +149,22 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PathCriterion_NotUnderPath_ExcludesEntitiesWithAnyFileInFolder()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var mixed = CreateVideoWithFile("mixed", folderPath: @"C:\library\outside", basename: "outside.mp4");
         mixed.Files.Add(new VideoFile
         {
             Basename = "inside.mp4",
-            ParentFolder = new Folder { Path = @"C:\library\matching", ModTime = DateTime.UtcNow },
+            ParentFolder = FolderAt(@"C:\library\matching"),
             Size = 1024,
             ModTime = DateTime.UtcNow,
         });
         context.Videos.AddRange(
             mixed,
-            CreateVideoWithFile("outside", folderPath: @"C:\library\outside", basename: "outside.mp4"));
+            CreateVideoWithFile("outside", folderPath: @"C:\library\outside", basename: "other-outside.mp4"));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
@@ -158,9 +184,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PathCriterion_UnderPath_UsesPlatformPathCaseSemantics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("exact-case", folderPath: "/library/Media", basename: "clip.mp4"),
             CreateVideoWithFile("different-case", folderPath: "/library/media", basename: "clip.mp4"));
@@ -175,9 +203,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PathCriterion_Equals_UsesFullNormalizedPath()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("match", folderPath: @"C:\library\matching", basename: "clip.mp4"),
             CreateVideoWithFile("same-name-other-folder", folderPath: @"C:\library\other", basename: "clip.mp4"));
@@ -200,9 +230,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DateCriterion_NullModifiers_ApplyWithoutAValue()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var undated = CreateVideoWithFile("undated", basename: "undated.mp4");
         undated.Date = null;
         context.Videos.AddRange(CreateVideoWithFile("dated", videoDate: new DateOnly(2024, 5, 1)), undated);
@@ -229,9 +261,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ProductionDateCriterion_FiltersOnTheProductionDateNotTheReleaseDate()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var older = CreateVideoWithFile("shot 2019", basename: "older.mp4", videoDate: new DateOnly(2025, 1, 1));
         older.ProductionDate = new DateOnly(2019, 6, 1);
         var newer = CreateVideoWithFile("shot 2023", basename: "newer.mp4", videoDate: new DateOnly(2018, 1, 1));
@@ -257,9 +291,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerDateCriterion_NullModifiers_ApplyWithoutAValue()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Performers.AddRange(
             new Performer { Name = "living", Birthdate = new DateOnly(1990, 3, 4) },
             new Performer { Name = "unknown-birthdate", Birthdate = null });
@@ -277,9 +313,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudioCodecCriterion_HandlesRegexAndNullModifiers()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("aac-video", audioCodec: "AAC"),
             CreateVideoWithFile("mp3-video", audioCodec: "MP3"),
@@ -324,9 +362,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BitrateInterval_GreaterThan_UsesMaxBitRateSummary()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("high-bitrate", bitRate: 2_500_000),
             CreateVideoWithFile("low-bitrate", bitRate: 500_000),
@@ -350,9 +390,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BitrateSort_UsesMaxBitRateSummary()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("high-bitrate", bitRate: 2_500_000),
             CreateVideoWithFile("low-bitrate", bitRate: 500_000),
@@ -373,9 +415,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DirectorCriterion_NotMatchesRegex_UsesRegexSemantics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("jane-video", director: "Jane Smith"),
             CreateVideoWithFile("john-video", director: "John Doe"));
@@ -398,9 +442,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerAgeCriterion_Equals_UsesAgeAtVideoDate()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var performer = CreatePerformer("Boundary Performer", new DateOnly(2006, 1, 15));
 
         context.Videos.AddRange(
@@ -430,9 +476,11 @@ public class VideoFilterBehaviorTests
     [InlineData("performer age", new[] { "production-only", "released-young", "shot-young" })]
     [InlineData("age then", new[] { "production-only", "released-young", "shot-young" })]
     [InlineData("age then unknown", new[] { "undated" })]
+    [RequiresPostgres]
     public async Task PerformerAgeCriteria_UseProductionDateBeforeReleaseDate(string criterion, string[] expected)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var performer = CreatePerformer("Dated Performer", new DateOnly(2000, 6, 1));
         Video Add(string title, DateOnly? releaseDate, DateOnly? productionDate)
         {
@@ -467,9 +515,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FilterExpression_RepeatsCriteriaAndComposesNestedBooleanGroups()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var fooOnly = CreateVideoWithFile("foo-only");
         fooOnly.Urls.Add(new VideoUrl { Url = "https://example.test/foo" });
         var fooAndBar = CreateVideoWithFile("foo-and-bar");
@@ -510,9 +560,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FilterExpression_JustOneMatchesExactlyOneBranch()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("alpha-only"),
             CreateVideoWithFile("beta-only"),
@@ -544,9 +596,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FilterExpression_OrAndJustOneUnderACondition_KeepToWhatTheConditionMatches()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("foo-alpha"),
             CreateVideoWithFile("foo-alpha-beta"),
@@ -574,9 +628,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FilterExpression_NotNegatesOneConditionOrNestedGroup()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("foo-only"),
             CreateVideoWithFile("foo-bar"),
@@ -749,9 +805,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerExpression_CorrelatesGenderAndAgeAtVideoDatePerClause()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var youngMan = CreatePerformer("Young Man", new DateOnly(2000, 6, 1));
         youngMan.Gender = GenderEnum.Male;
         var olderWoman = CreatePerformer("Older Woman", new DateOnly(1990, 6, 1));
@@ -793,9 +851,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DistinctAudioPerformerExpression_RequiresDifferentMatchingPerformers()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var alexOne = CreatePerformer("Alex One", null);
         var alexTwo = CreatePerformer("Alex Two", null);
         var oneMatch = CreateAudio("one-match", alexOne);
@@ -826,9 +886,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DistinctRelatedAudioExpression_RequiresDifferentMatchingAudios()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var oneAudio = CreatePerformer("One Audio", null);
         var twoAudios = CreatePerformer("Two Audios", null);
         context.Audios.Add(CreateAudio("Episode One", oneAudio));
@@ -856,9 +918,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DistinctRelatedPerformerExpression_RequiresEachClauseToMatchADifferentPerformer()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var manA = CreatePerformer("Man A", null);
         manA.Gender = GenderEnum.Male;
         var manB = CreatePerformer("Man B", null);
@@ -936,9 +1000,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerEveryModeAppliesAgeAtVideoDateToEveryPerformer()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var age25a = CreatePerformer("Age 25 A", new DateOnly(2000, 6, 1));
         var age25b = CreatePerformer("Age 25 B", new DateOnly(2000, 1, 1));
         var age35 = CreatePerformer("Age 35", new DateOnly(1990, 6, 1));
@@ -969,9 +1035,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerEveryModeCanMatchAgeAtVideoDateOrFavorite()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var age19 = CreatePerformer("Age 19", new DateOnly(2006, 1, 1));
         var favoriteAge28 = CreatePerformer("Favorite age 28", new DateOnly(1997, 1, 1));
         var age28 = CreatePerformer("Age 28", new DateOnly(1997, 1, 1));
@@ -1004,9 +1072,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerEveryModeCanMatchUnknownAgeAtVideoDateOrFavorite()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var unknownAge = CreatePerformer("Unknown age", null);
         var favorite = CreatePerformer("Favorite", new DateOnly(1990, 1, 1));
         var knownNonFavorite = CreatePerformer("Known non-favorite", new DateOnly(1990, 1, 1));
@@ -1038,9 +1108,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_MatchesExactPerformerOccurrenceTagsOnSameLink()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Occurrence Tag" };
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
@@ -1075,9 +1147,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_MatchesAttributesAgeAndOccurrenceTagsOnSameLink()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Occurrence Tag" };
         var matchingPerformer = CreatePerformer("Matching", new DateOnly(2006, 1, 1));
         matchingPerformer.Gender = GenderEnum.Female;
@@ -1122,9 +1196,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_IncludesAllOccurrenceTagsOnTheSameLink()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var firstTag = new Tag { Name = "First Occurrence Tag" };
         var secondTag = new Tag { Name = "Second Occurrence Tag" };
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
@@ -1166,9 +1242,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_ExcludesAllOccurrenceTagsOnlyWhenOneLinkHasEveryTag()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var firstTag = new Tag { Name = "First Occurrence Tag" };
         var firstChildTag = new Tag { Name = "First Occurrence Child Tag" };
         var secondTag = new Tag { Name = "Second Occurrence Tag" };
@@ -1215,9 +1293,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_ExcludesAllPerformerIdsDropsOnlyThatPerformersLinks()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
         var targetOnly = CreateVideoWithFile("target-only", performer: targetPerformer);
@@ -1242,9 +1322,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerCriterion_ExpandsOccurrenceTagDescendantsOnTheSameLink()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var parentTag = new Tag { Name = "Parent Occurrence Tag" };
         var childTag = new Tag { Name = "Child Occurrence Tag" };
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
@@ -1284,9 +1366,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelatedPerformerOccurrenceTags_RespectRelationshipModesAndNulls()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Occurrence Tag" };
         var firstPerformer = CreatePerformer("First", new DateOnly(2000, 1, 1));
         var secondPerformer = CreatePerformer("Second", new DateOnly(2000, 1, 1));
@@ -1337,9 +1421,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_Includes_MatchesVideosByPerformerOccurrenceTag()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Featured" };
         var taggedVideo = CreateVideoWithFile("tagged-performer-video", performer: CreatePerformer("Tagged", new DateOnly(2000, 1, 1)));
         var untaggedVideo = CreateVideoWithFile("untagged-performer-video", performer: CreatePerformer("Untagged", new DateOnly(2000, 1, 1)));
@@ -1378,9 +1464,11 @@ public class VideoFilterBehaviorTests
     [Theory]
     [InlineData(CriterionModifier.IsNull, "untagged-performer-video")]
     [InlineData(CriterionModifier.NotNull, "tagged-performer-video")]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_PresenceModifiers_MatchVideosByAnyPerformerOccurrenceTag(CriterionModifier modifier, string expectedTitle)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Featured" };
         var taggedVideo = CreateVideoWithFile("tagged-performer-video", performer: CreatePerformer("Tagged", new DateOnly(2000, 1, 1)));
         var untaggedVideo = CreateVideoWithFile("untagged-performer-video", performer: CreatePerformer("Untagged", new DateOnly(2000, 1, 1)));
@@ -1437,9 +1525,11 @@ public class VideoFilterBehaviorTests
     [Theory]
     [InlineData(CriterionModifier.IsNull, "other-performer-tagged")]
     [InlineData(CriterionModifier.NotNull, "target-tagged")]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_PresenceModifiers_WithRequiredPerformerCriterion_ScopeToThatPerformer(CriterionModifier modifier, string expectedTitle)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Occurrence Tag" };
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
@@ -1490,9 +1580,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Occurrence Tag" };
         var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
@@ -1550,13 +1642,15 @@ public class VideoFilterBehaviorTests
     [InlineData(AffinityHostType.Image, "image")]
     [InlineData(AffinityHostType.Audio, "audio")]
     [InlineData(AffinityHostType.Text, "text")]
+    [RequiresPostgres]
     public async Task TagApplicationService_AddAsync_AllowsPerformerContextForMediaHosts(AffinityHostType hostType, string hostTypeValue)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = $"{hostTypeValue}-occurrence" };
         var performer = CreatePerformer($"{hostTypeValue}-performer", new DateOnly(2000, 1, 1));
 
-        var hostId = hostType switch
+        var host = hostType switch
         {
             AffinityHostType.Image => AddImageHost(context, CreateImage($"{hostTypeValue}-host", performer)),
             AffinityHostType.Audio => AddAudioHost(context, CreateAudio($"{hostTypeValue}-host", performer)),
@@ -1565,6 +1659,7 @@ public class VideoFilterBehaviorTests
         };
         context.Tags.Add(tag);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var hostId = host.Id;
 
         var service = new TagApplicationService(context);
         var application = await service.AddAsync(
@@ -1579,9 +1674,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImageFilter_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Image Occurrence Tag" };
         var targetPerformer = CreatePerformer("Image Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Image Other", new DateOnly(2000, 1, 1));
@@ -1620,9 +1717,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudiosController_FindPost_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Audio Occurrence Tag" };
         var targetPerformer = CreatePerformer("Audio Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Audio Other", new DateOnly(2000, 1, 1));
@@ -1658,9 +1757,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudioPerformerFilterCriterion_MatchesExactPerformerOccurrenceTagsOnSameLink()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Audio Occurrence Tag" };
         var targetPerformer = CreatePerformer("Audio Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Audio Other", new DateOnly(2000, 1, 1));
@@ -1697,9 +1798,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudioPerformerFilterCriterion_ExcludesAllOccurrenceTagsOnlyWhenOneLinkHasEveryTag()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var firstTag = new Tag { Name = "Audio First Occurrence Tag" };
         var secondTag = new Tag { Name = "Audio Second Occurrence Tag" };
         var targetPerformer = CreatePerformer("Audio Target", new DateOnly(2000, 1, 1));
@@ -1743,9 +1846,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudioPerformerFilterCriterion_ExcludesOccurrenceTagsPerLinkAndIgnoresVideoApplications()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Audio Excluded Tag" };
         var performer = CreatePerformer("Audio Only", new DateOnly(2000, 1, 1));
         var answered = CreateAudio("answered-audio", performer);
@@ -1781,9 +1886,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TextsController_FindPost_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Text Occurrence Tag" };
         var targetPerformer = CreatePerformer("Text Target", new DateOnly(2000, 1, 1));
         var otherPerformer = CreatePerformer("Text Other", new DateOnly(2000, 1, 1));
@@ -1819,9 +1926,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_WithSubTags_MatchesDescendantOccurrenceTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var (parent, child, grandchild) = await AddTagChainAsync(context, "occurrence");
         var unrelated = new Tag { Name = "unrelated" };
         context.Tags.Add(unrelated);
@@ -1858,9 +1967,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_WithSubTags_MatchesDescendantOccurrenceTagsForImagesAudiosAndTexts()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var (parent, child, _) = await AddTagChainAsync(context, "media-occurrence");
         var performer = CreatePerformer("Media Occurrence", new DateOnly(2000, 1, 1));
         var image = CreateImage("child-tagged-image", performer);
@@ -1904,9 +2015,11 @@ public class VideoFilterBehaviorTests
     [Theory]
     [InlineData(CriterionModifier.IsNull, "untagged")]
     [InlineData(CriterionModifier.NotNull, "tagged")]
+    [RequiresPostgres]
     public async Task PerformerTagsCriterion_PresenceModifiers_MatchImagesAudiosAndTexts(CriterionModifier modifier, string expectedPrefix)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "media-presence" };
         var performer = CreatePerformer("Media Presence", new DateOnly(2000, 1, 1));
         var image = CreateImage("tagged-image", performer);
@@ -1949,9 +2062,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GalleryPerformerTagsCriterion_WithSubTags_MatchesDescendantPerformerTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var (parent, child, _) = await AddTagChainAsync(context, "gallery-performer");
         var taggedPerformer = CreatePerformer("Tagged Gallery Performer", new DateOnly(2000, 1, 1));
         taggedPerformer.PerformerTags.Add(new PerformerTag { TagId = child.Id });
@@ -1971,9 +2086,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TextsController_GetById_OrdersEffectiveTagsByName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var first = new Tag { Name = "Alpha" };
         var middle = new Tag { Name = "Middle" };
         var last = new Tag { Name = "Zulu" };
@@ -2008,9 +2125,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagDurationCriterion_AppliesAllClauses()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var shortTag = new Tag { Name = "Short" };
         var percentTag = new Tag { Name = "Percent" };
         var matchingVideo = CreateVideoWithFile("matching-duration");
@@ -2050,9 +2169,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AggregateAsync_SumsOnlyVideosMatchingTheActiveFilter()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             new Video { Title = "included", Organized = true, MaxDuration = 90.5, MaxFileSize = 1_500 },
             new Video { Title = "also included", Organized = true, MaxDuration = 29.5, MaxFileSize = 2_500 },
@@ -2067,11 +2188,13 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MediaAggregates_SumFilteredImageAudioTextAndGalleryMetrics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var image = new Image { Title = "image", MaxFileSize = 4_000 };
-        image.Files.Add(new ImageFile { Path = "/media/image.jpg", Basename = "image.jpg", Width = 2_000, Height = 1_000, Size = 4_000 });
+        image.Files.Add(new ImageFile { Path = "/media/image.jpg", Basename = "image.jpg", ParentFolder = FolderAt("/media"), Width = 2_000, Height = 1_000, Size = 4_000 });
         context.Images.AddRange(image, new Image { Title = "excluded image", MaxFileSize = 90_000 });
         var audio = new Audio { Title = "audio", MaxDuration = 75.5, MaxFileSize = 5_000 };
         var excludedAudio = new Audio { Title = "excluded audio", MaxDuration = 900, MaxFileSize = 90_000 };
@@ -2079,7 +2202,7 @@ public class VideoFilterBehaviorTests
         var excludedText = new TextDocument { Title = "excluded text", MaxFileSize = 90_000 };
         context.Audios.AddRange(audio, excludedAudio);
         context.TextDocuments.AddRange(text, excludedText);
-        var folder = new Folder { Path = "/media", ModTime = DateTime.UtcNow };
+        var folder = FolderAt("/media");
         var gallery = new Gallery { Title = "gallery", Organized = true };
         gallery.Files.Add(new GalleryFile { Basename = "gallery.zip", Path = "/media/gallery.zip", ParentFolder = folder, Size = 7_000 });
         var excludedGallery = new Gallery { Title = "excluded gallery", Organized = false };
@@ -2108,9 +2231,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagsCriterion_UsesThresholdQualifiedDerivedTagApplications()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Action", MinOccurrencePercent = 80 };
         var qualifyingVideo = CreateVideoWithFile("qualifying-derived");
         var belowThresholdVideo = CreateVideoWithFile("below-threshold-derived");
@@ -2153,9 +2278,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagsCriterion_WhenSecondsOrPercentThresholdMatches_TreatsDerivedTagAsEffective()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Running", MinOccurrenceSec = 30, MinOccurrencePercent = 80 };
         var secondsVideo = CreateVideoWithFile("seconds-match");
         var percentVideo = CreateVideoWithFile("percent-match");
@@ -2186,9 +2313,11 @@ public class VideoFilterBehaviorTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [RequiresPostgres]
     public async Task TagsCriterion_Excludes_RemovesManualAndEffectiveDerivedTagsOnly(bool excludesModifier)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Running", MinOccurrenceSec = 30, MinOccurrencePercent = 80 };
         var performer = CreatePerformer("Performer", null);
         var manualVideo = CreateVideoWithFile("manual");
@@ -2224,9 +2353,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_GetById_MapsOnlyEffectiveDerivedTagsAsNonRemovable()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Observed", MinOccurrencePercent = 80 };
         var video = CreateVideoWithFile("thresholded-video");
 
@@ -2258,9 +2389,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_GetById_LocksDirectAiOnlyTagsAsNonRemovable()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "AI Link" };
         var video = CreateVideoWithFile("ai-link-video");
         video.VideoTags.Add(new VideoTag { Tag = tag });
@@ -2292,9 +2425,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagVideoCount_RefreshesFromEffectiveDerivedTagsWhenThresholdChanges()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Counted", MinOccurrencePercent = 80 };
         var video = CreateVideoWithFile("counted-video");
 
@@ -2316,9 +2451,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudiosController_FindPost_UsesEffectiveDerivedTagsForAudioFiltersAndDtos()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Audio Cue", MinOccurrenceSec = 5 };
         var matchingAudio = new Audio { Title = "matching-audio" };
         var belowThresholdAudio = new Audio { Title = "below-threshold-audio" };
@@ -2376,9 +2513,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task HashAndChecksumCriteria_FilterVideoFingerprints()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile(
                 "matching-hashes",
@@ -2423,9 +2562,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FingerprintCriterion_FiltersVideosBySelectedAlgorithm()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile(
                 "matching-fingerprint-types",
@@ -2488,9 +2629,10 @@ public class VideoFilterBehaviorTests
     [Fact]
     public void VideoFiles_HaveCoveringIndexForFingerprintJoins()
     {
-        using var context = CreateContext();
+        using var context = CreateModelContext();
 
-        var entityType = context.Model.FindEntityType(typeof(VideoFile));
+        // The runtime model drops design-time annotations such as the index INCLUDE columns.
+        var entityType = context.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(VideoFile));
         var index = Assert.Single(entityType!.GetIndexes(), candidate => candidate.GetDatabaseName() == "IX_files_Id_VideoId_video");
 
         Assert.Equal([nameof(VideoFile.Id)], index.Properties.Select(property => property.Name));
@@ -2499,9 +2641,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task HasSegmentsCriterion_FiltersVideosByRawSegmentPresence()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var withSegments = CreateVideoWithFile("with-segments");
         var withoutSegments = CreateVideoWithFile("without-segments");
         context.Videos.AddRange(withSegments, withoutSegments);
@@ -2539,9 +2683,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DuplicatedPhashCriterion_True_FindsVideosSharingAPhashAcrossVideos()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("duplicate-a", fingerprints: [new FileFingerprint { Type = "phash", Value = "same-phash" }]),
             CreateVideoWithFile("duplicate-b", fingerprints: [new FileFingerprint { Type = "phash", Value = "same-phash" }]),
@@ -2561,11 +2707,13 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_Find_BindsSeedFromQuery()
     {
         var repository = new CapturingVideoRepository();
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
 
         await controller.Find(q: null, page: 1, perPage: 25, sort: "random", direction: "desc", seed: 12345, ct: TestContext.Current.CancellationToken);
@@ -2576,6 +2724,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_DeleteChecksPhysicalFilePermissionBeforeEntityLookup()
     {
         var principals = new CurrentPrincipalAccessor();
@@ -2587,10 +2736,8 @@ public class VideoFilterBehaviorTests
             Permissions = new HashSet<string> { Permissions.VideosDelete },
             Roles = new HashSet<string>(),
         });
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"video-delete-permission-{Guid.NewGuid():N}")
-            .Options;
-        await using var context = new TestCoveContext(options, principals);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = new CoveContext(database.CreateOptions(), principals);
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = new VideosController(
             new VideoRepository(context),
@@ -2612,11 +2759,13 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_Find_BindsOrderedSortClausesFromQuery()
     {
         var repository = new CapturingVideoRepository();
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
 
         await controller.Find(q: null, page: 1, perPage: 25, sort: null, direction: null, seed: null, sorts: "studio:asc,date:desc", ct: TestContext.Current.CancellationToken);
@@ -2630,9 +2779,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoRepository_SortsByStudioThenDate()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var alphaStudio = new Studio { Name = "Alpha" };
         var betaStudio = new Studio { Name = "Beta" };
 
@@ -2671,7 +2822,6 @@ public class VideoFilterBehaviorTests
             items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
-
     [Theory]
     [InlineData("title", false)]
     [InlineData("title", true)]
@@ -2691,9 +2841,11 @@ public class VideoFilterBehaviorTests
     [InlineData("updated_at", true)]
     [InlineData("custom:number:missing", false)]
     [InlineData("custom:number:missing", true)]
+    [RequiresPostgres]
     public async Task VideosWithCompilations_PageTiedRowsByUniqueKindAndId(string sort, bool descending)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var timestamp = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         foreach (var id in new[] { 3, 1 })
         {
@@ -2728,9 +2880,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideosController_FindWithCompilations_ReturnsVideoRangeGroupsAsPagedRows()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var video = CreateVideoWithFile("video row");
         video.CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         video.UpdatedAt = video.CreatedAt;
@@ -2781,9 +2935,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DuplicateSearch_ExactFingerprint_UsesMd5AndOshash()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("md5 duplicate a", basename: "a.mp4", fingerprints: [new FileFingerprint { Type = "md5", Value = "same-md5" }]),
             CreateVideoWithFile("md5 duplicate b", basename: "b.mp4", fingerprints: [new FileFingerprint { Type = "md5", Value = "same-md5" }]),
@@ -2799,9 +2955,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DuplicateSearch_Phash_UsesDistanceAndDurationTolerance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Videos.AddRange(
             CreateVideoWithFile("visual duplicate a", basename: "a.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "0000000000000000" }]),
             CreateVideoWithFile("visual duplicate b", basename: "b.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "0000000000000001" }]),
@@ -2814,9 +2972,11 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task LastPlayedAtSort_Descending_PutsPlayedVideosBeforeUnplayedVideos()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var neverPlayed = new Video { Title = "never-played" };
         var olderPlay = new Video { Title = "older-play" };
         var recentPlay = new Video { Title = "recent-play" };
@@ -2842,18 +3002,30 @@ public class VideoFilterBehaviorTests
         Assert.Equal(["recent-play", "older-play", "never-played"], items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
-    private static Video CreateVideoWithFile(
+    // Folder paths are unique, so each path gets one folder per test. Its explicit id lets the context work out
+    // the paths of new files in the same save, which it looks up by ParentFolderId.
+    private Folder FolderAt(string path)
+    {
+        var key = path.Replace('\\', '/');
+        if (!_folders.TryGetValue(key, out var folder))
+            _folders[key] = folder = new Folder { Id = _folders.Count + 1, Path = path, ModTime = DateTime.UtcNow };
+        return folder;
+    }
+
+    private Video CreateVideoWithFile(
         string title,
         string? director = null,
         DateOnly? videoDate = null,
         string folderPath = @"C:\library",
-        string basename = "clip.mp4",
+        string? basename = null,
         string audioCodec = "AAC",
         string videoCodec = "H264",
         long bitRate = 1_000_000,
         Performer? performer = null,
         IEnumerable<FileFingerprint>? fingerprints = null)
     {
+        // A folder holds each file name once.
+        basename ??= $"clip-{++_defaultFileNames}.mp4";
         var video = new Video
         {
             Title = title,
@@ -2864,7 +3036,7 @@ public class VideoFilterBehaviorTests
         var file = new VideoFile
         {
             Basename = basename,
-            ParentFolder = new Folder { Path = folderPath, ModTime = DateTime.UtcNow },
+            ParentFolder = FolderAt(folderPath),
             AudioCodec = audioCodec,
             VideoCodec = videoCodec,
             BitRate = bitRate,
@@ -2992,22 +3164,22 @@ public class VideoFilterBehaviorTests
         return textDocument;
     }
 
-    private static int AddImageHost(CoveContext context, Image image)
+    private static BaseEntity AddImageHost(CoveContext context, Image image)
     {
         context.Images.Add(image);
-        return image.Id;
+        return image;
     }
 
-    private static int AddAudioHost(CoveContext context, Audio audio)
+    private static BaseEntity AddAudioHost(CoveContext context, Audio audio)
     {
         context.Audios.Add(audio);
-        return audio.Id;
+        return audio;
     }
 
-    private static int AddTextHost(CoveContext context, TextDocument textDocument)
+    private static BaseEntity AddTextHost(CoveContext context, TextDocument textDocument)
     {
         context.TextDocuments.Add(textDocument);
-        return textDocument.Id;
+        return textDocument;
     }
 
     private static async Task FavoritePerformerAsync(CoveContext context, Performer performer)
@@ -3016,14 +3188,18 @@ public class VideoFilterBehaviorTests
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
-    private static CoveContext CreateContext()
+    private static async Task<CoveContext> CreateContextAsync(CovePostgresDatabase database)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"video-filter-behavior-{Guid.NewGuid():N}")
-            .Options;
+        // The signed-in user owns the favorites and play history some tests record, so its row has to exist.
+        await using (var seed = database.CreateContext())
+        {
+            seed.Users.Add(new User { Id = 1, Username = "test-user", PasswordHash = "test" });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
 
-        var principalAccessor = new CurrentPrincipalAccessor();
-        principalAccessor.Set(new CovePrincipal
+        // CurrentPrincipalAccessor keeps the principal in an AsyncLocal, which does not flow out of this async method.
+        var principalAccessor = new FixedPrincipalAccessor(new CovePrincipal
         {
             UserId = 1,
             Username = "test-user",
@@ -3032,8 +3208,21 @@ public class VideoFilterBehaviorTests
             Roles = new HashSet<string>(),
         });
 
-        return new TestCoveContext(options, principalAccessor);
+        return new CoveContext(database.CreateOptions(), principalAccessor);
     }
+
+    private sealed class FixedPrincipalAccessor(CovePrincipal principal) : ICurrentPrincipalAccessor
+    {
+        public CovePrincipal? Current => principal;
+
+        public void Set(CovePrincipal? value) => throw new NotSupportedException();
+    }
+
+    // Builds the PostgreSQL model without connecting, for tests that only inspect it.
+    private static CoveContext CreateModelContext()
+        => new(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=model_only;Username=model_only;Password=model_only", npgsql => npgsql.UseVector())
+            .Options);
 
     private static VideosController CreateVideosController(CoveContext context)
     {
@@ -3091,15 +3280,6 @@ public class VideoFilterBehaviorTests
     private sealed class InlineProgress : IJobProgress
     {
         public void Report(double progress, string? subTask = null) { }
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
     }
 
     private sealed class CapturingVideoRepository : IVideoRepository

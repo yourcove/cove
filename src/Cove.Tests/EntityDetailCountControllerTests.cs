@@ -2,16 +2,19 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Enums;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class EntityDetailCountControllerTests
 {
     [Fact]
@@ -26,7 +29,8 @@ public class EntityDetailCountControllerTests
             Permissions = new HashSet<string> { "*" },
             Roles = new HashSet<string>(),
         });
-        await using var context = CreateContext(principalAccessor);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database, principalAccessor);
 
         var performer = new Performer { Name = "Performer" };
         var video = new Video { Title = "Video" };
@@ -83,7 +87,8 @@ public class EntityDetailCountControllerTests
     [Fact]
     public async Task PerformerDetail_ReturnsTagsSortedByEffectiveSortName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         var performer = new Performer { Name = "Performer" };
         var zulu = new Tag { Name = "Zulu" };
@@ -118,7 +123,8 @@ public class EntityDetailCountControllerTests
     [Fact]
     public async Task StudioDetail_UsesLiveUsageCountsInsteadOfStoredCounters()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         var studio = new Studio { Name = "Studio" };
         var childStudio = new Studio { Name = "Child", Parent = studio };
@@ -177,7 +183,8 @@ public class EntityDetailCountControllerTests
     [Fact]
     public async Task GalleryListAndDetail_UseLiveUsageCountsInsteadOfStoredCounters()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         var studio = new Studio { Name = "Studio" };
         var performer = new Performer { Name = "Performer" };
@@ -240,7 +247,8 @@ public class EntityDetailCountControllerTests
             Permissions = new HashSet<string> { "*" },
             Roles = new HashSet<string>(),
         });
-        await using var context = CreateContext(principalAccessor);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database, principalAccessor);
         var gallery = new Gallery { Title = "Gallery" };
         var image = new Image { Title = "Image" };
         var video = new Video { Title = "Video" };
@@ -264,20 +272,18 @@ public class EntityDetailCountControllerTests
         Assert.Equal(5, Assert.IsType<int>(Assert.IsType<OkObjectResult>(result.Result).Value));
     }
 
-    private static CoveContext CreateContext(ICurrentPrincipalAccessor? principalAccessor = null)
+    private static async Task<CoveContext> CreateContextAsync(CovePostgresDatabase database, ICurrentPrincipalAccessor? principalAccessor = null)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"entity-detail-counts-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options, principalAccessor);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        // User engagement rows reference their user, so the users the tests record likes for have to exist.
+        await using (var seed = database.CreateContext())
         {
-            base.OnModelCreating(modelBuilder);
+            seed.Users.AddRange(
+                new User { Id = 1, Username = "user-1", PasswordHash = "test" },
+                new User { Id = 2, Username = "user-2", PasswordHash = "test" });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
+        await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+
+        return new CoveContext(database.CreateOptions(), principalAccessor);
     }
 }

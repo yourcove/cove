@@ -7,17 +7,18 @@ using Cove.Core.Common;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
 public sealed class DashboardsControllerTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task Bootstrap_is_idempotent_and_preserves_widget_configuration()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var widget = Widget("legacy-row", "cove.core", "collection", "Legacy row", new { mode = "videos", sortBy = "date" });
 
@@ -36,9 +37,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Update_requires_the_current_version_and_preserves_the_draft_on_conflict()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         await SeedContinueWatchingGroupAsync(scope);
         var controller = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
@@ -64,14 +66,15 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Bootstrap_preserves_an_explicitly_empty_legacy_layout_and_defaults_only_when_omitted()
     {
-        await using var emptyScope = CreateScope();
+        await using var emptyScope = await CreateScopeAsync();
         var empty = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await emptyScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
         Assert.Empty(empty.Widgets);
 
-        await using var defaultScope = CreateScope();
+        await using var defaultScope = await CreateScopeAsync();
         var group = await SeedContinueWatchingGroupAsync(defaultScope);
         var defaults = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await defaultScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken)).Result).Value);
@@ -84,10 +87,11 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Bootstrap_defaults_omit_Continue_Watching_when_the_built_in_group_is_missing()
     {
         // A database whose migrations are still pending has no built-in groups to reference.
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var defaults = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await scope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken)).Result).Value);
 
@@ -96,9 +100,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Continue_Watching_is_left_out_for_a_principal_that_cannot_read_groups()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         await SeedContinueWatchingGroupAsync(scope);
         var restricted = scope.ControllerFor(7, Permissions.VideosRead);
 
@@ -109,9 +114,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Dashboards_saved_with_the_legacy_Continue_Watching_widget_are_read_as_the_group_widget()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var group = await SeedContinueWatchingGroupAsync(scope);
         var controller = scope.ControllerFor(7);
         var legacy = Widget("continue", "cove.core", "continue-watching", "Continue Watching", new { });
@@ -132,9 +138,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task A_legacy_Continue_Watching_widget_is_dropped_when_the_built_in_group_is_missing()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var created = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await controller.Bootstrap(
@@ -148,9 +155,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Dashboards_are_scoped_to_the_current_user_and_the_last_cannot_be_deleted()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var owner = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await owner.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
@@ -162,9 +170,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Duplicate_and_delete_default_assign_a_deterministic_fallback()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var first = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
@@ -180,9 +189,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Update_requires_canvas_widgets_to_be_the_only_dashboard_widget()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
             (await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
@@ -205,9 +215,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Update_validates_widget_layout_and_round_trips_it()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var dashboard = await BootstrapAsync(controller, []);
         DashboardWidgetDto WithLayout(DashboardWidgetLayoutDto layout)
@@ -249,9 +260,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Legacy_database_json_without_presentation_can_be_serialized_in_the_response()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         scope.Context.Dashboards.Add(new Dashboard
         {
             UserId = 7,
@@ -274,9 +286,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task View_returns_the_default_dashboard_with_its_list_and_the_saved_filters_its_rows_read()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var own = await SeedSavedFilterAsync(scope, "Mine", userId: 7);
         var other = await SeedSavedFilterAsync(scope, "Someone else's", userId: 8);
         var unrelated = await SeedSavedFilterAsync(scope, "Not on the dashboard", userId: 7);
@@ -304,9 +317,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task View_shows_a_requested_dashboard_and_falls_back_to_the_default_for_one_that_is_not_the_callers()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var controller = scope.ControllerFor(7);
         var home = await BootstrapAsync(controller, []);
         var second = Assert.IsType<DashboardDto>(Assert.IsType<CreatedAtActionResult>(
@@ -324,9 +338,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task View_leaves_saved_filters_out_for_a_principal_that_cannot_read_them()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
         var own = await SeedSavedFilterAsync(scope, "Mine", userId: 7);
         await BootstrapAsync(scope.ControllerFor(7), [SavedFilterWidget("own", own.Id)]);
 
@@ -337,9 +352,10 @@ public sealed class DashboardsControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task View_reports_no_dashboard_before_the_first_one_is_bootstrapped()
     {
-        await using var scope = CreateScope();
+        await using var scope = await CreateScopeAsync();
 
         var view = await ViewAsync(scope.ControllerFor(7), id: null);
 
@@ -390,22 +406,42 @@ public sealed class DashboardsControllerTests
         return group;
     }
 
-    private static TestScope CreateScope()
+    private static async Task<TestScope> CreateScopeAsync()
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"dashboards-{Guid.NewGuid():N}")
-            .Options;
-        return new TestScope(new CoveContext(options));
+        var ct = TestContext.Current.CancellationToken;
+        var database = await CovePostgresDatabase.CreateAsync(ct);
+        try
+        {
+            // Dashboards and saved filters belong to a user, so the users the tests sign in as have to exist.
+            await using (var seed = database.CreateContext())
+            {
+                seed.Users.AddRange(
+                    new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+                    new User { Id = 8, Username = "user-8", PasswordHash = "test" });
+                await seed.SaveChangesAsync(ct);
+            }
+            await database.SyncIdentitySequencesAsync(ct);
+            return new TestScope(database, database.CreateContext());
+        }
+        catch
+        {
+            await database.DisposeAsync();
+            throw;
+        }
     }
 
-    private sealed class TestScope(CoveContext context) : IAsyncDisposable
+    private sealed class TestScope(CovePostgresDatabase database, CoveContext context) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
         public DashboardsController ControllerFor(int? userId, params string[] permissions)
             => new(Context, new TestPrincipalAccessor(userId, permissions.Length == 0 ? ["*"] : permissions));
 
-        public ValueTask DisposeAsync() => Context.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await Context.DisposeAsync();
+            await database.DisposeAsync();
+        }
     }
 
     private sealed class TestPrincipalAccessor(int? userId, string[] permissions) : ICurrentPrincipalAccessor
