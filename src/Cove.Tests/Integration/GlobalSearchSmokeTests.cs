@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class GlobalSearchSmokeTests
 {
     [Fact]

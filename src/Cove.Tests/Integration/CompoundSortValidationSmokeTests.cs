@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class CompoundSortValidationSmokeTests
 {
     [Fact]

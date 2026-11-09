@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class EntityUpdatedAtSmokeTests
 {
     private static readonly DateTime OldTimestamp = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);

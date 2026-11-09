@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class GroupItemsControllerSmokeTests
 {
     [Fact]
@@ -79,6 +81,7 @@ public sealed class GroupItemsControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class VideoSegmentsControllerSmokeTests
 {
     [Fact]
@@ -120,6 +123,7 @@ public sealed class VideoSegmentsControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class SegmentDisplayProfilesControllerSmokeTests
 {
     [Fact]
@@ -195,6 +199,7 @@ public sealed class SegmentDisplayProfilesControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class SegmentsControllerSmokeTests
 {
     [Fact]

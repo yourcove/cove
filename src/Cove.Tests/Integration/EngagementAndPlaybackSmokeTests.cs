@@ -2,10 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class EntityEngagementControllerSmokeTests
 {
     [Fact]
@@ -32,6 +34,7 @@ public sealed class EntityEngagementControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class PlaybackControllerSmokeTests
 {
     [Fact]

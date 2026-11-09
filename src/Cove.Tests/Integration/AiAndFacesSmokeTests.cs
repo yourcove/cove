@@ -2,11 +2,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class AiDataControllerSmokeTests
 {
     [Fact]
@@ -52,6 +54,7 @@ public sealed class AiDataControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class AiRunsControllerSmokeTests
 {
     [Fact]
@@ -87,6 +90,7 @@ public sealed class AiRunsControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class EmbeddingsControllerSmokeTests
 {
     [Fact]
@@ -126,6 +130,7 @@ public sealed class EmbeddingsControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class FacesControllerSmokeTests
 {
     [Fact]

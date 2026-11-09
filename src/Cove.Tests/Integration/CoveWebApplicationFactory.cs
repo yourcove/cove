@@ -4,18 +4,25 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Auth;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 
 namespace Cove.Tests.Integration;
 
+/// <summary>
+/// Hosts the real API on its own <see cref="CovePostgresDatabase"/>, created before the server first
+/// starts and dropped when the factory is disposed. Tests that start the server need a PostgreSQL
+/// server, so mark them <see cref="RequiresPostgresAttribute"/>.
+/// </summary>
 public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const int TestUserId = 1;
@@ -25,8 +32,9 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
 
     private readonly string _environmentName;
     private readonly Action<IServiceCollection>? _configureTestServices;
-    private readonly string _connectionString = $"Data Source=file:cove-{Guid.NewGuid():N}?mode=memory&cache=shared";
-    private readonly SqliteConnection _connection;
+    private readonly object _databaseLock = new();
+    private Task<CovePostgresDatabase>? _database;
+    private bool _databaseDisposed;
     private bool _serverStarted;
 
     public CoveWebApplicationFactory(
@@ -35,20 +43,29 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
     {
         _environmentName = environmentName;
         _configureTestServices = configureTestServices;
-        _connection = CreateOpenConnection(_connectionString);
         UseKestrel(0);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // The host is built synchronously, so a server started by CreateClient or Services waits here for
+        // the database. ResetDatabaseAsync awaits the same task before it starts the server.
+        var database = EnsureDatabaseAsync().GetAwaiter().GetResult();
+
         builder.UseEnvironment(_environmentName);
+        // Program reads Cove:Postgres while it composes the services, before the host is built and before
+        // ConfigureAppConfiguration sources apply, so these go in as host settings, which also take
+        // precedence over COVE__ environment variables. The connection string becomes
+        // CoveConfiguration.DatabaseConnectionString, which services that open their own connections use,
+        // such as the custom-field index reconciler, backups and the database controller.
+        builder.UseSetting("Cove:Postgres:Managed", "false");
+        builder.UseSetting("Cove:Postgres:ConnectionString", database.ConnectionString);
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Cove:Auth:Enabled"] = "true",
                 ["Cove:Auth:JwtSecret"] = "integration-test-secret",
-                ["Cove:Postgres:Managed"] = "false",
             });
         });
 
@@ -56,20 +73,15 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<ITokenService>();
             services.RemoveAll<IExistingUserPrincipalResolver>();
-            services.RemoveAll<CoveContext>();
-            services.RemoveAll<DbContextOptions<CoveContext>>();
-            services.RemoveAll<DbContext>();
+            services.RemoveAll<NpgsqlDataSource>();
 
             services.AddScoped<ITokenService, IntegrationTestTokenService>();
             services.AddScoped<IExistingUserPrincipalResolver>(provider =>
                 (IExistingUserPrincipalResolver)provider.GetRequiredService<ITokenService>());
-            services.AddScoped(_ => new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(_connectionString)
-                .Options);
-            services.AddScoped<CoveContext>(sp => new IntegrationTestCoveContext(
-                sp.GetRequiredService<DbContextOptions<CoveContext>>(),
-                sp.GetRequiredService<ICurrentPrincipalAccessor>()));
-            services.AddScoped<DbContext>(sp => sp.GetRequiredService<CoveContext>());
+            // Production's CoveContext registration takes its data source from the container, so the
+            // contexts keep production's options, interceptors and retry strategy on this database.
+            // Registered as an instance, so the container leaves it to the database to dispose.
+            services.AddSingleton(database.DataSource);
             _configureTestServices?.Invoke(services);
         });
     }
@@ -83,14 +95,38 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
         return client;
     }
 
+    /// <summary>
+    /// Empties every application table of the migrated database and seeds the test user. The schema and
+    /// the migration history stay, so the database is still the one production's migrations built.
+    /// </summary>
     public async Task ResetDatabaseAsync()
     {
+        var database = await EnsureDatabaseAsync();
         EnsureServerStarted();
+
+        // The auth bootstrap seeds permissions and roles in the background as soon as the schema exists.
+        // Stop it first so it cannot write between the truncate and the seed.
+        await Services.GetRequiredService<BootstrapAuthService>().StopAsync(CancellationToken.None);
 
         await using var scope = Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.EnsureDeletedAsync();
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.ExecuteSqlRawAsync("""
+            DO $reset$
+            DECLARE
+                table_list text;
+            BEGIN
+                SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+                INTO table_list
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename <> '__EFMigrationsHistory';
+
+                IF table_list IS NOT NULL THEN
+                    EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
+                END IF;
+            END
+            $reset$;
+            """);
 
         db.Users.Add(new User
         {
@@ -111,7 +147,22 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
             AccountLabel = "integration-user",
         });
         await db.SaveChangesAsync();
+        await database.SyncIdentitySequencesAsync();
     }
+
+    /// <summary>
+    /// Moves the identity sequences past rows a test saved with explicit ids, so a later row saved without
+    /// an id does not collide with them.
+    /// </summary>
+    public async Task SyncIdentitySequencesAsync()
+    {
+        var database = await EnsureDatabaseAsync();
+        await database.SyncIdentitySequencesAsync();
+    }
+
+    /// <summary>The connection string of the database this factory hosts the API on.</summary>
+    public async Task<string> GetDatabaseConnectionStringAsync()
+        => (await EnsureDatabaseAsync()).ConnectionString;
 
     public async Task WithDbContextAsync(Func<CoveContext, Task> action)
     {
@@ -131,19 +182,31 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
         return await action(db);
     }
 
-    protected override void Dispose(bool disposing)
+    // Dispose() comes through here too. The base stops the host first, so the database is dropped only
+    // after the API has returned its connections.
+    public override async ValueTask DisposeAsync()
     {
-        base.Dispose(disposing);
+        await base.DisposeAsync();
 
-        if (disposing)
-            _connection.Dispose();
+        Task<CovePostgresDatabase>? database;
+        lock (_databaseLock)
+        {
+            database = _database;
+            _database = null;
+            _databaseDisposed = true;
+        }
+
+        if (database is { IsCompletedSuccessfully: true })
+            await database.Result.DisposeAsync();
     }
 
-    private static SqliteConnection CreateOpenConnection(string connectionString)
+    private Task<CovePostgresDatabase> EnsureDatabaseAsync()
     {
-        var connection = new SqliteConnection(connectionString);
-        connection.Open();
-        return connection;
+        lock (_databaseLock)
+        {
+            ObjectDisposedException.ThrowIf(_databaseDisposed, this);
+            return _database ??= CovePostgresDatabase.CreateAsync();
+        }
     }
 
     private void EnsureServerStarted()
@@ -173,16 +236,6 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
 
             _serverStarted = true;
         }
-    }
-}
-
-file sealed class IntegrationTestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor)
-    : CoveContext(options, principalAccessor)
-{
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        base.OnModelCreating(modelBuilder);
-
     }
 }
 
