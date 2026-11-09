@@ -266,13 +266,62 @@ public sealed class DeletionSafetyTests
         }
     }
 
+    // Windows and macOS compare paths case-insensitively. Managed PostgreSQL's C locale makes SQL upper() change
+    // only ASCII letters, so the stored and the staged path have to be folded by the same SQL function, or a
+    // file named with an accented letter never matches the row that references it and is deleted.
     [Fact]
-    public void CaseInsensitivePathNormalizationIsInvariant()
+    [RequiresPostgres]
+    public async Task CaseInsensitiveOutboxKeepsReferencedFilesWithNonAsciiNames()
     {
-        Assert.Equal(
-            PhysicalFileDeletionService.NormalizeCaseInsensitivePath("a/Folder/ß.jpg"),
-            PhysicalFileDeletionService.NormalizeCaseInsensitivePath("a/folder/ß.JPG"));
+        var ct = TestContext.Current.CancellationToken;
+        var directory = Directory.CreateTempSubdirectory("cove-outbox-case-");
+        var id = Guid.NewGuid().ToString("N");
+        var referenced = Path.Combine(directory.FullName, $"café-{id}.jpg");
+        var referencedInOtherCase = Path.Combine(directory.FullName, $"crème-{id}-other-case.jpg");
+        // Stored with an uppercase accented letter: SQL upper() under the C locale leaves the candidate's è alone.
+        var referencedInUpperCase = Path.Combine(directory.FullName, $"crème-{id}-upper-case.jpg");
+        var unreferenced = Path.Combine(directory.FullName, $"brûlée-{id}.jpg");
+        try
+        {
+            foreach (var path in new[] { referenced, referencedInOtherCase, referencedInUpperCase, unreferenced })
+                await File.WriteAllBytesAsync(path, [1, 2, 3], ct);
+
+            await using var database = await CovePostgresDatabase.CreateAsync(ct);
+            await using var db = CreateContext(database);
+            Assert.Equal(
+                [("C", "c")],
+                (await db.Database.SqlQueryRaw<DatabaseLocale>("SELECT datctype AS \"Ctype\", datlocprovider::text AS \"Provider\" FROM pg_database WHERE datname = current_database()").ToListAsync(ct)).Select(locale => (locale.Ctype, locale.Provider)).ToList());
+
+            var folder = new Folder { Path = FilesystemPaths.ToStoredPath(directory.FullName), ModTime = DateTime.UtcNow };
+            var video = new Video { Title = "references" };
+            video.Files.Add(new VideoFile { Basename = Path.GetFileName(referenced), ParentFolder = folder, Size = 3, ModTime = DateTime.UtcNow });
+            video.Files.Add(new VideoFile { Basename = $"CRèME-{id}-OTHER-CASE.JPG", ParentFolder = folder, Size = 3, ModTime = DateTime.UtcNow });
+            video.Files.Add(new VideoFile { Basename = $"CRÈME-{id}-UPPER-CASE.JPG", ParentFolder = folder, Size = 3, ModTime = DateTime.UtcNow });
+            db.Videos.Add(video);
+            var context = new BulkDeletionExecutionContext();
+            context.StagePhysicalFiles(db, [referenced, referencedInOtherCase, referencedInUpperCase, unreferenced]);
+            await db.SaveChangesAsync(ct);
+
+            var service = new PhysicalFileDeletionService(db, new PhysicalFileAccessCoordinator())
+            {
+                PathComparison = StringComparison.OrdinalIgnoreCase,
+            };
+            var result = await service.ProcessPendingAsync(context.PhysicalDeletionBatchId, 2, CancellationToken.None);
+
+            Assert.True(File.Exists(referenced));
+            Assert.True(File.Exists(referencedInOtherCase));
+            Assert.True(File.Exists(referencedInUpperCase));
+            Assert.False(File.Exists(unreferenced));
+            Assert.Equal(1, result.Deleted);
+            Assert.Equal(0, result.Failed);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
+
+    private sealed record DatabaseLocale(string Ctype, string Provider);
 
     // The outbox tests need a database; this keeps the identity check they rely on running without one, on the
     // forward-slash path form the outbox stores.

@@ -34,10 +34,28 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
     /// Creates an empty database, or a copy of <paramref name="templateDatabase"/>. The name starts
     /// with <paramref name="namePrefix"/> so leftovers from an interrupted run are easy to recognize.
     /// </summary>
-    public static async Task<PostgreSqlTestDatabase> CreateAsync(
+    public static Task<PostgreSqlTestDatabase> CreateAsync(
         string namePrefix,
         string? templateDatabase,
         CancellationToken cancellationToken = default)
+        => CreateAsync(namePrefix, templateDatabase, options: null, cancellationToken);
+
+    /// <summary>
+    /// Creates an empty database with the encoding and locale managed PostgreSQL initializes its cluster with
+    /// (UTF8 and the libc C locale), whatever the server's default is. upper(), lower() and text ordering follow the
+    /// database's locale, so SQL that depends on them has to be tested under the one managed and all-in-one
+    /// installs use. (A server the user runs themselves may have another default locale.)
+    /// </summary>
+    public static Task<PostgreSqlTestDatabase> CreateWithManagedLocaleAsync(
+        string namePrefix,
+        CancellationToken cancellationToken = default)
+        => CreateAsync(namePrefix, "template0", "ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'", cancellationToken);
+
+    private static async Task<PostgreSqlTestDatabase> CreateAsync(
+        string namePrefix,
+        string? templateDatabase,
+        string? options,
+        CancellationToken cancellationToken)
     {
         var databaseName = $"{namePrefix}_{Guid.NewGuid():N}";
         var admin = LoadAdminConnectionString();
@@ -50,6 +68,8 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
             command.CommandText = templateDatabase == null
                 ? $"CREATE DATABASE {QuoteIdentifier(databaseName)}"
                 : $"CREATE DATABASE {QuoteIdentifier(databaseName)} TEMPLATE {QuoteIdentifier(templateDatabase)}";
+            if (options != null)
+                command.CommandText += " " + options;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

@@ -50,7 +50,9 @@ public sealed class CovePostgresTemplate : IAsyncDisposable
 
     private static async Task<PostgreSqlTestDatabase> CreateAsync(CancellationToken cancellationToken)
     {
-        var template = await PostgreSqlTestDatabase.CreateAsync("cove_tests_template", templateDatabase: null, cancellationToken);
+        // Managed PostgreSQL and the all-in-one image run initdb with --locale=C; a server whose default locale is,
+        // say, en_US.UTF-8 would let upper() and lower() fold characters that those installs leave alone.
+        var template = await PostgreSqlTestDatabase.CreateWithManagedLocaleAsync("cove_tests_template", cancellationToken);
         try
         {
             await using (var dataSource = CovePostgresDatabase.CreateDataSource(template.ConnectionString))

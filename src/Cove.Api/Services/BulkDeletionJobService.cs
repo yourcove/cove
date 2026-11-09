@@ -1000,9 +1000,6 @@ public sealed class BulkEntityDeletionService(
             ct);
     }
 
-    internal static string NormalizeCaseInsensitivePath(string path)
-        => PhysicalFileDeletionService.NormalizeCaseInsensitivePath(path);
-
     private void PublishDeleted(BulkDeletionEntityKind kind, int id)
     {
         var (eventType, entityType) = kind switch
