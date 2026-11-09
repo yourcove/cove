@@ -6,13 +6,15 @@ using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using PermissionKeys = Cove.Core.Auth.Permissions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class FaceSuggestionControllerTests
 {
     [Fact]
@@ -218,45 +220,44 @@ public sealed class FaceSuggestionControllerTests
 
     private static void SetCurrentUser(CurrentPrincipalAccessor principalAccessor, int userId, string username)
     {
+        // The endpoints require faces.read and faces.write, and the authorization filters hide faces and
+        // performers from a user who cannot read them.
         principalAccessor.Set(new CovePrincipal
         {
             UserId = userId,
             Username = username,
             Kind = PrincipalKind.User,
             Roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            Permissions = new HashSet<string>(
+                [PermissionKeys.FacesRead, PermissionKeys.FacesWrite, PermissionKeys.PerformersRead, PermissionKeys.ImagesRead, PermissionKeys.VideosRead],
+                StringComparer.OrdinalIgnoreCase),
         });
     }
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
+        var ct = TestContext.Current.CancellationToken;
+        var database = await CovePostgresDatabase.CreateAsync(ct);
         var principalAccessor = new CurrentPrincipalAccessor();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new FaceSuggestionTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
-        context.Users.AddRange(
-            new User { Id = 7, Username = "tester", PasswordHash = "test" },
-            new User { Id = 11, Username = "linker", PasswordHash = "test" });
-        await context.SaveChangesAsync();
-        return new TestContextScope(context, connection, principalAccessor);
-    }
-
-    private sealed class FaceSuggestionTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        var context = new CoveContext(database.CreateOptions(), principalAccessor);
+        var scope = new TestContextScope(context, database, principalAccessor);
+        try
         {
-            base.OnModelCreating(modelBuilder);
-
+            context.Users.AddRange(
+                new User { Id = 7, Username = "tester", PasswordHash = "test" },
+                new User { Id = 11, Username = "linker", PasswordHash = "test" });
+            await context.SaveChangesAsync(ct);
+            await database.SyncIdentitySequencesAsync(ct);
+            return scope;
+        }
+        catch
+        {
+            await scope.DisposeAsync();
+            throw;
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
         public CurrentPrincipalAccessor PrincipalAccessor { get; } = principalAccessor;
@@ -264,7 +265,7 @@ public sealed class FaceSuggestionControllerTests
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 

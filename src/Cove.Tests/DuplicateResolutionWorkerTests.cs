@@ -6,12 +6,13 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class DuplicateResolutionWorkerTests
 {
     [Fact]
@@ -154,13 +155,13 @@ public sealed class DuplicateResolutionWorkerTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        private readonly SqliteConnection _anchor;
+        private readonly CovePostgresDatabase _database;
         private readonly ServiceProvider _provider;
         private readonly DbContextOptions<CoveContext> _options;
 
-        private Harness(SqliteConnection anchor, ServiceProvider provider, DbContextOptions<CoveContext> options)
+        private Harness(CovePostgresDatabase database, ServiceProvider provider, DbContextOptions<CoveContext> options)
         {
-            _anchor = anchor;
+            _database = database;
             _provider = provider;
             _options = options;
         }
@@ -171,10 +172,8 @@ public sealed class DuplicateResolutionWorkerTests
 
         public static async Task<Harness> CreateAsync()
         {
-            var connectionString = $"Data Source=duplicate-worker-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
-            var anchor = new SqliteConnection(connectionString);
-            await anchor.OpenAsync();
-            var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connectionString).Options;
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            var options = database.CreateOptions();
             var services = new ServiceCollection();
             services.AddScoped<ICurrentPrincipalAccessor, CurrentPrincipalAccessor>();
             services.AddScoped(provider => new CoveContext(options, provider.GetRequiredService<ICurrentPrincipalAccessor>()));
@@ -201,10 +200,7 @@ public sealed class DuplicateResolutionWorkerTests
                 provider.GetRequiredService<IStreamService>(),
                 provider.GetRequiredService<IEventBus>()));
             var provider = services.BuildServiceProvider();
-            var harness = new Harness(anchor, provider, options);
-            await using var db = harness.CreateContext();
-            await db.Database.EnsureCreatedAsync();
-            return harness;
+            return new Harness(database, provider, options);
         }
 
         public CoveContext CreateContext() => new(_options);
@@ -229,6 +225,7 @@ public sealed class DuplicateResolutionWorkerTests
             if (!await db.Users.AnyAsync(user => user.Id == 1))
                 db.Users.Add(new Cove.Core.Entities.Auth.User { Id = 1, Username = "duplicate-reviewer", PasswordHash = "test" });
             await db.SaveChangesAsync();
+            await _database.SyncIdentitySequencesAsync();
             db.AddRange(
                 new VideoTag { VideoId = keeper.Id, TagId = keeperTag.Id },
                 new VideoTag { VideoId = duplicate.Id, TagId = duplicateTag.Id },
@@ -293,7 +290,7 @@ public sealed class DuplicateResolutionWorkerTests
         public async ValueTask DisposeAsync()
         {
             await _provider.DisposeAsync();
-            await _anchor.DisposeAsync();
+            await _database.DisposeAsync();
         }
     }
 

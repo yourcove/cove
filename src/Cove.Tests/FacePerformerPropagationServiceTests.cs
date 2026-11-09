@@ -5,12 +5,13 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class FacePerformerPropagationServiceTests
 {
     private const string AssignmentOwner = "cove.face-performer-propagation";
@@ -419,7 +420,7 @@ public sealed class FacePerformerPropagationServiceTests
     [Fact]
     public async Task Link_WritesEachImageOnceWithItsPerformerCount()
     {
-        var counter = new CommandCounter { Filter = "UPDATE \"images\"" };
+        var counter = new CommandCounter { Filter = "UPDATE images " };
         await using var scope = await CreateContextAsync(counter);
         var context = scope.Context;
         var ct = TestContext.Current.CancellationToken;
@@ -577,16 +578,13 @@ public sealed class FacePerformerPropagationServiceTests
 
     private static async Task<TestContextScope> CreateContextAsync(DbCommandInterceptor? interceptor = null)
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var builder = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection);
-        if (interceptor is not null)
-            builder.AddInterceptors(interceptor);
-
-        var context = new CoveContext(builder.Options);
-        await context.Database.EnsureCreatedAsync();
-        return new TestContextScope(context, connection);
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var context = database.CreateContext(builder =>
+        {
+            if (interceptor is not null)
+                builder.AddInterceptors(interceptor);
+        });
+        return new TestContextScope(context, database);
     }
 
     private static async Task<List<int>> ImagePerformerIdsAsync(CoveContext context, int imageId, CancellationToken ct)
@@ -636,14 +634,14 @@ public sealed class FacePerformerPropagationServiceTests
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 }

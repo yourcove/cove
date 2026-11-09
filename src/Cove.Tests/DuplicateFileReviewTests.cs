@@ -6,10 +6,10 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using IVideoFileMaintenanceService = Cove.Plugins.IVideoFileMaintenanceService;
 using VideoFileOperationResult = Cove.Plugins.VideoFileOperationResult;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,16 +17,15 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Cove.Tests;
 
 /// <summary>The "files" duplicate search, which reviews the files attached to a single video.</summary>
+[RequiresPostgres]
 public sealed class DuplicateFileReviewTests
 {
     [Fact]
     public async Task FilesSearchGroupsTheFilesOfEachVideoAndKeepsTheHighestResolution()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(ct);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(ct);
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = database.CreateContext();
 
         var folder = new Folder { Path = "/library" };
         var upgraded = new Video
@@ -78,11 +77,9 @@ public sealed class DuplicateFileReviewTests
     public async Task FileGroupsAreListedAndDecidedByFileWhileMergeIsRejected()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(ct);
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
         var principalAccessor = CreatePrincipalAccessor();
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options, principalAccessor);
-        await db.Database.EnsureCreatedAsync(ct);
+        await using var db = new CoveContext(database.CreateOptions(), principalAccessor);
         var (search, group, video, primary, other) = await SeedFileGroupAsync(db, primaryIsKept: true, ownerKey: "user:1");
 
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
@@ -128,11 +125,9 @@ public sealed class DuplicateFileReviewTests
     public async Task KeepingBothFilesIsRememberedForLaterFilesSearchesAndCanBeUndone()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(ct);
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
         var principalAccessor = CreatePrincipalAccessor();
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options, principalAccessor);
-        await db.Database.EnsureCreatedAsync(ct);
+        await using var db = new CoveContext(database.CreateOptions(), principalAccessor);
         var (search, group, _, primary, other) = await SeedFileGroupAsync(db, primaryIsKept: true, ownerKey: "user:1");
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
@@ -247,9 +242,6 @@ public sealed class DuplicateFileReviewTests
         return (search, group, video, primary, other);
     }
 
-    private static CoveContext CreateContext(SqliteConnection connection)
-        => new(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
-
     private static CurrentPrincipalAccessor CreatePrincipalAccessor()
     {
         var accessor = new CurrentPrincipalAccessor();
@@ -288,13 +280,13 @@ public sealed class DuplicateFileReviewTests
 
     private sealed class WorkerHarness : IAsyncDisposable
     {
-        private readonly SqliteConnection _anchor;
+        private readonly CovePostgresDatabase _database;
         private readonly ServiceProvider _provider;
         private readonly DbContextOptions<CoveContext> _options;
 
-        private WorkerHarness(SqliteConnection anchor, ServiceProvider provider, DbContextOptions<CoveContext> options, RecordingFileMaintenance maintenance)
+        private WorkerHarness(CovePostgresDatabase database, ServiceProvider provider, DbContextOptions<CoveContext> options, RecordingFileMaintenance maintenance)
         {
-            _anchor = anchor;
+            _database = database;
             _provider = provider;
             _options = options;
             Maintenance = maintenance;
@@ -304,19 +296,14 @@ public sealed class DuplicateFileReviewTests
 
         public static async Task<WorkerHarness> CreateAsync()
         {
-            var connectionString = $"Data Source=duplicate-files-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
-            var anchor = new SqliteConnection(connectionString);
-            await anchor.OpenAsync();
-            var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connectionString).Options;
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            var options = database.CreateOptions();
             var maintenance = new RecordingFileMaintenance(options);
             var services = new ServiceCollection();
             services.AddScoped<ICurrentPrincipalAccessor, CurrentPrincipalAccessor>();
             services.AddScoped(provider => new CoveContext(options, provider.GetRequiredService<ICurrentPrincipalAccessor>()));
             services.AddSingleton<IVideoFileMaintenanceService>(maintenance);
-            var harness = new WorkerHarness(anchor, services.BuildServiceProvider(), options, maintenance);
-            await using var db = harness.CreateContext();
-            await db.Database.EnsureCreatedAsync();
-            return harness;
+            return new WorkerHarness(database, services.BuildServiceProvider(), options, maintenance);
         }
 
         public CoveContext CreateContext() => new(_options);
@@ -340,7 +327,7 @@ public sealed class DuplicateFileReviewTests
         public async ValueTask DisposeAsync()
         {
             await _provider.DisposeAsync();
-            await _anchor.DisposeAsync();
+            await _database.DisposeAsync();
         }
     }
 

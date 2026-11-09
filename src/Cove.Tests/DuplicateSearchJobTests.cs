@@ -4,6 +4,7 @@ using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -12,9 +13,11 @@ namespace Cove.Tests;
 public sealed class DuplicateSearchJobTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task StartPersistsOwnerScopeRulesAndQueuesDurableResultLink()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var jobs = new CapturingJobService();
         var service = new DuplicateSearchJobService(db, jobs, null!);
 
@@ -62,9 +65,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartClampsPathologicalPHashDistance()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
 
         await service.StartAsync(
@@ -228,9 +233,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MissingKeeperMakesTheRemainingGroupIneligibleForDeletion()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var keeper = new Video { Title = "Keeper" };
         var unwanted = new Video { Title = "Unwanted" };
         var search = CompletedSearch();
@@ -254,9 +261,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SharedKeeperAllowsEveryOtherMemberOfAnOversizedGroupToBeDeleted()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var videos = Enumerable.Range(1, 101).Select(id => new Video { Title = $"Video {id}" }).ToArray();
         db.Videos.AddRange(videos);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -285,9 +294,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AVideoKeptByAnotherGroupIsNeverRemovedByThisGroup()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")], [(false, "a"), (true, "c")]]);
 
         var removable = await DuplicateSearchJobService
@@ -301,9 +312,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task KeeperReservationPreventsAnIndependentVideoDelete()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var keeper = new Video { Title = "Reserved keeper" };
         var search = CompletedSearch();
         db.AddRange(keeper, search);
@@ -322,9 +335,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task QueuingReviewableGroupsStartsExactlyOneWorkerPerSearch()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var (search, groups, _) = await AddSearchAsync(db,
         [
             [(true, "a"), (false, "b")],
@@ -356,9 +371,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task LostWorkerReturnsItsGroupsToReviewWithAnExplanation()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")], [(true, "c"), (false, "d")]]);
         await ClaimAsync(db, search, "lost-job", groups[0], DuplicateGroupStatus.Processing, videos["a"]);
         await db.DuplicateSearchGroups
@@ -383,9 +400,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RunningOrPreEnqueueWorkersAreNotReconciled()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")]]);
         await ClaimAsync(db, search, "running-job", groups[0], DuplicateGroupStatus.Processing, videos["a"]);
         var jobs = new CapturingJobService
@@ -404,9 +423,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CancellingAWorkerBeforeItRunsReturnsQueuedGroupsToReview()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")]]);
         await ClaimAsync(db, search, "queued-job", groups[0], DuplicateGroupStatus.Queued, videos["a"]);
         var service = new DuplicateResolutionService(db, new CapturingJobService(), null!, new CoveConfiguration());
@@ -420,9 +441,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartupRecoveryInterruptsSearchesAndReturnsInFlightGroupsToReview()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var running = CompletedSearch();
         running.Status = DuplicateSearchStatus.Running;
         db.DuplicateSearches.Add(running);
@@ -430,7 +453,8 @@ public sealed class DuplicateSearchJobTests
         var (search, groups, videos) = await AddSearchAsync(db, [[(true, "a"), (false, "b")], [(true, "c"), (false, "d")]]);
         await ClaimAsync(db, search, "lost-job", groups[0], DuplicateGroupStatus.Processing, videos["a"]);
 
-        var recoveredAt = DateTime.UtcNow;
+        // PostgreSQL stores microseconds, so the timestamp must survive the round trip unchanged.
+        var recoveredAt = new DateTime(DateTime.UtcNow.Ticks / 10 * 10, DateTimeKind.Utc);
         await DuplicateSearchRecoveryService.RecoverAsync(db, recoveredAt, CancellationToken.None);
 
         db.ChangeTracker.Clear();
@@ -450,11 +474,13 @@ public sealed class DuplicateSearchJobTests
     [InlineData("remoteId")]
     [InlineData("fingerprint")]
     [InlineData("phash")]
+    [RequiresPostgres]
     public async Task ExecutionRejectsOversizedMetadataAndRecordsFailure(string matchType)
     {
         var ct = TestContext.Current.CancellationToken;
         var commands = new CandidateCommandCapture();
-        await using var db = CreateContext(commands);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, commands);
         var value = new string('a', DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1000);
         var video = new Video { Title = matchType == "title" ? value : "candidate" };
         if (matchType == "remoteId") video.RemoteIds.Add(new VideoRemoteId { Endpoint = "endpoint", RemoteId = value });
@@ -472,7 +498,7 @@ public sealed class DuplicateSearchJobTests
         var service = new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration());
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExecuteAsync(search.Id, null, new SilentProgress(), ct));
         Assert.Contains("character field limit", error.Message);
-        Assert.Contains(commands.Commands, sql => sql.Contains("substr(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT"));
+        Assert.Contains(commands.Commands, sql => sql.Contains("substring(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT"));
         db.ChangeTracker.Clear();
         var saved = await db.DuplicateSearches.SingleAsync(ct);
         Assert.Equal(DuplicateSearchStatus.Failed, saved.Status);
@@ -481,9 +507,11 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ExplicitCandidateLimitStopsEnqueueBeforeRetainingOversizedSelection()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
         var ids = Enumerable.Range(1, DuplicateSearchMemoryBudget.MaximumVideos + 1).ToArray();
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(null, null, new DuplicateSearchStartRequest("title", 0, 0), ids, TestContext.Current.CancellationToken));
@@ -492,10 +520,12 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ScopedCandidateLoadingStreamsFilesAndPreservesPathDurationAndMetadataOnlyRules()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var includedFolder = new Folder { Path = "/library/keep" };
         var excludedFolder = new Folder { Path = "/library/trash" };
         db.Folders.AddRange(includedFolder, excludedFolder);
@@ -550,10 +580,12 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task KeeperFactsStreamFilesAndRejectOversizedRetainedPaths()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var folder = new Folder { Path = "/library/keeper" };
         db.Folders.Add(folder);
         await db.SaveChangesAsync(ct);
@@ -631,11 +663,13 @@ public sealed class DuplicateSearchJobTests
     [InlineData("title")]
     [InlineData("remoteId")]
     [InlineData("fingerprint")]
+    [RequiresPostgres]
     public async Task ExactMatchesCrossPagesAndCandidateChunksWithoutExpandingScope(string matchType)
     {
         var ct = TestContext.Current.CancellationToken;
         var commands = new CandidateCommandCapture();
-        await using var db = CreateContext(commands);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, commands);
         var folder = new Folder { Path = "/duplicate-pages" };
         db.Folders.Add(folder);
         await db.SaveChangesAsync(ct);
@@ -663,13 +697,15 @@ public sealed class DuplicateSearchJobTests
             else Assert.Empty(groups);
             Assert.Equal(DuplicateSearchStatus.Completed, (await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id, ct)).Status);
         }
-        Assert.Contains(commands.Commands, sql => sql.Contains("substr(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT") && sql.Contains(" > @"));
+        Assert.Contains(commands.Commands, sql => sql.Contains("substring(", StringComparison.OrdinalIgnoreCase) && sql.Contains("LIMIT") && sql.Contains(" > @"));
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CancellationDuringCandidateLoadingPersistsCancelledStatus()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         using var cancellation = new CancellationTokenSource();
         db.Videos.Add(new Video { Title = "cancellation candidate" });
         var search = new DuplicateSearch { MatchType = "title", ExpiresAt = DateTime.UtcNow.AddDays(1) };
@@ -703,19 +739,12 @@ public sealed class DuplicateSearchJobTests
         public void Report(double progress, string? subTask = null) { }
     }
 
-    internal static CoveContext CreateContext() => CreateContext(null);
-
-    private static CoveContext CreateContext(DbCommandInterceptor? interceptor)
-    {
-        var builder = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>();
-        if (interceptor is not null) builder.AddInterceptors(interceptor);
-        var context = new CoveContext(builder.Options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
-    }
+    private static CoveContext CreateContext(CovePostgresDatabase database, DbCommandInterceptor? interceptor = null)
+        => database.CreateContext(builder =>
+        {
+            builder.ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>();
+            if (interceptor is not null) builder.AddInterceptors(interceptor);
+        });
 
     private static DuplicateSearch CompletedSearch() => new()
     {

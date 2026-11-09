@@ -8,7 +8,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
 
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
@@ -19,6 +19,7 @@ namespace Cove.Tests;
 public sealed class AiDataPurgeServiceTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task GetSummaryAsync_UsesAiRunModelFallback()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -59,6 +60,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_BySourceRunId_RemovesMatchingArtifactsAcrossKinds()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -174,6 +176,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_RemovesAiRunWhenPurgedArtifactsLeaveNoRemainingRunData()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -233,6 +236,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_KeepsAiRunWhenOtherArtifactsStillReferenceRun()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -290,6 +294,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_RemovesSelectedAiRunWhenNoArtifactsRemain()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -323,6 +328,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_DryRunCountsSelectedAiRunWhenNoArtifactsRemain()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -350,6 +356,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_RemovesAiTagApplicationsButKeepsManualTags()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -421,6 +428,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DryRun_ReturnsCounts_WithoutMutating()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -489,6 +497,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DryRun_WithFaceKind_DoesNotDoubleCountFaceOwnedArtifacts()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -555,6 +564,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_ByAiFacesSource_RemovesFacesResolvedFromAppearances()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -602,6 +612,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_EvictsCachedVideoSpanResultsWhenVideoSegmentsAreDeleted()
     {
         await using var environment = await CreateEnvironmentAsync();
@@ -653,6 +664,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DeleteEmbeddingsAsync_LargeMatchSet_DeletesInMultipleBatches()
     {
         var saveChangesCounter = new SaveChangesCounterInterceptor();
@@ -691,6 +703,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetSummaryAsync_CountsShotSetsAndMarksEditedOnes()
     {
         await using var environment = await CreateShotEnvironmentAsync();
@@ -712,6 +725,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_RemovesShotSetsOfTheSelectedVideoWithTheirShots()
     {
         await using var environment = await CreateShotEnvironmentAsync();
@@ -735,6 +749,7 @@ public sealed class AiDataPurgeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PurgeAsync_KeepsAiRunStillReferencedByAShotSet()
     {
         await using var environment = await CreateShotEnvironmentAsync();
@@ -787,12 +802,8 @@ public sealed class AiDataPurgeServiceTests
 
     private static async Task<TestEnvironment> CreateShotEnvironmentAsync()
     {
-        // Shot sets rely on the database cascade from set to shots, so foreign keys are enforced.
-        var connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
-        await connection.OpenAsync();
-        var context = new AiDataTestContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
-        await context.Database.EnsureCreatedAsync();
-        return new TestEnvironment(connection, context);
+        // Shot sets rely on the database cascade from set to shots, which the migrated schema enforces.
+        return await CreateEnvironmentAsync();
     }
 
     private static async Task<Video> SeedVideoWithFilesAsync(CoveContext db, int fileCount)
@@ -830,31 +841,13 @@ public sealed class AiDataPurgeServiceTests
 
     private static async Task<TestEnvironment> CreateEnvironmentAsync(params IInterceptor[] interceptors)
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var optionsBuilder = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection);
-
-        if (interceptors.Length > 0)
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var context = database.CreateContext(builder =>
         {
-            optionsBuilder.AddInterceptors(interceptors);
-        }
-
-        var options = optionsBuilder.Options;
-
-        var context = new AiDataTestContext(options);
-        await context.Database.EnsureCreatedAsync();
-        return new TestEnvironment(connection, context);
-    }
-
-    private sealed class AiDataTestContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
+            if (interceptors.Length > 0)
+                builder.AddInterceptors(interceptors);
+        });
+        return new TestEnvironment(database, context);
     }
 
     private sealed class StubBlobService : IBlobService
@@ -885,14 +878,14 @@ public sealed class AiDataPurgeServiceTests
         }
     }
 
-    private sealed class TestEnvironment(SqliteConnection connection, AiDataTestContext context) : IAsyncDisposable
+    private sealed class TestEnvironment(CovePostgresDatabase database, CoveContext context) : IAsyncDisposable
     {
-        public AiDataTestContext Context { get; } = context;
+        public CoveContext Context { get; } = context;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 }
