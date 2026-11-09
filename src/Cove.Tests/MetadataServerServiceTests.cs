@@ -8,6 +8,7 @@ using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -50,16 +51,18 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_MapsGraphQlFixtureAndLocalCandidates()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Studios.Add(new Studio { Name = "Fixture Studio" });
         context.Performers.Add(new Performer { Name = "Jane Doe" });
         context.Tags.Add(new Tag { Name = "Action" });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var video = new Video { Title = "Local Video" };
-        video.Files.Add(new VideoFile { Duration = 118 });
+        video.Files.Add(LibraryVideoFile(118));
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -94,18 +97,20 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_NamesTheLibraryEntityEachCandidateLandsOn()
     {
         // Each remote entity matches a library one under another name: the studio and performer by the
         // remote id linked to them, the tag by an alias. The tagger shows what the video gets.
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Studios.Add(new Studio { Name = "Fixture Studios Inc", RemoteIds = [new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-studio-1" }] });
         context.Performers.Add(new Performer { Name = "Jane D.", RemoteIds = [new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-performer-1" }] });
         context.Tags.Add(new Tag { Name = "Big Breasts", Aliases = [new TagAlias { Alias = "Action" }] });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var video = new Video { Title = "Local Video" };
-        video.Files.Add(new VideoFile { Duration = 118 });
+        video.Files.Add(LibraryVideoFile(118));
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
             "searchVideo": [{{RemoteVideoJson}}]
             """)));
@@ -124,15 +129,17 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StudioKnownByAnAlias_IsMatchedBySearchAndImportInsteadOfDuplicated()
     {
         // The library calls the remote "Fixture Studio" "Fixture Studios Inc", with the remote name as an
         // alias and no remote id linked yet.
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var studio = new Studio { Name = "Fixture Studios Inc", Aliases = [new StudioAlias { Alias = "Fixture Studio" }] };
         context.Studios.Add(studio);
         var video = new Video { Title = "Local Video" };
-        video.Files.Add(new VideoFile { Duration = 118 });
+        video.Files.Add(LibraryVideoFile(118));
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -172,9 +179,11 @@ public sealed class MetadataServerServiceTests
     [InlineData("Transgender Female", "Tess Poe")]
     [InlineData("Unknown", "Sam Roe")]
     [InlineData("", "")]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_AppliesThePerformerGenderFilter(string? genders, string expectedNames)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -213,9 +222,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_ImportedTagRemovedByHandInTheSameImportLeavesTheVideo()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var action = new Tag { Name = "Action" };
         var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = action }] };
         context.Add(video);
@@ -245,9 +256,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_OverwriteTakesOffATagItDropsWhateverRecordedIt()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var handAdded = new Tag { Name = "Added by hand" };
         var derived = new Tag { Name = "Added by an extension" };
         var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = handAdded }] };
@@ -294,9 +307,11 @@ public sealed class MetadataServerServiceTests
     [Theory]
     [InlineData("existing")]
     [InlineData("create")]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_GenderFilterOutranksAPerformerOverride(string action)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existing = new Performer { Name = "John Roe" };
         var video = new Video { Title = "Original Video" };
         context.AddRange(existing, video);
@@ -342,9 +357,11 @@ public sealed class MetadataServerServiceTests
     // Linking it in the review must use it rather than create a duplicate, and link it to this server
     // so the next video from here finds it by remote id on its own.
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_UsesALinkedPerformerAndRecordsTheRemoteId()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existing = new Performer { Name = "Jane D.", Disambiguation = "from server A" };
         existing.RemoteIds.Add(new PerformerRemoteId { Endpoint = "https://server-a.example/graphql", RemoteId = "a-performer-1" });
         var video = new Video { Title = "Original Video" };
@@ -413,9 +430,11 @@ public sealed class MetadataServerServiceTests
 
     // A performer that already has a link for this server keeps it when linked to a different remote entry.
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_KeepsALinkedPerformersExistingRemoteIdForTheServer()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existing = new Performer { Name = "Jane D." };
         existing.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "another-remote-performer" });
         var video = new Video { Title = "Original Video" };
@@ -449,9 +468,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_KeepsExistingPerformersWhenTheGenderFilterAdmitsNothing()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var current = new Performer { Name = "Already Linked" };
         var video = new Video { Title = "Original Video" };
         video.VideoPerformers.Add(new VideoPerformer { Performer = current });
@@ -490,9 +511,11 @@ public sealed class MetadataServerServiceTests
     // Tagging a video links performers; it never edits them. Only a performer this import creates is
     // populated from the remote.
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_LeavesAnExistingPerformerUntouched()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         // Matched by identity: same name and disambiguation as the remote, everything else its own.
         var existing = new Performer
         {
@@ -532,9 +555,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_PopulatesAndLinksAPerformerItCreates()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -565,9 +590,11 @@ public sealed class MetadataServerServiceTests
     // database returned first and rename it to the remote name, which either renamed a studio nobody
     // pointed at or, when the name was taken, failed the whole import with a name conflict.
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_PrefersTheRemoteIdOwnerTheRemoteNames()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var namesake = new Studio { Name = "Other Studio" };
         namesake.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-studio-1" });
         var named = new Studio { Name = "Fixture Studio" };
@@ -598,9 +625,12 @@ public sealed class MetadataServerServiceTests
     // Two concurrent imports needing the same missing studio both create it, and the name constraint lets
     // only one commit. The loser used to fail its whole import; it should link the winner's studio instead.
     [Fact]
+    [RequiresPostgres]
     public async Task ImportFromMetadataServer_LinksTheStudioAConcurrentImportCreatedFirst()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var run = await RunImportAgainstARivalAsync(
+            database,
             new MetadataServerVideoImportRequestDto { SetPerformers = false, SetTags = false },
             rival => rival.Add(RivalStudio(withRemoteId: true)).Entity,
             RivalCommits.OnSave(() => new EntityNameConflictException(NameConflictEntityTypes.Studio)));
@@ -617,9 +647,12 @@ public sealed class MetadataServerServiceTests
     // identity index, which the failed attempt had already built without it. The retry must rebuild it or
     // it misses the winner and creates the duplicate the constraint just refused.
     [Fact]
+    [RequiresPostgres]
     public async Task ImportFromMetadataServer_RebuildsTheNameIndexBeforeRetrying()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var run = await RunImportAgainstARivalAsync(
+            database,
             new MetadataServerVideoImportRequestDto { SetPerformers = false, SetTags = false },
             rival => rival.Add(RivalStudio(withRemoteId: false)).Entity,
             RivalCommits.OnSave(() => new EntityNameConflictException(NameConflictEntityTypes.Studio)));
@@ -635,9 +668,12 @@ public sealed class MetadataServerServiceTests
     // so the loser of this race is refused by the context's own name check when it saves, with its own
     // exception. The rival commits after the import resolved its tags and before it saves.
     [Fact]
+    [RequiresPostgres]
     public async Task ImportFromMetadataServer_LinksTheTagAConcurrentImportCommittedBeforeTheSave()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var run = await RunImportAgainstARivalAsync(
+            database,
             new MetadataServerVideoImportRequestDto { SetPerformers = false, SetStudio = false },
             rival => rival.Add(new Tag { Name = "Action" }).Entity,
             RivalCommits.OnTagProvenance);
@@ -648,9 +684,12 @@ public sealed class MetadataServerServiceTests
     // The same race when the rival commits while the import is still resolving the tag: the import's own
     // namespace check sees the winner and refuses to create a second tag of that name.
     [Fact]
+    [RequiresPostgres]
     public async Task ImportFromMetadataServer_LinksTheTagAConcurrentImportCommittedDuringResolution()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var run = await RunImportAgainstARivalAsync(
+            database,
             new MetadataServerVideoImportRequestDto { SetPerformers = false, SetStudio = false },
             rival => rival.Add(new Tag { Name = "Action" }).Entity,
             RivalCommits.OnTagStaged);
@@ -666,9 +705,12 @@ public sealed class MetadataServerServiceTests
 
     [Theory]
     [MemberData(nameof(LastingConflicts))]
+    [RequiresPostgres]
     public async Task ImportFromMetadataServer_ReportsANameConflictThatOutlastsItsRetries(string entityType, string expectedCode)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var run = await RunImportAgainstARivalAsync(
+            database,
             new MetadataServerVideoImportRequestDto(),
             rival => null,
             RivalCommits.OnSave(
@@ -725,16 +767,13 @@ public sealed class MetadataServerServiceTests
     }
 
     private static async Task<RivalImportRun> RunImportAgainstARivalAsync(
+        CovePostgresDatabase database,
         MetadataServerVideoImportRequestDto request,
         Func<CoveContext, object?> createRival,
         RivalCommits when)
     {
-        var databaseName = $"metadata-import-race-{Guid.NewGuid():N}";
-        var rival = new ConcurrentCreation(databaseName, createRival, when.SaveConflict) { Persistent = when.Persistent };
-        await using var context = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(databaseName)
-            .AddInterceptors(rival)
-            .Options);
+        var rival = new ConcurrentCreation(database, createRival, when.SaveConflict) { Persistent = when.Persistent };
+        await using var context = database.CreateContext(builder => builder.AddInterceptors(rival));
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -777,7 +816,7 @@ public sealed class MetadataServerServiceTests
 
         // Every attempt starts by fetching the remote video, so the fetches count the attempts.
         var attempts = handler.Requests.Count(snapshot => snapshot.Query.Contains("findVideo", StringComparison.Ordinal));
-        var verify = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase(databaseName).Options);
+        var verify = database.CreateContext();
         var saved = await verify.Videos.SingleAsync(item => item.Id == video.Id, TestContext.Current.CancellationToken);
         return new RivalImportRun(response, rival, attempts, verify, saved);
     }
@@ -786,7 +825,7 @@ public sealed class MetadataServerServiceTests
     // chose. It must never run inside the loser's SaveChanges when tags are involved: the context holds its
     // process-wide tag namespace lock for the whole save, and the rival's save would wait on it forever.
     private sealed class ConcurrentCreation(
-        string databaseName,
+        CovePostgresDatabase database,
         Func<CoveContext, object?> createRival,
         Func<Exception>? saveConflict) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
     {
@@ -802,7 +841,7 @@ public sealed class MetadataServerServiceTests
             if (!Armed || _rivalCommitted)
                 return;
             _rivalCommitted = true;
-            using var rival = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase(databaseName).Options);
+            using var rival = database.CreateContext();
             var winner = createRival(rival);
             if (winner == null)
                 return;
@@ -856,9 +895,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_LeavesAnExistingStudioUntouched()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var linked = new Studio { Name = "Linked Studio" };
         linked.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-studio-1" });
         // A second studio already answers to the remote's name: renaming the linked one would have
@@ -889,9 +930,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_LeavesAnExistingTagUntouched()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existing = new Tag { Name = "Local Tag Name", Description = "Local description" };
         existing.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         var video = new Video { Title = "Original Video" };
@@ -920,11 +963,13 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_FingerprintOnly_DoesNotUseRemoteIdOrTextFallback()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Local Video" };
-        var file = new VideoFile { Duration = 118 };
+        var file = LibraryVideoFile(118);
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "existing-remote-id" });
@@ -946,9 +991,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_RemoteIdMatchStopsBeforeFingerprintAndUsesEquivalentEndpoint()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = "https://api.metadata.example/graphql", RemoteId = "remote-video-1" });
         var handler = new FixtureMetadataServerHandler(request =>
@@ -968,9 +1015,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_RemoteIdFingerprint_DoesNotUseTextFallback()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
         var handler = new FixtureMetadataServerHandler(request =>
@@ -992,9 +1041,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_RemoteIdOnly_DoesNotUseFingerprintOrTextFallback()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
         var handler = new FixtureMetadataServerHandler(request =>
@@ -1014,9 +1065,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_CombinedStrategyFallsBackInOrderToText()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
         var handler = new FixtureMetadataServerHandler(request =>
@@ -1045,9 +1098,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_CombinedStrategyKeepsFingerprintCandidateAlongsideStaleRemoteId()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "stale-video" });
         var staleVideoJson = RemoteVideoJson.Replace("remote-video-1", "stale-video", StringComparison.Ordinal);
@@ -1075,9 +1130,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_OmittedStrategyKeepsCombinedCandidateBehavior()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = CreateSearchStrategyVideo();
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "stale-video" });
         var staleVideoJson = RemoteVideoJson.Replace("remote-video-1", "stale-video", StringComparison.Ordinal);
@@ -1103,9 +1160,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task NonStrictSearches_LogOneWarningOnlyWhenAllMetadataServersFail()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var logger = new RecordingLogger<MetadataServerService>();
         using var httpClient = new HttpClient(new FailingMetadataServerHandler());
         var configuration = new CoveConfiguration
@@ -1132,9 +1191,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StrictTagSearch_ReturnsEmptyAndLogsWarningWhenEndpointFails()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var logger = new RecordingLogger<MetadataServerService>();
         using var httpClient = new HttpClient(new FailingMetadataServerHandler());
         var service = CreateService(context, httpClient, logger: logger);
@@ -1146,9 +1207,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchStudiosAsync_UsesFindStudioByNameForThePornDbEndpoint()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var handler = new FixtureMetadataServerHandler(request =>
         {
             Assert.Contains("findStudio(id:", request.Query, StringComparison.Ordinal);
@@ -1177,9 +1240,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchStudiosAsync_ReturnsEmptyWhenThePornDbHasNoExactStudioMatch()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var handler = new FixtureMetadataServerHandler(request =>
         {
             Assert.Contains("findStudio(id:", request.Query, StringComparison.Ordinal);
@@ -1193,9 +1258,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchStudiosAsync_UsesSearchStudioQueryForStandardEndpoints()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var handler = new FixtureMetadataServerHandler(request =>
         {
             Assert.Contains("searchStudio(term:", request.Query, StringComparison.Ordinal);
@@ -1217,9 +1284,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_KeepsLocalNameAndSkipsRemoteAliasesClaimedByOtherTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag { Name = "Local tag" };
         var canonicalOwner = new Tag { Name = "Remote canonical" };
         var aliasOwner = new Tag
@@ -1262,9 +1331,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_IdentifiesTheExistingClaimWhenANewTagWouldCollide()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Tags.Add(new Tag { Name = "Remote canonical" });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var target = new Tag { Name = "Temporary" };
@@ -1289,9 +1360,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_UsesCurrentTrackedClaimsInsteadOfStaleCachedClaims()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var renamed = new Tag { Name = "Released canonical" };
         var aliasOwner = new Tag
         {
@@ -1337,9 +1410,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_RetainsUnloadedAliasClaimsWhenAnotherAliasChanges()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var owner = new Tag
         {
             Name = "Owner",
@@ -1379,9 +1454,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_ReleasesASeparatelyLoadedDeletedAliasClaim()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var owner = new Tag
         {
             Name = "Owner",
@@ -1413,9 +1490,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_DetectsAnAliasClaimedByAnotherNewTagBeforeSave()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var first = new Tag { Name = "Temporary one" };
         var second = new Tag { Name = "Temporary two" };
         context.AddRange(first, second);
@@ -1448,9 +1527,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_DetectsAPersistedAliasOnATrackedOwnerWhoseAliasesAreNotLoaded()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag { Name = "Local tag" };
         var aliasOwner = new Tag
         {
@@ -1482,36 +1563,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
-    public async Task MergeTagAsync_DoesNotTreatALegacyBlankAliasAsTheEmptyCanonicalClaim()
-    {
-        await using var context = CreateContext();
-        var target = new Tag { Name = "Local tag" };
-        var legacy = new Tag { Name = "Other tag", Aliases = [new TagAlias { Alias = "   " }] };
-        context.AddRange(target, legacy);
-        using (context.SuppressTagNameValidation())
-            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
-            "findTag": {
-              "id": "remote-tag-1",
-              "name": "<empty>",
-              "description": null,
-              "aliases": []
-            }
-            """)));
-        var service = CreateService(context, httpClient);
-
-        var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
-
-        Assert.True(result.Imported);
-        Assert.Empty(result.Warnings);
-        Assert.Equal("<empty>", target.Name);
-    }
-
-    [Fact]
+    [RequiresPostgres]
     public async Task BatchTagTagsAsync_ReportsPartialSuccessInJobProgress()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag { Name = "Local tag" };
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         var aliasOwner = new Tag { Name = "Remote alias" };
@@ -1543,9 +1599,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BatchTagTagsAsync_DoesNotEvaluateOrRecordExcludedIdentityFields()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag { Name = "Local tag", Description = "Local description", Aliases = [new TagAlias { Alias = "Existing alias" }] };
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         context.AddRange(target, new Tag { Name = "Remote canonical" }, new Tag { Name = "Remote alias" });
@@ -1585,9 +1643,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BatchTagTagsAsync_KeepsNameWhenAliasesExcludedAndRemoteNameMatchesOwnAlias()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag { Name = "Local tag", Aliases = [new TagAlias { Alias = "Remote canonical" }] };
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         context.Add(target);
@@ -1620,9 +1680,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeTagAsync_RemovesAnOwnAliasWhenItBecomesTheCanonicalName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var target = new Tag
         {
             Name = "Local tag",
@@ -1652,9 +1714,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task NonStrictSearch_DoesNotLogAggregateWarningWhenAnotherEndpointSucceeds()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var logger = new RecordingLogger<MetadataServerService>();
         using var httpClient = new HttpClient(new MixedMetadataServerHandler());
         var configuration = new CoveConfiguration
@@ -1676,9 +1740,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_ImportsFixtureAndRecordsMetadataProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1751,9 +1817,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_ImportsProductionDateWithItsPrecision()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video", Date = new DateOnly(2020, 1, 1) };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1793,9 +1861,11 @@ public sealed class MetadataServerServiceTests
     [InlineData("merge", 2019, 6, 2, DatePrecision.Day)]
     [InlineData("ignore", 2019, 6, 2, DatePrecision.Day)]
     [InlineData("overwrite", 2023, 11, 1, DatePrecision.Month)]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_AppliesProductionDateStrategyToAnExistingValue(string strategy, int year, int month, int day, DatePrecision precision)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video", ProductionDate = new DateOnly(2019, 6, 2), ProductionDatePrecision = DatePrecision.Day };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1822,9 +1892,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_LeavesProductionDateAloneWhenTheRemoteHasNone()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video", ProductionDate = new DateOnly(2019, 6, 2), ProductionDatePrecision = DatePrecision.Day };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1858,9 +1930,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_FallsBackWhenTheServerHasNoProductionDate()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (endpoint, configuration) = OldBoxConfiguration();
         var remoteVideoJson = RemoteVideoJson.Replace("\"production_date\": \"2023-11\",", string.Empty, StringComparison.Ordinal);
         // How stash-box (gqlgen) rejects a selection its schema does not have.
@@ -1886,9 +1960,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SearchVideosAsync_KeepsProductionDateWhenTheFailureWasNotAboutIt()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (endpoint, configuration) = OldBoxConfiguration();
         var serverDown = true;
         // A gateway error that echoes the request mentions the field without the schema lacking it.
@@ -1912,9 +1988,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_RetriesWithoutProductionDateWhenTheServerRejectsIt()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (endpoint, configuration) = OldBoxConfiguration();
         var video = new Video { Title = "Draft Video", ProductionDate = new DateOnly(2024, 3, 1), ProductionDatePrecision = DatePrecision.Month };
         context.Videos.Add(video);
@@ -1943,9 +2021,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_AllowsRemoteTagsWithNullAliases()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1977,9 +2057,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_SkipsAConflictingRelatedTagAlias()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var aliasOwner = new Tag { Name = "Activity" };
         var video = new Video { Title = "Original Video" };
         context.AddRange(aliasOwner, video);
@@ -2010,9 +2092,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_KeepsAConflictingRelatedTagAliasSilentWhenTheRemoteIdMatched()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var owner = new Tag { Name = "Action" };
         owner.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         var aliasOwner = new Tag { Name = "Activity" };
@@ -2046,9 +2130,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_PrefersThePersistedRemoteIdOwnerOverATagAddedByNameInTheSameSave()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var owner = new Tag { Name = "Local canonical" };
         owner.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         var video = new Video { Title = "Original Video" };
@@ -2091,9 +2177,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_LinksTheExistingOwnerWhenRemoteNameMatchesItsAlias()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existing = new Tag
         {
             Name = "Local canonical",
@@ -2127,9 +2215,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_DeduplicatesRepeatedRemoteTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2159,7 +2249,9 @@ public sealed class MetadataServerServiceTests
     [InlineData("Activity")]
     public async Task MergeVideoWithWarningsAsync_ReusesANewTrackedNamespaceOwnerForAnotherRemoteId(string secondName)
     {
-        await using var context = CreateContext();
+        // Kept on the in-memory provider, which gives an added tag a real id at once. On PostgreSQL the tag the
+        // first remote tag creates keeps Id 0 until it is saved, so the second remote tag renames it.
+        await using var context = CreateInMemoryContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2188,13 +2280,18 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoWithWarningsAsync_UsesPersistedResolverPolicyInsteadOfAPretrackedLegacyConflict()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var lowestId = new Tag { Name = "Action" };
         var pretracked = new Tag { Name = " action " };
         var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = pretracked }] };
         context.AddRange(lowestId, pretracked, video);
+        // The tag name constraint is deferred, so the conflicting pair can only exist inside a transaction
+        // that never commits; the merge itself does not save.
+        await using var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         using (context.SuppressTagNameValidation())
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -2215,9 +2312,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergeVideoAsync_MatchesPerformerIdentityAndNormalizedStudioName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var sameNameDifferentPerson = new Performer { Name = "Jane Doe", Disambiguation = "Other person" };
         var matchingPerformer = new Performer { Name = " jane doe ", Disambiguation = null };
         var matchingStudio = new Studio { Name = " fixture studio " };
@@ -2253,9 +2352,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BatchTagPerformersAsync_UsesGraphQlImportAndRestoresExcludedFields()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer { Name = "Local Jane" };
         performer.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-performer-1" });
         context.Performers.Add(performer);
@@ -2300,9 +2401,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BatchTagPerformersAsync_IsolatesAnIdentityConflictFromLaterItems()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var conflictingIdentity = new Performer { Name = "Collision", Disambiguation = "Fixture performer" };
         var first = new Performer { Name = "First local" };
         first.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
@@ -2342,9 +2445,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BatchTagStudiosAsync_RebuildsIdentityLookupAfterAnEarlierRename()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var existingParent = new Studio { Name = "Existing parent", ImageBlobId = "existing-image" };
         var first = new Studio { Name = "Former name" };
         first.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
@@ -2406,9 +2511,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_SendsExpectedGraphQlPayload()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var studio = new Studio { Name = "Fixture Studio" };
         studio.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-studio-1" });
         var performer = new Performer { Name = "Jane Doe" };
@@ -2430,7 +2537,7 @@ public sealed class MetadataServerServiceTests
         video.Urls.Add(new VideoUrl { Url = "https://cove.example/videos/draft" });
         video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
         video.VideoTags.Add(new VideoTag { Tag = tag });
-        var file = new VideoFile { Duration = 121 };
+        var file = LibraryVideoFile(121);
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         context.Videos.Add(video);
@@ -2477,9 +2584,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_UploadsTheVideoCoverAsTheDraftImage()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Covered Video", ImageBlobId = "cover-blob" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2515,6 +2624,7 @@ public sealed class MetadataServerServiceTests
     [Theory]
     [InlineData("gif")]
     [InlineData("webp")]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_ConvertsACoverTheMetadataServerCannotReadToAPngOfItsFirstFrame(string format)
     {
         // stash-box rejects the whole draft over an image that is not JPEG, PNG or a still WebP.
@@ -2530,6 +2640,7 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_ConvertsASingleFrameAnimatedWebpCover()
     {
         // One frame, but in an animation container, which stash-box's WebP decoder cannot read either.
@@ -2546,6 +2657,7 @@ public sealed class MetadataServerServiceTests
     [InlineData("jpeg")]
     [InlineData("png")]
     [InlineData("webp")]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_UploadsACoverTheMetadataServerAcceptsUnchanged(string format)
     {
         var cover = TestImages.Encode(TestImages.Solid(3, 2, new Rgba32(255, 0, 0)), format);
@@ -2558,7 +2670,8 @@ public sealed class MetadataServerServiceTests
 
     private async Task<GraphQlUploadSnapshot> SubmitVideoDraftWithCoverAsync(byte[] cover, string contentType)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Covered Video", ImageBlobId = "cover-blob" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2577,9 +2690,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_UploadsTheGeneratedScreenshotWhenTheVideoHasNoCover()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Screenshot Video" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2600,9 +2715,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_SendsPlainJsonWhenNeitherACoverNorAScreenshotExists()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Imageless Video", ImageBlobId = "missing-blob" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2627,9 +2744,11 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_SubmitsWithoutAnImageWhenTheCoverCannotBeRead()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Unreadable Cover", ImageBlobId = "cover-blob" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -2651,14 +2770,16 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitVideoDraftAsync_SendsEachFingerprintOnceWhenFilesShareHashes()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Two Copies" };
-        var first = new VideoFile { Duration = 121 };
+        var first = LibraryVideoFile(121);
         first.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         first.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = "abc" });
-        var second = new VideoFile { Duration = 121 };
+        var second = LibraryVideoFile(121);
         second.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "0000000000001a2b" });
         second.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = "def" });
         video.Files.Add(first);
@@ -2681,15 +2802,17 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitFingerprintsAsync_SubmitsEachFingerprintOnceWhenFilesShareHashes()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Two Copies" };
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "remote-video-1" });
-        var first = new VideoFile { Duration = 121 };
+        var first = LibraryVideoFile(121);
         first.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         first.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = "abc" });
-        var second = new VideoFile { Duration = 121 };
+        var second = LibraryVideoFile(121);
         second.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "0000000000001a2b" });
         second.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = "def" });
         video.Files.Add(first);
@@ -2714,12 +2837,14 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SubmitFingerprintsAsync_UsesSceneIdFieldForMetadataServerSchema()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Fingerprint Video" };
         video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "remote-video-1" });
-        var file = new VideoFile { Duration = 121 };
+        var file = LibraryVideoFile(121);
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         context.Videos.Add(video);
@@ -2793,15 +2918,6 @@ public sealed class MetadataServerServiceTests
             },
         };
 
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"metadata-server-service-{Guid.NewGuid():N}")
-            .Options;
-
-        return new CoveContext(options);
-    }
-
     private sealed class CapturingJobProgress : IJobProgress
     {
         public List<(double Progress, string? Message)> Reports { get; } = [];
@@ -2810,10 +2926,22 @@ public sealed class MetadataServerServiceTests
             => Reports.Add((progress, subTask));
     }
 
+    private static CoveContext CreateInMemoryContext()
+        => new(new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase($"metadata-server-service-{Guid.NewGuid():N}")
+            .Options);
+
+    // A video file in its own library folder, which the files table requires.
+    private static VideoFile LibraryVideoFile(double duration)
+    {
+        var folder = new Folder { Path = $"/library/{Guid.NewGuid():N}" };
+        return new VideoFile { Duration = duration, Basename = "video.mp4", Path = $"{folder.Path}/video.mp4", ParentFolder = folder };
+    }
+
     private static Video CreateSearchStrategyVideo()
     {
         var video = new Video { Title = "Local Video" };
-        var file = new VideoFile { Duration = 118 };
+        var file = LibraryVideoFile(118);
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         return video;

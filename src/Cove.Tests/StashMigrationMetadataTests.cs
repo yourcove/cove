@@ -7,6 +7,7 @@ using Cove.Core.Entities.Auth;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,9 +43,11 @@ public class StashMigrationMetadataTests
     [InlineData("1000000000000", "42", CustomFieldTypes.Json)]
     [InlineData("0.0000001", "42", CustomFieldTypes.Json)]
     [InlineData("0.123456000000000000000000000000001", "42", CustomFieldTypes.Json)]
+    [RequiresPostgres]
     public async Task ImportCustomFields_InfersTypeFromEveryValue(string first, string second, string expectedType)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL)");
@@ -89,9 +92,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportCustomFields_DetectionIncludesOtherEntityTypesAndLaterBatches()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
@@ -119,9 +124,11 @@ public class StashMigrationMetadataTests
     [InlineData("non_sex_performers", "stash__non_sex_performers")]
     [InlineData("My Notes", "stash__my_notes")]
     [InlineData("!!!", "stash__field")]
+    [RequiresPostgres]
     public async Task ImportCustomFields_UsesReadableNormalizedKeys(string name, string expectedKey)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL)");
@@ -143,9 +150,11 @@ public class StashMigrationMetadataTests
     [InlineData("studio", "studio")]
     [InlineData("tag", "tag")]
     [InlineData("group", "group")]
+    [RequiresPostgres]
     public async Task ImportCustomFields_PreservesLongTextAndScalars(string sourceType, string entityType)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, $"CREATE TABLE {sourceType}_custom_fields ({sourceType}_id INTEGER, field TEXT, value BLOB NOT NULL)");
@@ -194,9 +203,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportCustomFields_HandlesBatchesMergedEntitiesAndDistinctNames()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.ChangeTracker.AutoDetectChangesEnabled = false;
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -237,9 +248,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportCustomFields_DoesNotChangeIncompatibleDefinitions()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL); INSERT INTO tag_custom_fields VALUES (1, 'Notes', 'imported');");
@@ -264,9 +277,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportCustomFields_OlderDatabaseWithoutTableIsSupported()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await InvokePrivateAsync(CreateService(context), "ImportCustomFieldsAsync", stash, "scene", "video", new Dictionary<int, int> { [1] = 101 }, TestContext.Current.CancellationToken);
@@ -275,9 +290,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportAsync_RejectsImportWhenNoEngagementOwnerExists()
     {
-        await using var context = CreateContext(includeOwner: false);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database, includeOwner: false);
         var dbPath = await CreateSqliteDatabaseAsync("", "cove-ownerless-stash-migration");
 
         try
@@ -296,9 +313,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartImportAsync_RejectsImportWhenNoEngagementOwnerExists()
     {
-        await using var context = CreateContext(includeOwner: false);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database, includeOwner: false);
         var service = CreateService(context);
 
         var exception = await Assert.ThrowsAsync<StashMigrationOwnerRequiredException>(
@@ -308,9 +327,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CoveContext_PreservesExplicitTimestampsOnImportedEntities()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var createdAt = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         var updatedAt = new DateTime(2024, 2, 3, 4, 5, 6, DateTimeKind.Utc);
         var scene = new Scene
@@ -328,9 +349,11 @@ public class StashMigrationMetadataTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportPerformersAsync_ImportsPerformerTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var tag = new Tag { Name = "Imported Tag" };
         context.Tags.Add(tag);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -391,9 +414,11 @@ INSERT INTO performers_tags (performer_id, tag_id) VALUES (1, 7);
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportPerformersAsync_AllowsMissingCareerLengthColumn()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -450,9 +475,11 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag) VALUES (1, 'Legacy 
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportPerformersAsync_ImportsCurrentCareerDateColumns()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -512,9 +539,11 @@ INSERT INTO performers (id, name, career_length, career_start, career_end, favor
     }
 
         [Fact]
+        [RequiresPostgres]
         public async Task ImportPerformersAsync_ImportsMultiplePerformersWithUrls()
         {
-                await using var context = CreateContext();
+                await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+                await using var context = await CreateContextAsync(database);
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
                 await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -582,9 +611,11 @@ INSERT INTO performer_urls (performer_id, url) VALUES
         }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportTagsStudiosPerformers_PreserveStashTimestamps()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -673,9 +704,11 @@ VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportTagsAsync_UsesTheSharedNamespaceForAliasesCaseAndWhitespace()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var existing = new Tag
         {
             Name = "Canonical",
@@ -755,9 +788,11 @@ INSERT INTO tag_stash_ids (tag_id, endpoint, stash_id) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportBlobsAsync_DetectsAvifContentType()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
@@ -797,9 +832,11 @@ INSERT INTO performers (id, image_blob) VALUES (1, 'avif-checksum');
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportBlobsAsync_SkipsRowsNotReferencedByImportedEntities()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
@@ -1075,9 +1112,11 @@ stash:
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportPerformersAsync_UsesCustomPerformerImageLocationFallback()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
@@ -1148,9 +1187,11 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag, image_blob) VALUES 
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportScenesAsync_UsesSceneLastPlayedAtAndPreservesImportedFileTimestamps()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1278,10 +1319,12 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportScenesAsync_SetsTheStashPrimaryFileOrTheFirstImportedOne()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
         await context.SaveChangesAsync(ct);
@@ -1327,10 +1370,12 @@ INSERT INTO video_files SELECT id,120,'h264','mp4','aac',1920,1080,30,1000 FROM 
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportScenesAsync_ImportsProductionDatesWithTheirPrecision()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
         await context.SaveChangesAsync(ct);
@@ -1377,9 +1422,11 @@ INSERT INTO video_files SELECT id,120,'h264','mp4','aac',1920,1080,30,1000 FROM 
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportScenesAsync_ImportsCaptionsForMatchingPersistedVideoFiles()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         var existingVideo = new Scene
         {
@@ -1464,9 +1511,11 @@ VALUES (10, '00', 'sample-captioned-video.srt', 'srt');
     }
 
         [Fact]
+        [RequiresPostgres]
         public async Task ImportScenesAsync_NormalizesIntegerPhashFingerprintsToLowercaseHex()
         {
-                await using var context = CreateContext();
+                await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+                await using var context = await CreateContextAsync(database);
                 var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
                 context.Folders.Add(folder);
                 await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1552,9 +1601,11 @@ INSERT INTO files_fingerprints (file_id, type, fingerprint) VALUES (10, 'phash',
         }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportGalleriesAsync_DerivesTitleFromFolderNameWhenMissing()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = @"C:\galleries\Summer Set", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1618,9 +1669,11 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportGalleriesAsync_ImportsSelectedCoverImage()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var image = new Image { Title = "Selected Cover" };
         var otherImage = new Image { Title = "Other Image" };
         context.Images.AddRange(image, otherImage);
@@ -1678,9 +1731,11 @@ INSERT INTO galleries_images (gallery_id, image_id, cover) VALUES (10, 20, 1), (
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportAsync_ImportsRelationshipsThatRequireDeferredIdMaps()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var dbPath = await CreateSqliteDatabaseAsync(@"
 CREATE TABLE blobs (checksum TEXT NOT NULL, blob BLOB);
 CREATE TABLE folders (
@@ -1950,6 +2005,7 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CopyGeneratedContentAsync_SkipsScreenshotForExplicitCoverAndRetainsLegacyFallback()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generated-migration-{Guid.NewGuid():N}");
@@ -1977,7 +2033,8 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             generatedMap.Add(41, Activator.CreateInstance(generatedDataType!, null, generatedHash, true));
             generatedMap.Add(42, Activator.CreateInstance(generatedDataType!, null, generatedHash, false));
 
-            await using var context = CreateContext();
+            await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            await using var context = await CreateContextAsync(database);
             var service = CreateService(
                 context,
                 configuration: new CoveConfiguration { GeneratedPath = coveGeneratedPath });
@@ -2004,9 +2061,11 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportFoldersAsync_ReusesExistingFoldersWhenSlashDirectionDiffers()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var existingFolder = new Folder
         {
             Path = "C:/library",
@@ -2053,9 +2112,11 @@ INSERT INTO folders (id, path, parent_folder_id, mod_time, created_at) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportStudiosAsync_ImportsMultipleRemoteIdsForSingleStudio()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -2104,9 +2165,11 @@ INSERT INTO studio_stash_ids (studio_id, endpoint, stash_id) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportStudiosAsync_DoesNotCreateAParentCycleWhenDuplicateIdentitiesCollapse()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
@@ -2149,9 +2212,11 @@ INSERT INTO studios (id, name, parent_id, favorite) VALUES
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportGroupsAsync_ImportsFrontAndBackImageBlobs()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -2197,9 +2262,11 @@ INSERT INTO groups (id, name, front_image_blob, back_image_blob) VALUES (1, 'Imp
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportGroupsAsync_MergesDuplicateCoverOnlyGroupIntoSceneLinkedGroup()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -2257,9 +2324,11 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImportGroupsAsync_MergesDuplicateCoverOnlyGroupWhenHiddenMetadataDiffers()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -2312,9 +2381,11 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
     }
 
         [Fact]
+        [RequiresPostgres]
         public async Task ReconcileImportedZipLinksAsync_PreservesZipFileIdsForImportedImages()
         {
-                await using var context = CreateContext();
+                await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+                await using var context = await CreateContextAsync(database);
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
                 await stash.OpenAsync(TestContext.Current.CancellationToken);
@@ -2452,9 +2523,11 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
         }
 
         [Fact]
+        [RequiresPostgres]
         public async Task ImportSceneMarkerSegmentsAsync_ImportsMarkersAsUserSegments()
         {
-                await using var context = CreateContext();
+                await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+                await using var context = await CreateContextAsync(database);
                 var scene = new Scene { Title = "Imported Scene" };
                 var primaryTag = new Tag { Name = "Favorite" };
                 var secondaryTag = new Tag { Name = "Extra" };
@@ -2515,9 +2588,11 @@ INSERT INTO scene_markers_tags (scene_marker_id, tag_id) VALUES (1, 9);
         }
 
         [Fact]
+        [RequiresPostgres]
         public async Task ImportSceneMarkerSegmentsAsync_SkipsLegacyAiMarkersAndDescendants()
         {
-                await using var context = CreateContext();
+                await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+                await using var context = await CreateContextAsync(database);
                 var scene = new Scene { Title = "Imported Scene" };
                 var aiTag = new Tag { Name = "AI" };
                 var aiChildTag = new Tag { Name = "AI Child" };
@@ -2573,10 +2648,12 @@ VALUES
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [RequiresPostgres]
     public async Task ImportMedia_ReadsOnlyCurrentBatchFilesAndPreservesCrossBatchDuplicates(bool scenes)
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         var folder = new Folder { Path = "/batch-import" };
         context.Folders.Add(folder);
         await context.SaveChangesAsync(ct);
@@ -2746,13 +2823,9 @@ INSERT INTO files_fingerprints SELECT id,'md5','fingerprint-'||id FROM scenes;
                 && context.Users.Any(user => user.Id == affinity.UserId && user.IsSystem),
             TestContext.Current.CancellationToken);
 
-    private static CoveContext CreateContext(bool includeOwner = true)
+    private static async Task<CoveContext> CreateContextAsync(CovePostgresDatabase database, bool includeOwner = true)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"stash-metadata-{Guid.NewGuid():N}")
-            .Options;
-
-        var context = new TestCoveContext(options);
+        var context = database.CreateContext();
         if (includeOwner)
         {
             context.Users.Add(new User
@@ -2763,27 +2836,10 @@ INSERT INTO files_fingerprints SELECT id,'md5','fingerprint-'||id FROM scenes;
                 IsSystem = true,
                 IsActive = true,
             });
-            context.SaveChanges();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         return context;
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-            modelBuilder.Entity<Scene>().Ignore(scene => scene.CustomFields);
-            modelBuilder.Entity<Image>().Ignore(image => image.CustomFields);
-            modelBuilder.Entity<Tag>().Ignore(tag => tag.CustomFields);
-            modelBuilder.Entity<Studio>().Ignore(studio => studio.CustomFields);
-            modelBuilder.Entity<Performer>().Ignore(performer => performer.CustomFields);
-            modelBuilder.Entity<Gallery>().Ignore(gallery => gallery.CustomFields);
-            modelBuilder.Entity<Group>().Ignore(group => group.CustomFields);
-            modelBuilder.Entity<Face>().Ignore(face => face.CustomFields);
-        }
     }
 
     private sealed class TestFileClaims(StringComparer comparer) : IStashFileClaims

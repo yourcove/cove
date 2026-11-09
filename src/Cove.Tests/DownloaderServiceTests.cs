@@ -6,6 +6,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -55,13 +56,16 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndImportAsync_AddsAFileToAVideoThatAlreadyHasOneOnlyWhenDuplicatesAreAllowed()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(libraryRoot);
 
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         IDownloaderService service = CreateService(
+            database,
             out _,
             out var provider,
             config: new CoveConfiguration { CovePaths = [new CovePath { Path = libraryRoot }] },
@@ -117,7 +121,7 @@ public class DownloaderServiceTests
     [Fact]
     public async Task GetDownloadersAndMatchUrl_ReturnRegisteredProviderData()
     {
-        var service = CreateService(out _);
+        var service = CreateService(null, out _);
 
         var downloaders = service.GetDownloaders();
         var matches = await service.MatchUrlAsync("https://example.com/watch/123", CancellationToken.None);
@@ -140,7 +144,7 @@ public class DownloaderServiceTests
     [Fact]
     public async Task MatchUrlAsync_ReturnsAllProviderMatchesForUrl()
     {
-        var service = CreateService(out _);
+        var service = CreateService(null, out _);
 
         var matches = await service.MatchUrlAsync("https://multi.example.com/watch/123", CancellationToken.None);
 
@@ -164,7 +168,7 @@ public class DownloaderServiceTests
     public async Task MatchUrlAsync_DivertsLinkedUrlsThroughOtherDownloaders()
     {
         const string sourceUrl = "https://forum.example.net/topics/abc/example-post";
-        var service = CreateService(out _, includeForumProvider: true);
+        var service = CreateService(null, out _, includeForumProvider: true);
 
         var matches = await service.MatchUrlAsync(sourceUrl, CancellationToken.None);
 
@@ -192,7 +196,7 @@ public class DownloaderServiceTests
     public async Task MatchUrlAsync_DiversionRetainsNestedProviderFailuresAndLogsOneWarning()
     {
         var logger = new RecordingLogger<DownloaderService>();
-        var service = CreateService(out _, out var downloaderProvider, includeForumProvider: true, logger: logger);
+        var service = CreateService(null, out _, out var downloaderProvider, includeForumProvider: true, logger: logger);
         downloaderProvider.MatchFailureUrl = "https://audio.example.net/track/one";
 
         var matches = await service.MatchUrlAsync("https://forum.example.net/topics/abc/example-post", CancellationToken.None);
@@ -206,7 +210,7 @@ public class DownloaderServiceTests
     public async Task MatchUrlAsync_TotalProviderFailureLogsOneWarningAndThrows()
     {
         var logger = new RecordingLogger<DownloaderService>();
-        var service = CreateService(out _, out var downloaderProvider, logger: logger);
+        var service = CreateService(null, out _, out var downloaderProvider, logger: logger);
         downloaderProvider.MatchFailureUrl = "https://example.com/watch/failure";
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.MatchUrlAsync("https://example.com/watch/failure", CancellationToken.None));
@@ -215,10 +219,12 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PreflightBatchAsync_ExpandsSourceUrlMatchesIntoCanonicalUrls()
     {
         const string sourceUrl = "https://forum.example.net/topics/abc/example-post";
-        var service = CreateService(out var services, includeForumProvider: true);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var service = CreateService(database, out var services, includeForumProvider: true);
 
         try
         {
@@ -264,7 +270,7 @@ public class DownloaderServiceTests
     [Fact]
     public async Task DownloadAsync_ReturnsAbsoluteLocalPathFromProviderOutput()
     {
-        var service = CreateService(out _);
+        var service = CreateService(null, out _);
 
         var result = await service.DownloadAsync(
             new DownloaderRequest(
@@ -285,7 +291,7 @@ public class DownloaderServiceTests
     [Fact]
     public async Task DownloadAsync_WhenProviderThrows_RemovesAttemptTempDirectory()
     {
-        var service = CreateService(out _, out var downloaderProvider);
+        var service = CreateService(null, out _, out var downloaderProvider);
         downloaderProvider.DownloadFailureUrl = "https://example.com/watch/failure";
 
         await Assert.ThrowsAsync<HttpRequestException>(() => service.DownloadAsync(
@@ -302,13 +308,16 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_MovesFileIntoLibraryAndDelegatesVideoImport()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(libraryRoot);
 
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -318,6 +327,7 @@ public class DownloaderServiceTests
                 ]
             },
             scanService,
+            seedDatabase: db => db.Videos.Add(new Video { Id = 42, Title = "Existing video" }),
             includeForumProvider: true);
 
         try
@@ -353,6 +363,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_HoldsProducerLeaseUntilTheFileReferenceIsCommitted()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-race-tests", Guid.NewGuid().ToString("n"));
@@ -361,7 +372,9 @@ public class DownloaderServiceTests
         var movedPath = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var allowReferenceCommit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration { CovePaths = [new CovePath { Path = libraryRoot }] },
             scanService,
@@ -400,7 +413,7 @@ public class DownloaderServiceTests
                 progress: null,
                 CancellationToken.None);
 
-            var path = await movedPath.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var path = await movedPath.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             using var deletionScope = services.CreateScope();
             var deletionDb = deletionScope.ServiceProvider.GetRequiredService<CoveContext>();
             var deletionContext = new BulkDeletionExecutionContext();
@@ -413,8 +426,8 @@ public class DownloaderServiceTests
             Assert.False(deletionTask.IsCompleted);
             allowReferenceCommit.TrySetResult();
 
-            var (_, importedEntityId) = await ingestTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            var deletion = await deletionTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var (_, importedEntityId) = await ingestTask.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var deletion = await deletionTask.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.NotNull(importedEntityId);
             Assert.Equal(0, deletion.Deleted);
             Assert.Equal(0, deletion.Failed);
@@ -436,6 +449,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_AutoAppliesInlineVideoMetadataWhenRequested()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -443,7 +457,9 @@ public class DownloaderServiceTests
 
         var scanService = new FakeScanService();
         var metadataApplyService = new FakeVideoMetadataApplyService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -453,7 +469,8 @@ public class DownloaderServiceTests
                 ]
             },
             scanService,
-            metadataApplyService);
+            metadataApplyService,
+            seedDatabase: db => db.Videos.Add(new Video { Id = 42, Title = "Existing video" }));
 
         try
         {
@@ -484,6 +501,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_PreferredScraper_ReplacesInlineVideoMetadata()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -492,12 +510,15 @@ public class DownloaderServiceTests
         var config = new CoveConfiguration { CovePaths = [new CovePath { Path = libraryRoot }] };
         config.Scraping.ScraperPreferences.Add(new ScraperPreference { EntityType = "video", Site = "example.com", ScraperId = FakeExampleVideoScraperProvider.ScraperId });
         var metadataApplyService = new FakeVideoMetadataApplyService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             out _,
             config,
             new FakeScanService(),
             metadataApplyService,
+            seedDatabase: db => db.Videos.Add(new Video { Id = 42, Title = "Existing video" }),
             scraperProvider: new FakeExampleVideoScraperProvider());
 
         try
@@ -549,9 +570,12 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAudioMetadataAsync_MergesUrlsAndRelationsIntoAudio()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             seedDatabase: db =>
             {
@@ -628,9 +652,12 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAudioMetadataAsync_DoesNotCreateMissingRelationsByDefault()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             seedDatabase: db =>
             {
@@ -685,6 +712,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_UsesDownloaderOverridePathWhenConfigured()
     {
         var defaultRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"), "default");
@@ -693,7 +721,9 @@ public class DownloaderServiceTests
         Directory.CreateDirectory(overrideRoot);
 
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -710,7 +740,9 @@ public class DownloaderServiceTests
                     }
                 ]
             },
-            scanService);
+            scanService,
+            // The video the fake scan service reports it imported the download as.
+            seedDatabase: db => db.Videos.Add(new Video { Id = 1, Title = "Imported video" }));
 
         try
         {
@@ -743,6 +775,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_ThrowsWhenTargetEntityAlreadyHasFiles()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -750,7 +783,9 @@ public class DownloaderServiceTests
         Video? existingVideo = null;
         var scanService = new FakeScanService();
 
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -798,6 +833,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_ThrowsWhenUrlAlreadyExistsOnDownloadedEntity()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -805,7 +841,9 @@ public class DownloaderServiceTests
         Video? existingVideo = null;
         var scanService = new FakeScanService();
 
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -853,13 +891,16 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_ThrowsWhenCanonicalVideoUrlAlreadyExists()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(libraryRoot);
         var scanService = new FakeScanService();
 
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -902,13 +943,16 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestAsync_AllowsDuplicateWhenRequested()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(libraryRoot);
 
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -959,6 +1003,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_QueuesFollowUpGenerateScan()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -967,7 +1012,9 @@ public class DownloaderServiceTests
         var scanService = new FakeScanService();
         var metadataApplyService = new FakeVideoMetadataApplyService();
         var logger = new RecordingLogger<DownloaderService>();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -1041,12 +1088,15 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_ContinuesWhenOneItemCannotBeMatched()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(libraryRoot);
 
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             out var downloaderProvider,
             new CoveConfiguration
@@ -1099,6 +1149,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_CreatesPlaceholderAndSkipsDuplicateWithoutCreatingAnotherEntity()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -1106,7 +1157,9 @@ public class DownloaderServiceTests
 
         var scanService = new FakeScanService();
         var metadataApplyService = new FakeVideoMetadataApplyService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -1178,6 +1231,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_SkipsCanonicalDuplicateWithinBatch()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -1185,7 +1239,9 @@ public class DownloaderServiceTests
 
         var scanService = new FakeScanService();
         var metadataApplyService = new FakeVideoMetadataApplyService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             new CoveConfiguration
             {
@@ -1233,6 +1289,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_UsesCanonicalUrlsWhenExpandingSourceUrl()
     {
         const string sourceUrl = "https://forum.example.net/topics/abc/example-post";
@@ -1240,7 +1297,9 @@ public class DownloaderServiceTests
         Directory.CreateDirectory(libraryRoot);
 
         var scanService = new FakeScanService();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             out var provider,
             config: new CoveConfiguration
@@ -1309,6 +1368,7 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DownloadAndIngestBatchAsync_PrefersChildTagsWhenExpandingSourceUrl()
     {
         const string sourceUrl = "https://forum.example.net/topics/abc/example-post";
@@ -1316,7 +1376,9 @@ public class DownloaderServiceTests
         Directory.CreateDirectory(libraryRoot);
         var scanService = new FakeScanService();
 
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             config: new CoveConfiguration
             {
@@ -1374,10 +1436,13 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PreflightBatchAsync_QueuesSpecificAudioChildWhenSourceUrlExistsOnSibling()
     {
         const string sourceUrl = "https://forum.example.net/topics/abc/example-post";
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             seedDatabase: db =>
             {
@@ -1389,6 +1454,7 @@ public class DownloaderServiceTests
                 {
                     Audio = existingAudio,
                     Path = Path.Combine(Path.GetTempPath(), "track-one.mp3"),
+                    ParentFolder = new Folder { Path = Path.TrimEndingDirectorySeparator(Path.GetTempPath()) },
                     Basename = "track-one.mp3",
                 });
             },
@@ -1422,9 +1488,12 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PreflightBatchAsync_SkipsExistingVideoUrlsBeforeQueueing()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var service = CreateService(
+            database,
             out var services,
             seedDatabase: db =>
             {
@@ -1473,6 +1542,7 @@ public class DownloaderServiceTests
     }
 
     private static DownloaderService CreateService(
+        CovePostgresDatabase? database,
         out ServiceProvider services,
         CoveConfiguration? config = null,
         IScanService? scanService = null,
@@ -1482,10 +1552,11 @@ public class DownloaderServiceTests
         ILogger<DownloaderService>? logger = null,
         PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
     {
-        return CreateService(out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider, logger, physicalFileAccessCoordinator);
+        return CreateService(database, out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider, logger, physicalFileAccessCoordinator);
     }
 
     private static DownloaderService CreateService(
+        CovePostgresDatabase? database,
         out ServiceProvider services,
         out FakeDownloaderProvider downloaderProvider,
         CoveConfiguration? config = null,
@@ -1498,7 +1569,6 @@ public class DownloaderServiceTests
         IScraperProvider? scraperProvider = null)
     {
         var serviceCollection = new ServiceCollection();
-        var databaseName = $"cove-downloader-tests-{Guid.NewGuid():N}";
         var effectiveConfig = config ?? new CoveConfiguration();
         var extensionManager = new ExtensionManager(new ExtensionContext
         {
@@ -1515,8 +1585,11 @@ public class DownloaderServiceTests
             extensionManager.Register(scraperProvider);
 
         serviceCollection.AddHttpClient();
-        serviceCollection.AddDbContext<DownloaderTestContext>(options => options.UseInMemoryDatabase(databaseName));
-        serviceCollection.AddScoped<CoveContext>(provider => provider.GetRequiredService<DownloaderTestContext>());
+        if (database != null)
+        {
+            serviceCollection.AddDbContext<DownloaderTestContext>(options => database.Configure(options));
+            serviceCollection.AddScoped<CoveContext>(provider => provider.GetRequiredService<DownloaderTestContext>());
+        }
         serviceCollection.AddSingleton(extensionManager);
         serviceCollection.AddSingleton(provider => new ScraperService(
             effectiveConfig,
@@ -1535,6 +1608,8 @@ public class DownloaderServiceTests
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
             seedDatabase(db);
             db.SaveChanges();
+            // Seeds give videos explicit ids, which do not advance the identity sequences.
+            database?.SyncIdentitySequencesAsync().GetAwaiter().GetResult();
         }
 
         return new DownloaderService(

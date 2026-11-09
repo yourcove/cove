@@ -10,19 +10,20 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class DynamicGroupsAndBookmarksTests
 {
     [Fact]
     public async Task BookmarkToggleAndBatch_AreUserScoped()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         context.Videos.Add(new Video { Title = "Saved Video" });
@@ -54,7 +55,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task SaveForLaterDynamicGroup_ResolvesBookmarkedItemsNewestFirst()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -80,7 +81,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task SaveForLaterDynamicGroup_TotalCountExcludesMissingHydratedEntities()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -106,7 +107,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task ContinueWatchingDynamicGroup_ExcludesCompletedVideos()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -134,17 +135,12 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task ContinueWatchingDynamicGroup_AppliesRequestedPageInDatabase()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(7));
         var commands = new CommandRecorderInterceptor();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .AddInterceptors(commands)
-            .Options;
+        var options = database.CreateOptions(builder => builder.AddInterceptors(commands));
         await using var context = new DynamicGroupTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         context.Users.Add(new User { Id = 7, Username = "user-7", PasswordHash = "test" });
 
         var now = DateTime.UtcNow;
@@ -196,7 +192,7 @@ public class DynamicGroupsAndBookmarksTests
         Assert.Equal(3, result.Items.Count);
         Assert.Equal(["Video 5", "Video 6", "Video 7"], result.Items.Select(item => item.Title ?? string.Empty).ToArray());
         var affinityPageCommand = Assert.Single(commands.Commands, command =>
-            command.Contains("FROM \"user_entity_affinities\"", StringComparison.OrdinalIgnoreCase)
+            command.Contains("FROM user_entity_affinities AS ", StringComparison.OrdinalIgnoreCase)
             && !command.Contains("COUNT(", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("LIMIT", affinityPageCommand, StringComparison.OrdinalIgnoreCase);
 
@@ -209,7 +205,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task ContinueWatchingDynamicGroup_IncludesAudioAndSegments()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -245,7 +241,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task DeletingEntity_RemovesEngagementRowsAndBookmarks()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var audio = new Audio { Title = "Delete me" };
         context.Audios.Add(audio);
@@ -270,7 +266,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task DeletingEntity_RemovesEngagementRowsOwnedByOtherUsers()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var audio = new Audio { Title = "Delete across principals" };
         context.Audios.Add(audio);
@@ -299,7 +295,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task DeletingUser_RemovesTheirEngagementRowsAndBookmarks()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var audio = new Audio { Title = "User cleanup audio" };
         var user = new User { Id = 17, Username = "cleanup-user", PasswordHash = "test" };
@@ -325,7 +321,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task DynamicGroupPagination_ReturnsRequestedPageAndTotal()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -354,7 +350,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task EnsureBuiltInGroupsAsync_CreatesMissingBuiltInGroups()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var resolver = CreateResolver(context, scope.PrincipalAccessor);
 
@@ -377,7 +373,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_UsesSavedVideoFilter()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -406,7 +402,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_UsesUppercasePerformerCriterion()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -440,7 +436,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_UsesSavedSegmentFilterAndSort()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -474,7 +470,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_UsesSegmentRelationshipAndHostFilters()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -579,7 +575,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_AppliesRequiredOnlySegmentRelations()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -622,7 +618,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_AppliesScalarSegmentFaceAndPerformerSemantics()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -704,7 +700,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_AppliesRequiredOnlyAudioTags()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -751,7 +747,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_AppliesRelatedPerformerFiltersToAudio()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -801,7 +797,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_ScopesAudioOccurrenceTagsToRequiredPerformer()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -855,7 +851,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_ExpandsAudioTagHierarchy()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -899,7 +895,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task FilterDynamicGroupSource_ReturnsTotalAcrossEntityTypesWhenPageIsFilled()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -930,7 +926,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task SnapshotDynamicGroup_WritesStaticGroupItems()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         principalAccessor.Set(CreatePrincipal(7));
@@ -958,7 +954,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task GroupRepository_SortOrderSort_UsesManualOrder()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         context.Groups.AddRange(
             new Group { Name = "Second", SortOrder = 20 },
@@ -976,7 +972,7 @@ public class DynamicGroupsAndBookmarksTests
     [Fact]
     public async Task GroupRepository_PerformerCriterion_ComposesRequiredAndSavedPerformers()
     {
-        await using var scope = CreateContext();
+        await using var scope = await CreateContextAsync();
         var context = scope.Context;
         var target = new Performer { Name = "Target" };
         var saved = new Performer { Name = "Saved" };
@@ -1047,13 +1043,29 @@ public class DynamicGroupsAndBookmarksTests
         Permissions = new HashSet<string> { Permissions.All },
     };
 
-    private static TestContextScope CreateContext()
+    // The users the tests sign in as, because their engagement rows reference them.
+    private static readonly int[] PrincipalUserIds = [7, 8, 9];
+
+    private static async Task<TestContextScope> CreateContextAsync()
     {
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await using (var seed = database.CreateContext())
+            {
+                seed.Users.AddRange(PrincipalUserIds.Select(id => new User { Id = id, Username = $"user-{id}", PasswordHash = "test" }));
+                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+            await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+        }
+        catch
+        {
+            await database.DisposeAsync();
+            throw;
+        }
+
         var principalAccessor = new CurrentPrincipalAccessor();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"dynamic-groups-{Guid.NewGuid():N}")
-            .Options;
-        return new TestContextScope(new DynamicGroupTestContext(options, principalAccessor), principalAccessor);
+        return new TestContextScope(database, new DynamicGroupTestContext(database.CreateOptions(), principalAccessor), principalAccessor);
     }
 
     private sealed class DynamicGroupTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor);
@@ -1075,7 +1087,7 @@ public class DynamicGroupsAndBookmarksTests
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
+    private sealed class TestContextScope(CovePostgresDatabase database, CoveContext context, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
         public CurrentPrincipalAccessor PrincipalAccessor { get; } = principalAccessor;
@@ -1084,6 +1096,7 @@ public class DynamicGroupsAndBookmarksTests
         {
             await Context.DisposeAsync();
             PrincipalAccessor.Set(null);
+            await database.DisposeAsync();
         }
     }
 }

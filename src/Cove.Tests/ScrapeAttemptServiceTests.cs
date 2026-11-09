@@ -7,19 +7,21 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class ScrapeAttemptServiceTests
 {
     [Fact]
     public async Task ApplyAttemptAsync_DoesNotHydrateExistingVideoPerformer()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var existingPerformer = new Performer { Name = "Existing Performer", Gender = Cove.Core.Enums.GenderEnum.Female };
         var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
@@ -74,8 +76,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_AppliesReviewEditsOnTopOfTheScrape()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var currentTag = new Tag { Name = "Current" };
         var libraryTag = new Tag { Name = "From the library" };
@@ -128,8 +130,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_HydratesNewNamedVideoPerformer()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
         db.Videos.Add(video);
@@ -193,8 +195,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_AudioAttemptAppliesSelectedFieldsAndNormalizesTags()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var existingStudio = new Studio { Name = "Existing Studio" };
         var existingTag = new Tag { Name = "Legacy" };
@@ -299,8 +301,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_VideoPerformerDoesNotTreatANonUniqueAliasAsIdentity()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         // Performer aliases are deliberately non-unique, so they cannot identify a relation owner.
         var existingPerformer = new Performer
@@ -362,8 +364,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ResolveRelationsAsync_DoesNotMatchPerformerAliases()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         db.Performers.Add(new Performer
         {
@@ -401,8 +403,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ResolveRelationsAsync_ResolvesStudiosByNameAndAlias()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         db.Studios.Add(new Studio { Name = "Known Studio" });
         db.Studios.Add(new Studio { Name = "Canonical Studio", Aliases = [new StudioAlias { Alias = "Studio Nickname" }] });
@@ -430,8 +432,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_NameOnlyPerformerCreatesTheNullDisambiguationIdentity()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var disambiguated = new Performer { Name = "Shared name", Disambiguation = "Specific person" };
         var video = new Video { Title = "Current title", TagIds = [], PerformerIds = [] };
         db.AddRange(disambiguated, video);
@@ -480,8 +482,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ResolveRelationsAsync_MatchesNamesStoredWithSurroundingWhitespace()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         // Names can be stored with stray whitespace (e.g. a scraper applied " Feet "). A later scrape
         // returning the trimmed "Feet" must still resolve to the existing entity, not predict "create".
@@ -521,8 +523,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ResolveRelationsAsync_EchoesEveryRequestedSpellingAsSent()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.Add(new Tag { Name = "Blonde" });
         db.Performers.Add(new Performer { Name = "Jane Doe" });
         db.Studios.Add(new Studio { Name = "Palladium" });
@@ -558,8 +560,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ResolveRelationsAsync_MatchesTagByAliasCaseInsensitively()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         // Tag "Feet" has the alias "Foot". A scrape returning lowercase "foot" must resolve to the
         // existing tag via its alias (case-insensitive) instead of predicting "will create".
@@ -588,8 +590,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_TextAttemptHonorsPerItemSelections()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var existingTag = new Tag { Name = "Existing Tag" };
         var skippedExistingTag = new Tag { Name = "Skipped Existing Tag" };
@@ -679,8 +681,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_VideoRecordsOnlyTheTagsAndPerformersActuallyAttached()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.Add(new Tag { Name = "Existing" });
         db.Performers.Add(new Performer { Name = "Known Performer" });
         var video = new Video { Title = "Current Video", TagIds = [], PerformerIds = [] };
@@ -746,8 +748,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_VideoHistoryLeavesOutATagRemovedByHandInTheSameApply()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var removed = new Tag { Name = "Removed" };
         db.Tags.AddRange(kept, removed);
@@ -793,8 +795,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_ScrapedTagRemovedByHandInTheSameApplyLeavesTheVideo()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var removed = new Tag { Name = "Removed" };
         db.Tags.AddRange(kept, removed);
@@ -847,8 +849,8 @@ public class ScrapeAttemptServiceTests
     [InlineData(AffinityHostType.Text)]
     public async Task ApplyAttemptAsync_ReplaceTakesOffATagItDropsWhateverRecordedIt(AffinityHostType hostType)
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var dropped = new Tag { Name = "Added by hand" };
         var derived = new Tag { Name = "Added by an extension" };
@@ -899,8 +901,8 @@ public class ScrapeAttemptServiceTests
     [InlineData(AffinityHostType.Text)]
     public async Task ApplyAttemptAsync_ReplaceForgetsWhatTheSameScraperRecordedBeforeAndDoesNotApplyNow(AffinityHostType hostType)
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var stale = new Tag { Name = "Scraped earlier" };
         var elsewhere = new Tag { Name = "Scraped by another scraper" };
@@ -947,8 +949,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_SetsTheStudioTheReviewLinkedInsteadOfLookingTheScrapedOneUp()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var library = new Studio { Name = "Library Studio" };
         db.Studios.Add(library);
         var video = new Video { Title = "Item", TagIds = [], PerformerIds = [] };
@@ -983,8 +985,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_ReplaceKeepsTheRecordsOfATagAddedBackByHandInTheSameApply()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var readded = new Tag { Name = "Added by hand" };
         db.Tags.AddRange(kept, readded);
@@ -1028,8 +1030,8 @@ public class ScrapeAttemptServiceTests
     public async Task ApplyAttemptAsync_VideoWithoutSelectionsDoesNotCountAnUncreatedNameAsMissed()
     {
         // Identify sends no selections: a name the library lacks, with creating off, was never chosen.
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.Add(new Tag { Name = "Existing" });
         var video = new Video { Title = "Current Video", TagIds = [], PerformerIds = [] };
         db.Videos.Add(video);
@@ -1061,8 +1063,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_VideoTagReplaceRemovesCurrentTagsNotInScrapedSet()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var keptTag = new Tag { Name = "Big Dick" };          // scraped AND current — should survive
         var currentOnlyTag = new Tag { Name = "adult interview" }; // current, NOT scraped — must be removed on replace
@@ -1129,8 +1131,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_VideoTagReplacePrunesStaleSameSourceProvenance()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         const string scraperId = "tests.fake-scraper/video";
         var sourceKey = $"scraper:{scraperId}";
@@ -1194,8 +1196,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_GroupAttemptAppliesMetadataAndRelations()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var existingTag = new Tag { Name = "Legacy" };
         var group = new Group
@@ -1295,8 +1297,8 @@ public class ScrapeAttemptServiceTests
     [Fact]
     public async Task ApplyAttemptAsync_GalleryAttemptAppliesMetadataRelationsAndProvenance()
     {
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var existingTag = new Tag { Name = "Legacy" };
         var existingPerformer = new Performer { Name = "Existing Performer" };
@@ -1408,8 +1410,8 @@ public class ScrapeAttemptServiceTests
     public async Task ApplyAttemptAsync_VideoStudioAliasResolvesMergedTargetWithoutCreatingStudio()
     {
         var ct = TestContext.Current.CancellationToken;
-        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var mergedTarget = new Studio
         {
@@ -1456,15 +1458,6 @@ public class ScrapeAttemptServiceTests
         Assert.Equal(mergedTarget.Id, updatedVideo.StudioId);
         Assert.Equal("Parent Studio", updatedVideo.Studio?.Name);
         Assert.Single(await db.Studios.ToListAsync(ct));
-    }
-
-    private static CoveContext CreateDbContext(string dbName)
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(dbName)
-            .Options;
-
-        return new CoveContext(options);
     }
 
     private sealed class EmptyHttpClientFactory : IHttpClientFactory
