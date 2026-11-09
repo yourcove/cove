@@ -5,12 +5,12 @@ using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,6 +24,7 @@ namespace Cove.Tests;
 public class ApiTokenScopeTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task Rejected_scope_names_the_permissions_the_user_does_not_hold()
     {
         await using var fixture = await TokenServiceFixture.CreateAsync();
@@ -41,6 +42,7 @@ public class ApiTokenScopeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Rejected_scope_separates_unknown_permissions_from_unheld_permissions()
     {
         await using var fixture = await TokenServiceFixture.CreateAsync();
@@ -56,6 +58,7 @@ public class ApiTokenScopeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task A_scope_the_user_holds_through_a_wildcard_or_a_read_grant_is_accepted()
     {
         await using var fixture = await TokenServiceFixture.CreateAsync();
@@ -77,6 +80,7 @@ public class ApiTokenScopeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task A_scope_without_an_actor_is_refused_and_names_every_requested_permission()
     {
         await using var fixture = await TokenServiceFixture.CreateAsync();
@@ -127,6 +131,7 @@ public class ApiTokenScopeTests
         value?.GetType().GetProperty(name)?.GetValue(value);
 
     [Fact]
+    [RequiresPostgres]
     public async Task An_unscoped_token_is_issued_without_a_permission_check()
     {
         await using var fixture = await TokenServiceFixture.CreateAsync();
@@ -148,11 +153,11 @@ public class ApiTokenScopeTests
 
     private sealed class TokenServiceFixture : IAsyncDisposable
     {
-        private readonly SqliteConnection _connection;
+        private readonly CovePostgresDatabase _database;
 
-        private TokenServiceFixture(SqliteConnection connection, CoveContext db, ITokenService tokens)
+        private TokenServiceFixture(CovePostgresDatabase database, CoveContext db, ITokenService tokens)
         {
-            _connection = connection;
+            _database = database;
             Db = db;
             Tokens = tokens;
         }
@@ -162,17 +167,26 @@ public class ApiTokenScopeTests
 
         public static async Task<TokenServiceFixture> CreateAsync()
         {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(TestContext.Current.CancellationToken);
-            var db = new TestCoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-            await SeedOwnerAsync(db);
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            var db = database.CreateContext();
+            try
+            {
+                await SeedOwnerAsync(db);
+                await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+            }
+            catch
+            {
+                await db.DisposeAsync();
+                await database.DisposeAsync();
+                throw;
+            }
+
             var config = new CoveConfiguration
             {
                 Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 },
             };
             return new TokenServiceFixture(
-                connection,
+                database,
                 db,
                 new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance));
         }
@@ -180,7 +194,7 @@ public class ApiTokenScopeTests
         public async ValueTask DisposeAsync()
         {
             await Db.DisposeAsync();
-            await _connection.DisposeAsync();
+            await _database.DisposeAsync();
         }
 
         private static async Task SeedOwnerAsync(CoveContext db)
@@ -211,11 +225,6 @@ public class ApiTokenScopeTests
             });
             db.UserRoleAssignments.Add(new UserRoleAssignment { UserId = 1, RoleId = 1, GrantedAt = now });
             await db.SaveChangesAsync();
-        }
-
-        private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-        {
-            protected override void OnModelCreating(ModelBuilder modelBuilder) => base.OnModelCreating(modelBuilder);
         }
     }
 }

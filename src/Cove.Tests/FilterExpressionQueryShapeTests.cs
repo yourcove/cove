@@ -4,7 +4,7 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -80,12 +80,11 @@ public sealed class FilterExpressionQueryShapeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerAndTextBranches_KeepToWhatTheConditionsAndSearchBeforeThemMatch()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         string[] names = ["prefix alpha", "prefix beta", "prefix alpha beta", "prefix alpha delta", "other alpha", "other beta"];
         foreach (var name in names)
         {
@@ -125,13 +124,12 @@ public sealed class FilterExpressionQueryShapeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task FindAsync_ReadsThePageAndItsTotalInOneQuery()
     {
         var commands = new CommandRecorder();
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).AddInterceptors(commands).Options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext(options => options.AddInterceptors(commands));
         foreach (var title in new[] { "alpha one", "alpha two", "alpha three", "alpha four", "alpha five", "other" })
             db.Videos.Add(new Video { Title = title });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);

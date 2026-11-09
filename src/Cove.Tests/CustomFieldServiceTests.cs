@@ -5,17 +5,19 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class CustomFieldServiceTests
 {
     [Fact]
     public async Task ReplaceDefinitionsAsync_PreservesExistingKeysAndValuesWhenAddingAndDeletingUnrelatedFields()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
         var repository = new CustomFieldRepository(context);
         foreach (var key in new[] { "plugin.metricScore", "plugin_metricscore" })
@@ -72,7 +74,8 @@ public class CustomFieldServiceTests
     [InlineData("MixedCase")]
     public async Task UpdateDefinitionAsync_PreservesUnchangedKey(string key)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = key,
@@ -101,7 +104,8 @@ public class CustomFieldServiceTests
     [InlineData("PLUGIN.metricScore", "plugin_metricscore")]
     public async Task UpdateDefinitionAsync_NormalizesExplicitRename(string requestedKey, string expectedKey)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var repository = new CustomFieldRepository(context);
         var definition = await repository.FindOrCreateDefinitionAsync(new CustomFieldDefinition
         {
@@ -124,7 +128,8 @@ public class CustomFieldServiceTests
     [InlineData(true)]
     public async Task ReplaceDefinitionsAsync_RejectsActualDuplicateWithoutSavingOtherChanges(bool renameExisting)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
         var existing = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
@@ -160,7 +165,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task ReplaceDefinitionsAsync_PreservesNamespacedKeyAndValues()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
         const string key = "stash__culture__av1_encode";
         var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
@@ -190,7 +196,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task CreateDefinitionAsync_NormalizesLongTextAndDisablesQueryBehaviors()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
 
         var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
@@ -213,7 +220,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task SaveValuesAsync_LongTextPreservesShortAndLargeMultilineScalarsOutsideTextValue()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = "notes",
@@ -254,7 +262,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task CreateDefinitionAsync_NormalizesJsonAndDisablesUnsupportedBehaviors()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
 
         var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
@@ -294,7 +303,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task CreateDefinitionAsync_RejectsInvalidOrDuplicateJsonPointers()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
 
         var invalidPath = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
@@ -325,7 +335,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task CreateDefinitionAsync_PreservesPointerWhitespaceAndRejectsInvalidPathMetadata()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var service = new CustomFieldService(context);
 
         var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
@@ -367,7 +378,8 @@ public class CustomFieldServiceTests
     [InlineData("true")]
     public async Task SaveValuesAsync_JsonRoundTripsAsOneStructuredValue(string json)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = "structured_metadata",
@@ -399,7 +411,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task SaveValuesAsync_JsonNullRemovesTheCustomFieldValue()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = "structured_metadata",
@@ -431,15 +444,14 @@ public class CustomFieldServiceTests
     }
 
     [Fact]
-    public async Task SqliteFallback_JsonValueRoundTripsNullAndPersistsReplacement()
+    public async Task JsonValue_RoundTripsNullAndPersistsReplacement()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+        using var initialJson = JsonDocument.Parse("{\"score\":0.01}");
+        using var replacementJson = JsonDocument.Parse("{\"score\":0.02}");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
 
-        await using (var context = new CoveContext(options))
+        await using (var context = database.CreateContext())
         {
-            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var definition = new CustomFieldDefinition
             {
                 Key = "structured_metadata",
@@ -447,7 +459,6 @@ public class CustomFieldServiceTests
                 Type = CustomFieldTypes.Json,
                 EntityTypes = [CustomFieldEntityTypes.Video],
             };
-            using var initial = JsonDocument.Parse("{\"score\":0.01}");
             using var jsonNull = JsonDocument.Parse("null");
             context.CustomFieldValues.AddRange(
                 new CustomFieldValue
@@ -455,7 +466,7 @@ public class CustomFieldServiceTests
                     Definition = definition,
                     EntityType = CustomFieldEntityTypes.Video,
                     EntityId = 41,
-                    JsonValue = initial.RootElement.Clone(),
+                    JsonValue = initialJson.RootElement.Clone(),
                 },
                 new CustomFieldValue
                 {
@@ -474,23 +485,23 @@ public class CustomFieldServiceTests
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        await using (var context = new CoveContext(options))
+        await using (var context = database.CreateContext())
         {
             var values = await context.CustomFieldValues.OrderBy(value => value.EntityId).ToListAsync(TestContext.Current.CancellationToken);
-            Assert.Equal("{\"score\":0.01}", values[0].JsonValue?.GetRawText());
+            // jsonb stores the parsed value, not the original text, so compare values rather than raw text.
+            Assert.True(JsonElement.DeepEquals(initialJson.RootElement, Assert.NotNull(values[0].JsonValue)));
             Assert.Equal(JsonValueKind.Null, values[1].JsonValue?.ValueKind);
             Assert.Null(values[2].JsonValue);
 
-            using var replacement = JsonDocument.Parse("{\"score\":0.02}");
-            values[0].JsonValue = replacement.RootElement.Clone();
+            values[0].JsonValue = replacementJson.RootElement.Clone();
             Assert.True(context.ChangeTracker.HasChanges());
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        await using (var context = new CoveContext(options))
+        await using (var context = database.CreateContext())
         {
             var replaced = await context.CustomFieldValues.SingleAsync(value => value.EntityId == 41, TestContext.Current.CancellationToken);
-            Assert.Equal("{\"score\":0.02}", replaced.JsonValue?.GetRawText());
+            Assert.True(JsonElement.DeepEquals(replacementJson.RootElement, Assert.NotNull(replaced.JsonValue)));
         }
     }
 
@@ -499,11 +510,8 @@ public class CustomFieldServiceTests
     [InlineData(CriterionModifier.IsNull, 42)]
     public async Task JsonCustomFieldPresenceFilter_DoesNotRequireAConfiguredPath(CriterionModifier modifier, int expectedEntityId)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = "structured_metadata",
@@ -543,7 +551,8 @@ public class CustomFieldServiceTests
     [InlineData(CriterionModifier.IsNull, 42)]
     public async Task LongTextCustomFieldPresenceFilter_DoesNotQueryItsContents(CriterionModifier modifier, int expectedEntityId)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = new CustomFieldDefinition
         {
             Key = "notes",
@@ -579,7 +588,8 @@ public class CustomFieldServiceTests
     [Fact]
     public async Task ReplaceDefinitionsAsync_CreatesUpdatesDeletesAndSupportsAudioAndTextEntities()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.CustomFieldDefinitions.AddRange(
             new CustomFieldDefinition
             {
@@ -651,13 +661,5 @@ public class CustomFieldServiceTests
         Assert.Equal(2, persistedDefinitions.Count);
         Assert.DoesNotContain(persistedDefinitions, definition => definition.Key == "legacy_code");
         Assert.Contains(persistedDefinitions, definition => definition.Key == "listening_score");
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"custom-field-service-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 }

@@ -1,17 +1,18 @@
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Cove.Data;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class GenerationSelectionTests
 {
     [Fact]
     public async Task VideoScopePreservesPathRulesAndExplicitIdPrecedenceAcrossPages()
     {
-        await using var db = await CreateContextAsync();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var outside = new Folder { Path = "/library/selected-sibling" };
         var inside = new Folder { Path = "/LIBRARY/Selected/Été" };
         db.Folders.AddRange(outside, inside);
@@ -39,7 +40,8 @@ public sealed class GenerationSelectionTests
     [Fact]
     public async Task GalleryScopeMatchesFoldersAndArchiveBackingFiles()
     {
-        await using var db = await CreateContextAsync();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var folderGallery = new Gallery { Title = "folder", Folder = new Folder { Path = "/selected/folder" } };
         var archiveGallery = new Gallery
         {
@@ -58,7 +60,8 @@ public sealed class GenerationSelectionTests
     [Fact]
     public async Task SelectionHonorsCancellationBetweenBatches()
     {
-        await using var db = await CreateContextAsync();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Videos.AddRange(Enumerable.Range(0, 600).Select(index => new Video { Title = $"video {index}" }));
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
@@ -78,13 +81,5 @@ public sealed class GenerationSelectionTests
             ids.AddRange(batch);
         }
         return ids.ToArray();
-    }
-
-    private static async Task<CoveContext> CreateContextAsync()
-    {
-        var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseSqlite("Data Source=:memory:").Options);
-        await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-        return db;
     }
 }

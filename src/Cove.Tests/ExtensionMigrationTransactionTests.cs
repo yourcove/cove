@@ -1,41 +1,46 @@
 using System.Data.Common;
 using Cove.Plugins;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ExtensionMigrationTransactionTests
 {
+    // The table ExtensionManager creates before it applies extension migrations.
+    private const string CreateReceiptTableSql = """
+        CREATE TABLE IF NOT EXISTS extension_migrations (
+            extension_id VARCHAR(256) NOT NULL,
+            migration_name VARCHAR(512) NOT NULL,
+            applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (extension_id, migration_name)
+        )
+        """;
+
     [Fact]
     public async Task ApplyExtensionMigrationAsync_RollsBackSchemaWhenMigrationFailsBeforeReceipt()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = new DbContext(new DbContextOptionsBuilder<DbContext>()
-            .UseSqlite(connection)
-            .Options);
-        await db.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE extension_migrations (
-                extension_id TEXT NOT NULL,
-                migration_name TEXT NOT NULL,
-                PRIMARY KEY (extension_id, migration_name)
-            );
-            """, cancellationToken: TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        await db.Database.ExecuteSqlRawAsync(CreateReceiptTableSql, cancellationToken: TestContext.Current.CancellationToken);
 
         var broken = new ExtensionMigration("probe", """
             CREATE TABLE migration_probe (id INTEGER PRIMARY KEY);
             INSERT INTO missing_table (id) VALUES (1);
             """);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => ExtensionManager.ApplyExtensionMigrationAsync(
+        var failure = await Assert.ThrowsAsync<PostgresException>(() => ExtensionManager.ApplyExtensionMigrationAsync(
             db, "test-extension", broken, CancellationToken.None));
+        // The script failed on its second statement, after it had created the table.
+        Assert.Equal(PostgresErrorCodes.UndefinedTable, failure.SqlState);
 
-        var tableCount = await ScalarAsync(connection,
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'");
-        var receiptCount = await ScalarAsync(connection,
+        var tableCount = await ScalarAsync(database,
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'migration_probe'");
+        var receiptCount = await ScalarAsync(database,
             "SELECT count(*) FROM extension_migrations WHERE extension_id = 'test-extension' AND migration_name = 'probe'");
         Assert.Equal(0, tableCount);
         Assert.Equal(0, receiptCount);
@@ -43,30 +48,21 @@ public sealed class ExtensionMigrationTransactionTests
         var retry = new ExtensionMigration("probe", "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY);");
         await ExtensionManager.ApplyExtensionMigrationAsync(db, "test-extension", retry, CancellationToken.None);
 
-        Assert.Equal(1, await ScalarAsync(connection,
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'"));
-        Assert.Equal(1, await ScalarAsync(connection,
+        Assert.Equal(1, await ScalarAsync(database,
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'migration_probe'"));
+        Assert.Equal(1, await ScalarAsync(database,
             "SELECT count(*) FROM extension_migrations WHERE extension_id = 'test-extension' AND migration_name = 'probe'"));
     }
 
     [Fact]
     public async Task ApplyExtensionMigrationAsync_RunsManualTransactionInsideRetryingStrategy()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var transientReceiptFailure = new TransientReceiptInterceptor();
-        await using var db = new DbContext(new DbContextOptionsBuilder<DbContext>()
-            .UseSqlite(connection)
+        await using var db = database.CreateContext(options => options
             .ReplaceService<IExecutionStrategyFactory, RetryingExecutionStrategyFactory>()
-            .AddInterceptors(transientReceiptFailure)
-            .Options);
-        await db.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE extension_migrations (
-                extension_id TEXT NOT NULL,
-                migration_name TEXT NOT NULL,
-                PRIMARY KEY (extension_id, migration_name)
-            );
-            """, cancellationToken: TestContext.Current.CancellationToken);
+            .AddInterceptors(transientReceiptFailure));
+        await db.Database.ExecuteSqlRawAsync(CreateReceiptTableSql, cancellationToken: TestContext.Current.CancellationToken);
 
         var migration = new ExtensionMigration(
             "retrying-strategy",
@@ -75,17 +71,17 @@ public sealed class ExtensionMigrationTransactionTests
         await ExtensionManager.ApplyExtensionMigrationAsync(
             db, "test-extension", migration, CancellationToken.None);
 
-        Assert.Equal(1, await ScalarAsync(connection,
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'retry_strategy_probe'"));
-        Assert.Equal(1, await ScalarAsync(connection,
+        Assert.Equal(1, await ScalarAsync(database,
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'retry_strategy_probe'"));
+        Assert.Equal(1, await ScalarAsync(database,
             "SELECT count(*) FROM extension_migrations WHERE extension_id = 'test-extension' AND migration_name = 'retrying-strategy'"));
         Assert.Equal(1, transientReceiptFailure.FailureCount);
     }
 
-    private static async Task<long> ScalarAsync(SqliteConnection connection, string sql)
+    // Reads on a connection of its own, which sees only what the migration committed.
+    private static async Task<long> ScalarAsync(CovePostgresDatabase database, string sql)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
+        await using var command = database.DataSource.CreateCommand(sql);
         return (long)(await command.ExecuteScalarAsync())!;
     }
 

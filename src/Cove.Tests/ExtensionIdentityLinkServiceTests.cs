@@ -5,13 +5,13 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ExtensionIdentityLinkServiceTests
 {
     [Fact]
@@ -130,7 +130,7 @@ public sealed class ExtensionIdentityLinkServiceTests
         context.Request.Headers.Cookie = $"{ExtensionLoginSessionService.BrowserBindingCookieName}={binding}";
 
     private sealed class Fixture(
-        SqliteConnection connection,
+        CovePostgresDatabase database,
         CoveContext db,
         CurrentPrincipalAccessor principals,
         ExternalIdentityService identities,
@@ -143,14 +143,20 @@ public sealed class ExtensionIdentityLinkServiceTests
 
         public static async Task<Fixture> CreateAsync()
         {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(connection)
-                .Options);
-            await db.Database.EnsureCreatedAsync();
-            db.Users.AddRange(User(1, "alice"), User(2, "bob"));
-            await db.SaveChangesAsync();
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            var db = database.CreateContext();
+            try
+            {
+                db.Users.AddRange(User(1, "alice"), User(2, "bob"));
+                await db.SaveChangesAsync();
+                await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+            }
+            catch
+            {
+                await db.DisposeAsync();
+                await database.DisposeAsync();
+                throw;
+            }
 
             var audit = new NoopAudit();
             var time = TimeProvider.System;
@@ -178,7 +184,7 @@ public sealed class ExtensionIdentityLinkServiceTests
                 identities,
                 sessions,
                 new ExtensionIdentityLinkTicketStore(time));
-            return new Fixture(connection, db, principals, identities, sessions, links);
+            return new Fixture(database, db, principals, identities, sessions, links);
         }
 
         public void SetPrincipal(int userId, string username) =>
@@ -188,7 +194,7 @@ public sealed class ExtensionIdentityLinkServiceTests
         {
             principals.Set(null);
             await db.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
 
         private static User User(int id, string username) => new()

@@ -4,10 +4,10 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
+using Cove.Tests.Postgres;
 using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Cove.Tests;
 
 /// <summary>
-/// Integration tests for UserService against an in-memory CoveContext.
+/// Integration tests for UserService against a PostgreSQL CoveContext.
 /// Focused on lockout, password verification, and audit emission behavior.
 /// </summary>
 public class UserServiceTests
@@ -84,18 +84,12 @@ public class UserServiceTests
         Assert.Null(UserService.SerializeUiPreferences(preferences));
     }
 
-    private static CoveContext NewDb(string name = "users")
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"{name}-{Guid.NewGuid():N}")
-            .Options;
-        return new TestCoveContext(options);
-    }
-
     [Fact]
+    [RequiresPostgres]
     public async Task DeleteAsync_removes_user_owned_library_data_and_preserves_unowned_data()
     {
-        await using var db = NewDb("delete-owned-data");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var user = new User
         {
             Username = "disposable",
@@ -106,6 +100,10 @@ public class UserServiceTests
             UpdatedAt = DateTime.UtcNow,
         };
         db.Users.Add(user);
+        var performer = new Performer { Name = "Suggested performer" };
+        var face = new Face();
+        db.Performers.Add(performer);
+        db.Faces.Add(face);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var profile = new SegmentDisplayProfile { Name = "Personal", UserId = user.Id, Version = 1 };
@@ -132,7 +130,7 @@ public class UserServiceTests
         db.Interactions.Add(new Interaction { UserId = user.Id, HostType = InteractionHostType.Video, HostId = 1, Kind = InteractionKind.OpenDetail });
         db.PlaybackIntervals.Add(new PlaybackInterval { UserId = user.Id, PlaybackSessionId = playback.Id, HostType = InteractionHostType.Video, HostId = 1, StartSec = 0, EndSec = 1 });
         db.UserSessions.Add(new UserSession { UserId = user.Id });
-        db.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { UserId = user.Id, FaceId = 1, PerformerId = 1 });
+        db.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { UserId = user.Id, FaceId = face.Id, PerformerId = performer.Id });
         db.SegmentDisplayRules.AddRange(
             new SegmentDisplayRule { ProfileId = profile.Id },
             new SegmentDisplayRule { ProfileId = systemProfile.Id, UserId = user.Id },
@@ -163,7 +161,10 @@ public class UserServiceTests
     [Fact]
     public void User_owned_entities_cascade_when_their_user_is_deleted()
     {
-        using var db = NewDb("user-owned-model");
+        // Reads only the model, so it needs no server.
+        using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=model_only;Username=model_only;Password=model_only", npgsql => npgsql.UseVector())
+            .Options);
         var ownedTypes = db.Model.GetEntityTypes()
             .Where(entityType => entityType.ClrType.Assembly == typeof(User).Assembly
                 && entityType.FindProperty("UserId") is not null)
@@ -180,9 +181,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RecordLoginFailure_locks_account_after_threshold()
     {
-        await using var db = NewDb("lockout");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Users.Add(new User
         {
             Username = "bob",
@@ -214,9 +217,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VerifyPassword_returns_false_for_wrong_password()
     {
-        await using var db = NewDb("verify");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Users.Add(new User
         {
             Username = "alice",
@@ -255,9 +260,11 @@ public class UserServiceTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
+    [RequiresPostgres]
     public async Task Direct_user_creation_requires_a_password(string? password)
     {
-        await using var db = NewDb($"required-password-{Guid.NewGuid():N}");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -266,9 +273,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task BootstrapOwner_creates_single_owner_account()
     {
-        await using var db = NewDb("bootstrap-owner");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         Assert.False(await svc.OwnerExistsAsync(TestContext.Current.CancellationToken));
@@ -283,9 +292,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Existing_user_invite_can_reset_password_once()
     {
-        await using var db = NewDb("invite-redeem");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
         var user = await svc.CreateAsync(new CreateUserRequest("invitee", "oldpassword123", DisplayName: "Invitee"), null, TestContext.Current.CancellationToken);
 
@@ -304,9 +315,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Pending_invite_can_create_user_with_recipient_username()
     {
-        await using var db = NewDb("pending-invite-redeem");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         var invite = await svc.CreatePendingInviteAsync(new CreateInviteRequest(DisplayName: "Invited User", Email: "invitee@example.test"), "http://cove.local", null, TestContext.Current.CancellationToken);
@@ -328,9 +341,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Setup_token_bootstraps_owner_once()
     {
-        await using var db = NewDb("setup-token");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
 
         var setup = await svc.CreateSetupTokenAsync(null, TestContext.Current.CancellationToken);
@@ -345,9 +360,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Issued_jwt_has_expiry_live_session_and_refresh_uses_configured_ttl()
     {
-        await using var db = NewDb("token-age");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
@@ -364,9 +381,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ResolveExistingUserAsync_builds_host_owned_principal_and_rejects_unusable_accounts()
     {
-        await using var db = NewDb("external-user-assertion");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
         db.Users.AddRange(
             new User
@@ -411,9 +430,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ResolveAsync_rejects_jwt_after_session_is_revoked()
     {
-        await using var db = NewDb("token-revoked-session");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
@@ -431,15 +452,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Existing_sessions_and_api_tokens_reject_a_user_who_loses_their_password()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
@@ -458,15 +475,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Recent_refresh_token_reuse_does_not_revoke_the_rotated_session()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
@@ -482,15 +495,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Recent_refresh_token_reuse_preserves_an_active_later_descendant()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
@@ -506,15 +515,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Older_refresh_token_reuse_still_revokes_the_rotated_session()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
@@ -532,9 +537,11 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ResolveAsync_rejects_jwt_after_auth_database_is_recreated()
     {
-        await using var db = NewDb("token-db-recreated");
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
@@ -554,7 +561,10 @@ public class UserServiceTests
     [Fact]
     public async Task ResolveAsync_returns_null_for_malformed_bearer_token()
     {
-        await using var db = NewDb("token-malformed");
+        // A malformed token is rejected before any query, so it needs no server.
+        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=unused", npgsql => npgsql.UseVector())
+            .Options);
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", RefreshTokenDays = 30 } };
         var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
 
@@ -564,17 +574,12 @@ public class UserServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ResolveAsync_waits_for_api_token_last_used_update()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var interceptor = new BlockingApiTokenUpdateInterceptor();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .AddInterceptors(interceptor)
-            .Options;
-        await using var db = new TestCoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext(options => options.AddInterceptors(interceptor));
         await SeedOwnerAsync(db);
 
         var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
@@ -605,14 +610,6 @@ public class UserServiceTests
         Assert.False(resolvedBeforeUpdateCompleted);
         Assert.NotNull(principal);
         Assert.NotNull(lastUsedAt);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-        }
     }
 
     private sealed class BlockingApiTokenUpdateInterceptor : DbCommandInterceptor

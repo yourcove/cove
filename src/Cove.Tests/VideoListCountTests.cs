@@ -3,12 +3,13 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class VideoListCountTests
 {
     // Counting reads every match. The video list takes its total from the aggregate request,
@@ -16,12 +17,9 @@ public sealed class VideoListCountTests
     [Fact]
     public async Task SkipCount_ReturnsThePageWithoutRunningACountQuery()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var commands = new CommandRecorder();
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).AddInterceptors(commands).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext(options => options.AddInterceptors(commands));
         db.Videos.AddRange(new Video { Title = "Needle one" }, new Video { Title = "Needle two" }, new Video { Title = "Other" });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var repository = new VideoRepository(db);
