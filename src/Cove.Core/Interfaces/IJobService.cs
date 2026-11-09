@@ -120,8 +120,8 @@ public record JobBatchResult(
 public interface IJobService
 {
     /// <summary>
-    /// Enqueue a job. Exclusive jobs (default) run sequentially through the queue.
-    /// Non-exclusive jobs run immediately as concurrent background tasks.
+    /// Enqueue a job subject to the configured simultaneous-job limit.
+    /// The exclusive parameter is retained for binary compatibility; all jobs share the bounded queue.
     /// The work callback can outlive its originating request: do not capture scoped services or
     /// HttpContext. Create a fresh scope inside the callback and honor its cancellation token.
     /// </summary>

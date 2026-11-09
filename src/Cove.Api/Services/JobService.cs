@@ -10,7 +10,7 @@ namespace Cove.Api.Services;
 
 public class JobService : IJobService, IHostedService
 {
-    private readonly List<JobEntry> _exclusiveQueue = [];
+    private readonly List<JobEntry> _pendingQueue = [];
     private readonly SemaphoreSlim _queueSignal = new(0);
     private readonly Dictionary<string, JobEntry> _jobs = [];
     private readonly List<JobHistoryEntry> _history = [];
@@ -22,6 +22,9 @@ public class JobService : IJobService, IHostedService
     private readonly JobRequestCapture? _requestCapture;
     private readonly IJobHistoryStore? _historyStore;
     private readonly Dictionary<string, string> _lateFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CoveConfiguration _config;
+    private readonly List<Task> _runningTasks = [];
+    private int _runningCount;
     private Task? _processorTask;
     private CancellationTokenSource? _cts;
     private const int MaxHistory = JobHistoryStore.Capacity;
@@ -32,7 +35,8 @@ public class JobService : IJobService, IHostedService
         ILogger<JobService> logger,
         ICurrentPrincipalAccessor? principalAccessor = null,
         JobRequestCapture? requestCapture = null,
-        IJobHistoryStore? historyStore = null)
+        IJobHistoryStore? historyStore = null,
+        CoveConfiguration? config = null)
     {
         _eventBus = eventBus;
         _hubContext = hubContext;
@@ -40,6 +44,7 @@ public class JobService : IJobService, IHostedService
         _principalAccessor = principalAccessor;
         _requestCapture = requestCapture;
         _historyStore = historyStore;
+        _config = config ?? new CoveConfiguration();
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -95,6 +100,10 @@ public class JobService : IJobService, IHostedService
         if (_processorTask != null)
         {
             try { await _processorTask; } catch (OperationCanceledException) { }
+            Task[] running;
+            lock (_lock)
+                running = [.. _runningTasks];
+            await Task.WhenAll(running).WaitAsync(cancellationToken);
         }
     }
 
@@ -180,18 +189,11 @@ public class JobService : IJobService, IHostedService
         lock (_lock)
         {
             _jobs[entry.Id] = entry;
-            if (exclusive)
-                _exclusiveQueue.Add(entry);
+            _pendingQueue.Add(entry);
         }
 
-        if (exclusive)
-            _queueSignal.Release();
-        else
-        {
-            _ = RunConcurrentJobAsync(entry);
-        }
-
-        _logger.LogInformation("Job {JobId} enqueued ({Mode}): {Type} - {Description}", entry.Id, exclusive ? "exclusive" : "concurrent", type, description);
+        _queueSignal.Release();
+        _logger.LogInformation("Job {JobId} enqueued: {Type} - {Description}", entry.Id, type, description);
         NotifyClients(entry);
         return entry.Id;
     }
@@ -213,7 +215,7 @@ public class JobService : IJobService, IHostedService
             {
                 entry.Status = JobStatus.Cancelled;
                 entry.CompletedAt = DateTime.UtcNow;
-                _exclusiveQueue.Remove(entry);
+                _pendingQueue.Remove(entry);
                 cancelledPending = entry;
             }
             else if (entry.Cts != null)
@@ -246,26 +248,26 @@ public class JobService : IJobService, IHostedService
         JobEntry? moved;
         lock (_lock)
         {
-            var currentIndex = _exclusiveQueue.FindIndex(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
-            if (currentIndex < 0 || _exclusiveQueue[currentIndex].Status != JobStatus.Pending)
+            var currentIndex = _pendingQueue.FindIndex(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+            if (currentIndex < 0 || _pendingQueue[currentIndex].Status != JobStatus.Pending)
                 return false;
-            if (!CanAccess(_exclusiveQueue[currentIndex].Owner, owner, includeAll))
+            if (!CanAccess(_pendingQueue[currentIndex].Owner, owner, includeAll))
                 return false;
 
-            moved = _exclusiveQueue[currentIndex];
-            _exclusiveQueue.RemoveAt(currentIndex);
+            moved = _pendingQueue[currentIndex];
+            _pendingQueue.RemoveAt(currentIndex);
 
             var targetIndex = string.IsNullOrWhiteSpace(beforeJobId)
                 ? -1
-                : _exclusiveQueue.FindIndex(job =>
+                : _pendingQueue.FindIndex(job =>
                     string.Equals(job.Id, beforeJobId, StringComparison.OrdinalIgnoreCase)
                     && job.Status == JobStatus.Pending
                     && CanAccess(job.Owner, owner, includeAll));
 
             if (targetIndex < 0)
-                _exclusiveQueue.Add(moved);
+                _pendingQueue.Add(moved);
             else
-                _exclusiveQueue.Insert(targetIndex, moved);
+                _pendingQueue.Insert(targetIndex, moved);
         }
 
         NotifyClients(moved);
@@ -296,12 +298,12 @@ public class JobService : IJobService, IHostedService
     {
         lock (_lock)
         {
-            var queuedIds = _exclusiveQueue.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var queuedIds = _pendingQueue.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var running = _jobs.Values
                 .Where(job => job.Status == JobStatus.Running || (job.Status == JobStatus.Pending && !queuedIds.Contains(job.Id)))
                 .Where(job => CanAccess(job.Owner, owner, includeAll))
                 .Select(job => job.ToInfo());
-            var queued = _exclusiveQueue
+            var queued = _pendingQueue
                 .Where(job => job.Status == JobStatus.Pending)
                 .Where(job => CanAccess(job.Owner, owner, includeAll))
                 .Select(job => job.ToInfo());
@@ -379,75 +381,48 @@ public class JobService : IJobService, IHostedService
         JobRequestCapture.MarkJobWork();
         while (!ct.IsCancellationRequested)
         {
-            await _queueSignal.WaitAsync(ct);
-
-            JobEntry? entry = null;
+            // Also recheck saved settings so raising the limit starts pending jobs without a restart.
+            await _queueSignal.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
             lock (_lock)
             {
-                while (_exclusiveQueue.Count > 0)
+                _runningTasks.RemoveAll(task => task.IsCompleted);
+                while (!ct.IsCancellationRequested
+                    && _runningCount < Math.Clamp(_config.MaxSimultaneousJobs, 1, 128)
+                    && _pendingQueue.Count > 0)
                 {
-                    var candidate = _exclusiveQueue[0];
-                    _exclusiveQueue.RemoveAt(0);
-                    if (candidate.Status == JobStatus.Pending)
+                    var entry = _pendingQueue[0];
+                    _pendingQueue.RemoveAt(0);
+                    if (entry.Status != JobStatus.Pending)
+                        continue;
+
+                    // Reserve the slot and token before cancellation can observe the running job.
+                    entry.Cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    entry.Status = JobStatus.Running;
+                    entry.StartedAt = DateTime.UtcNow;
+                    entry.Eta.Start(entry.StartedAt);
+                    _runningCount++;
+                    _runningTasks.Add(Task.Run(async () =>
                     {
-                        entry = candidate;
-                        entry.Cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        entry.Status = JobStatus.Running;
-                        entry.StartedAt = DateTime.UtcNow;
-                        entry.Eta.Start(entry.StartedAt);
-                        break;
-                    }
+                        try
+                        {
+                            await RunJobAsync(entry);
+                        }
+                        finally
+                        {
+                            lock (_lock)
+                                _runningCount--;
+                            _queueSignal.Release();
+                        }
+                    }));
                 }
             }
-
-            if (entry == null)
-                continue;
-
-            NotifyClients(entry);
-
-            var progress = new JobProgress(entry, this);
-            using var logScope = BeginJobLogScope(entry);
-
-            try
-            {
-                _logger.LogInformation("Job {JobId} started: {Description}", entry.Id, entry.Description);
-
-                await entry.Work(progress, entry.Cts!.Token);
-
-                FinalizeSuccessfulWork(entry);
-
-                LogCompleted(entry, "Exclusive");
-            }
-            catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
-            {
-                // Cancellation triggered by this job's own token (user cancel or host shutdown). This is a
-                // normal, graceful stop — mark the job cancelled rather than letting the exception bubble out
-                // of the queue processor (which would tear down the background processor loop / host).
-                entry.Status = JobStatus.Cancelled;
-                entry.CompletedAt = DateTime.UtcNow;
-                LogCancelled(entry, "Exclusive");
-            }
-            catch (Exception ex)
-            {
-                entry.Status = JobStatus.Failed;
-                entry.Error = ex.Message;
-                entry.CompletedAt = DateTime.UtcNow;
-                LogFailed(entry, "Exclusive", ex);
-            }
-
-            NotifyClients(entry);
-            MoveToHistory(entry);
         }
     }
 
-    private async Task RunConcurrentJobAsync(JobEntry entry)
+    private async Task RunJobAsync(JobEntry entry)
     {
-        // Runs on the request that started the job; nothing this job starts belongs to that request.
+        // Child jobs must not inherit the request captured for their parent.
         JobRequestCapture.MarkJobWork();
-        entry.Cts = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
-        entry.Status = JobStatus.Running;
-        entry.StartedAt = DateTime.UtcNow;
-        entry.Eta.Start(entry.StartedAt);
         NotifyClients(entry);
 
         var progress = new JobProgress(entry, this);
@@ -455,24 +430,24 @@ public class JobService : IJobService, IHostedService
 
         try
         {
-            _logger.LogInformation("Concurrent job {JobId} started: {Description}", entry.Id, entry.Description);
-            await entry.Work(progress, entry.Cts.Token);
+            _logger.LogInformation("Job {JobId} started: {Description}", entry.Id, entry.Description);
+            await entry.Work(progress, entry.Cts!.Token);
             FinalizeSuccessfulWork(entry);
-            LogCompleted(entry, "Concurrent");
+            LogCompleted(entry, "Background");
         }
         catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
         {
             // Graceful cancellation via this job's own token; mark cancelled instead of failing.
             entry.Status = JobStatus.Cancelled;
             entry.CompletedAt = DateTime.UtcNow;
-            LogCancelled(entry, "Concurrent");
+            LogCancelled(entry, "Background");
         }
         catch (Exception ex)
         {
             entry.Status = JobStatus.Failed;
             entry.Error = ex.Message;
             entry.CompletedAt = DateTime.UtcNow;
-            LogFailed(entry, "Concurrent", ex);
+            LogFailed(entry, "Background", ex);
         }
 
         NotifyClients(entry);
@@ -701,7 +676,7 @@ public class JobService : IJobService, IHostedService
     ///
     /// For unit-based jobs the estimate is driven by the measured wall-clock <em>duration of each
     /// completed item</em>, not by the aggregate progress fraction. This matters because items complete
-    /// out of order and in bursts (concurrency), and many are effectively no-ops — e.g. entities that
+    /// out of order and in bursts (concurrency), and many are effectively no-ops â€” e.g. entities that
     /// already had AI run on them or were already scanned, which finish near-instantly. Sampling the
     /// progress bar over a fixed time window (the old approach) made the pace estimate lurch whenever a
     /// window happened to catch a burst of slow real items right after a run of cheap no-ops, producing
