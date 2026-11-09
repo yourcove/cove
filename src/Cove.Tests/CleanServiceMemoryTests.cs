@@ -1,10 +1,12 @@
 using System.Collections;
 using System.Data.Common;
+using System.Text.RegularExpressions;
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class CleanServiceMemoryTests
 {
     [Theory]
@@ -20,41 +23,34 @@ public sealed class CleanServiceMemoryTests
     [InlineData("delete")]
     public async Task InspectsBoundedPagesAndDefersDeletionUntilInspectionCompletes(string outcome)
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"cove-clean-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var guard = new InspectionGuard();
+        var options = database.CreateOptions(builder => builder.AddInterceptors(guard));
+        var services = new ServiceCollection();
+        services.AddScoped(_ => new CoveContext(options));
+        AddDeletionServices(services);
+        await using var provider = services.BuildServiceProvider();
+        await using (var db = new CoveContext(options))
         {
-            var guard = new InspectionGuard();
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source={Path.Combine(directory, "library.db")};Pooling=False").AddInterceptors(guard).Options;
-            var services = new ServiceCollection();
-            services.AddScoped(_ => new CoveContext(options));
-            AddDeletionServices(services);
-            await using var provider = services.BuildServiceProvider();
-            await using (var db = new CoveContext(options))
-            {
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-                db.Videos.AddRange(Enumerable.Range(0, 601).Select(index => new Video { Title = $"orphan {index}" }));
-                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
-            }
-            guard.Enabled = true;
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-            if (outcome == "cancel") guard.AfterInspect = cancellation.Cancel;
-            var jobs = new CapturingJobs(guard, cancellation.Token);
-            var service = new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance);
-            service.StartClean(dryRun: outcome == "dry-run");
-            if (outcome == "cancel")
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => jobs.Completion);
-            else
-            {
-                await jobs.Completion;
-                Assert.True(guard.Inspected >= 601);
-            }
-            guard.Enabled = false;
-            await using var verify = new CoveContext(options);
-            Assert.Equal(outcome == "delete" ? 0 : 601, await verify.Videos.CountAsync(TestContext.Current.CancellationToken));
+            db.Videos.AddRange(Enumerable.Range(0, 601).Select(index => new Video { Title = $"orphan {index}" }));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
-        finally { Directory.Delete(directory, recursive: true); }
+        guard.Enabled = true;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        if (outcome == "cancel") guard.AfterInspect = cancellation.Cancel;
+        var jobs = new CapturingJobs(guard, cancellation.Token);
+        var service = new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance);
+        service.StartClean(dryRun: outcome == "dry-run");
+        if (outcome == "cancel")
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => jobs.Completion);
+        else
+        {
+            await jobs.Completion;
+            Assert.True(guard.Inspected >= 601);
+        }
+        guard.Enabled = false;
+        await using var verify = new CoveContext(options);
+        Assert.Equal(outcome == "delete" ? 0 : 601, await verify.Videos.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -62,13 +58,13 @@ public sealed class CleanServiceMemoryTests
     [InlineData(false)]
     public async Task CleanPreservesClipsAndScopeWhileRemovingMissingArchiveContentAcrossBatches(bool scoped)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-clean-mixed-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
             var guard = new InspectionGuard { RequiredInspectionCount = 1203 };
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").AddInterceptors(guard).Options;
+            var options = database.CreateOptions(builder => builder.AddInterceptors(guard));
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
             AddDeletionServices(services);
@@ -77,7 +73,6 @@ public sealed class CleanServiceMemoryTests
             int clipId;
             await using (var db = new CoveContext(options))
             {
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var physical = new Folder { Path = selected };
                 var virtualFolder = new Folder { Path = "/virtual/archive-content" };
                 var outside = new Folder { Path = root };
@@ -124,12 +119,12 @@ public sealed class CleanServiceMemoryTests
     [Fact]
     public async Task CleanRemovesOrphansThroughTheUserDeletionPath()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-clean-deps-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").Options;
+            var options = database.CreateOptions();
             var eventBus = new EventBus();
             var thumbnails = new DeletionSafetyTests.RecordingThumbnailService();
             var services = new ServiceCollection();
@@ -145,7 +140,6 @@ public sealed class CleanServiceMemoryTests
             int orphanId, liveId, clipId;
             await using (var db = new CoveContext(options))
             {
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 await File.WriteAllBytesAsync(Path.Combine(root, "live.mp4"), [1], TestContext.Current.CancellationToken);
                 var folder = new Folder { Path = root };
                 var orphan = new Video { Title = "orphan", Files = [new VideoFile { ParentFolder = folder, Basename = "gone.mp4" }] };
@@ -184,21 +178,19 @@ public sealed class CleanServiceMemoryTests
     [Fact]
     public async Task CleanFailureDoesNotLeakIntoTheNextDeletionInTheBatch()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-clean-failure-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
             var failure = new FirstImageDeleteFailure();
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False")
-                .AddInterceptors(failure).Options;
+            var options = database.CreateOptions(builder => builder.AddInterceptors(failure));
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
             AddDeletionServices(services);
             await using var provider = services.BuildServiceProvider();
             await using (var db = new CoveContext(options))
             {
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var folder = new Folder { Path = root };
                 db.AddRange(
                     new Image { Title = "first", Files = [new ImageFile { ParentFolder = folder, Basename = "first.jpg" }] },
@@ -288,17 +280,37 @@ public sealed class CleanServiceMemoryTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.TrimStart().StartsWith("DELETE", StringComparison.OrdinalIgnoreCase))
+            CheckDeletion(command);
+            return ValueTask.FromResult(result);
+        }
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            // Npgsql sends a SaveChanges batch, deletions included, through a reader.
+            CheckDeletion(command);
+            return ValueTask.FromResult(result);
+        }
+        private void CheckDeletion(DbCommand command)
+        {
+            if (Enabled && DeleteStatement.IsMatch(command.CommandText))
             {
                 Assert.True(Inspected >= RequiredInspectionCount, "Destination deletion began before inspection finished.");
                 deleting = true;
             }
-            return ValueTask.FromResult(result);
         }
         public override ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             DbDataReader result, CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<DbDataReader>(Enabled && !deleting && !command.CommandText.Contains("COUNT(", StringComparison.OrdinalIgnoreCase) && new[] { "videos", "images", "galleries", "audios", "text_documents" }.Any(table => command.CommandText.Contains($"FROM \"{table}\"", StringComparison.Ordinal))
+            => ValueTask.FromResult<DbDataReader>(Enabled && !deleting && !command.CommandText.Contains("COUNT(", StringComparison.OrdinalIgnoreCase)
+                && EntityTable.IsMatch(command.CommandText) && !FilesCollection.IsMatch(command.CommandText)
                 ? new GuardedReader(result, this) : result);
+
+        // A batch can start with another statement, so a deletion is any statement in it that starts with DELETE.
+        private static readonly Regex DeleteStatement = new(@"(^|;)\s*DELETE\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // Npgsql quotes an identifier only when it must, so these lower-case table names appear bare.
+        private static readonly Regex EntityTable = new(@"\bFROM ""?(videos|images|galleries|audios|text_documents)""?\s", RegexOptions.CultureInvariant);
+        // Split queries load an entity's files in a second query joined to the page. Its rows are the page's
+        // files, not more entities, so only the page query itself is counted.
+        private static readonly Regex FilesCollection = new(@"\bJOIN \(\s*SELECT\b[^()]*\bFROM ""?files""?\s", RegexOptions.CultureInvariant);
     }
     private sealed class GuardedReader(DbDataReader inner, InspectionGuard guard) : DbDataReader
     {
@@ -322,6 +334,10 @@ public sealed class CleanServiceMemoryTests
         public override Type GetFieldType(int ordinal) => inner.GetFieldType(ordinal);
         public override int GetOrdinal(string name) => inner.GetOrdinal(name);
         public override object GetValue(int ordinal) => inner.GetValue(ordinal);
+        // Npgsql reads most columns through these; the base versions would cast GetValue and lose provider conversions.
+        public override T GetFieldValue<T>(int ordinal) => inner.GetFieldValue<T>(ordinal);
+        public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken) => inner.GetFieldValueAsync<T>(ordinal, cancellationToken);
+        public override Task<bool> IsDBNullAsync(int ordinal, CancellationToken cancellationToken) => inner.IsDBNullAsync(ordinal, cancellationToken);
         public override int GetValues(object[] values) => inner.GetValues(values);
         public override bool IsDBNull(int ordinal) => inner.IsDBNull(ordinal);
         public override bool GetBoolean(int ordinal) => inner.GetBoolean(ordinal);

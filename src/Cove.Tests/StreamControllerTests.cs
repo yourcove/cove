@@ -5,8 +5,7 @@ using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 using Cove.Api.Imaging;
 
 namespace Cove.Tests;
@@ -58,12 +57,11 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetHlsMasterPlaylist_AppendsMediaAuthQueryToVariantPlaylistUrls()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var context = CreateContext(connection);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var video = new Video { Title = "HLS video" };
         var folder = new Folder { Path = Path.GetTempPath() };
@@ -93,6 +91,7 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetHlsPlaylist_AppendsMediaAuthQueryToSegmentUrls()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"cove-hls-test-{Guid.NewGuid():N}");
@@ -100,10 +99,8 @@ public class StreamControllerTests
         var videoPath = Path.Combine(tempDir, "video.mp4");
         await File.WriteAllBytesAsync(videoPath, [1, 2, 3], TestContext.Current.CancellationToken);
 
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var context = CreateContext(connection);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         try
         {
@@ -187,12 +184,11 @@ public class StreamControllerTests
     // The default, loose crop used to settle for a stand-in; the tight one already made its frame.
     [InlineData(null)]
     [InlineData(1.0)]
+    [RequiresPostgres]
     public async Task GetDetectionCrop_CutsFromTheDetectionsOwnFrame_NotAnotherMomentInItsSecond(double? context)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var video = new Video { Title = "Video with a face" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -220,12 +216,11 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetDetectionCrop_WhenTheFrameCannotBeMade_CachesTheStandInBriefly()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var video = new Video { Title = "Video whose file is offline" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -249,12 +244,11 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DetectionFrame_UsesAnExistingExactFrame_WithoutMakingItAgain()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var video = new Video { Title = "Video with a face" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -271,12 +265,11 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DetectionFrame_OnAClip_MakesTheFrameFromTheSourceVideo()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var source = new Video { Title = "Source" };
         db.Videos.Add(source);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -296,12 +289,11 @@ public class StreamControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetDetectionCrop_WhenMakingTheFrameFails_FallsBackInsteadOfFailing()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = CreateContext(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var video = new Video { Title = "Video in a read-only library" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -379,9 +371,6 @@ public class StreamControllerTests
             return Task.FromResult<(Stream stream, string contentType, bool useLongCache)?>(path == null ? null : (File.OpenRead(path), "image/jpeg", true));
         }
     }
-
-    private static CoveContext CreateContext(SqliteConnection connection)
-        => new(new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options);
 
     private sealed class FakeTranscodeService : ITranscodeService
     {

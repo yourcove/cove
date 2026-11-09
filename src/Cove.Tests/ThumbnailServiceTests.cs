@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Text;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Cove.Api.Imaging;
@@ -9,6 +8,7 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
@@ -49,8 +49,10 @@ public class ThumbnailServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RegenerateVideoAssets_PreservesExistingFilesWhenGenerationFails()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -61,13 +63,11 @@ public class ThumbnailServiceTests
             var generatedPath = Path.Combine(tempRoot, "generated");
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
 
             await using var provider = services.BuildServiceProvider();
+            int videoId;
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -83,6 +83,7 @@ public class ThumbnailServiceTests
                 });
                 db.Videos.Add(video);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                videoId = video.Id;
             }
 
             var service = new ThumbnailService(
@@ -95,10 +96,10 @@ public class ThumbnailServiceTests
 
             var assets = new Dictionary<string, byte[]>
             {
-                [service.GetThumbnailPathForVideo(1)] = [1, 2, 3],
-                [service.GetPreviewPath(1)] = [4, 5, 6],
-                [service.GetSpritePath(1)] = [7, 8, 9],
-                [service.GetSpriteVttPath(1)] = [10, 11, 12],
+                [service.GetThumbnailPathForVideo(videoId)] = [1, 2, 3],
+                [service.GetPreviewPath(videoId)] = [4, 5, 6],
+                [service.GetSpritePath(videoId)] = [7, 8, 9],
+                [service.GetSpriteVttPath(videoId)] = [10, 11, 12],
             };
             foreach (var (path, bytes) in assets)
             {
@@ -106,9 +107,9 @@ public class ThumbnailServiceTests
                 await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
             }
 
-            Assert.False(await service.RegenerateVideoThumbnailAsync(1, ct: TestContext.Current.CancellationToken));
-            Assert.False(await service.RegenerateVideoPreviewAsync(1, TestContext.Current.CancellationToken));
-            Assert.False(await service.RegenerateVideoSpriteAsync(1, TestContext.Current.CancellationToken));
+            Assert.False(await service.RegenerateVideoThumbnailAsync(videoId, ct: TestContext.Current.CancellationToken));
+            Assert.False(await service.RegenerateVideoPreviewAsync(videoId, TestContext.Current.CancellationToken));
+            Assert.False(await service.RegenerateVideoSpriteAsync(videoId, TestContext.Current.CancellationToken));
             foreach (var (path, expectedBytes) in assets)
                 Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
         }
@@ -119,8 +120,10 @@ public class ThumbnailServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetVideoFileInfoAsync_UsesTheExplicitSourceFile()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -132,11 +135,8 @@ public class ThumbnailServiceTests
             await File.WriteAllBytesAsync(selectedPath, [2], TestContext.Current.CancellationToken);
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
 
             await using var provider = services.BuildServiceProvider();
             int videoId;
@@ -144,17 +144,18 @@ public class ThumbnailServiceTests
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var folder = new Folder { Path = tempRoot };
                 var video = new Video { Title = "multi-file" };
                 video.Files.Add(new VideoFile
                 {
                     Basename = Path.GetFileName(firstPath),
-                    ParentFolder = new Folder { Path = tempRoot },
+                    ParentFolder = folder,
                     Duration = 10,
                 });
                 var selectedFile = new VideoFile
                 {
                     Basename = Path.GetFileName(selectedPath),
-                    ParentFolder = new Folder { Path = tempRoot },
+                    ParentFolder = folder,
                     Duration = 20,
                 };
                 video.Files.Add(selectedFile);
@@ -324,8 +325,10 @@ public class ThumbnailServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetImageStreamAsync_ExtractsLegacyZipBackedImageUsingResolvedPath()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -342,13 +345,11 @@ public class ThumbnailServiceTests
             }
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
 
             await using var provider = services.BuildServiceProvider();
+            int imageId;
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -368,6 +369,7 @@ public class ThumbnailServiceTests
 
                 db.Images.Add(image);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                imageId = image.Id;
             }
 
             var service = new ThumbnailService(
@@ -378,7 +380,7 @@ public class ThumbnailServiceTests
                 new NullBlobService(),
                 NullLogger<ThumbnailService>.Instance);
 
-            var result = await service.GetImageStreamAsync(1, CancellationToken.None);
+            var result = await service.GetImageStreamAsync(imageId, CancellationToken.None);
 
             Assert.NotNull(result);
             Assert.Equal("image/jpeg", result.Value.contentType);
@@ -396,8 +398,10 @@ public class ThumbnailServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetImageThumbnailStreamAsync_ReturnsCappedCachedThumbnail()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -410,11 +414,8 @@ public class ThumbnailServiceTests
             File.SetLastWriteTimeUtc(imagePath, sourceModTime);
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
 
             var config = new CoveConfiguration
             {
@@ -423,6 +424,7 @@ public class ThumbnailServiceTests
             };
 
             await using var provider = services.BuildServiceProvider();
+            int imageId;
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -442,6 +444,7 @@ public class ThumbnailServiceTests
 
                 db.Images.Add(image);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                imageId = image.Id;
             }
 
             var service = new ThumbnailService(
@@ -452,7 +455,7 @@ public class ThumbnailServiceTests
                 new NullBlobService(),
                 NullLogger<ThumbnailService>.Instance);
 
-            var result = await service.GetImageThumbnailStreamAsync(1, 640, CancellationToken.None);
+            var result = await service.GetImageThumbnailStreamAsync(imageId, 640, CancellationToken.None);
 
             Assert.NotNull(result);
             Assert.Equal("image/jpeg", result.Value.contentType);
@@ -476,8 +479,10 @@ public class ThumbnailServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetImageThumbnailStreamAsync_PreservesTransparencyForPngSources()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -497,11 +502,8 @@ public class ThumbnailServiceTests
             File.SetLastWriteTimeUtc(imagePath, sourceModTime);
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
 
             var config = new CoveConfiguration
             {
@@ -510,6 +512,7 @@ public class ThumbnailServiceTests
             };
 
             await using var provider = services.BuildServiceProvider();
+            int imageId;
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -529,6 +532,7 @@ public class ThumbnailServiceTests
 
                 db.Images.Add(image);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                imageId = image.Id;
             }
 
             var service = new ThumbnailService(
@@ -539,7 +543,7 @@ public class ThumbnailServiceTests
                 new NullBlobService(),
                 NullLogger<ThumbnailService>.Instance);
 
-            var result = await service.GetImageThumbnailStreamAsync(1, 64, CancellationToken.None);
+            var result = await service.GetImageThumbnailStreamAsync(imageId, 64, CancellationToken.None);
 
             Assert.NotNull(result);
             Assert.Equal("image/png", result.Value.contentType);
@@ -644,8 +648,10 @@ public class ThumbnailServiceTests
     public static bool IsUnix => !OperatingSystem.IsWindows();
 
     [Fact(Skip = "Requires Unix shell fixtures", SkipUnless = nameof(IsUnix))]
+    [RequiresPostgres]
     public async Task VideoThumbnail_PassesInputPathAsOneArgument()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         using var ffmpeg = new ArgvRecordingExecutable(touchLastArgument: true);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -655,11 +661,8 @@ public class ThumbnailServiceTests
             await File.WriteAllBytesAsync(input, [0], TestContext.Current.CancellationToken);
 
             var services = new ServiceCollection();
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            services.AddSingleton(dbOptions);
-            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+            var dbOptions = database.CreateOptions();
+            services.AddScoped(_ => new CoveContext(dbOptions));
             await using var provider = services.BuildServiceProvider();
 
             int videoId;
@@ -706,8 +709,10 @@ public class ThumbnailServiceTests
     /// segment input, the graph ending in the software pixel-format tail, and no VAAPI device or upload.
     /// </summary>
     [Fact(Skip = "Requires Unix shell fixtures", SkipUnless = nameof(IsUnix))]
+    [RequiresPostgres]
     public async Task SplicedPreview_BuildsTheSoftwareEncodeCommand()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         using var ffmpeg = new ArgvRecordingExecutable(touchLastArgument: true);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-preview-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -715,7 +720,7 @@ public class ThumbnailServiceTests
         {
             var input = Path.Combine(tempRoot, FfmpegPathArgumentTests.AwkwardFileName);
             await File.WriteAllBytesAsync(input, [0], TestContext.Current.CancellationToken);
-            await using var provider = await CreateSingleVideoProviderAsync(tempRoot, input, duration: 100);
+            await using var provider = await CreateSingleVideoProviderAsync(database, tempRoot, input, duration: 100);
             var config = new CoveConfiguration
             {
                 GeneratedPath = Path.Combine(tempRoot, "generated"),
@@ -760,14 +765,11 @@ public class ThumbnailServiceTests
         public ValueTask DisposeAsync() => ServiceProvider.DisposeAsync();
     }
 
-    private static async Task<SingleVideoProvider> CreateSingleVideoProviderAsync(string folder, string filePath, double duration)
+    private static async Task<SingleVideoProvider> CreateSingleVideoProviderAsync(CovePostgresDatabase database, string folder, string filePath, double duration)
     {
         var services = new ServiceCollection();
-        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        services.AddSingleton(dbOptions);
-        services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+        var dbOptions = database.CreateOptions();
+        services.AddScoped(_ => new CoveContext(dbOptions));
         var provider = services.BuildServiceProvider();
 
         await using var scope = provider.CreateAsyncScope();
@@ -852,14 +854,5 @@ public class ThumbnailServiceTests
 
         public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
             => Task.CompletedTask;
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
     }
 }

@@ -3,6 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -11,18 +12,20 @@ namespace Cove.Tests;
 public class StreamServiceTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task ExistingVideoWithoutPrimary_DoesNotSilentlyFallBackOnLaterSave()
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        await using var db = new CoveContext(options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var video = new Video { Title = "explicit primary" };
         var file = new VideoFile { Basename = "source.mp4", ParentFolder = new Folder { Path = Path.GetTempPath() } };
         video.Files.Add(file);
-        video.PrimaryFile = file;
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        // A relational store cannot insert a video and its primary file in one save, so the primary is set after.
+        video.PrimaryFile = file;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(file.Id, video.PrimaryFileId);
 
         video.PrimaryFile = null;
         video.PrimaryFileId = null;
@@ -31,11 +34,15 @@ public class StreamServiceTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Null(video.PrimaryFileId);
+        await using var verify = database.CreateContext();
+        Assert.Null(await verify.Videos.Where(item => item.Id == video.Id).Select(item => item.PrimaryFileId).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GetVideoStream_OpensTheCanonicalStoredPathWithoutFolderNavigation()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-stream-source-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -45,11 +52,8 @@ public class StreamServiceTests
             var bytes = new byte[] { 1, 2, 3, 4 };
             await File.WriteAllBytesAsync(videoPath, bytes, TestContext.Current.CancellationToken);
 
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
+            var dbOptions = database.CreateOptions();
             var services = new ServiceCollection();
-            services.AddSingleton(dbOptions);
             services.AddScoped<CoveContext>(_ => new CoveContext(dbOptions));
 
             await using var provider = services.BuildServiceProvider();
@@ -65,8 +69,9 @@ public class StreamServiceTests
                     Format = "mp4",
                 };
                 video.Files.Add(file);
-                video.PrimaryFile = file;
                 db.Videos.Add(video);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                video.PrimaryFile = file;
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 videoId = video.Id;
             }
