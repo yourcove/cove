@@ -3,6 +3,7 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
 
@@ -44,6 +45,7 @@ public class PerformerGenderFilterTests
     }
 
     [Theory]
+    [RequiresPostgres]
     [InlineData(CriterionModifier.MatchesRegex, "^(?:Female|TransgenderFemale)$", new[] { "Female", "TransgenderFemale" })]
     [InlineData(CriterionModifier.MatchesRegex, "^(?:female)$", new[] { "Female" })]
     [InlineData(CriterionModifier.MatchesRegex, "^(?:Female|Unknown)$", new[] { "Female" })]

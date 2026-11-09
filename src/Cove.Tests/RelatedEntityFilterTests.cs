@@ -4,11 +4,13 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class RelatedEntityFilterTests
 {
     [Fact]
