@@ -1,4 +1,5 @@
 using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -148,6 +149,70 @@ public sealed class BlobReferenceSafetyTests
         }
         finally
         {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task UnreferencedDelete_KeepsABlobReferencedByAnEntityTheCurrentUserCannotRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-hidden-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var principalAccessor = new CurrentPrincipalAccessor();
+
+        try
+        {
+            var coordinator = new BlobReferenceCoordinator();
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddSingleton<ICurrentPrincipalAccessor>(principalAccessor);
+            services.AddSingleton<IBlobReferenceCoordinator>(coordinator);
+            services.AddSingleton<IBlobReferenceCounter, BlobReferenceCounter>();
+            services.AddSingleton<IBlobService>(provider => new BlobService(
+                new CoveConfiguration { GeneratedPath = tempRoot },
+                NullLogger<BlobService>.Instance,
+                provider.GetRequiredService<IBlobReferenceCounter>(),
+                coordinator));
+            services.AddScoped<BlobReferenceSaveChangesInterceptor>();
+            services.AddDbContext<CoveContext>((provider, options) =>
+                database.Configure(options)
+                    .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
+            await using var provider = services.BuildServiceProvider();
+
+            var blobService = provider.GetRequiredService<IBlobService>();
+            await using var payload = new MemoryStream([1, 2, 3, 4]);
+            var blobId = await blobService.StoreBlobAsync(payload, "image/png", ct);
+            await using (var seedScope = provider.CreateAsyncScope())
+            {
+                var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
+                seed.Performers.Add(new Performer { Name = "hidden", ImageBlobId = blobId });
+                await seed.SaveChangesAsync(ct);
+            }
+
+            // On PostgreSQL, CoveContext's authorization filters hide every performer from a user without
+            // performers.read, so the reference count only sees this one if it ignores those filters.
+            principalAccessor.Set(new CovePrincipal
+            {
+                UserId = 7,
+                Username = "metadata-only-deleter",
+                Kind = PrincipalKind.User,
+                Permissions = new HashSet<string>(),
+                Roles = new HashSet<string>(),
+            });
+            await using (var visibilityScope = provider.CreateAsyncScope())
+                Assert.False(await visibilityScope.ServiceProvider.GetRequiredService<CoveContext>().Performers.AnyAsync(ct));
+            await blobService.DeleteBlobIfUnreferencedAsync(blobId, ct);
+
+            var retained = await blobService.GetBlobAsync(blobId, ct);
+            Assert.NotNull(retained);
+            await retained.Value.Stream.DisposeAsync();
+        }
+        finally
+        {
+            principalAccessor.Set(null);
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
         }
