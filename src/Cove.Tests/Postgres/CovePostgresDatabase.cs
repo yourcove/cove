@@ -45,6 +45,13 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
         => CreateOptions(DataSource, configure);
 
     /// <summary>
+    /// Points <paramref name="builder"/> at this database with the settings <see cref="CreateOptions(Action{DbContextOptionsBuilder{CoveContext}})"/> uses, for a
+    /// context that a service collection builds, such as one registered with <c>AddDbContext</c> and interceptors.
+    /// </summary>
+    public DbContextOptionsBuilder Configure(DbContextOptionsBuilder builder)
+        => Configure(builder, DataSource);
+
+    /// <summary>
     /// Moves each identity sequence in the <c>public</c> schema past the largest id in its table, and never
     /// backwards. Rows seeded with explicit ids do not advance a sequence, so the next row added without an
     /// id would otherwise collide. Call it after the seed is saved: it runs on its own connection.
@@ -82,22 +89,26 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
             await _database.DisposeAsync();
     }
 
-    // Mirrors the provider settings in AddCoveData. Retry-on-failure and the DI-resolved interceptors
-    // are left to the test, because they change how a test must open its own transactions.
     internal static DbContextOptions<CoveContext> CreateOptions(
         NpgsqlDataSource dataSource,
         Action<DbContextOptionsBuilder<CoveContext>>? configure = null)
     {
-        var builder = new DbContextOptionsBuilder<CoveContext>()
+        var builder = new DbContextOptionsBuilder<CoveContext>();
+        Configure(builder, dataSource);
+        configure?.Invoke(builder);
+        return builder.Options;
+    }
+
+    // Mirrors the provider settings in AddCoveData. Retry-on-failure and the DI-resolved interceptors
+    // are left to the test, because they change how a test must open its own transactions.
+    private static DbContextOptionsBuilder Configure(DbContextOptionsBuilder builder, NpgsqlDataSource dataSource)
+        => builder
             .UseNpgsql(dataSource, npgsql =>
             {
                 npgsql.UseVector();
                 npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             })
             .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
-        configure?.Invoke(builder);
-        return builder.Options;
-    }
 
     internal static NpgsqlDataSource CreateDataSource(string connectionString)
     {

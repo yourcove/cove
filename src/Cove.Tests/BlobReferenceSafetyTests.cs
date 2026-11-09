@@ -3,7 +3,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -13,15 +13,15 @@ using System.Transactions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class BlobReferenceSafetyTests
 {
     [Fact]
     public async Task ConcurrentExistingIdAssignment_CannotCommitAfterUnreferencedDeleteWins()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-race-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -39,7 +39,7 @@ public sealed class BlobReferenceSafetyTests
             services.AddSingleton<IBlobService>(blobService);
             services.AddScoped<BlobReferenceSaveChangesInterceptor>();
             services.AddDbContext<CoveContext>((provider, options) =>
-                options.UseSqlite(connection)
+                database.Configure(options)
                     .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
             await using var provider = services.BuildServiceProvider();
 
@@ -47,7 +47,6 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
                 await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -88,10 +87,9 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task ConcurrentExistingIdAssignment_IsRetainedWhenTheCommitWins()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-race-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -107,7 +105,7 @@ public sealed class BlobReferenceSafetyTests
                 coordinator));
             services.AddScoped<BlobReferenceSaveChangesInterceptor>();
             services.AddDbContext<CoveContext>((provider, options) =>
-                options.UseSqlite(connection)
+                database.Configure(options)
                     .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
             await using var provider = services.BuildServiceProvider();
 
@@ -115,7 +113,6 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
                 await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -159,10 +156,9 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task DetachedUpdate_CannotAssignADeletedBlobId()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-detached-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -178,7 +174,7 @@ public sealed class BlobReferenceSafetyTests
             services.AddSingleton<IBlobService>(blobService);
             services.AddScoped<BlobReferenceSaveChangesInterceptor>();
             services.AddDbContext<CoveContext>((provider, options) =>
-                options.UseSqlite(connection)
+                database.Configure(options)
                     .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
             await using var provider = services.BuildServiceProvider();
 
@@ -186,7 +182,6 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
                 await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -219,14 +214,12 @@ public sealed class BlobReferenceSafetyTests
     [InlineData(false)]
     public async Task ConcurrencyConflict_ReleasesTheBlobReferenceLease(bool saveAsync)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var provider = CreateInterceptorProvider(connection);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var provider = CreateInterceptorProvider(database);
         await using var winnerScope = provider.CreateAsyncScope();
         await using var loserScope = provider.CreateAsyncScope();
         var winner = winnerScope.ServiceProvider.GetRequiredService<CoveContext>();
         var loser = loserScope.ServiceProvider.GetRequiredService<CoveContext>();
-        await winner.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var studio = new Studio { Name = "target", ImageBlobId = "11111111-1111-4111-8111-111111111111" };
         winner.Studios.Add(studio);
         await winner.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -248,8 +241,7 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task LeaseHeldWhenTheScopeEnds_IsReleasedOnDispose()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
@@ -257,13 +249,12 @@ public sealed class BlobReferenceSafetyTests
         var failingInterceptor = new FailingSavingChangesInterceptor();
         // A later interceptor failing in SavingChanges ends the save without any interceptor hook.
         services.AddDbContext<CoveContext>((provider, options) =>
-            options.UseSqlite(connection)
+            database.Configure(options)
                 .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>(), failingInterceptor));
         await using var provider = services.BuildServiceProvider();
         await using (var scope = provider.CreateAsyncScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             context.Studios.Add(new Studio { Name = "target", ImageBlobId = "11111111-1111-4111-8111-111111111111" });
             failingInterceptor.Armed = true;
             await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync(TestContext.Current.CancellationToken));
@@ -299,12 +290,10 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task BlobReferenceChange_IsRejectedInsideAnExplicitTransaction()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var provider = CreateInterceptorProvider(connection);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var provider = CreateInterceptorProvider(database);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -320,12 +309,10 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task BlobReferenceChange_IsRejectedInsideAnAmbientTransaction()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var provider = CreateInterceptorProvider(connection, useTestEnlistmentManager: true);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var provider = CreateInterceptorProvider(database, useTestEnlistmentManager: true);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -340,12 +327,10 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task BlobReferenceChange_IsRejectedInsideAManuallyEnlistedTransaction()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var provider = CreateInterceptorProvider(connection, useTestEnlistmentManager: true);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var provider = CreateInterceptorProvider(database, useTestEnlistmentManager: true);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -362,12 +347,10 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task TransactionalTagMerge_TransfersArtworkWithTheProductionInterceptor()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var provider = CreateInterceptorProvider(connection);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var provider = CreateInterceptorProvider(database);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var target = new Tag { Name = "target", ImageBlobId = "target-artwork" };
         var source = new Tag
         {
@@ -391,8 +374,7 @@ public sealed class BlobReferenceSafetyTests
     [Fact]
     public async Task SaveChanges_CleansDetachedBlobOnlyAfterTheReferenceIsPersisted()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var coordinator = new BlobReferenceCoordinator();
         var deleted = new List<string>();
 
@@ -408,13 +390,12 @@ public sealed class BlobReferenceSafetyTests
         }));
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
         services.AddDbContext<CoveContext>((provider, options) =>
-            options.UseSqlite(connection)
+            database.Configure(options)
                 .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
         await using var provider = services.BuildServiceProvider();
 
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var video = new Video { Title = "covered", ImageBlobId = "existing-blob" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -492,7 +473,7 @@ public sealed class BlobReferenceSafetyTests
     }
 
     private static ServiceProvider CreateInterceptorProvider(
-        SqliteConnection connection,
+        CovePostgresDatabase database,
         bool useTestEnlistmentManager = false)
     {
         var services = new ServiceCollection();
@@ -503,7 +484,7 @@ public sealed class BlobReferenceSafetyTests
         services.AddScoped<TagMergeService>();
         services.AddDbContext<CoveContext>((provider, options) =>
         {
-            options.UseSqlite(connection)
+            database.Configure(options)
                 .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>());
             if (useTestEnlistmentManager)
                 options.ReplaceService<IDbContextTransactionManager, TestTransactionManager>();
