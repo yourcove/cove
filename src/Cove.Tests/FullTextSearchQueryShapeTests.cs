@@ -1,7 +1,7 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -86,13 +86,11 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
-    public async Task ImageCandidateIdSearch_PreservesTextRelationshipAndPathMatchesOnSqlite()
+    [RequiresPostgres]
+    public async Task ImageCandidateIdSearch_PreservesTextRelationshipAndPathMatches()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var folder = new Folder { Path = "/library" };
         db.Images.AddRange(
@@ -120,13 +118,11 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImageRelevanceOrdering_PrioritizesExactThenPartialRelationshipsBeforePathMatches()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var folder = new Folder { Path = "/library" };
         db.Images.AddRange(
@@ -149,13 +145,11 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoRelevanceOrdering_PrioritizesExactThenPartialRelationshipsBeforePathMatches()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var folder = new Folder { Path = "/library" };
         db.Videos.AddRange(
@@ -178,13 +172,11 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoRelevanceOrdering_PrioritizesContiguousEntityPhraseBeforeScatteredTerms()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         db.Videos.AddRange(
             new Video
