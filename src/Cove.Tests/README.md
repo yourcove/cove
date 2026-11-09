@@ -31,7 +31,7 @@ Rows saved with explicit ids do not advance PostgreSQL's identity sequences, so 
 - **NULL ordering:** PostgreSQL sorts NULLs last when ascending and first when descending, while LINQ to Objects treats null as the smallest value. When a sort test fails on a missing value, decide where missing values belong and follow the existing conventions: missing dates count as oldest (`?? DateOnly.MinValue`), missing activity timestamps go last in both directions (`?? (desc ? DateTime.MinValue : DateTime.MaxValue)`), and missing strings count as empty (`?? string.Empty`). Do not coalesce a key an index serves unless a matching expression index exists, and make the test's expected order spell out where missing values go.
 - **Timestamp precision:** PostgreSQL stores microseconds, not .NET's 100 ns ticks.
 
-Some older tests still run on SQLite or the EF Core in-memory provider. Neither builds the model production uses: authorization filters, search vectors, collations, constraints and row locks only exist on PostgreSQL. Do not add new tests on them; move a test to `CovePostgresDatabase` when you change it.
+Do not test `CoveContext` on SQLite or the EF Core in-memory provider; the project no longer references either. Neither builds the model production uses: authorization filters, search vectors, collations, constraints and row locks only exist on PostgreSQL, and the in-memory provider gives an entity its id on `Add` rather than on insert, which hid bugs in code that looked new rows up by id. `StashMigrationMetadataTests` still uses `Microsoft.Data.Sqlite`, but only to build the Stash databases a Stash import reads.
 
 ## Running the tests
 
