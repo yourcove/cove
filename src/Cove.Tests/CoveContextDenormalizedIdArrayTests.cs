@@ -9,6 +9,7 @@ using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 
 namespace Cove.Tests;
 
@@ -534,6 +535,153 @@ public sealed class CoveContextDenormalizedIdArrayTests
             .Select(video => video.ImageBlobId)
             .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("new-cover", storedBlobId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SaveChanges_OutsideATransaction_ReleasesItsDerivedArrayLocks(bool saveAsynchronously)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var (videoId, _, performerId) = await SeedVideoWithSparePerformerAsync(database, ct);
+
+        await using var context = database.CreateContext();
+        var video = await context.Videos.Include(entity => entity.VideoPerformers).SingleAsync(entity => entity.Id == videoId, ct);
+        video.VideoPerformers.Add(new VideoPerformer { VideoId = videoId, PerformerId = performerId });
+        if (saveAsynchronously)
+            await context.SaveChangesAsync(ct);
+        else
+            context.SaveChanges();
+
+        // Session-level locks outlive the save on the pooled connection, so a missed unlock would still show here.
+        Assert.Equal(0, await CountDerivedArrayLocksAsync(database, ct));
+    }
+
+    [Fact]
+    public async Task SaveChanges_FailingAfterTakingItsLocks_ReleasesThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var (videoId, _, _) = await SeedVideoWithSparePerformerAsync(database, ct);
+
+        await using var context = database.CreateContext();
+        var video = await context.Videos.Include(entity => entity.VideoPerformers).SingleAsync(entity => entity.Id == videoId, ct);
+        // No performer has this id, so the insert fails on its foreign key after the video's lock is taken.
+        video.VideoPerformers.Add(new VideoPerformer { VideoId = videoId, PerformerId = int.MaxValue });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync(ct));
+        Assert.Equal(0, await CountDerivedArrayLocksAsync(database, ct));
+    }
+
+    [Fact]
+    public async Task SaveChanges_InsideATransaction_HoldsTheDerivedArrayLockUntilCommit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var (videoId, _, performerId) = await SeedVideoWithSparePerformerAsync(database, ct);
+
+        await using var context = database.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var video = await context.Videos.Include(entity => entity.VideoPerformers).SingleAsync(entity => entity.Id == videoId, ct);
+        video.VideoPerformers.Add(new VideoPerformer { VideoId = videoId, PerformerId = performerId });
+        await context.SaveChangesAsync(ct);
+
+        Assert.Equal(1, await CountDerivedArrayLocksAsync(database, ct, videoId, granted: true));
+        await transaction.CommitAsync(ct);
+        Assert.Equal(0, await CountDerivedArrayLocksAsync(database, ct));
+    }
+
+    [Fact]
+    public async Task SaveChanges_WaitsForADerivedArrayLockHeldByAnotherConnection()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var (videoId, existingPerformerId, performerId) = await SeedVideoWithSparePerformerAsync(database, ct);
+
+        // Stands in for another API process changing the same video's relationships.
+        await using var otherProcess = await database.DataSource.OpenConnectionAsync(ct);
+        await using (var hold = otherProcess.CreateCommand())
+        {
+            hold.CommandText = "SELECT pg_advisory_lock(@ns, @id)";
+            hold.Parameters.AddWithValue("ns", VideoDerivedArrayLockNamespace);
+            hold.Parameters.AddWithValue("id", videoId);
+            await hold.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var context = database.CreateContext();
+        var video = await context.Videos.Include(entity => entity.VideoPerformers).SingleAsync(entity => entity.Id == videoId, ct);
+        video.VideoPerformers.Add(new VideoPerformer { VideoId = videoId, PerformerId = performerId });
+        var save = context.SaveChangesAsync(ct);
+
+        await WaitForSignalAsync(WaitForWaitingDerivedArrayLockAsync(database, videoId, ct), save);
+        Assert.False(save.IsCompleted);
+
+        await using (var release = otherProcess.CreateCommand())
+        {
+            release.CommandText = "SELECT pg_advisory_unlock(@ns, @id)";
+            release.Parameters.AddWithValue("ns", VideoDerivedArrayLockNamespace);
+            release.Parameters.AddWithValue("id", videoId);
+            await release.ExecuteNonQueryAsync(ct);
+        }
+        await save.WaitAsync(TimeSpan.FromSeconds(30), ct);
+
+        context.ChangeTracker.Clear();
+        var stored = await context.Videos.SingleAsync(entity => entity.Id == videoId, ct);
+        Assert.Equal([existingPerformerId, performerId], stored.PerformerIds);
+        Assert.Equal(0, await CountDerivedArrayLocksAsync(database, ct));
+    }
+
+    // CoveContext keys a video's derived-array lock as (0x434F5600 + 1, video id); images and galleries use + 2 and + 3.
+    private const int VideoDerivedArrayLockNamespace = 0x434F5601;
+    private const int GalleryDerivedArrayLockNamespace = 0x434F5603;
+
+    private static async Task<(int VideoId, int ExistingPerformerId, int SparePerformerId)> SeedVideoWithSparePerformerAsync(
+        CovePostgresDatabase database,
+        CancellationToken ct)
+    {
+        await using var setup = database.CreateContext();
+        var existingPerformer = new Performer { Name = "Existing performer" };
+        var sparePerformer = new Performer { Name = "Spare performer" };
+        var video = new Video { Title = "Locked video" };
+        video.VideoPerformers.Add(new VideoPerformer { Performer = existingPerformer });
+        setup.AddRange(video, sparePerformer);
+        await setup.SaveChangesAsync(ct);
+        return (video.Id, existingPerformer.Id, sparePerformer.Id);
+    }
+
+    // Counts derived-array advisory locks in this test's database. The count uses an unpooled connection: reusing a
+    // pooled one resets it with DISCARD ALL, which would release a leaked session lock before it could be counted.
+    private static async Task<long> CountDerivedArrayLocksAsync(
+        CovePostgresDatabase database,
+        CancellationToken ct,
+        int? videoId = null,
+        bool? granted = null)
+    {
+        var connectionString = new NpgsqlConnectionStringBuilder(database.ConnectionString) { Pooling = false }.ConnectionString;
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT count(*) FROM pg_locks
+            WHERE locktype = 'advisory' AND objsubid = 2
+                AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                AND classid::bigint BETWEEN @firstNamespace AND @lastNamespace
+                AND (@videoId::integer IS NULL OR (classid::bigint = @videoNamespace AND objid::bigint = @videoId::integer))
+                AND (@granted::boolean IS NULL OR granted = @granted::boolean)
+            """;
+        command.Parameters.AddWithValue("firstNamespace", (long)VideoDerivedArrayLockNamespace);
+        command.Parameters.AddWithValue("lastNamespace", (long)GalleryDerivedArrayLockNamespace);
+        command.Parameters.AddWithValue("videoNamespace", (long)VideoDerivedArrayLockNamespace);
+        command.Parameters.AddWithValue("videoId", (object?)videoId ?? DBNull.Value);
+        command.Parameters.AddWithValue("granted", (object?)granted ?? DBNull.Value);
+        return (long)(await command.ExecuteScalarAsync(ct))!;
+    }
+
+    private static async Task WaitForWaitingDerivedArrayLockAsync(CovePostgresDatabase database, int videoId, CancellationToken ct)
+    {
+        while (await CountDerivedArrayLocksAsync(database, ct, videoId, granted: false) == 0)
+            await Task.Delay(TimeSpan.FromMilliseconds(50), ct);
     }
 
     private static async Task AddPerformerAsync(
