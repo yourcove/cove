@@ -1132,9 +1132,10 @@ public static class FilterHelpers
             typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!,
             Expression.Constant(normalizedValue));
         var regexMatch = Expression.Call(
-            typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string)])!,
+            typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
             endpointOrEmpty,
-            Expression.Constant($"(?i){value}"));
+            Expression.Constant(value),
+            Expression.Constant(RegexOptions.IgnoreCase));
 
         var anyEquals = Any(endpointsSelector.Body, endpointParam, equals);
         Expression? predicate = criterion.Modifier switch
@@ -1231,9 +1232,10 @@ public static class FilterHelpers
                 typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!,
                 Expression.Constant(value.ToLowerInvariant())),
             CriterionModifier.MatchesRegex or CriterionModifier.NotMatchesRegex => Expression.Call(
-                typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string)])!,
+                typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
                 coalesced,
-                Expression.Constant($"(?i){value}")),
+                Expression.Constant(value),
+                Expression.Constant(RegexOptions.IgnoreCase)),
             _ => Expression.Constant(false),
         };
     }
