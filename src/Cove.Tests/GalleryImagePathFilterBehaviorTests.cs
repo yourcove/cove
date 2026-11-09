@@ -4,14 +4,13 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Tests.Postgres;
-using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class GalleryImagePathFilterBehaviorTests
 {
     [Fact]
-    [RequiresPostgres]
     public async Task GalleryPathCriterion_UnderPath_MatchesGalleryFolderWithoutPrefixCollisions()
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -41,7 +40,8 @@ public class GalleryImagePathFilterBehaviorTests
     [Fact]
     public async Task ImagePathCriterion_UnderPath_UsesFolderBoundaries()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Images.AddRange(
             CreateImageWithFile("direct", @"C:\library\matching", "direct.jpg"),
             CreateImageWithFile("nested", @"C:\library\matching\nested", "nested.jpg"),
@@ -67,7 +67,8 @@ public class GalleryImagePathFilterBehaviorTests
     [Fact]
     public async Task ImagePathCriterion_UnderPath_UsesPlatformPathCaseSemantics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Images.AddRange(
             CreateImageWithFile("exact-case", "/library/Media", "exact.jpg"),
             CreateImageWithFile("different-case", "/library/media", "different.jpg"));
@@ -84,7 +85,8 @@ public class GalleryImagePathFilterBehaviorTests
     [Fact]
     public async Task GalleryPathCriterion_Equals_UsesFullNormalizedPath()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Galleries.AddRange(
             CreateGalleryWithFile("match", folderPath: @"C:\library\matching", basename: "cover.jpg"),
             CreateGalleryWithFile("same-name-other-folder", folderPath: @"C:\library\other", basename: "cover.jpg"));
@@ -109,7 +111,8 @@ public class GalleryImagePathFilterBehaviorTests
     [Fact]
     public async Task ImagePathCriterion_RegexAndNullModifiers_UseFullPathSemantics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Images.AddRange(
             CreateImageWithFile("regex-match", folderPath: @"C:\library\matching", basename: "still.jpg"),
             CreateImageWithFile("regex-miss", folderPath: @"C:\library\other", basename: "still.jpg"),
@@ -153,6 +156,49 @@ public class GalleryImagePathFilterBehaviorTests
         Assert.Equal(["regex-match", "regex-miss"], notNullItems.Select(image => image.Title ?? string.Empty).OrderBy(title => title).ToArray());
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.MatchesRegex, @"^/media/.*[.]jpg$", "media-jpg|mixed")]
+    [InlineData(CriterionModifier.MatchesRegex, @"[.]jpg$", "media-jpg|mixed")]
+    [InlineData(CriterionModifier.MatchesRegex, @"[.]JPG$", "media-jpg|mixed")]
+    [InlineData(CriterionModifier.MatchesRegex, @"^(?!/media/)", "mixed|other-png")]
+    [InlineData(CriterionModifier.MatchesRegex, @"^(?!.*[.]jpg$)", "mixed|other-png")]
+    [InlineData(CriterionModifier.MatchesRegex, @"^$", "")]
+    [InlineData(CriterionModifier.NotMatchesRegex, @"^/media/", "missing-file|other-png")]
+    [InlineData(CriterionModifier.NotMatchesRegex, @"^(?!/media/)", "media-jpg|missing-file")]
+    [InlineData(CriterionModifier.NotMatchesRegex, @"^$", "media-jpg|missing-file|mixed|other-png")]
+    public async Task ImagePathCriterion_RegexAnchorsMatchEachFilePath(CriterionModifier modifier, string pattern, string expectedTitles)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
+        var mixed = CreateImageWithFile("mixed", folderPath: "/other/three", basename: "c.png");
+        mixed.Files.Add(new ImageFile
+        {
+            Basename = "d.jpg",
+            ParentFolder = new Folder { Path = "/media/four", ModTime = DateTime.UtcNow },
+            Format = "jpg",
+            Width = 800,
+            Height = 600,
+            Size = 1024,
+            ModTime = DateTime.UtcNow,
+        });
+        context.Images.AddRange(
+            CreateImageWithFile("media-jpg", folderPath: "/media/one", basename: "a.jpg"),
+            CreateImageWithFile("other-png", folderPath: "/other/two", basename: "b.png"),
+            mixed,
+            new Image { Title = "missing-file" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new ImageRepository(context);
+        var (items, totalCount) = await repository.FindAsync(
+            new ImageFilter { PathCriterion = new StringCriterion { Value = pattern, Modifier = modifier } },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        string[] expected = expectedTitles.Length == 0 ? [] : expectedTitles.Split('|');
+        Assert.Equal(expected, items.Select(image => image.Title ?? string.Empty).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(expected.Length, totalCount);
+    }
+
     private static Gallery CreateGalleryWithFile(string title, string folderPath, string basename)
     {
         var gallery = new Gallery
@@ -190,27 +236,5 @@ public class GalleryImagePathFilterBehaviorTests
         });
 
         return image;
-    }
-
-    // The tests still on the in-memory provider seed several new folders, each with a new file, in one save.
-    // On PostgreSQL that save gives every such file the path of one of those folders (CoveContext.ComputeFilePaths
-    // keys folder paths by ParentFolderId, which is still 0 for a folder that has not been inserted yet), so they
-    // stay here until that is fixed.
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"gallery-image-path-filter-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
     }
 }

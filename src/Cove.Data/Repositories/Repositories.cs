@@ -3060,8 +3060,8 @@ public class ImageRepository : IImageRepository
             CriterionModifier.NotEquals => query.Where(i => i.FileSearchText == null || !EF.Functions.Like(i.FileSearchText, exactPattern)),
             CriterionModifier.Includes => query.Where(i => i.FileSearchText != null && EF.Functions.ILike(i.FileSearchText, pattern)),
             CriterionModifier.Excludes => query.Where(i => i.FileSearchText == null || !EF.Functions.ILike(i.FileSearchText, pattern)),
-            CriterionModifier.MatchesRegex => query.Where(i => i.FileSearchText != null && Regex.IsMatch(i.FileSearchText, value, RegexOptions.IgnoreCase)),
-            CriterionModifier.NotMatchesRegex => query.Where(i => i.FileSearchText == null || !Regex.IsMatch(i.FileSearchText, value, RegexOptions.IgnoreCase)),
+            CriterionModifier.MatchesRegex => query.Where(i => i.FileSearchText != null && Regex.IsMatch(i.FileSearchText.Trim('\n'), value, RegexOptions.IgnoreCase | RegexOptions.Multiline)),
+            CriterionModifier.NotMatchesRegex => query.Where(i => i.FileSearchText == null || !Regex.IsMatch(i.FileSearchText.Trim('\n'), value, RegexOptions.IgnoreCase | RegexOptions.Multiline)),
             CriterionModifier.UnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(i => i.FileSearchText != null
                 && (i.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) || i.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
             CriterionModifier.NotUnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(i => i.FileSearchText == null

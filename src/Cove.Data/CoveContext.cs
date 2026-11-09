@@ -3091,17 +3091,23 @@ public partial class CoveContext : DbContext
         }
 
         // Build folder-path lookup. Prefer the in-memory navigation; for any file whose
-        // ParentFolder navigation is null, batch-load just the folder paths we need.
+        // ParentFolder navigation is null, batch-load just the folder paths we need. A folder added in
+        // this same save has no id yet (ParentFolderId reads 0 on relational providers until the insert),
+        // so a file with a navigation always takes its path from the navigation, never from the id map.
         var folderPaths = new Dictionary<int, string>();
         var missingFolderIds = new HashSet<int>();
         foreach (var entry in fileEntries)
         {
             var file = entry.Entity;
             if (file.ParentFolder != null)
-                folderPaths[file.ParentFolderId] = file.ParentFolder.Path;
-            else if (file.ParentFolderId != 0 && !folderPaths.ContainsKey(file.ParentFolderId))
+            {
+                if (file.ParentFolderId != 0)
+                    folderPaths[file.ParentFolderId] = file.ParentFolder.Path;
+            }
+            else if (file.ParentFolderId != 0)
                 missingFolderIds.Add(file.ParentFolderId);
         }
+        missingFolderIds.ExceptWith(folderPaths.Keys);
 
         if (missingFolderIds.Count > 0)
         {
@@ -3117,7 +3123,9 @@ public partial class CoveContext : DbContext
         foreach (var entry in fileEntries)
         {
             var file = entry.Entity;
-            folderPaths.TryGetValue(file.ParentFolderId, out var folderPath);
+            var folderPath = file.ParentFolder?.Path;
+            if (folderPath == null)
+                folderPaths.TryGetValue(file.ParentFolderId, out folderPath);
             file.Path = BaseFileEntity.ComputePath(folderPath, file.Basename);
         }
 
