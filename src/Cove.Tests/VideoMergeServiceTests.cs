@@ -6,7 +6,7 @@ using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -18,6 +18,7 @@ namespace Cove.Tests;
 public sealed class VideoMergeServiceTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task DefaultPolicyFillsEmptyFieldsCarriesEngagementAndAttachesFiles()
     {
         await using var harness = await Harness.CreateAsync();
@@ -63,6 +64,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ExplicitChoicesOverrideTheDefaultAndAreRecordedAsManual()
     {
         await using var harness = await Harness.CreateAsync();
@@ -87,6 +89,7 @@ public sealed class VideoMergeServiceTests
     [Theory]
     [InlineData(false, null)]
     [InlineData(true, "source")]
+    [RequiresPostgres]
     public async Task ProductionDateMergesWithItsPrecision(bool keptHasProductionDate, string? choice)
     {
         await using var harness = await Harness.CreateAsync();
@@ -117,6 +120,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeLeavesFilesBehindAndKeepsTimelineItemsWhenRunningTimesDiffer()
     {
         await using var harness = await Harness.CreateAsync();
@@ -142,6 +146,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeMovesTimelineItemsWhenTheFilesAreEquivalent()
     {
         await using var harness = await Harness.CreateAsync();
@@ -158,6 +163,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeFallsBackToRunningTimesWhenNoFingerprintIsStored()
     {
         await using var harness = await Harness.CreateAsync();
@@ -173,6 +179,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeReportsKeptTimelinesOnlyWhenSomethingStayedBehind()
     {
         await using var harness = await Harness.CreateAsync();
@@ -209,6 +216,7 @@ public sealed class VideoMergeServiceTests
         => Assert.Equal(expected, VideoFileEquivalence.AreEquivalentOrSameLength(sourceDuration, sourceHash, targetDuration, targetHash));
 
     [Fact]
+    [RequiresPostgres]
     public async Task ChoicesWithSeveralRemovedVideosReadTheSourceSideAsTheFirstCopyWithAValue()
     {
         await using var harness = await Harness.CreateAsync();
@@ -238,6 +246,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AssessmentNamesCopiesWhoseTimelineItemsWouldNotFollow()
     {
         await using var harness = await Harness.CreateAsync();
@@ -255,6 +264,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AssessmentReportsEquivalentFilesSoMarkersFollow()
     {
         await using var harness = await Harness.CreateAsync();
@@ -270,6 +280,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ChoicesCanAddAUrlNextToTheOnesTheVideosAlreadyHave()
     {
         await using var harness = await Harness.CreateAsync();
@@ -292,6 +303,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MetadataChoicesAreRejectedWhenARemovedVideoIsMissing()
     {
         await using var harness = await Harness.CreateAsync();
@@ -305,6 +317,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AttachModeCarriesTheCopysShotBoundariesWithItsFile()
     {
         await using var harness = await Harness.CreateAsync();
@@ -322,6 +335,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeLeavesShotBoundariesWithTheCopyUntilItsFileIsDeleted()
     {
         await using var harness = await Harness.CreateAsync();
@@ -343,6 +357,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeCarriesShotBoundariesOntoAnEquivalentKeptFile()
     {
         await using var harness = await Harness.CreateAsync();
@@ -358,6 +373,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeCarriesShotBoundariesFromAnyFileOfTheCopy()
     {
         await using var harness = await Harness.CreateAsync();
@@ -372,6 +388,7 @@ public sealed class VideoMergeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RemoveModeLeavesShotBoundariesOfACopyWithoutFingerprints()
     {
         await using var harness = await Harness.CreateAsync();
@@ -388,35 +405,33 @@ public sealed class VideoMergeServiceTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        private readonly SqliteConnection _anchor;
-        private readonly DbContextOptions<CoveContext> _options;
+        private readonly CovePostgresDatabase _database;
 
-        private Harness(SqliteConnection anchor, DbContextOptions<CoveContext> options)
-        {
-            _anchor = anchor;
-            _options = options;
-        }
+        private Harness(CovePostgresDatabase database) => _database = database;
 
         public List<object> Events { get; } = [];
 
         public static async Task<Harness> CreateAsync()
         {
-            var connectionString = $"Data Source=video-merge-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
-            var anchor = new SqliteConnection(connectionString);
-            await anchor.OpenAsync();
-            var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connectionString).Options;
-            var harness = new Harness(anchor, options);
-            await using var db = harness.CreateContext();
-            await db.Database.EnsureCreatedAsync();
-            if (!await db.Users.AnyAsync(user => user.Id == 1))
+            var harness = new Harness(await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken));
+            try
             {
-                db.Users.Add(new Cove.Core.Entities.Auth.User { Id = 1, Username = "merge-tester", PasswordHash = "test" });
-                await db.SaveChangesAsync();
+                await using (var db = harness.CreateContext())
+                {
+                    db.Users.Add(new Cove.Core.Entities.Auth.User { Id = 1, Username = "merge-tester", PasswordHash = "test" });
+                    await db.SaveChangesAsync();
+                }
+                await harness._database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+                return harness;
             }
-            return harness;
+            catch
+            {
+                await harness.DisposeAsync();
+                throw;
+            }
         }
 
-        public CoveContext CreateContext() => new(_options);
+        public CoveContext CreateContext() => _database.CreateContext();
 
         public async Task<VideoMergeResult> MergeAsync(VideoMergePlan plan)
         {
@@ -499,7 +514,7 @@ public sealed class VideoMergeServiceTests
             Assert.Equal(VideoShotWriteOutcome.Written, result.Outcome);
         }
 
-        public async ValueTask DisposeAsync() => await _anchor.DisposeAsync();
+        public ValueTask DisposeAsync() => _database.DisposeAsync();
     }
 
     /// <summary>Implements a wide service interface whose behavior these tests never observe.</summary>

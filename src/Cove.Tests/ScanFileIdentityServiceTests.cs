@@ -3,7 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,22 +44,17 @@ public sealed class ScanFileIdentityServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MatchExistingAsync_DoesNotQueryDatabaseWhenHashIsNotKnown()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var path = Path.Combine(Path.GetTempPath(), $"cove-move-index-{Guid.NewGuid():N}.mp4");
         await File.WriteAllBytesAsync(path, new byte[70_000], TestContext.Current.CancellationToken);
 
         try
         {
-            await using var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(TestContext.Current.CancellationToken);
             var commands = new CommandRecorderInterceptor();
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(connection)
-                .AddInterceptors(commands)
-                .Options;
-            await using var db = new CoveContext(options);
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+            await using var db = database.CreateContext(builder => builder.AddInterceptors(commands));
 
             var info = new FileInfo(path);
             db.Videos.Add(new Video
@@ -181,16 +176,16 @@ public sealed class ScanFileIdentityServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AudioProcessor_ContentChangeUsesRequestedMd5AndInvalidatesPhashOnce()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var path = Path.Combine(Path.GetTempPath(), $"changed-{Guid.NewGuid():N}.mp3");
         await File.WriteAllBytesAsync(path, new byte[131_072], TestContext.Current.CancellationToken);
 
         try
         {
-            await using var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(TestContext.Current.CancellationToken);
-            await using var db = await CreateContextAsync(connection);
+            await using var db = database.CreateContext();
             var folder = new Folder { Path = Path.GetDirectoryName(path)! };
             var file = NewFile<AudioFile>();
             file.Basename = Path.GetFileName(path);
@@ -229,16 +224,16 @@ public sealed class ScanFileIdentityServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TextProcessor_ContentChangeInvalidatesDisabledFingerprints()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var path = Path.Combine(Path.GetTempPath(), $"changed-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path, new string('x', 131_072), TestContext.Current.CancellationToken);
 
         try
         {
-            await using var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(TestContext.Current.CancellationToken);
-            await using var db = await CreateContextAsync(connection);
+            await using var db = database.CreateContext();
             var folder = new Folder { Path = Path.GetDirectoryName(path)! };
             var file = NewFile<TextFile>();
             file.Basename = Path.GetFileName(path);
@@ -274,14 +269,6 @@ public sealed class ScanFileIdentityServiceTests
         {
             File.Delete(path);
         }
-    }
-
-    private static async Task<CoveContext> CreateContextAsync(SqliteConnection connection)
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-        return db;
     }
 
     private static TFile NewFile<TFile>() where TFile : BaseFileEntity, new()

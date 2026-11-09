@@ -6,7 +6,7 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -17,6 +17,7 @@ namespace Cove.Tests;
 /// another copy of the same footage on the same timeline, the shots move to the copy instead of being
 /// deleted with the file they were measured on.
 /// </summary>
+[RequiresPostgres]
 public sealed class VideoShotCarryOverTests
 {
     private const string Phash = "00ff00ff00ff00ff";
@@ -137,27 +138,14 @@ public sealed class VideoShotCarryOverTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        private readonly SqliteConnection _anchor;
-        private readonly DbContextOptions<CoveContext> _options;
+        private readonly CovePostgresDatabase _database;
 
-        private Harness(SqliteConnection anchor, DbContextOptions<CoveContext> options)
-        {
-            _anchor = anchor;
-            _options = options;
-        }
+        private Harness(CovePostgresDatabase database) => _database = database;
 
         public static async Task<Harness> CreateAsync()
-        {
-            var connectionString = $"Data Source=shot-carry-over-{Guid.NewGuid():N};Mode=Memory;Cache=Shared;Foreign Keys=True";
-            var anchor = new SqliteConnection(connectionString);
-            await anchor.OpenAsync();
-            var harness = new Harness(anchor, new DbContextOptionsBuilder<CoveContext>().UseSqlite(connectionString).Options);
-            await using var db = harness.CreateContext();
-            await db.Database.EnsureCreatedAsync();
-            return harness;
-        }
+            => new(await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken));
 
-        public CoveContext CreateContext() => new(_options);
+        public CoveContext CreateContext() => _database.CreateContext();
 
         public VideoFileMaintenanceService Maintenance()
             => new(
@@ -229,7 +217,7 @@ public sealed class VideoShotCarryOverTests
             await db.VideoFiles.Where(file => file.Id == fileId).ExecuteUpdateAsync(update => update.SetProperty(file => file.Size, size));
         }
 
-        public async ValueTask DisposeAsync() => await _anchor.DisposeAsync();
+        public ValueTask DisposeAsync() => _database.DisposeAsync();
     }
 
     private class NoOp<T> : DispatchProxy where T : class

@@ -3,6 +3,7 @@ using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -53,15 +54,12 @@ public sealed class BulkDeletionJobServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CancellationDuringVideoNormalizationStillReleasesKeeperReservations()
     {
-        var connectionString = $"Data Source=file:bulk-delete-cancel-{Guid.NewGuid():N}?mode=memory&cache=shared";
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
-            .Options;
-        await using var anchor = new CoveContext(options);
-        await anchor.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-        await anchor.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions();
+        await using var db = new CoveContext(options);
         var first = new Video { Title = "First selected video" };
         var second = new Video { Title = "Second selected video" };
         var search = new DuplicateSearch
@@ -69,14 +67,14 @@ public sealed class BulkDeletionJobServiceTests
             Status = DuplicateSearchStatus.Completed,
             MatchType = "phash",
         };
-        anchor.AddRange(first, second, search);
-        await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
-        anchor.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
+        db.AddRange(first, second, search);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
         {
             SearchId = search.Id,
             VideoId = first.Id,
         });
-        await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var services = new ServiceCollection();
         services.AddScoped(_ => new CoveContext(options));
@@ -96,8 +94,8 @@ public sealed class BulkDeletionJobServiceTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => jobs.RunAsync(cancellation.Token));
 
-        anchor.ChangeTracker.Clear();
-        Assert.False(await anchor.DuplicateDeletionKeeperReservations.AnyAsync(item => item.SearchId == search.Id, cancellationToken: TestContext.Current.CancellationToken));
+        db.ChangeTracker.Clear();
+        Assert.False(await db.DuplicateDeletionKeeperReservations.AnyAsync(item => item.SearchId == search.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private sealed class CapturingJobService : IJobService
