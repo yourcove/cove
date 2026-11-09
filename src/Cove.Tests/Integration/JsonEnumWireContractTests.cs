@@ -302,8 +302,8 @@ public sealed class JsonEnumWireContractTests
         await factory.ResetDatabaseAsync();
         using var client = factory.CreateAuthenticatedClient();
 
-        using var response = await client.GetAsync("/api/System/config");
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync("/api/System/config", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.True(
             response.IsSuccessStatusCode,
@@ -323,11 +323,11 @@ public sealed class JsonEnumWireContractTests
     public async Task A_marker_carrying_minimal_api_endpoint_emits_the_camel_case_member_over_http()
     {
         await using var app = BuildProbeHost();
-        await app.StartAsync();
+        await app.StartAsync(TestContext.Current.CancellationToken);
         using var client = app.GetTestClient();
 
-        using var response = await client.GetAsync("/probe/status");
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync("/probe/status", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.True(response.IsSuccessStatusCode, $"{(int)response.StatusCode}: {body}");
         Assert.Contains("\"status\":\"running\"", body, StringComparison.Ordinal);
@@ -337,14 +337,14 @@ public sealed class JsonEnumWireContractTests
     public async Task A_marker_carrying_minimal_api_endpoint_still_binds_a_bare_integer_request_body()
     {
         await using var app = BuildProbeHost();
-        await app.StartAsync();
+        await app.StartAsync(TestContext.Current.CancellationToken);
         using var client = app.GetTestClient();
 
         // Posted as a raw literal, not through a serializer that would rewrite the integer: the whole
         // point is that the literal integer reaches the binder.
         using var content = new StringContent("""{"status":1}""", Encoding.UTF8, "application/json");
-        using var response = await client.PostAsync("/probe/status", content);
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.PostAsync("/probe/status", content, TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.True(response.IsSuccessStatusCode, $"{(int)response.StatusCode}: {body}");
 

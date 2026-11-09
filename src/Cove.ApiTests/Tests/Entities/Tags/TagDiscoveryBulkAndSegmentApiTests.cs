@@ -15,7 +15,7 @@ public sealed class TagDiscoveryBulkAndSegmentApiTests(
     public async Task GivenATag_WhenAMemberLoadsTheTagLookup_ThenItListsTheTagAsCardsShowIt()
     {
         var suffix = Guid.NewGuid().ToString("N");
-        var tag = await AsUser().CreateTagAsync($"Lookup tag {suffix}");
+        var tag = await AsUser().CreateTagAsync($"Lookup tag {suffix}", TestContext.Current.CancellationToken);
 
         var lookup = await AsUser(ApiTestUsers.Eva).GetTagLookupAsync(TestContext.Current.CancellationToken);
 
@@ -30,17 +30,17 @@ public sealed class TagDiscoveryBulkAndSegmentApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var tag = await owner.CreateTagAsync($"Media usage tag {suffix}");
+        var tag = await owner.CreateTagAsync($"Media usage tag {suffix}", TestContext.Current.CancellationToken);
         await owner.CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Tagged audio {suffix}")
             .WithTag(tag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         await owner.CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Tagged text {suffix}")
             .WithTag(tag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
-        var tags = await AsUser(ApiTestUsers.Eva).GetTagsAsync();
+        var tags = await AsUser(ApiTestUsers.Eva).GetTagsAsync(TestContext.Current.CancellationToken);
 
         var listed = tags.Should().ContainSingle(candidate => candidate.Id == tag.Id).Which;
         listed.AudioCount.Should().Be(1);

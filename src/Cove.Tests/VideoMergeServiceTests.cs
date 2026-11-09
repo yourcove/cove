@@ -30,7 +30,7 @@ public sealed class VideoMergeServiceTests
                 new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = kept.Id, ViewCount = 2 },
                 new UserBookmark { UserId = 1, HostType = AffinityHostType.Video, HostId = removed.Id },
                 new VideoPlayHistory { VideoId = removed.Id, UserId = 1, PlayedAt = DateTime.UtcNow });
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id]));
@@ -39,22 +39,22 @@ public sealed class VideoMergeServiceTests
         Assert.Equal([removed.Id], result.MergedVideoIds);
         Assert.Empty(result.TimelineKeptVideoIds);
         await using var verify = harness.CreateContext();
-        Assert.False(await verify.Videos.AnyAsync(video => video.Id == removed.Id));
-        var video = await verify.Videos.Include(item => item.Files).Include(item => item.PlayHistory).SingleAsync(item => item.Id == kept.Id);
+        Assert.False(await verify.Videos.AnyAsync(video => video.Id == removed.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var video = await verify.Videos.Include(item => item.Files).Include(item => item.PlayHistory).SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Kept title", video.Title);
         Assert.Equal("Details only the removed copy had", video.Details);
         Assert.Equal("Removed director", video.Director);
         Assert.True(video.Organized);
         Assert.Equal(["kept.mp4", "removed.mp4"], video.Files.Select(file => file.Basename).Order());
         Assert.Equal(1, Assert.Single(video.PlayHistory).UserId);
-        var rating = Assert.Single(await verify.Ratings.ToListAsync());
+        var rating = Assert.Single(await verify.Ratings.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(kept.Id, rating.HostId);
-        var affinity = Assert.Single(await verify.UserEntityAffinities.ToListAsync());
+        var affinity = Assert.Single(await verify.UserEntityAffinities.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(kept.Id, affinity.HostId);
         Assert.Equal(5, affinity.ViewCount);
         Assert.True(affinity.IsFavorite);
-        Assert.Equal(kept.Id, Assert.Single(await verify.UserBookmarks.ToListAsync()).HostId);
-        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToListAsync();
+        Assert.Equal(kept.Id, Assert.Single(await verify.UserBookmarks.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
+        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["details", "director", "organized"], provenance.Select(item => item.FieldKey).Order());
         Assert.All(provenance, item => Assert.Equal(VideoMergeService.DefaultPolicySourceKey, item.SourceKey));
         var published = harness.Events.OfType<EntityEvent>().Select(item => (item.Type, item.EntityId)).ToArray();
@@ -73,12 +73,12 @@ public sealed class VideoMergeServiceTests
 
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         await using var verify = harness.CreateContext();
-        var video = await verify.Videos.SingleAsync(item => item.Id == kept.Id);
+        var video = await verify.Videos.SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Removed title", video.Title);
         // "target" keeps the kept value even when it is empty; only unmentioned fields follow the default.
         Assert.Null(video.Details);
         Assert.Equal("Removed director", video.Director);
-        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToDictionaryAsync(item => item.FieldKey, item => item.SourceKey);
+        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToDictionaryAsync(item => item.FieldKey, item => item.SourceKey, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(VideoMergeService.ChosenSourceKey, provenance["title"]);
         Assert.Equal(VideoMergeService.DefaultPolicySourceKey, provenance["director"]);
         Assert.DoesNotContain("details", provenance.Keys);
@@ -93,15 +93,15 @@ public sealed class VideoMergeServiceTests
         var (kept, removed) = await harness.SeedPairAsync(keptDuration: 60, removedDuration: 60);
         await using (var db = harness.CreateContext())
         {
-            var removedVideo = await db.Videos.SingleAsync(item => item.Id == removed.Id);
+            var removedVideo = await db.Videos.SingleAsync(item => item.Id == removed.Id, cancellationToken: TestContext.Current.CancellationToken);
             removedVideo.ProductionDate = new DateOnly(2023, 11, 1);
             removedVideo.ProductionDatePrecision = DatePrecision.Month;
             if (keptHasProductionDate)
             {
-                var keptVideo = await db.Videos.SingleAsync(item => item.Id == kept.Id);
+                var keptVideo = await db.Videos.SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
                 keptVideo.ProductionDate = new DateOnly(2019, 6, 2);
             }
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var metadata = choice == null ? null : new VideoMergeMetadataDto(Fields: new() { ["productionDate"] = choice });
@@ -109,10 +109,10 @@ public sealed class VideoMergeServiceTests
 
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         await using var verify = harness.CreateContext();
-        var video = await verify.Videos.SingleAsync(item => item.Id == kept.Id);
+        var video = await verify.Videos.SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateOnly(2023, 11, 1), video.ProductionDate);
         Assert.Equal(DatePrecision.Month, video.ProductionDatePrecision);
-        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToDictionaryAsync(item => item.FieldKey, item => item.SourceKey);
+        var provenance = await verify.FieldProvenance.Where(item => item.HostId == kept.Id).ToDictionaryAsync(item => item.FieldKey, item => item.SourceKey, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(choice == null ? VideoMergeService.DefaultPolicySourceKey : VideoMergeService.ChosenSourceKey, provenance["productiondate"]);
     }
 
@@ -129,16 +129,16 @@ public sealed class VideoMergeServiceTests
         Assert.Equal([removed.Id], result.TimelineKeptVideoIds);
         await using var verify = harness.CreateContext();
         // The copy and its file survive for the caller's deletion pipeline; metadata already moved.
-        var leftover = await verify.Videos.Include(item => item.Files).SingleAsync(item => item.Id == removed.Id);
+        var leftover = await verify.Videos.Include(item => item.Files).SingleAsync(item => item.Id == removed.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["removed.mp4"], leftover.Files.Select(file => file.Basename));
-        var video = await verify.Videos.Include(item => item.Files).Include(item => item.GroupItems).SingleAsync(item => item.Id == kept.Id);
+        var video = await verify.Videos.Include(item => item.Files).Include(item => item.GroupItems).SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["kept.mp4"], video.Files.Select(file => file.Basename));
         Assert.Equal("Details only the removed copy had", video.Details);
         Assert.Equal(kept.PrimaryFileId, video.PrimaryFileId);
         // The whole-video membership moved; the timed range and the user marker stayed on the copy's timeline.
         Assert.Equal([null], video.GroupItems.Select(item => item.StartSec));
-        Assert.Equal(removed.Id, Assert.Single(await verify.Segments.ToListAsync()).HostId);
-        Assert.Equal(removed.Id, Assert.Single(await verify.GroupItems.Where(item => item.StartSec != null).ToListAsync()).VideoId);
+        Assert.Equal(removed.Id, Assert.Single(await verify.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
+        Assert.Equal(removed.Id, Assert.Single(await verify.GroupItems.Where(item => item.StartSec != null).ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).VideoId);
     }
 
     [Fact]
@@ -153,8 +153,8 @@ public sealed class VideoMergeServiceTests
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         Assert.Empty(result.TimelineKeptVideoIds);
         await using var verify = harness.CreateContext();
-        Assert.Equal(kept.Id, Assert.Single(await verify.Segments.ToListAsync()).HostId);
-        Assert.All(await verify.GroupItems.ToListAsync(), item => Assert.Equal(kept.Id, item.VideoId));
+        Assert.Equal(kept.Id, Assert.Single(await verify.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
+        Assert.All(await verify.GroupItems.ToListAsync(cancellationToken: TestContext.Current.CancellationToken), item => Assert.Equal(kept.Id, item.VideoId));
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public sealed class VideoMergeServiceTests
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         Assert.Empty(result.TimelineKeptVideoIds);
         await using var verify = harness.CreateContext();
-        Assert.Equal(kept.Id, Assert.Single(await verify.Segments.ToListAsync()).HostId);
+        Assert.Equal(kept.Id, Assert.Single(await verify.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken)).HostId);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public sealed class VideoMergeServiceTests
         {
             // A generated segment describes the departing file; it is neither carried nor reported.
             db.Segments.Add(new Segment { HostType = SegmentHostType.Video, HostId = removed.Id, StartSec = 3, SourceKey = "detector", Title = "Scene" });
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], VideoMergeFileHandling.Remove));
@@ -218,7 +218,7 @@ public sealed class VideoMergeServiceTests
         {
             var second = new Video { Title = "Second title", Code = "CODE-2", ImageBlobId = "cover-of-second", Files = [new VideoFile { ParentFolder = new Folder { Path = "/library/second" }, Basename = "second.mp4" }] };
             db.Videos.Add(second);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             secondId = second.Id;
         }
 
@@ -227,14 +227,14 @@ public sealed class VideoMergeServiceTests
 
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         await using var verify = harness.CreateContext();
-        var video = await verify.Videos.Include(item => item.Files).SingleAsync(item => item.Id == kept.Id);
+        var video = await verify.Videos.Include(item => item.Files).SingleAsync(item => item.Id == kept.Id, cancellationToken: TestContext.Current.CancellationToken);
         // Title comes from the lower id (the first copy with a title); code and cover from the only copy that has one.
         Assert.Equal("Removed title", video.Title);
         Assert.Equal("CODE-2", video.Code);
         Assert.Equal("cover-of-second", video.ImageBlobId);
         Assert.Null(video.Details);
         Assert.Equal(3, video.Files.Count);
-        Assert.False(await verify.Videos.AnyAsync(item => item.Id == removed.Id || item.Id == secondId));
+        Assert.False(await verify.Videos.AnyAsync(item => item.Id == removed.Id || item.Id == secondId, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -279,7 +279,7 @@ public sealed class VideoMergeServiceTests
             db.AddRange(
                 new VideoUrl { VideoId = kept.Id, Url = "https://kept.example/a" },
                 new VideoUrl { VideoId = removed.Id, Url = "https://removed.example/b" });
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await harness.MergeAsync(new VideoMergePlan(kept.Id, [removed.Id], Metadata: new VideoMergeMetadataDto(
@@ -287,7 +287,7 @@ public sealed class VideoMergeServiceTests
 
         Assert.Equal(VideoMergeOutcome.Merged, result.Outcome);
         await using var verify = harness.CreateContext();
-        var urls = await verify.Set<VideoUrl>().Where(url => url.VideoId == kept.Id).Select(url => url.Url).OrderBy(url => url).ToListAsync();
+        var urls = await verify.Set<VideoUrl>().Where(url => url.VideoId == kept.Id).Select(url => url.Url).OrderBy(url => url).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["https://example.test/added-in-review", "https://kept.example/a", "https://removed.example/b"], urls);
     }
 
@@ -301,7 +301,7 @@ public sealed class VideoMergeServiceTests
 
         Assert.Equal(VideoMergeOutcome.InvalidMetadata, result.Outcome);
         await using var verify = harness.CreateContext();
-        Assert.True(await verify.Videos.AnyAsync(video => video.Id == removed.Id));
+        Assert.True(await verify.Videos.AnyAsync(video => video.Id == removed.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]

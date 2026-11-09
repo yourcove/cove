@@ -19,7 +19,7 @@ public sealed class ImageDeletionJobTests
         var mediaDirectory = Path.Combine(Path.GetTempPath(), $"cove-image-delete-failure-{Guid.NewGuid():N}");
         Directory.CreateDirectory(mediaDirectory);
         var mediaPath = Path.Combine(mediaDirectory, "must-survive.jpg");
-        await File.WriteAllBytesAsync(mediaPath, [1, 2, 3, 4]);
+        await File.WriteAllBytesAsync(mediaPath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
         var interceptor = new FailRequestedSaveInterceptor();
 
         try
@@ -29,8 +29,8 @@ public sealed class ImageDeletionJobTests
                 .AddInterceptors(interceptor)
                 .Options;
             await using var db = new CoveContext(options);
-            await db.Database.OpenConnectionAsync();
-            await db.Database.EnsureCreatedAsync();
+            await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var image = new Image
             {
                 Title = "Survivor",
@@ -47,7 +47,7 @@ public sealed class ImageDeletionJobTests
                 ],
             };
             db.Images.Add(image);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             var deletionContext = new BulkDeletionExecutionContext();
             var service = new ImageDeletionService(db, new CustomFieldService(db), null!);
             interceptor.FailNextSave = true;
@@ -60,7 +60,7 @@ public sealed class ImageDeletionJobTests
                 CancellationToken.None));
 
             db.ChangeTracker.Clear();
-            Assert.True(await db.Images.AnyAsync(item => item.Id == image.Id));
+            Assert.True(await db.Images.AnyAsync(item => item.Id == image.Id, cancellationToken: TestContext.Current.CancellationToken));
             Assert.True(File.Exists(mediaPath));
             Assert.Empty(deletionContext.GetPhysicalFiles());
         }
@@ -76,7 +76,7 @@ public sealed class ImageDeletionJobTests
         var mediaDirectory = Path.Combine(Path.GetTempPath(), $"cove-image-delete-{Guid.NewGuid():N}");
         Directory.CreateDirectory(mediaDirectory);
         var mediaPath = Path.Combine(mediaDirectory, "delete-me.jpg");
-        await File.WriteAllBytesAsync(mediaPath, [1, 2, 3, 4]);
+        await File.WriteAllBytesAsync(mediaPath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
 
         try
         {
@@ -84,8 +84,8 @@ public sealed class ImageDeletionJobTests
                 .UseSqlite($"Data Source=ImageDeletionPhysicalFileTests-{Guid.NewGuid():N};Mode=Memory;Cache=Shared")
                 .Options;
             await using var db = new CoveContext(options);
-            await db.Database.OpenConnectionAsync();
-            await db.Database.EnsureCreatedAsync();
+            await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var folder = new Folder { Path = mediaDirectory, ModTime = DateTime.UtcNow };
             var image = new Image
             {
@@ -103,7 +103,7 @@ public sealed class ImageDeletionJobTests
                 ],
             };
             db.Images.Add(image);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var jobs = new CapturingJobService();
             var eventBus = new EventBus();
@@ -133,7 +133,7 @@ public sealed class ImageDeletionJobTests
             await jobs.RunAsync();
 
             Assert.False(File.Exists(mediaPath));
-            Assert.False(await db.Images.AnyAsync());
+            Assert.False(await db.Images.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -148,12 +148,12 @@ public sealed class ImageDeletionJobTests
             .UseSqlite($"Data Source=ImageDeletionJobTests-{Guid.NewGuid():N};Mode=Memory;Cache=Shared")
             .Options;
         await using var db = new CoveContext(options);
-        await db.Database.OpenConnectionAsync();
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var first = new Image { Title = "First" };
         var second = new Image { Title = "Second" };
         db.Images.AddRange(first, second);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var eventBus = new EventBus();
         var deletedIds = new ConcurrentBag<int>();
@@ -193,7 +193,7 @@ public sealed class ImageDeletionJobTests
         Assert.Equal("image-delete-job", queued.JobId);
         Assert.Equal("image-bulk-delete", jobs.Type);
         Assert.Equal([first.Id, second.Id], deletedIds.Order());
-        Assert.False(await db.Images.AnyAsync());
+        Assert.False(await db.Images.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(2, jobs.Progress.Units.Count(unit => unit.Outcome == JobUnitOutcome.Succeeded));
         Assert.Single(jobs.Progress.Units, unit => unit.Outcome == JobUnitOutcome.Skipped);
         Assert.Contains("skipped IDs: 999", jobs.Progress.Summary, StringComparison.Ordinal);

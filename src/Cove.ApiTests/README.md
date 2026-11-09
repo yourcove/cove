@@ -66,7 +66,7 @@ The automatic worker count is suitable for typical local environments. The CI wo
 
 The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING`, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.
 
-For authenticated debugging, use the random base URI printed in test output together with `ApiUri`, `AsUser().AccessToken`, or `AsUser().CreateHttpClient()` while the test process is running.
+For authenticated debugging, use the random base URI that each test prints to its output when a debugger is attached, together with `ApiUri`, `AsUser().AccessToken`, or `AsUser().CreateHttpClient()` while the test process is running.
 
 To collect production-assembly coverage:
 

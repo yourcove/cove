@@ -59,7 +59,7 @@ public class NaturalSortTests
     public async Task KeyIsTransparentOnSqlite()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         await using var context = new CoveContext(options);
 
@@ -80,12 +80,12 @@ public class NaturalSortTests
             .Options;
         await using var context = new CoveContext(options);
         context.Studios.AddRange(new Studio { Name = "b" }, new Studio { Name = "a" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var names = await context.Studios.IgnoreQueryFilters()
             .OrderBy(studio => NaturalSort.Key(studio.Name))
             .Select(studio => studio.Name)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(["a", "b"], names);
     }

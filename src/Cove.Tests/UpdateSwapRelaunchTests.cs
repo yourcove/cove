@@ -41,7 +41,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
         swapper.Install(Stage(GoodCove("2.0.0"), Manager("2.0.0")));
         WriteJournal(UpdateJournalKinds.Update, "1.0.0", "2.0.0");
 
-        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid());
+        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid(), ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Equal(UpdateJournalStates.Succeeded, ReadJournal().State);
@@ -61,7 +61,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
         Swapper().Install(Stage(CrashingCove("2.0.0"), Manager("2.0.0")));
         WriteJournal(UpdateJournalKinds.Update, "1.0.0", "2.0.0");
 
-        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid());
+        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid(), ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         var journal = ReadJournal();
@@ -135,7 +135,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
         Swapper().Install(Stage(HangingCove(), Manager("2.0.0")));
         WriteJournal(UpdateJournalKinds.Update, "1.0.0", "2.0.0");
 
-        var exitCode = await new UpdateRelauncher(Host(healthTimeout: TimeSpan.FromSeconds(2))).RunAsync(JournalPath, waitPid: ExitedPid());
+        var exitCode = await new UpdateRelauncher(Host(healthTimeout: TimeSpan.FromSeconds(2))).RunAsync(JournalPath, waitPid: ExitedPid(), ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Contains("did not report itself running", ReadJournal().Error);
@@ -153,7 +153,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
 
         swapper.Revert();
         WriteJournal(UpdateJournalKinds.Revert, "2.0.0", "1.0.0");
-        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid());
+        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid(), ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("1.0.0", File.ReadAllText(CovePath));
@@ -174,7 +174,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
 
         swapper.Revert();
         WriteJournal(UpdateJournalKinds.Revert, "2.0.0", "1.0.0");
-        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid());
+        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, waitPid: ExitedPid(), ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Contains("2.0.0", File.ReadAllText(CovePath));
@@ -192,7 +192,7 @@ public sealed class UpdateSwapRelaunchTests : IDisposable
         var oldProcess = UpdateProcessLauncher.StartDetached("/bin/sleep", ["1"], AppDirectory, OutputLog, visibleWindow: false);
         var started = DateTime.UtcNow;
 
-        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, oldProcess);
+        var exitCode = await new UpdateRelauncher(Host()).RunAsync(JournalPath, oldProcess, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.True(DateTime.UtcNow - started >= TimeSpan.FromMilliseconds(800));

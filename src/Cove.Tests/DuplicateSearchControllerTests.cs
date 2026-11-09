@@ -20,7 +20,7 @@ public sealed class DuplicateSearchControllerTests
     public async Task UpdateDuplicateSearchGroupDecision_UsesTheConfiguredExecutionStrategyAndMarksTheChoiceManual()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connection)
@@ -29,7 +29,7 @@ public sealed class DuplicateSearchControllerTests
             .Options;
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(options, principalAccessor);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
 
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
@@ -46,10 +46,10 @@ public sealed class DuplicateSearchControllerTests
         db.ChangeTracker.Clear();
         var decisions = await db.DuplicateSearchItems
             .Where(item => item.GroupId == group.Id)
-            .ToDictionaryAsync(item => item.VideoId, item => item.Keep);
+            .ToDictionaryAsync(item => item.VideoId, item => item.Keep, cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(decisions[keeper.Id]);
         Assert.True(decisions[unwanted.Id]);
-        var stored = await db.DuplicateSearchGroups.SingleAsync();
+        var stored = await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("manual", stored.DecisionSource);
         Assert.Null(stored.DecisionRule);
         Assert.Equal(1, commitAmbiguity.FailuresRaised);
@@ -61,7 +61,7 @@ public sealed class DuplicateSearchControllerTests
         var databaseName = $"keeper-retry-{Guid.NewGuid():N}";
         var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
         await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync();
+        await anchor.OpenAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
         var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connectionString)
@@ -73,7 +73,7 @@ public sealed class DuplicateSearchControllerTests
             .Options;
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(retryingOptions, principalAccessor);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
 
         commitAmbiguity.Arm(async () =>
@@ -100,7 +100,7 @@ public sealed class DuplicateSearchControllerTests
         db.ChangeTracker.Clear();
         var decisions = await db.DuplicateSearchItems
             .Where(item => item.GroupId == group.Id)
-            .ToDictionaryAsync(item => item.VideoId, item => item.Keep);
+            .ToDictionaryAsync(item => item.VideoId, item => item.Keep, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(decisions[keeper.Id]);
         Assert.False(decisions[unwanted.Id]);
     }
@@ -111,7 +111,7 @@ public sealed class DuplicateSearchControllerTests
         var databaseName = $"keeper-queue-retry-{Guid.NewGuid():N}";
         var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
         await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync();
+        await anchor.OpenAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
         var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connectionString)
@@ -123,7 +123,7 @@ public sealed class DuplicateSearchControllerTests
             .Options;
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(retryingOptions, principalAccessor);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
         commitAmbiguity.Arm(async () =>
         {
@@ -145,7 +145,7 @@ public sealed class DuplicateSearchControllerTests
         db.ChangeTracker.Clear();
         var decisions = await db.DuplicateSearchItems
             .Where(item => item.GroupId == group.Id)
-            .ToDictionaryAsync(item => item.VideoId, item => item.Keep);
+            .ToDictionaryAsync(item => item.VideoId, item => item.Keep, cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(decisions[keeper.Id]);
         Assert.True(decisions[unwanted.Id]);
     }
@@ -158,7 +158,7 @@ public sealed class DuplicateSearchControllerTests
         await using var _ = connection;
         await using var __ = db;
         var (search, group, _, unwanted) = await SeedCompletedSearchAsync(db);
-        await db.DuplicateSearchGroups.ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, DuplicateGroupStatus.Queued));
+        await db.DuplicateSearchGroups.ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, DuplicateGroupStatus.Queued), cancellationToken: TestContext.Current.CancellationToken);
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
 
@@ -193,7 +193,7 @@ public sealed class DuplicateSearchControllerTests
         Assert.Equal(1, jobs.EnqueueCount);
         Assert.Equal(DuplicateResolutionService.WorkerJobType, jobs.Type);
         db.ChangeTracker.Clear();
-        var stored = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync();
+        var stored = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Queued, stored[0].Status);
         Assert.Equal("merge", stored[0].ResolutionAction);
         Assert.Equal(DuplicateGroupStatus.Unresolved, stored[1].Status);
@@ -232,7 +232,7 @@ public sealed class DuplicateSearchControllerTests
 
         Assert.IsType<AcceptedResult>(result.Result);
         db.ChangeTracker.Clear();
-        var stored = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync();
+        var stored = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Queued, stored[2].Status);
         Assert.Equal("source", DuplicateResolutionService.ParseMergeMetadata(stored[2].MergeMetadataJson)?.Fields?["title"]);
         Assert.Null(stored[0].MergeMetadataJson);
@@ -260,7 +260,7 @@ public sealed class DuplicateSearchControllerTests
         Assert.IsType<BadRequestObjectResult>((await controller.ResolveDuplicateGroups(search.Id, new DuplicateResolveRequest(null, "shred"), CancellationToken.None)).Result);
         Assert.IsType<ForbidResult>((await controller.ResolveDuplicateGroups(search.Id, new DuplicateResolveRequest(null, DeleteFiles: true), CancellationToken.None)).Result);
         Assert.IsType<ForbidResult>((await controller.ResolveDuplicateGroups(search.Id, new DuplicateResolveRequest(null, "merge"), CancellationToken.None)).Result);
-        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.AsNoTracking().SingleAsync()).Status);
+        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
     }
 
     [Fact]
@@ -281,17 +281,17 @@ public sealed class DuplicateSearchControllerTests
         Assert.IsType<NoContentResult>(await controller.IgnoreDuplicateGroup(search.Id, groups[0].Id, CancellationToken.None));
 
         db.ChangeTracker.Clear();
-        Assert.Equal(DuplicateGroupStatus.Ignored, (await db.DuplicateSearchGroups.SingleAsync()).Status);
+        Assert.Equal(DuplicateGroupStatus.Ignored, (await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
         var ids = new[] { videos["a"].Id, videos["b"].Id, videos["c"].Id }.Order().ToArray();
         Assert.Equal(
             [(ids[0], ids[1]), (ids[0], ids[2]), (ids[1], ids[2])],
-            (await db.DuplicateIgnoredPairs.OrderBy(pair => pair.LowVideoId).ThenBy(pair => pair.HighVideoId).ToListAsync())
+            (await db.DuplicateIgnoredPairs.OrderBy(pair => pair.LowVideoId).ThenBy(pair => pair.HighVideoId).ToListAsync(cancellationToken: TestContext.Current.CancellationToken))
                 .Select(pair => (pair.LowVideoId, pair.HighVideoId)));
 
         Assert.IsType<NoContentResult>(await controller.RestoreIgnoredDuplicateGroup(search.Id, groups[0].Id, CancellationToken.None));
         db.ChangeTracker.Clear();
-        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.SingleAsync()).Status);
-        Assert.Empty(await db.DuplicateIgnoredPairs.ToListAsync());
+        Assert.Equal(DuplicateGroupStatus.Unresolved, (await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
+        Assert.Empty(await db.DuplicateIgnoredPairs.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public sealed class DuplicateSearchControllerTests
             ],
         };
         db.DuplicateSearches.Add(secondSearch);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
@@ -346,7 +346,7 @@ public sealed class DuplicateSearchControllerTests
         {
             Assert.IsType<NoContentResult>(await controller.IgnoreDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
             Assert.Equal(2, (await db.DuplicateIgnoredPairs.IgnoreQueryFilters().SingleAsync(pair =>
-                pair.LowVideoId == videos["a"].Id && pair.HighVideoId == videos["b"].Id)).DecisionCount);
+                pair.LowVideoId == videos["a"].Id && pair.HighVideoId == videos["b"].Id, cancellationToken: TestContext.Current.CancellationToken)).DecisionCount);
             Assert.IsType<NoContentResult>(await controller.RestoreIgnoredDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
             Assert.IsType<NoContentResult>(await controller.RestoreIgnoredDuplicateGroup(secondSearch.Id, secondSearch.Groups.Single().Id, CancellationToken.None));
         }
@@ -356,9 +356,9 @@ public sealed class DuplicateSearchControllerTests
         }
         db.ChangeTracker.Clear();
 
-        var remaining = await db.DuplicateIgnoredPairs.SingleAsync();
+        var remaining = await db.DuplicateIgnoredPairs.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal((videos["a"].Id, videos["b"].Id, 1), (remaining.LowVideoId, remaining.HighVideoId, remaining.DecisionCount));
-        Assert.Equal(DuplicateGroupStatus.Ignored, (await db.DuplicateSearchGroups.SingleAsync(group => group.Id == firstGroups[0].Id)).Status);
+        Assert.Equal(DuplicateGroupStatus.Ignored, (await db.DuplicateSearchGroups.SingleAsync(group => group.Id == firstGroups[0].Id, cancellationToken: TestContext.Current.CancellationToken)).Status);
     }
 
     [Fact]
@@ -374,16 +374,16 @@ public sealed class DuplicateSearchControllerTests
             ownerKey: "user:1");
         var folder = new Folder { Path = "/library" };
         db.Folders.Add(folder);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.VideoFiles.AddRange(
             VideoFile(folder, videos["a"], 1280, 720),
             VideoFile(folder, videos["b"], 1920, 1080),
             VideoFile(folder, videos["c"], 1280, 720),
             VideoFile(folder, videos["d"], 1920, 1080));
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         await db.DuplicateSearchGroups
             .Where(group => group.Id == groups[1].Id)
-            .ExecuteUpdateAsync(update => update.SetProperty(group => group.DecisionSource, "manual"));
+            .ExecuteUpdateAsync(update => update.SetProperty(group => group.DecisionSource, "manual"), cancellationToken: TestContext.Current.CancellationToken);
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
 
@@ -393,14 +393,14 @@ public sealed class DuplicateSearchControllerTests
         Assert.Equal(1, counts.UpdatedGroupCount);
         Assert.Equal(1, counts.ChangedGroupCount);
         db.ChangeTracker.Clear();
-        var keepers = await db.DuplicateSearchItems.Where(item => item.Keep).Select(item => item.VideoId).ToListAsync();
+        var keepers = await db.DuplicateSearchItems.Where(item => item.Keep).Select(item => item.VideoId).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(videos["b"].Id, keepers);
         Assert.Contains(videos["c"].Id, keepers);
-        Assert.Equal("resolution", (await db.DuplicateSearchGroups.SingleAsync(group => group.Id == groups[0].Id)).DecisionRule);
+        Assert.Equal("resolution", (await db.DuplicateSearchGroups.SingleAsync(group => group.Id == groups[0].Id, cancellationToken: TestContext.Current.CancellationToken)).DecisionRule);
 
         await controller.AutoSelectDuplicateKeepers(search.Id, new DuplicateAutoSelectRequest([new("resolution")], OverwriteManual: true), CancellationToken.None);
         db.ChangeTracker.Clear();
-        Assert.True(await db.DuplicateSearchItems.AnyAsync(item => item.VideoId == videos["d"].Id && item.Keep));
+        Assert.True(await db.DuplicateSearchItems.AnyAsync(item => item.VideoId == videos["d"].Id && item.Keep, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static VideoFile VideoFile(Folder folder, Video video, int width, int height) => new()

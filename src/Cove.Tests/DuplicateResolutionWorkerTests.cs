@@ -25,28 +25,28 @@ public sealed class DuplicateResolutionWorkerTests
         await harness.RunWorkerAsync();
 
         await using var db = harness.CreateContext();
-        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id));
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
         var kept = await db.Videos
             .Include(video => video.VideoTags)
             .Include(video => video.Urls)
-            .SingleAsync(video => video.Id == keeper.Id);
+            .SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Keeper title", kept.Title);
         Assert.Equal("Details only the duplicate had", kept.Details);
         Assert.Equal([harness.KeeperTagId, harness.DuplicateTagId], kept.VideoTags.Select(link => link.TagId).Order());
         Assert.Contains(kept.Urls, url => url.Url == "https://example.test/duplicate");
-        var rating = Assert.Single(await db.Ratings.Where(item => item.HostType == RatingHostType.Video).ToListAsync());
+        var rating = Assert.Single(await db.Ratings.Where(item => item.HostType == RatingHostType.Video).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(keeper.Id, rating.HostId);
-        var affinity = Assert.Single(await db.UserEntityAffinities.Where(item => item.HostType == AffinityHostType.Video).ToListAsync());
+        var affinity = Assert.Single(await db.UserEntityAffinities.Where(item => item.HostType == AffinityHostType.Video).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(keeper.Id, affinity.HostId);
         Assert.Equal(5, affinity.ViewCount);
         Assert.True(affinity.IsFavorite);
 
-        var resolved = await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id);
+        var resolved = await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Resolved, resolved.Status);
         Assert.Equal(1, resolved.RemovedVideoCount);
         Assert.NotNull(resolved.ResolvedAt);
-        Assert.Null((await db.DuplicateSearches.SingleAsync()).DeletionJobId);
-        Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToListAsync());
+        Assert.Null((await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -61,12 +61,12 @@ public sealed class DuplicateResolutionWorkerTests
         await harness.RunWorkerAsync();
 
         await using var db = harness.CreateContext();
-        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id));
-        var kept = await db.Videos.Include(video => video.VideoTags).SingleAsync(video => video.Id == keeper.Id);
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var kept = await db.Videos.Include(video => video.VideoTags).SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Duplicate title", kept.Title);
         Assert.Null(kept.Details);
         Assert.Equal([harness.DuplicateTagId], kept.VideoTags.Select(link => link.TagId));
-        Assert.Equal(DuplicateGroupStatus.Resolved, (await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id)).Status);
+        Assert.Equal(DuplicateGroupStatus.Resolved, (await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken)).Status);
     }
 
     [Fact]
@@ -77,14 +77,14 @@ public sealed class DuplicateResolutionWorkerTests
         await harness.QueueAsync(search.Id, group.Id, DuplicateResolutionService.MergeAction, new VideoMergeMetadataDto(TagIds: []));
         await using (var db = harness.CreateContext())
             await db.DuplicateSearchGroups.Where(item => item.Id == group.Id)
-                .ExecuteUpdateAsync(update => update.SetProperty(item => item.MergeMetadataJson, "{not json"));
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.MergeMetadataJson, "{not json"), cancellationToken: TestContext.Current.CancellationToken);
 
         await harness.RunWorkerAsync();
 
         await using var verify = harness.CreateContext();
-        Assert.True(await verify.Videos.AnyAsync(video => video.Id == duplicate.Id));
-        Assert.Null((await verify.Videos.SingleAsync(video => video.Id == keeper.Id)).Details);
-        var failed = await verify.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id);
+        Assert.True(await verify.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null((await verify.Videos.SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken)).Details);
+        var failed = await verify.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Failed, failed.Status);
         Assert.Contains("choices", failed.Error, StringComparison.OrdinalIgnoreCase);
     }
@@ -100,13 +100,13 @@ public sealed class DuplicateResolutionWorkerTests
         await harness.RunWorkerAsync();
 
         await using var db = harness.CreateContext();
-        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id));
-        var kept = await db.Videos.Include(video => video.VideoTags).SingleAsync(video => video.Id == keeper.Id);
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var kept = await db.Videos.Include(video => video.VideoTags).SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Null(kept.Details);
         Assert.Equal([harness.KeeperTagId], kept.VideoTags.Select(link => link.TagId));
         Assert.Equal(keeper.PrimaryFileId, kept.PrimaryFileId);
-        Assert.Equal(["keeper.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync());
-        Assert.Equal(DuplicateGroupStatus.Resolved, (await db.DuplicateSearchGroups.SingleAsync()).Status);
+        Assert.Equal(["keeper.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(DuplicateGroupStatus.Resolved, (await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Status);
     }
 
     [Fact]
@@ -118,18 +118,18 @@ public sealed class DuplicateResolutionWorkerTests
         await using (var db = harness.CreateContext())
         {
             // The keeper is removed elsewhere after the group was queued; its item cascades away with it.
-            db.Videos.Remove(await db.Videos.SingleAsync(video => video.Id == keeper.Id));
-            await db.SaveChangesAsync();
+            db.Videos.Remove(await db.Videos.SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await harness.RunWorkerAsync();
 
         await using var verify = harness.CreateContext();
-        Assert.True(await verify.Videos.AnyAsync(video => video.Id == duplicate.Id));
-        var failed = await verify.DuplicateSearchGroups.SingleAsync();
+        Assert.True(await verify.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var failed = await verify.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(DuplicateGroupStatus.Failed, failed.Status);
         Assert.Contains("keep", failed.Error, StringComparison.OrdinalIgnoreCase);
-        Assert.Null((await verify.DuplicateSearches.SingleAsync()).DeletionJobId);
+        Assert.Null((await verify.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
     }
 
     [Fact]
@@ -147,9 +147,9 @@ public sealed class DuplicateResolutionWorkerTests
         await harness.RunWorkerAsync();
 
         await using var db = harness.CreateContext();
-        Assert.All(await db.DuplicateSearchGroups.ToListAsync(), item => Assert.Equal(DuplicateGroupStatus.Resolved, item.Status));
-        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id || video.Id == second.Duplicate.Id));
-        Assert.Null((await db.DuplicateSearches.SingleAsync()).DeletionJobId);
+        Assert.All(await db.DuplicateSearchGroups.ToListAsync(cancellationToken: TestContext.Current.CancellationToken), item => Assert.Equal(DuplicateGroupStatus.Resolved, item.Status));
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id || video.Id == second.Duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null((await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
     }
 
     private sealed class Harness : IAsyncDisposable

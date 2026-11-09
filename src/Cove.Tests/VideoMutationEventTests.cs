@@ -92,8 +92,8 @@ public class VideoMutationEventTests
             Assert.Equal(!explicitMetadata, created.Organized);
             Assert.Equal(!explicitMetadata, created.IsVr);
             Assert.Equal(fileId, created.PrimaryFileId);
-            Assert.Equal(created.Id, (await db.VideoFiles.SingleAsync(item => item.Id == fileId)).VideoId);
-            Assert.Equal(primaryId, (await db.Videos.SingleAsync(item => item.Id == sourceId)).PrimaryFileId);
+            Assert.Equal(created.Id, (await db.VideoFiles.SingleAsync(item => item.Id == fileId, cancellationToken: TestContext.Current.CancellationToken)).VideoId);
+            Assert.Equal(primaryId, (await db.Videos.SingleAsync(item => item.Id == sourceId, cancellationToken: TestContext.Current.CancellationToken)).PrimaryFileId);
             Assert.Equal(populated ? 1 : 0, created.Urls.Count);
             Assert.Equal(2, events.Count);
         }
@@ -116,7 +116,7 @@ public class VideoMutationEventTests
             var controller = CreateController(db, principal, new EventBus(), cache);
             Assert.IsType<Microsoft.AspNetCore.Mvc.ConflictObjectResult>(await controller.SplitFile(sourceId, new VideoSplitFileDto(primaryId, Metadata: new()), TestContext.Current.CancellationToken));
             Assert.IsType<Microsoft.AspNetCore.Mvc.NotFoundObjectResult>(await controller.SplitFile(sourceId, new VideoSplitFileDto(int.MaxValue, Metadata: new()), TestContext.Current.CancellationToken));
-            Assert.Equal(1, await db.Videos.CountAsync());
+            Assert.Equal(1, await db.Videos.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
     }
 

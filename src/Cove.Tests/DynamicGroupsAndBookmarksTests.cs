@@ -274,7 +274,7 @@ public class DynamicGroupsAndBookmarksTests
         var context = scope.Context;
         var audio = new Audio { Title = "Delete across principals" };
         context.Audios.Add(audio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         foreach (var userId in new[] { 7, 8 })
         {
             context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = userId, HostType = AffinityHostType.Audio, HostId = audio.Id });
@@ -283,17 +283,17 @@ public class DynamicGroupsAndBookmarksTests
             context.PlaybackSessions.Add(new PlaybackSession { UserId = userId, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
             context.Ratings.Add(new Rating { UserId = userId, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
         }
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         scope.PrincipalAccessor.Set(CreatePrincipal(7));
 
         context.Audios.Remove(audio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]

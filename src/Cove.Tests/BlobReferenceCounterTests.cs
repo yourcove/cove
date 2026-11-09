@@ -46,7 +46,7 @@ public sealed class BlobReferenceCounterTests
     {
         const string blobId = "22222222-2222-4222-8222-222222222222";
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
         var principalAccessor = new CurrentPrincipalAccessor();
         var services = new ServiceCollection();
@@ -56,9 +56,9 @@ public sealed class BlobReferenceCounterTests
         await using (var scope = provider.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            await db.Database.EnsureCreatedAsync();
+            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             db.Videos.Add(new Video { Title = "Hidden blob owner", ImageBlobId = blobId });
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         principalAccessor.Set(new CovePrincipal
@@ -71,6 +71,6 @@ public sealed class BlobReferenceCounterTests
         });
         var counter = new BlobReferenceCounter(provider.GetRequiredService<IServiceScopeFactory>());
 
-        Assert.Equal(1, await counter.CountReferencesAsync(blobId, maximum: 2));
+        Assert.Equal(1, await counter.CountReferencesAsync(blobId, maximum: 2, ct: TestContext.Current.CancellationToken));
     }
 }

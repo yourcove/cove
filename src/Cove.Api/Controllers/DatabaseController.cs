@@ -14,13 +14,10 @@ namespace Cove.Api.Controllers;
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SystemRead)]
 public class DatabaseController(
-    CoveContext db,
     IBackupService backupService,
     CoveConfiguration config,
     ILogger<DatabaseController> logger,
     ConfigService configService,
-    NameRuleEnforcementService? nameRuleEnforcement = null,
-    CustomFieldJsonIndexJobService? jsonIndexJobs = null,
     DatabaseMigrationCoordinator? migrations = null) : ControllerBase
 {
     [HttpPost("backup")]

@@ -236,7 +236,8 @@ public class JobServiceTests
                     Interlocked.Decrement(ref activeWorkers);
                 }
             },
-            progress: new NoOpJobProgress());
+            progress: new NoOpJobProgress(),
+            ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, maximumActiveWorkers);
         Assert.Equal(2, result.SucceededUnits);
@@ -265,7 +266,7 @@ public class JobServiceTests
                 }
             });
 
-            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             var running = service.GetJob(jobId);
             Assert.NotNull(running);
             Assert.Equal(5_000, running.UnitsTotal);
@@ -299,7 +300,7 @@ public class JobServiceTests
                 await release.Task.WaitAsync(ct);
             });
 
-            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             var running = service.GetJob(jobId);
             Assert.NotNull(running);
             Assert.Equal(250_000, running.UnitsTotal);
@@ -463,9 +464,9 @@ public class JobServiceTests
                     }
                 });
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(service.Cancel(jobId));
-            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             var stillRunning = Assert.Single(service.GetAllJobs());
             Assert.Equal(jobId, stillRunning.Id);

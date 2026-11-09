@@ -739,8 +739,8 @@ public class ScrapeAttemptServiceTests
         var provenance = await db.FieldProvenance
             .Where(item => item.HostType == AffinityHostType.Video && item.HostId == video.Id)
             .ToDictionaryAsync(item => item.FieldKey, item => item.ValueJson, TestContext.Current.CancellationToken);
-        Assert.Equal(["Existing"], JsonSerializer.Deserialize<string[]>(provenance["tags"]!));
-        Assert.Equal(["Known Performer"], JsonSerializer.Deserialize<string[]>(provenance["performers"]!));
+        Assert.Equal(["Existing"], JsonSerializer.Deserialize<string[]>(provenance["tags"]!)!);
+        Assert.Equal(["Known Performer"], JsonSerializer.Deserialize<string[]>(provenance["performers"]!)!);
     }
 
     [Fact]
@@ -787,7 +787,7 @@ public class ScrapeAttemptServiceTests
             .Where(item => item.HostType == AffinityHostType.Video && item.HostId == video.Id && item.FieldKey == "tags")
             .Select(item => item.ValueJson)
             .SingleAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(["Kept"], JsonSerializer.Deserialize<string[]>(history!));
+        Assert.Equal(["Kept"], JsonSerializer.Deserialize<string[]>(history!)!);
     }
 
     [Fact]

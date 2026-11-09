@@ -586,6 +586,16 @@ public sealed class DatabaseClient
         return await db.VideoShotSets.CountAsync(cancellationToken);
     }
 
+    /// <summary>The enabled choice saved for an extension, which the next start restores, or null when no row is saved.</summary>
+    public async Task<bool?> GetSavedExtensionEnabledAsync(string extensionId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT enabled FROM extension_installations WHERE extension_id = @id", connection);
+        command.Parameters.AddWithValue("id", extensionId);
+        return await command.ExecuteScalarAsync(cancellationToken) is bool enabled ? enabled : null;
+    }
+
     /// <summary>Runs <paramref name="sql"/> and returns the PostgreSQL error code it failed with, or null.</summary>
     public async Task<string?> TryExecuteSqlAsync(string sql, CancellationToken cancellationToken = default)
     {

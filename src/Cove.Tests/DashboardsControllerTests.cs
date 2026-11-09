@@ -21,9 +21,9 @@ public sealed class DashboardsControllerTests
         var controller = scope.ControllerFor(7);
         var widget = Widget("legacy-row", "cove.core", "collection", "Legacy row", new { mode = "videos", sortBy = "date" });
 
-        var first = await controller.Bootstrap(new DashboardBootstrapRequest([widget]), default);
+        var first = await controller.Bootstrap(new DashboardBootstrapRequest([widget]), TestContext.Current.CancellationToken);
         var created = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(first.Result).Value);
-        var second = await controller.Bootstrap(new DashboardBootstrapRequest([]), default);
+        var second = await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken);
         var returned = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(second.Result).Value);
 
         Assert.Equal(created.Id, returned.Id);
@@ -42,19 +42,19 @@ public sealed class DashboardsControllerTests
         await SeedContinueWatchingGroupAsync(scope);
         var controller = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await controller.Bootstrap(new DashboardBootstrapRequest([]), default)).Result).Value);
+            (await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
 
         var updated = await controller.Update(
             dashboard.Id,
             new DashboardUpdateRequest("Renamed", dashboard.Version, [Widget("one", "cove.core", "continue-watching", "Continue Watching", new { })]),
-            default);
+            TestContext.Current.CancellationToken);
         var updatedDto = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(updated.Result).Value);
         Assert.Equal(dashboard.Version + 1, updatedDto.Version);
 
         var stale = await controller.Update(
             dashboard.Id,
             new DashboardUpdateRequest("Stale", dashboard.Version, []),
-            default);
+            TestContext.Current.CancellationToken);
         var conflict = Assert.IsType<ConflictObjectResult>(stale.Result);
         var versionConflict = Assert.IsType<DashboardVersionConflictDto>(conflict.Value);
         Assert.Equal("DASHBOARD_VERSION_CONFLICT", versionConflict.Code);
@@ -68,13 +68,13 @@ public sealed class DashboardsControllerTests
     {
         await using var emptyScope = CreateScope();
         var empty = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await emptyScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest([]), default)).Result).Value);
+            (await emptyScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
         Assert.Empty(empty.Widgets);
 
         await using var defaultScope = CreateScope();
         var group = await SeedContinueWatchingGroupAsync(defaultScope);
         var defaults = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await defaultScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), default)).Result).Value);
+            (await defaultScope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken)).Result).Value);
         Assert.Equal(6, defaults.Widgets.Count);
         var continueWatching = defaults.Widgets[0];
         Assert.Equal("collection", continueWatching.WidgetKey);
@@ -89,7 +89,7 @@ public sealed class DashboardsControllerTests
         // A database whose migrations are still pending has no built-in groups to reference.
         await using var scope = CreateScope();
         var defaults = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await scope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), default)).Result).Value);
+            (await scope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken)).Result).Value);
 
         Assert.Equal(5, defaults.Widgets.Count);
         Assert.DoesNotContain(defaults.Widgets, widget => widget.Label == "Continue Watching");
@@ -103,7 +103,7 @@ public sealed class DashboardsControllerTests
         var restricted = scope.ControllerFor(7, Permissions.VideosRead);
 
         var defaults = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await restricted.Bootstrap(new DashboardBootstrapRequest(null), default)).Result).Value);
+            (await restricted.Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken)).Result).Value);
         Assert.Equal(5, defaults.Widgets.Count);
         Assert.DoesNotContain(defaults.Widgets, widget => widget.Label == "Continue Watching");
     }
@@ -116,7 +116,7 @@ public sealed class DashboardsControllerTests
         var controller = scope.ControllerFor(7);
         var legacy = Widget("continue", "cove.core", "continue-watching", "Continue Watching", new { });
         var created = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await controller.Bootstrap(new DashboardBootstrapRequest([legacy]), default)).Result).Value);
+            (await controller.Bootstrap(new DashboardBootstrapRequest([legacy]), TestContext.Current.CancellationToken)).Result).Value);
 
         var converted = Assert.Single(created.Widgets);
         Assert.Equal("continue", converted.InstanceId);
@@ -127,7 +127,7 @@ public sealed class DashboardsControllerTests
 
         // The stored layout is untouched until the user saves; reads keep converting it.
         var reread = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await controller.GetById(created.Id, default)).Result).Value);
+            (await controller.GetById(created.Id, TestContext.Current.CancellationToken)).Result).Value);
         Assert.Equal("collection", Assert.Single(reread.Widgets).WidgetKey);
     }
 
@@ -142,7 +142,7 @@ public sealed class DashboardsControllerTests
                     Widget("continue", "cove.core", "continue-watching", "Continue Watching", new { }),
                     Widget("videos", "cove.core", "collection", "Recent videos", new { source = "premade", mode = "videos" }),
                 ]),
-                default)).Result).Value);
+                TestContext.Current.CancellationToken)).Result).Value);
 
         Assert.Equal("videos", Assert.Single(created.Widgets).InstanceId);
     }
@@ -153,12 +153,12 @@ public sealed class DashboardsControllerTests
         await using var scope = CreateScope();
         var owner = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await owner.Bootstrap(new DashboardBootstrapRequest([]), default)).Result).Value);
+            (await owner.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
 
         var otherUser = scope.ControllerFor(8);
-        Assert.IsType<NotFoundResult>((await otherUser.GetById(dashboard.Id, default)).Result);
-        Assert.IsType<NotFoundResult>(await otherUser.Delete(dashboard.Id, default));
-        Assert.IsType<ConflictObjectResult>(await owner.Delete(dashboard.Id, default));
+        Assert.IsType<NotFoundResult>((await otherUser.GetById(dashboard.Id, TestContext.Current.CancellationToken)).Result);
+        Assert.IsType<NotFoundResult>(await otherUser.Delete(dashboard.Id, TestContext.Current.CancellationToken));
+        Assert.IsType<ConflictObjectResult>(await owner.Delete(dashboard.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -167,15 +167,15 @@ public sealed class DashboardsControllerTests
         await using var scope = CreateScope();
         var controller = scope.ControllerFor(7);
         var first = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await controller.Bootstrap(new DashboardBootstrapRequest([]), default)).Result).Value);
-        var duplicateResult = await controller.Duplicate(first.Id, new DashboardDuplicateRequest("Discovery"), default);
+            (await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
+        var duplicateResult = await controller.Duplicate(first.Id, new DashboardDuplicateRequest("Discovery"), TestContext.Current.CancellationToken);
         var duplicate = Assert.IsType<DashboardDto>(Assert.IsType<CreatedAtActionResult>(duplicateResult.Result).Value);
 
         Assert.False(duplicate.IsDefault);
-        Assert.IsType<NoContentResult>(await controller.Delete(first.Id, default));
+        Assert.IsType<NoContentResult>(await controller.Delete(first.Id, TestContext.Current.CancellationToken));
 
         var remaining = Assert.IsAssignableFrom<IReadOnlyList<DashboardSummaryDto>>(
-            Assert.IsType<OkObjectResult>((await controller.List(default)).Result).Value);
+            Assert.IsType<OkObjectResult>((await controller.List(TestContext.Current.CancellationToken)).Result).Value);
         Assert.True(Assert.Single(remaining).IsDefault);
     }
 
@@ -185,21 +185,21 @@ public sealed class DashboardsControllerTests
         await using var scope = CreateScope();
         var controller = scope.ControllerFor(7);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(
-            (await controller.Bootstrap(new DashboardBootstrapRequest([]), default)).Result).Value);
+            (await controller.Bootstrap(new DashboardBootstrapRequest([]), TestContext.Current.CancellationToken)).Result).Value);
         var canvas = Widget("canvas", "example.extension", "feed", "Feed", new { }, DashboardWidgetPresentation.Canvas);
         var flow = Widget("flow", "cove.core", "collection", "Collection", new { });
 
         var mixed = await controller.Update(
             dashboard.Id,
             new DashboardUpdateRequest("Home", dashboard.Version, [canvas, flow]),
-            default);
+            TestContext.Current.CancellationToken);
         var badRequest = Assert.IsType<BadRequestObjectResult>(mixed.Result);
         Assert.Contains("Canvas", JsonSerializer.Serialize(badRequest.Value));
 
         var canvasOnly = await controller.Update(
             dashboard.Id,
             new DashboardUpdateRequest("Home", dashboard.Version, [canvas]),
-            default);
+            TestContext.Current.CancellationToken);
         var saved = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(canvasOnly.Result).Value);
         Assert.Equal(DashboardWidgetPresentation.Canvas, Assert.Single(saved.Widgets).Presentation);
     }
@@ -263,9 +263,9 @@ public sealed class DashboardsControllerTests
                 [{"instanceId":"legacy","owner":"cove.core","widgetKey":"collection","label":"Legacy","configuration":{"source":"saved","savedFilterId":1}}]
                 """),
         });
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var response = await scope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), default);
+        var response = await scope.ControllerFor(7).Bootstrap(new DashboardBootstrapRequest(null), TestContext.Current.CancellationToken);
         var dashboard = Assert.IsType<DashboardDto>(Assert.IsType<OkObjectResult>(response.Result).Value);
 
         var json = JsonSerializer.Serialize(dashboard, CoveJson.Default);

@@ -28,24 +28,24 @@ public sealed class DeletionSafetyTests
         var reader = await coordinator.AcquireReadAsync(CancellationToken.None);
         var writerTask = coordinator.AcquireWriteAsync(CancellationToken.None).AsTask();
 
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         Assert.False(writerTask.IsCompleted);
 
         reader.Dispose();
-        using var writer = await writerTask.WaitAsync(TimeSpan.FromSeconds(2));
+        using var writer = await writerTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
     }
 
     [Fact]
     public async Task DurableOutboxDeletesAnUnreferencedFileAndClearsItsRow()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-outbox-{Guid.NewGuid():N}.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
             await using var db = CreateContext();
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var service = new PhysicalFileDeletionService(db, new PhysicalFileAccessCoordinator());
             var result = await service.ProcessPendingAsync(context.PhysicalDeletionBatchId, 2, CancellationToken.None);
@@ -53,7 +53,7 @@ public sealed class DeletionSafetyTests
             Assert.Equal(1, result.Deleted);
             Assert.Equal(0, result.Failed);
             Assert.False(File.Exists(path));
-            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -69,15 +69,15 @@ public sealed class DeletionSafetyTests
             .UseSqlite($"Data Source={databaseName};Mode=Memory;Cache=Shared")
             .Options;
         var path = Path.Combine(Path.GetTempPath(), $"cove-outbox-overlap-{Guid.NewGuid():N}.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
             await using var anchor = new CoveContext(options);
-            await anchor.Database.OpenConnectionAsync();
-            await anchor.Database.EnsureCreatedAsync();
+            await anchor.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await anchor.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var staged = new BulkDeletionExecutionContext();
             staged.StagePhysicalFiles(anchor, [path]);
-            await anchor.SaveChangesAsync();
+            await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             await using var firstDb = new CoveContext(options);
             await using var secondDb = new CoveContext(options);
@@ -87,18 +87,18 @@ public sealed class DeletionSafetyTests
                 .ProcessPendingAsync(staged.PhysicalDeletionBatchId, 2, CancellationToken.None);
             var second = new PhysicalFileDeletionService(secondDb, coordinator)
                 .ProcessPendingAsync(batchId: null, 2, CancellationToken.None);
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(first.IsCompleted);
             Assert.False(second.IsCompleted);
             blocker.Dispose();
 
-            var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
+            var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Equal(1, results.Sum(result => result.Deleted));
             Assert.Equal(0, results.Sum(result => result.Failed));
             Assert.False(File.Exists(path));
             anchor.ChangeTracker.Clear();
-            Assert.Empty(await anchor.PendingPhysicalFileDeletions.ToArrayAsync());
+            Assert.Empty(await anchor.PendingPhysicalFileDeletions.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -114,21 +114,21 @@ public sealed class DeletionSafetyTests
             .UseSqlite($"Data Source={databaseName};Mode=Memory;Cache=Shared")
             .Options;
         var path = Path.Combine(Path.GetTempPath(), $"cove-reference-race-{Guid.NewGuid():N}.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         var coordinator = new PhysicalFileAccessCoordinator();
         try
         {
             await using var anchor = new CoveContext(options);
-            await anchor.Database.OpenConnectionAsync();
-            await anchor.Database.EnsureCreatedAsync();
+            await anchor.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await anchor.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var deletionContext = new BulkDeletionExecutionContext();
             deletionContext.StagePhysicalFiles(anchor, [path]);
-            await anchor.SaveChangesAsync();
+            await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var reader = await coordinator.AcquireReadAsync(CancellationToken.None);
             var service = new PhysicalFileDeletionService(anchor, coordinator);
             var deletionTask = service.ProcessPendingAsync(deletionContext.PhysicalDeletionBatchId, 1, CancellationToken.None);
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(deletionTask.IsCompleted);
 
             await using (var producerDb = new CoveContext(options))
@@ -142,15 +142,15 @@ public sealed class DeletionSafetyTests
                     Size = 3,
                     ModTime = DateTime.UtcNow,
                 });
-                await producerDb.SaveChangesAsync();
+                await producerDb.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
             reader.Dispose();
 
-            var result = await deletionTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var result = await deletionTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
             Assert.Equal(0, result.Deleted);
             Assert.Equal(0, result.Failed);
             Assert.True(File.Exists(path));
-            Assert.Empty(await anchor.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Empty(await anchor.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -162,22 +162,22 @@ public sealed class DeletionSafetyTests
     public async Task DurableOutboxPreservesAReplacementAtTheSamePath()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-replacement-{Guid.NewGuid():N}.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
             await using var db = CreateContext();
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-            await File.WriteAllBytesAsync(path, [9, 8, 7, 6]);
+            await File.WriteAllBytesAsync(path, [9, 8, 7, 6], TestContext.Current.CancellationToken);
             var service = new PhysicalFileDeletionService(db, new PhysicalFileAccessCoordinator());
             var result = await service.ProcessPendingAsync(context.PhysicalDeletionBatchId, 2, CancellationToken.None);
 
             Assert.Equal(0, result.Deleted);
             Assert.Equal(0, result.Failed);
-            Assert.Equal([9, 8, 7, 6], await File.ReadAllBytesAsync(path));
-            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Equal([9, 8, 7, 6], await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -194,16 +194,16 @@ public sealed class DeletionSafetyTests
             await using var db = CreateContext();
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-            await File.WriteAllBytesAsync(path, [4, 5, 6]);
+            await File.WriteAllBytesAsync(path, [4, 5, 6], TestContext.Current.CancellationToken);
             var service = new PhysicalFileDeletionService(db, new PhysicalFileAccessCoordinator());
             var result = await service.ProcessPendingAsync(context.PhysicalDeletionBatchId, 2, CancellationToken.None);
 
             Assert.Equal(0, result.Deleted);
             Assert.Equal(0, result.Failed);
-            Assert.Equal([4, 5, 6], await File.ReadAllBytesAsync(path));
-            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Equal([4, 5, 6], await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+            Assert.Empty(await db.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -215,7 +215,7 @@ public sealed class DeletionSafetyTests
     public async Task SingleImageDeletionDoesNotWaitForAnActiveProducerLease()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-single-delete-{Guid.NewGuid():N}.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         var coordinator = new PhysicalFileAccessCoordinator();
         using var activeProducer = await coordinator.AcquireReadAsync(CancellationToken.None);
         try
@@ -237,7 +237,7 @@ public sealed class DeletionSafetyTests
                 ],
             };
             db.Images.Add(image);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             var signal = new PhysicalFileDeletionRecoverySignal();
             var deletion = new ImageDeletionService(
                 db,
@@ -245,15 +245,15 @@ public sealed class DeletionSafetyTests
                 new RecordingThumbnailService(),
                 physicalFileDeletionRecoverySignal: signal);
 
-            Assert.True(await deletion.DeleteAsync(image.Id, deleteFile: true, deleteGenerated: false)
-                .WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.True(await deletion.DeleteAsync(image.Id, deleteFile: true, deleteGenerated: false, ct: TestContext.Current.CancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.True(File.Exists(path));
-            Assert.Single(await db.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Single(await db.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
 
             activeProducer.Dispose();
             var physicalResult = await new PhysicalFileDeletionService(db, coordinator)
                 .ProcessPendingAsync(batchId: null, maxParallelism: 1, CancellationToken.None)
-                .WaitAsync(TimeSpan.FromSeconds(2));
+                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
             Assert.Equal(1, physicalResult.Deleted);
             Assert.False(File.Exists(path));
         }
@@ -279,7 +279,7 @@ public sealed class DeletionSafetyTests
         var tag = new Tag { Name = "Disposable metadata tag" };
         var group = new Group { Name = "Segment container" };
         db.AddRange(performer, tag, group);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var segment = new Segment
         {
             HostType = SegmentHostType.Video,
@@ -291,7 +291,7 @@ public sealed class DeletionSafetyTests
             ImageBlobId = "segment-blob",
         };
         db.Segments.Add(segment);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.AddRange(
             new GroupItem { GroupId = group.Id, HostType = "segment", HostId = segment.Id, Kind = GroupItemKind.Segment },
             new TagApplication { HostType = AffinityHostType.Video, HostId = 777, ContextType = "performer", ContextId = performer.Id, TagId = tag.Id, SourceKey = "test" },
@@ -316,22 +316,22 @@ public sealed class DeletionSafetyTests
                 RefId = performer.Id,
                 SourceKey = "test",
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var cleanup = await new EntityHostDependencyService(db)
             .StageDeleteAsync(AffinityHostType.Performer, performer.Id, CancellationToken.None);
         db.Performers.Remove(performer);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["segment-blob"], cleanup.BlobIds);
         Assert.Equal([777], cleanup.SegmentVideoIds);
-        Assert.False(await db.Segments.AnyAsync(item => item.Id == segment.Id));
-        Assert.False(await db.GroupItems.AnyAsync(item => item.HostType == "segment" && item.HostId == segment.Id));
-        Assert.False(await db.TagApplications.AnyAsync(item => item.ContextType == "performer" && item.ContextId == performer.Id));
-        Assert.False(await db.TagApplications.AnyAsync(item => item.HostType == AffinityHostType.Segment && item.HostId == segment.Id));
-        Assert.False(await db.FieldProvenance.AnyAsync(item => item.HostType == AffinityHostType.Segment && item.HostId == segment.Id));
-        Assert.False(await db.Embeddings.AnyAsync(item => item.HostType == EmbeddingHostType.Segment && item.HostId == segment.Id));
-        Assert.False(await db.Detections.AnyAsync(item => item.RefKind == "Performer" && item.RefId == performer.Id));
+        Assert.False(await db.Segments.AnyAsync(item => item.Id == segment.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.GroupItems.AnyAsync(item => item.HostType == "segment" && item.HostId == segment.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.TagApplications.AnyAsync(item => item.ContextType == "performer" && item.ContextId == performer.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.TagApplications.AnyAsync(item => item.HostType == AffinityHostType.Segment && item.HostId == segment.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.FieldProvenance.AnyAsync(item => item.HostType == AffinityHostType.Segment && item.HostId == segment.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.Embeddings.AnyAsync(item => item.HostType == EmbeddingHostType.Segment && item.HostId == segment.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(await db.Detections.AnyAsync(item => item.RefKind == "Performer" && item.RefId == performer.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext(principalAccessor);
         var video = new Video { Title = "Authorized deletion target" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.AddRange(
             new Embedding
             {
@@ -360,7 +360,7 @@ public sealed class DeletionSafetyTests
                 TargetType = AiRunTargetType.Video,
                 TargetId = video.Id,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         principalAccessor.Set(new CovePrincipal
         {
             UserId = 7,
@@ -372,10 +372,10 @@ public sealed class DeletionSafetyTests
 
         await new EntityHostDependencyService(db)
             .StageDeleteAsync(AffinityHostType.Video, video.Id, CancellationToken.None);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Empty(await db.Embeddings.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.AiRuns.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await db.Embeddings.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.AiRuns.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -402,7 +402,7 @@ public sealed class DeletionSafetyTests
             definition,
             new User { Id = 17, Username = "user-17", PasswordHash = "test" },
             new User { Id = 18, Username = "user-18", PasswordHash = "test" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.AddRange(
             new GroupItem { GroupId = group.Id, HostType = "video", HostId = child.Id, Kind = GroupItemKind.Video },
             new TagApplication { HostType = AffinityHostType.Video, HostId = child.Id, TagId = tag.Id, SourceKey = "test" },
@@ -427,7 +427,7 @@ public sealed class DeletionSafetyTests
             },
             new UserEntityAffinity { UserId = 17, HostType = AffinityHostType.Video, HostId = child.Id },
             new UserBookmark { UserId = 18, HostType = AffinityHostType.Video, HostId = grandchild.Id, CreatedAt = DateTime.UtcNow });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var eventBus = new EventBus();
         var deletedEventIds = new List<int>();
@@ -455,15 +455,15 @@ public sealed class DeletionSafetyTests
             deleteGenerated: false,
             CancellationToken.None));
 
-        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.GroupItems.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.TagApplications.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.Segments.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.Embeddings.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.AiRuns.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.CustomFieldValues.ToListAsync());
-        Assert.Empty(await db.UserEntityAffinities.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.UserBookmarks.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.GroupItems.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.TagApplications.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.Segments.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.Embeddings.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.AiRuns.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.CustomFieldValues.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.UserBookmarks.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(
             new[] { root.Id, child.Id, grandchild.Id }.Order(),
             deletedEventIds.Order());
@@ -478,7 +478,7 @@ public sealed class DeletionSafetyTests
         var child = new Video { Title = "Child", ParentVideo = root, Files = [new VideoFile { ParentFolder = folder, Basename = "child.mp4" }] };
         var unrelated = new Video { Title = "Unrelated", Files = [new VideoFile { ParentFolder = folder, Basename = "unrelated.mp4" }] };
         db.AddRange(root, child, unrelated);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(root.PrimaryFileId);
         Assert.NotNull(child.PrimaryFileId);
         db.ChangeTracker.Clear();
@@ -502,16 +502,16 @@ public sealed class DeletionSafetyTests
             deleteGenerated: false,
             CancellationToken.None));
 
-        var remaining = Assert.Single(await db.Videos.IgnoreQueryFilters().ToListAsync());
+        var remaining = Assert.Single(await db.Videos.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(unrelated.Id, remaining.Id);
-        Assert.Equal(["unrelated.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync());
+        Assert.Equal(["unrelated.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task VideoDeletionCompletesPostCommitWorkAfterAnAmbiguousCommit()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
         var services = new ServiceCollection();
         services.AddLogging();
@@ -527,10 +527,10 @@ public sealed class DeletionSafetyTests
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var video = new Video { Title = "Video with artwork", ImageBlobId = "video-artwork" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
         var customFields = new CustomFieldService(db);
@@ -559,11 +559,11 @@ public sealed class DeletionSafetyTests
             deleteGenerated: false,
             CancellationToken.None));
 
-        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync());
+        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Contains("video-artwork", blobs.DeletedBlobIds);
         Assert.Equal([video.Id], deletedEventIds);
         Assert.Equal(1, commitAmbiguity.FailuresRaised);
-        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync());
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -572,7 +572,7 @@ public sealed class DeletionSafetyTests
         var databaseName = $"video-delete-rollback-{Guid.NewGuid():N}";
         var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
         await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync();
+        await anchor.OpenAsync(TestContext.Current.CancellationToken);
         var preCommitFailure = new PreCommitFailureInterceptor();
         var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite(connectionString)
@@ -583,11 +583,11 @@ public sealed class DeletionSafetyTests
             .UseSqlite(connectionString)
             .Options;
         await using var db = new CoveContext(retryingOptions);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var root = new Video { Title = "Deletion attempt that rolls back" };
         var child = new Video { Title = "Reparented during retry", ParentVideo = root };
         db.AddRange(root, child);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         preCommitFailure.Arm(async () =>
         {
             await using var concurrentDb = new CoveContext(ordinaryOptions);
@@ -624,11 +624,11 @@ public sealed class DeletionSafetyTests
             CancellationToken.None));
 
         db.ChangeTracker.Clear();
-        Assert.False(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == root.Id));
-        Assert.True(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == child.Id));
+        Assert.False(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == root.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == child.Id, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Empty(thumbnails.DeletedVideoIds);
         Assert.Empty(deletedEventIds);
-        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync());
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -640,7 +640,7 @@ public sealed class DeletionSafetyTests
         var grandchild = new Video { Title = "Selected grandchild", ParentVideo = child };
         var independent = new Video { Title = "Independent selection" };
         db.AddRange(root, child, grandchild, independent);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var collapsed = await BulkDeletionJobService.CollapseSelectedVideoDescendantsAsync(
             db,
@@ -671,7 +671,7 @@ public sealed class DeletionSafetyTests
             ],
         };
         db.AddRange(gallery, new Performer { Name = "Shared blob owner", ImageBlobId = "shared-blob" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
         var customFields = new CustomFieldService(db);
@@ -694,8 +694,8 @@ public sealed class DeletionSafetyTests
             CancellationToken.None);
 
         Assert.True(deleted);
-        Assert.False(await db.Galleries.AnyAsync(item => item.Id == gallery.Id));
-        Assert.Empty(await db.GalleryFiles.ToListAsync());
+        Assert.False(await db.Galleries.AnyAsync(item => item.Id == gallery.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.GalleryFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(["gallery-only-blob"], blobs.DeletedBlobIds);
         Assert.Equal(["gallery-only-blob"], thumbnails.DeletedBlobIds);
     }
@@ -706,7 +706,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext();
         var tag = new Tag { Name = "Timeline tag" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.Segments.Add(new Segment
         {
             HostType = SegmentHostType.Video,
@@ -715,7 +715,7 @@ public sealed class DeletionSafetyTests
             TagId = tag.Id,
             SourceKey = "test",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var invalidator = new RecordingSegmentInvalidator();
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -746,7 +746,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext();
         var tag = new Tag { Name = "Extension-referenced tag" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -829,7 +829,7 @@ public sealed class DeletionSafetyTests
                 && extension.GetProperty("Name").GetString() == "Segment Studio");
         Assert.Equal(2, responseRoot.GetProperty("Extensions").GetArrayLength());
         Assert.DoesNotContain("extension_items", response, StringComparison.Ordinal);
-        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -878,7 +878,7 @@ public sealed class DeletionSafetyTests
         var lost = CreateRaceTarget(kind, "lost", folder);
         var next = CreateRaceTarget(kind, "next", folder);
         db.AddRange(lost, next);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         var (service, blobs) = CreateDeletionService(db);
         var context = new BulkDeletionExecutionContext();
@@ -910,7 +910,7 @@ public sealed class DeletionSafetyTests
             ? ["/race/next"]
             : [];
         Assert.Equal(expectedFiles, context.GetPhysicalFiles());
-        Assert.Equal(expectedFiles, await db.PendingPhysicalFileDeletions.Select(item => item.Path).ToArrayAsync());
+        Assert.Equal(expectedFiles, await db.PendingPhysicalFileDeletions.Select(item => item.Path).ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static BaseEntity CreateRaceTarget(BulkDeletionEntityKind kind, string name, Folder folder) => kind switch
@@ -976,9 +976,9 @@ public sealed class DeletionSafetyTests
         performer.PerformerTags.Add(new PerformerTag { Tag = tag });
         var next = new Performer { Name = "Next" };
         db.AddRange(performer, next);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         // A stale count guarantees the follow-up save writes the tag row.
-        await db.Database.ExecuteSqlAsync($"UPDATE tags SET \"PerformerCount\" = 5 WHERE \"Id\" = {tag.Id}");
+        await db.Database.ExecuteSqlAsync($"UPDATE tags SET \"PerformerCount\" = 5 WHERE \"Id\" = {tag.Id}", cancellationToken: TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         var eventBus = new EventBus();
         var deletedEventIds = new List<int>();
@@ -1009,7 +1009,7 @@ public sealed class DeletionSafetyTests
             deleteGenerated: true,
             CancellationToken.None));
 
-        Assert.False(await db.Performers.AsNoTracking().AnyAsync());
+        Assert.False(await db.Performers.AsNoTracking().AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal([performer.Id, next.Id], deletedEventIds);
         Assert.Equal(["followup-artwork"], blobs.DeletedBlobIds);
     }
@@ -1030,10 +1030,10 @@ public sealed class DeletionSafetyTests
         var target = CreateRaceTarget(kind, "target", new Folder { Path = "/race", ModTime = DateTime.UtcNow });
         var applied = new Tag { Name = "Applied" };
         db.AddRange(target, applied);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var application = new TagApplication { HostType = Enum.Parse<AffinityHostType>(kind.ToString()), HostId = target.Id, TagId = applied.Id };
         db.TagApplications.Add(application);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         var eventBus = new EventBus();
         var deletedEvents = new List<EntityEvent>();
@@ -1056,7 +1056,7 @@ public sealed class DeletionSafetyTests
             CancellationToken.None));
 
         Assert.False(await RaceTargetExistsAsync(db, kind, target.Id));
-        Assert.Empty(await db.TagApplications.ToArrayAsync());
+        Assert.Empty(await db.TagApplications.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
         // The retried deletion publishes its event once.
         Assert.Equal([target.Id], deletedEvents.Select(evt => evt.EntityId));
         Assert.Equal(kind == BulkDeletionEntityKind.Image ? [] : ["target-artwork"], blobs.DeletedBlobIds);
@@ -1065,7 +1065,7 @@ public sealed class DeletionSafetyTests
             ? ["/race/target"]
             : [];
         Assert.Equal(expectedFiles, context.GetPhysicalFiles());
-        Assert.Equal(expectedFiles, await db.PendingPhysicalFileDeletions.Select(item => item.Path).ToArrayAsync());
+        Assert.Equal(expectedFiles, await db.PendingPhysicalFileDeletions.Select(item => item.Path).ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -1078,8 +1078,8 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
         var target = CreateRaceTarget(kind, "target", new Folder { Path = "/race", ModTime = DateTime.UtcNow });
         db.Add(target);
-        await db.SaveChangesAsync();
-        var fileId = await db.Set<BaseFileEntity>().Select(file => file.Id).SingleAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fileId = await db.Set<BaseFileEntity>().Select(file => file.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         var (service, _) = CreateDeletionService(db);
         var context = new BulkDeletionExecutionContext();
@@ -1097,7 +1097,7 @@ public sealed class DeletionSafetyTests
         Assert.False(await RaceTargetExistsAsync(db, kind, target.Id));
         // The retry no longer sees the removed file row, so it leaves that path to whatever removed the row.
         Assert.Empty(context.GetPhysicalFiles());
-        Assert.Empty(await db.PendingPhysicalFileDeletions.ToArrayAsync());
+        Assert.Empty(await db.PendingPhysicalFileDeletions.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1109,11 +1109,11 @@ public sealed class DeletionSafetyTests
         var studio = new Studio { Name = "Survivor" };
         var next = new Studio { Name = "Next" };
         db.AddRange(tag, studio, next);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var first = new TagApplication { HostType = AffinityHostType.Studio, HostId = studio.Id, TagId = tag.Id, SourceKey = "first" };
         var second = new TagApplication { HostType = AffinityHostType.Studio, HostId = studio.Id, TagId = tag.Id, SourceKey = "second" };
         db.TagApplications.AddRange(first, second);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
         var (service, _) = CreateDeletionService(db);
         // A staged dependency disappears before the first attempt and another before the retry.
@@ -1129,7 +1129,7 @@ public sealed class DeletionSafetyTests
             CancellationToken.None,
             publishEvent: false));
         // Both queued removals ran, so the second conflict came from the one retry.
-        Assert.Empty(await db.TagApplications.AsNoTracking().ToArrayAsync());
+        Assert.Empty(await db.TagApplications.AsNoTracking().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
         // The rejected delete must not be replayed by the next deletion through this context.
         Assert.True(await service.DeleteAsync(
             BulkDeletionEntityKind.Studio,
@@ -1140,7 +1140,7 @@ public sealed class DeletionSafetyTests
             CancellationToken.None,
             publishEvent: false));
 
-        Assert.Equal([studio.Id], await db.Studios.AsNoTracking().Select(item => item.Id).ToArrayAsync());
+        Assert.Equal([studio.Id], await db.Studios.AsNoTracking().Select(item => item.Id).ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static (BulkEntityDeletionService Service, ReferenceAwareBlobService Blobs) CreateDeletionService(
@@ -1169,7 +1169,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext(saveChangesInterceptor: saveFailure);
         var tag = new Tag { Name = "Late extension reference" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -1196,7 +1196,7 @@ public sealed class DeletionSafetyTests
         Assert.Contains("TAG_DELETE_EXTENSION_REFERENCES", response, StringComparison.Ordinal);
         Assert.DoesNotContain(PostgresSaveFailureInterceptor.SensitiveDetail, response, StringComparison.Ordinal);
         db.ChangeTracker.Clear();
-        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1206,7 +1206,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext(saveChangesInterceptor: saveFailure);
         var tag = new Tag { Name = "Unrelated database failure" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -1230,7 +1230,7 @@ public sealed class DeletionSafetyTests
 
         Assert.IsType<PostgresException>(exception.InnerException);
         db.ChangeTracker.Clear();
-        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1239,7 +1239,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext();
         var tag = new Tag { Name = "Cascade-referenced tag" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -1269,7 +1269,7 @@ public sealed class DeletionSafetyTests
             deleteFiles: false,
             deleteGenerated: true,
             CancellationToken.None));
-        Assert.False(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+        Assert.False(await db.Tags.AnyAsync(item => item.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1316,7 +1316,7 @@ public sealed class DeletionSafetyTests
         await using var db = CreateContext();
         var tag = new Tag { Name = "Uninspectable extension reference" };
         db.Tags.Add(tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -1355,7 +1355,7 @@ public sealed class DeletionSafetyTests
         Assert.True(exception.HasUninspectableReferences);
         Assert.Contains("Restore access", exception.Message, StringComparison.Ordinal);
         Assert.Contains("• Private Data", exception.Message, StringComparison.Ordinal);
-        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id));
+        Assert.True(await db.Tags.AnyAsync(item => item.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static CoveContext CreateContext(

@@ -1,5 +1,6 @@
 using Cove.Api.Services;
 using Microsoft.Extensions.Logging;
+using System.Runtime.Versioning;
 
 namespace Cove.Tests;
 
@@ -85,6 +86,7 @@ public class FfmpegHwAccelProbeTests
 
     /// <summary>A shell script standing in for ffmpeg: lists h264_nvenc and h264_vaapi, and fails every
     /// test encode, writing <c>nvencStderr</c> for NVENC and a missing-device error for VAAPI.</summary>
+    [UnsupportedOSPlatform("windows")]
     private sealed class FakeFfmpeg : IDisposable
     {
         private readonly string _directory;

@@ -400,26 +400,26 @@ public class DownloaderServiceTests
                 progress: null,
                 CancellationToken.None);
 
-            var path = await movedPath.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var path = await movedPath.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             using var deletionScope = services.CreateScope();
             var deletionDb = deletionScope.ServiceProvider.GetRequiredService<CoveContext>();
             var deletionContext = new BulkDeletionExecutionContext();
             deletionContext.StagePhysicalFiles(deletionDb, [path]);
-            await deletionDb.SaveChangesAsync();
+            await deletionDb.SaveChangesAsync(TestContext.Current.CancellationToken);
             var deletionTask = new PhysicalFileDeletionService(deletionDb, coordinator)
                 .ProcessPendingAsync(deletionContext.PhysicalDeletionBatchId, 1, CancellationToken.None);
 
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(deletionTask.IsCompleted);
             allowReferenceCommit.TrySetResult();
 
-            var (_, importedEntityId) = await ingestTask.WaitAsync(TimeSpan.FromSeconds(5));
-            var deletion = await deletionTask.WaitAsync(TimeSpan.FromSeconds(5));
+            var (_, importedEntityId) = await ingestTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var deletion = await deletionTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.NotNull(importedEntityId);
             Assert.Equal(0, deletion.Deleted);
             Assert.Equal(0, deletion.Failed);
             Assert.True(File.Exists(path));
-            Assert.Empty(await deletionDb.PendingPhysicalFileDeletions.ToListAsync());
+            Assert.Empty(await deletionDb.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
