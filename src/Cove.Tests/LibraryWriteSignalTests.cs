@@ -9,6 +9,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -30,10 +31,12 @@ public sealed class LibraryWriteSignalTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SignalsOnlyWhenASaveWritesSomething()
     {
         var signal = new LibraryWriteSignal();
-        await using var context = CreateContext(signal);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = CreateContext(database, signal);
         var token = signal.GetChangeToken();
 
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -48,10 +51,12 @@ public sealed class LibraryWriteSignalTests
     // response was cached for a second keyed only on the query, so the refresh was served the page from
     // before the save and the saved video stayed listed.
     [Fact]
+    [RequiresPostgres]
     public async Task FindPost_ReflectsAWriteMadeInsideTheCacheWindow()
     {
         var signal = new LibraryWriteSignal();
-        await using var context = CreateContext(signal);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = CreateContext(database, signal);
         var saved = new Video { Title = "Saved by the tagger" };
         context.Videos.AddRange(saved, new Video { Title = "Still unsaved" });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -76,12 +81,9 @@ public sealed class LibraryWriteSignalTests
         return page.TotalCount;
     }
 
-    private static CoveContext CreateContext(LibraryWriteSignal signal)
+    private static CoveContext CreateContext(CovePostgresDatabase database, LibraryWriteSignal signal)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"library-write-signal-{Guid.NewGuid():N}")
-            .AddInterceptors(new LibraryWriteSignalInterceptor(signal))
-            .Options;
+        var options = database.CreateOptions(builder => builder.AddInterceptors(new LibraryWriteSignalInterceptor(signal)));
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(new CovePrincipal
         {

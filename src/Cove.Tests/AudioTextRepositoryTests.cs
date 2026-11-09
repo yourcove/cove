@@ -2,6 +2,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -10,11 +11,9 @@ namespace Cove.Tests;
 /// Behavior the sort/filter harness does not cover for the audio and text repositories: id projection
 /// order, count-only paging, selection totals, and that text documents now honor a filter expression.
 /// </summary>
+[RequiresPostgres]
 public class AudioTextRepositoryTests
 {
-    private static CoveContext NewContext()
-        => new(new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase($"audio-text-repo-{Guid.NewGuid():N}").Options);
-
     private static async Task SeedAsync(CoveContext context)
     {
         var day = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -32,7 +31,8 @@ public class AudioTextRepositoryTests
     [Fact]
     public async Task FindIdsAsync_FollowsFindOrderAndLimit()
     {
-        await using var context = NewContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedAsync(context);
         var byTitle = new FindFilter { Sort = "title", Direction = Cove.Core.Enums.SortDirection.Asc };
 
@@ -51,7 +51,8 @@ public class AudioTextRepositoryTests
     [Fact]
     public async Task FindAsync_PerPageAtOrBelowZero_CountsWithoutLoading()
     {
-        await using var context = NewContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedAsync(context);
 
         var (audios, audioTotal) = await new AudioRepository(context).FindAsync(null, new FindFilter { PerPage = 0 }, TestContext.Current.CancellationToken);
@@ -66,7 +67,8 @@ public class AudioTextRepositoryTests
     [Fact]
     public async Task AggregateAsync_WithIds_TotalsTheSelectionOnly()
     {
-        await using var context = NewContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedAsync(context);
 
         var audioRepository = new AudioRepository(context);
@@ -81,7 +83,8 @@ public class AudioTextRepositoryTests
     [Fact]
     public async Task TextDocuments_HonorFilterExpression()
     {
-        await using var context = NewContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedAsync(context);
         var allButAlto = new FilterExpression<TextDocumentFilter>
         {

@@ -4,6 +4,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Data;
+using Cove.Tests.Postgres;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,12 +15,14 @@ namespace Cove.Tests;
 /// Audio bulk updates merge custom field values the same way video bulk updates do, so a caller can
 /// record one key on one audio without reading and resending the rest of that audio's fields.
 /// </summary>
+[RequiresPostgres]
 public class AudioBulkCustomFieldTests
 {
     [Fact]
     public async Task BulkUpdate_AddsAndRemovesOneKeyWithoutTouchingOtherKeysOrAudios()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var customFields = new CustomFieldService(context);
         await customFields.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
@@ -77,7 +80,8 @@ public class AudioBulkCustomFieldTests
     [Fact]
     public async Task BulkUpdate_RejectsAnUnknownCustomFieldKeyWithoutApplyingTheRestOfTheRequest()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var customFields = new CustomFieldService(context);
         var audio = new Audio { Title = "unchanged", Organized = false };
         context.Audios.Add(audio);
@@ -101,13 +105,5 @@ public class AudioBulkCustomFieldTests
         return values.TryGetValue("confirmed_absent_occurrence_tags", out var value) && value is IEnumerable<object> items
             ? [.. items.Select(item => item?.ToString() ?? string.Empty)]
             : [];
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"audio-bulk-custom-fields-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 }

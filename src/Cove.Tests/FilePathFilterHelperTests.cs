@@ -3,22 +3,27 @@ using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class FilePathFilterHelperTests
 {
     [Fact]
     public async Task ApplyFilePath_UnderPath_WorksForAudioAndTextCollections()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
+        // Folder paths are unique, so the audio and the text under the prefix-only folder share it.
+        var prefixOnly = CreateFolder(@"C:\library\matching-other");
         context.Audios.AddRange(
-            CreateAudio("audio-match", @"C:\library\matching\nested", "track.mp3"),
-            CreateAudio("audio-prefix", @"C:\library\matching-other", "track.mp3"));
+            CreateAudio("audio-match", CreateFolder(@"C:\library\matching\nested"), "track.mp3"),
+            CreateAudio("audio-prefix", prefixOnly, "track.mp3"));
         context.TextDocuments.AddRange(
-            CreateText("text-match", @"C:\library\matching", "document.txt"),
-            CreateText("text-prefix", @"C:\library\matching-other", "document.txt"));
+            CreateText("text-match", CreateFolder(@"C:\library\matching"), "document.txt"),
+            CreateText("text-prefix", prefixOnly, "document.txt"));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var criterion = new StringCriterion { Value = @"C:\library\matching\", Modifier = CriterionModifier.UnderPath };
@@ -32,10 +37,11 @@ public class FilePathFilterHelperTests
     [Fact]
     public async Task ApplyFilePath_UnderPath_UsesPlatformPathCaseSemantics()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Audios.AddRange(
-            CreateAudio("exact-case", "/library/Media", "track.mp3"),
-            CreateAudio("different-case", "/library/media", "track.mp3"));
+            CreateAudio("exact-case", CreateFolder("/library/Media"), "track.mp3"),
+            CreateAudio("different-case", CreateFolder("/library/media"), "track.mp3"));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var criterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath };
@@ -47,37 +53,31 @@ public class FilePathFilterHelperTests
         Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? ["different-case", "exact-case"] : ["exact-case"], titles);
     }
 
-    private static Audio CreateAudio(string title, string folderPath, string basename)
+    private static Folder CreateFolder(string path) => new() { Path = path, ModTime = DateTime.UtcNow };
+
+    private static Audio CreateAudio(string title, Folder folder, string basename)
     {
         var audio = new Audio { Title = title };
         audio.Files.Add(new AudioFile
         {
             Basename = basename,
-            ParentFolder = new Folder { Path = folderPath, ModTime = DateTime.UtcNow },
+            ParentFolder = folder,
             Size = 1024,
             ModTime = DateTime.UtcNow,
         });
         return audio;
     }
 
-    private static TextDocument CreateText(string title, string folderPath, string basename)
+    private static TextDocument CreateText(string title, Folder folder, string basename)
     {
         var text = new TextDocument { Title = title };
         text.Files.Add(new TextFile
         {
             Basename = basename,
-            ParentFolder = new Folder { Path = folderPath, ModTime = DateTime.UtcNow },
+            ParentFolder = folder,
             Size = 1024,
             ModTime = DateTime.UtcNow,
         });
         return text;
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"file-path-helper-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 }

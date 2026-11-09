@@ -1,11 +1,12 @@
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Data;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ScanCanonicalFolderIndexTests
 {
     [Fact]
@@ -13,7 +14,8 @@ public sealed class ScanCanonicalFolderIndexTests
     {
         var root = ScanPath.NormalizeStoredFolderPath(Path.Combine(Path.GetTempPath(), $"canonical-index-{Guid.NewGuid():N}"));
         var target = root + "/target";
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var dotted = new Folder { Id = 5, Path = target + "/." };
         var trailing = new Folder { Id = 9, Path = target + "/" };
         var unrelated = new Folder { Id = 3, Path = root + "/other" };
@@ -31,7 +33,8 @@ public sealed class ScanCanonicalFolderIndexTests
     public async Task FindAsync_ConfirmsCandidatesAgainstCurrentStoredPath()
     {
         var root = ScanPath.NormalizeStoredFolderPath(Path.Combine(Path.GetTempPath(), $"canonical-index-{Guid.NewGuid():N}"));
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var folder = new Folder { Id = 1, Path = root + "/before/." };
         db.Folders.Add(folder);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -43,13 +46,5 @@ public sealed class ScanCanonicalFolderIndexTests
         folder.Path = root + "/after";
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         Assert.Empty(await index.FindAsync(db, [root + "/before"], TestContext.Current.CancellationToken));
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"scan-canonical-folder-index-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 }

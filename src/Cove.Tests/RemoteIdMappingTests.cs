@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Cove.Core.Entities;
 using Cove.Data;
+using Pgvector.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
@@ -21,22 +22,10 @@ public class RemoteIdMappingTests
     private static IEntityType GetEntityType(CoveContext context, Type entityType)
         => Assert.IsAssignableFrom<IEntityType>(context.Model.FindEntityType(entityType));
 
+    // Builds production's PostgreSQL model without opening a connection, so this needs no server.
     private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"remote-id-mapping-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
-    }
+        => new(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=unused", options => options.UseVector())
+            .Options);
 }
 

@@ -1,15 +1,17 @@
 using Cove.Api.Services;
 using Cove.Data;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
 public class ScanStorageTests
 {
     [Fact]
-    public void RecordsPreserveFirstValueAndManagedOrdering()
+    [RequiresPostgres]
+    public async Task RecordsPreserveFirstValueAndManagedOrdering()
     {
-        using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         using var records = new ScanDiskCollection<Record>(
             db,
             item => item.Key,
@@ -40,9 +42,11 @@ public class ScanStorageTests
     }
 
     [Fact]
-    public void CaptionIndexPreservesPrefixCaseRulesAndCachesEachDirectoryUntilDisposed()
+    [RequiresPostgres]
+    public async Task CaptionIndexPreservesPrefixCaseRulesAndCachesEachDirectoryUntilDisposed()
     {
-        using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var directory = Path.Combine(Path.GetTempPath(), $"scan-caption-{Guid.NewGuid():N}");
         var media = Path.Combine(directory, "media");
         Directory.CreateDirectory(media);
@@ -65,14 +69,6 @@ public class ScanStorageTests
                 Assert.Throws<OperationCanceledException>(() => index.Find(Path.Combine(media, "café.mp4")));
         }
         finally { Directory.Delete(directory, true); }
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"scan-storage-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 
     private sealed record Record(string Key, int Value);

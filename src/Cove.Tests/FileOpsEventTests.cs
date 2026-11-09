@@ -3,16 +3,18 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Data;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class FileOpsEventTests
 {
     [Fact]
     public async Task MoveFilesPublishesOnlyOwnersWhoseFilesMoved()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Directory.CreateTempSubdirectory("cove-file-events-");
         try
         {
@@ -20,10 +22,7 @@ public class FileOpsEventTests
             var destinationDirectory = Directory.CreateDirectory(Path.Combine(root.FullName, "destination"));
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory.FullName, "moved.mp4"), "test", TestContext.Current.CancellationToken);
 
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            await using var db = new CoveContext(options);
+            await using var db = database.CreateContext();
             var movedOwner = new Video { Title = "Moved owner" };
             var skippedOwner = new Video { Title = "Skipped owner" };
             var folder = new Folder { Path = sourceDirectory.FullName };

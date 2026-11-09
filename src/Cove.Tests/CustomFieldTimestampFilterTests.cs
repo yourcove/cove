@@ -2,6 +2,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -12,12 +13,14 @@ public class CustomFieldTimestampFilterTests
     private static readonly DateTime NowUtc = Now.UtcDateTime;
 
     [Theory]
+    [RequiresPostgres]
     [InlineData("-30s", new[] { 1 })]
     [InlineData("-1min", new[] { 1, 2 })]
     [InlineData("-1h30min", new[] { 1, 2, 3 })]
     public async Task RelativeTimestampFiltersResolveToTheSecond(string value, int[] expected)
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedTimestampsAsync(context,
             (1, NowUtc.AddSeconds(-20)),
             (2, NowUtc.AddSeconds(-40)),
@@ -31,9 +34,11 @@ public class CustomFieldTimestampFilterTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ReversedRelativeTimestampBoundsAreOrdered()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedTimestampsAsync(context,
             (1, NowUtc.AddSeconds(-5)),
             (2, NowUtc.AddSeconds(-45)),
@@ -45,9 +50,11 @@ public class CustomFieldTimestampFilterTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AbsoluteTimestampComparisonsUseWholeSeconds()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var second = new DateTime(2024, 2, 1, 8, 30, 15, DateTimeKind.Utc);
         await SeedTimestampsAsync(context,
             (1, second.AddMilliseconds(750)),
@@ -62,9 +69,11 @@ public class CustomFieldTimestampFilterTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TheLastSupportedSecondCanBeCompared()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedTimestampsAsync(context,
             (1, new DateTime(9999, 12, 31, 23, 59, 59, 500, DateTimeKind.Utc)),
             (2, new DateTime(9999, 12, 31, 23, 59, 58, DateTimeKind.Utc)));
@@ -75,9 +84,11 @@ public class CustomFieldTimestampFilterTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RelativeDateFiltersApplyToDateCustomFields()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var definition = Definition(CustomFieldTypes.Date);
         context.Videos.AddRange(new Video { Id = 1, Title = "1" }, new Video { Id = 2, Title = "2" }, new Video { Id = 3, Title = "3" });
         context.CustomFieldValues.AddRange(
@@ -93,9 +104,11 @@ public class CustomFieldTimestampFilterTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TimestampCustomFieldsSortChronologically()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         await SeedTimestampsAsync(context,
             (1, NowUtc.AddSeconds(2)),
             (2, NowUtc),
@@ -165,8 +178,4 @@ public class CustomFieldTimestampFilterTests
         assign(value);
         return value;
     }
-
-    private static CoveContext CreateContext() => new(new DbContextOptionsBuilder<CoveContext>()
-        .UseInMemoryDatabase($"custom-field-timestamp-{Guid.NewGuid():N}")
-        .Options);
 }

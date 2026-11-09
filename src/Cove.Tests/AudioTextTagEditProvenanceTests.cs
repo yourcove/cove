@@ -5,6 +5,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,7 @@ namespace Cove.Tests;
 /// in the edit form, or in a bulk edit, drops the scraper's record too, as it does for a video; otherwise the
 /// tag stays on the item as a locked, derived tag. Extension records stay.
 /// </summary>
+[RequiresPostgres]
 public class AudioTextTagEditProvenanceTests
 {
     [Theory]
@@ -25,9 +27,8 @@ public class AudioTextTagEditProvenanceTests
     public async Task RemovingAScrapedTagTakesItOffTheItem(AffinityHostType hostType, bool bulk)
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"audio-text-tag-edits-{Guid.NewGuid():N}")
-            .Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = database.CreateContext();
         var kept = new Tag { Name = "Kept" };
         var scraped = new Tag { Name = "Scraped" };
         var derived = new Tag { Name = "Added by an extension" };

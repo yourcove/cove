@@ -6,20 +6,21 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class FieldProvenanceControllerTests
 {
     [Fact]
     public async Task FacesController_GetById_IncludesFieldProvenance()
     {
-        var dbName = $"field-provenance-face-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var face = new Face { Label = "Candidate", PrimarySourceKey = "ext:test" };
         db.Faces.Add(face);
@@ -49,8 +50,8 @@ public class FieldProvenanceControllerTests
     [Fact]
     public async Task SegmentsController_GetById_IncludesFieldProvenance()
     {
-        var dbName = $"field-provenance-segment-{Guid.NewGuid():N}";
-        await using var db = CreateDbContext(dbName);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         var video = new Video { Title = "Video" };
         db.Videos.Add(video);
@@ -79,14 +80,5 @@ public class FieldProvenanceControllerTests
         var dto = Assert.IsType<SegmentRecordDto>(ok.Value);
 
         Assert.Contains(dto.FieldProvenance ?? [], item => item.FieldKey == "title" && item.SourceKey == "ext:test");
-    }
-
-    private static CoveContext CreateDbContext(string dbName)
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(dbName)
-            .Options;
-
-        return new CoveContext(options);
     }
 }
