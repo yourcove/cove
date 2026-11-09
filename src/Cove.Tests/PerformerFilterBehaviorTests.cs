@@ -3,11 +3,12 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class PerformerFilterBehaviorTests
 {
     [Theory]
@@ -617,35 +618,18 @@ public class PerformerFilterBehaviorTests
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new PerformerFilterTestContext(options);
-        await context.Database.EnsureCreatedAsync();
-        return new TestContextScope(context, connection);
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        return new TestContextScope(database.CreateContext(), database);
     }
 
-    private sealed class PerformerFilterTestContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
-    }
-
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 }

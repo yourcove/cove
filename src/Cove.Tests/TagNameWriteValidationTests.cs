@@ -1,34 +1,42 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class TagNameWriteValidationTests
 {
     [Fact]
     public async Task AsyncValidationRejectsCanonicalAndAliasConflictsBeyondSeveralReadPages()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.AddRange(Enumerable.Range(0, 600).Select(index => new Tag
         {
             Name = $"tag {index}", Aliases = [new TagAlias { Alias = $"alias {index}" }],
         }));
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
+        // The name constraint would refuse these tags too, but with a message that names no existing claim;
+        // these messages come only from the validation, so they show the validation found each conflict.
         db.Tags.Add(new Tag { Name = " TAG 599 " });
-        await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        var nameConflict = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("A tag with name \"tag 599\" already exists. Tag names and tag aliases must be unique.", nameConflict.Message);
         db.ChangeTracker.Clear();
         db.Tags.Add(new Tag { Name = " ALIAS 599 " });
-        await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        var aliasConflict = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("A tag alias with name \"alias 599\" already exists. Tag names and tag aliases must be unique.", aliasConflict.Message);
     }
 
     [Fact]
     public async Task SaveChanges_NormalizesNewClaimsAndRemovesBlankAliases()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var tag = new Tag
         {
             Name = "  Alpha  ",
@@ -52,7 +60,8 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task SaveChanges_UsesEmptySentinelAndRejectsTheSharedNamespace()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var empty = new Tag { Name = "   " };
         var aliasOwner = new Tag { Name = "Owner", Aliases = [new TagAlias { Alias = " Reserved " }] };
         db.Tags.AddRange(empty, aliasOwner);
@@ -72,7 +81,8 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task SaveChanges_IdentifiesCanonicalClaimWhenAddingAConflictingAlias()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.Add(new Tag { Name = "Facial" });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -92,7 +102,11 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task SaveChanges_AllowsMetadataEditsOnAHistoricalConflictWhenTheNameIsUnchanged()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        // The name constraints refuse a committed duplicate but allow one until the transaction commits, so the
+        // historical conflict is held in a transaction that is never committed.
+        await using var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         var first = new Tag { Name = " Historical " };
         var second = new Tag { Name = "historical" };
         db.Tags.AddRange(first, second);
@@ -111,7 +125,11 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task TagRepositoryUpdate_AllowsMetadataEditsOnAHistoricalConflictWhenTheNameIsUnchanged()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        // The name constraints refuse a committed duplicate but allow one until the transaction commits, so the
+        // historical conflict is held in a transaction that is never committed.
+        await using var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         var first = new Tag { Name = " Historical " };
         var second = new Tag { Name = "historical" };
         db.Tags.AddRange(first, second);
@@ -127,48 +145,44 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task SaveChanges_SerializesConcurrentTagNamespaceWritesAcrossContexts()
     {
-        var databasePath = Path.Combine(Path.GetTempPath(), $"cove-tag-namespace-{Guid.NewGuid():N}.db");
-        try
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using (var seed = database.CreateContext())
         {
-            await using (var seed = CreateContext(databasePath))
-            {
-                seed.Tags.AddRange(new Tag { Name = "First" }, new Tag { Name = "Second" });
-                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
-            }
-
-            var interceptor = new BlockingSaveInterceptor();
-            await using var first = CreateContext(databasePath, interceptor);
-            await using var second = CreateContext(databasePath, interceptor);
-            (await first.Tags.SingleAsync(tag => tag.Name == "First", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "Shared" });
-            (await second.Tags.SingleAsync(tag => tag.Name == "Second", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "shared" });
-
-            var firstSave = first.SaveChangesAsync(TestContext.Current.CancellationToken);
-            // Only a bound on a hang: the first save takes the process-wide tag namespace lock before it reaches
-            // the interceptor, and in a full parallel run other test classes saving tags can hold that lock for
-            // seconds. The assertion below, that the second save does not enter while the first holds it, does
-            // not depend on how long this takes.
-            await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
-            var secondSave = second.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-            var prematureSecondEntry = await Task.WhenAny(
-                interceptor.SecondEntered.Task,
-                Task.Delay(TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken));
-            Assert.NotSame(interceptor.SecondEntered.Task, prematureSecondEntry);
-
-            interceptor.ReleaseFirst.TrySetResult();
-            await firstSave;
-            await Assert.ThrowsAsync<TagNameConflictException>(() => secondSave);
+            seed.Tags.AddRange(new Tag { Name = "First" }, new Tag { Name = "Second" });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
-        finally
-        {
-            File.Delete(databasePath);
-        }
+
+        var interceptor = new BlockingSaveInterceptor();
+        await using var first = database.CreateContext(options => options.AddInterceptors(interceptor));
+        await using var second = database.CreateContext(options => options.AddInterceptors(interceptor));
+        (await first.Tags.SingleAsync(tag => tag.Name == "First", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "Shared" });
+        (await second.Tags.SingleAsync(tag => tag.Name == "Second", cancellationToken: TestContext.Current.CancellationToken)).Aliases.Add(new TagAlias { Alias = "shared" });
+
+        var firstSave = first.SaveChangesAsync(TestContext.Current.CancellationToken);
+        // Only a bound on a hang: the first save takes the tag namespace advisory lock before it reaches the
+        // interceptor. The assertion below, that the second save does not enter while the first holds it, does
+        // not depend on how long this takes.
+        await interceptor.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+        var secondSave = second.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var prematureSecondEntry = await Task.WhenAny(
+            interceptor.SecondEntered.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken));
+        Assert.NotSame(interceptor.SecondEntered.Task, prematureSecondEntry);
+
+        interceptor.ReleaseFirst.TrySetResult();
+        await firstSave;
+        // The validation names the alias the first save committed; a write that reached the name constraint
+        // instead would fail with a message that names no claim.
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => secondSave);
+        Assert.Equal("A tag alias with name \"Shared\" already exists. Tag names and tag aliases must be unique.", exception.Message);
     }
 
     [Fact]
     public async Task SaveChanges_RepairsKeyOnlyTagNamespaceMutations()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var tag = new Tag
         {
             Name = "Canonical",
@@ -191,7 +205,8 @@ public sealed class TagNameWriteValidationTests
     [Fact]
     public async Task SuppressedSaveChanges_RepairsKeyOnlyTagNamespaceMutations()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var tag = new Tag
         {
             Name = "Canonical",
@@ -212,28 +227,6 @@ public sealed class TagNameWriteValidationTests
         Assert.Equal("alternate", Assert.Single(persisted.Aliases).NamespaceKey);
     }
 
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
-    }
-
-    private static CoveContext CreateContext(string databasePath, params IInterceptor[] interceptors)
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            // Pooling off so the file handle dies with the context; the finally below deletes this file.
-            .UseSqlite($"Data Source={databasePath};Pooling=False")
-            .AddInterceptors(interceptors)
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.EnsureCreated();
-        return context;
-    }
 
     private sealed class BlockingSaveInterceptor : SaveChangesInterceptor
     {

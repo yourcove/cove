@@ -3,19 +3,22 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class EntityMergeServiceTests
 {
     [Fact]
     public async Task PerformerMerge_TransfersTypedContextAndFacePropagationReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Performer { Name = "Performer" };
-        var source = new Performer { Name = " performer " };
+        var source = new Performer { Name = "Source performer" };
         var tag = new Tag { Name = "Occurrence" };
         var role = new Role { Name = "Entity merge fixture" };
         var group = new Group { Name = "Legacy group item" };
@@ -260,7 +263,8 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task PerformerMerge_PreservesTargetIdentityInsteadOfFillingDisambiguation()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Performer { Name = "Shared name" };
         var source = new Performer { Name = "Different name", Disambiguation = "2020" };
         var existingIdentity = new Performer { Name = " shared NAME ", Disambiguation = " 2020 " };
@@ -276,9 +280,10 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task StudioMerge_RewritesParentFiltersAndTypedReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Studio { Name = "Studio" };
-        var source = new Studio { Name = " studio " };
+        var source = new Studio { Name = "Source studio" };
         db.Studios.AddRange(target, source);
         using (db.SuppressEntityNameValidation())
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -327,7 +332,8 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task PerformerMerge_TracksOnlyFacePropagationAssignmentsOfMergedPerformers()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Performer { Name = "Target" };
         var source = new Performer { Name = "Source" };
         var unrelated = new Performer { Name = "Unrelated" };
@@ -380,7 +386,8 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task PerformerMerge_RewritesStoredJsonWithoutTrackingRowsItLeavesUnchanged()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Performer { Name = "Target" };
         var source = new Performer { Name = "Source" };
         var user = new User { Username = "json-rewrite-fixture", PasswordHash = "fixture" };
@@ -474,7 +481,8 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task StudioMerge_RewritesStudioFiltersThatOnlyNameTheEntityOutsideTheirIdProperty()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Studio { Name = "Target" };
         var source = new Studio { Name = "Source" };
         var user = new User { Username = "studio-json-fixture", PasswordHash = "fixture" };
@@ -511,7 +519,8 @@ public sealed class EntityMergeServiceTests
     [Fact]
     public async Task StudioMerge_RewritesStudioShareLinksButNotTrackedLinksOfOtherKinds()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Studio { Name = "Target" };
         var source = new Studio { Name = "Source" };
         db.AddRange(target, source);
@@ -541,16 +550,5 @@ public sealed class EntityMergeServiceTests
         var links = await db.ShareLinks.ToDictionaryAsync(link => link.Id, TestContext.Current.CancellationToken);
         Assert.Equal($"[{target.Id}]", links[studioLink.Id].EntityIds);
         Assert.Equal($"[{source.Id}]", links[videoLink.Id].EntityIds);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
     }
 }

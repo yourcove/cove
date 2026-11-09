@@ -3,24 +3,24 @@ using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
-public sealed class TagsControllerAliasTests : IDisposable
+[RequiresPostgres]
+public sealed class TagsControllerAliasTests : IAsyncLifetime
 {
-    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    private CovePostgresDatabase? _database;
 
-    public TagsControllerAliasTests()
+    public async ValueTask InitializeAsync() => _database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+
+    public async ValueTask DisposeAsync()
     {
-        _connection.Open();
-        using var db = CreateContext();
-        db.Database.EnsureCreated();
+        if (_database != null)
+            await _database.DisposeAsync();
     }
-
-    public void Dispose() => _connection.Dispose();
 
     [Fact]
     public async Task AddAlias_AppendsWithoutTouchingTheOtherAliases()
@@ -117,6 +117,5 @@ public sealed class TagsControllerAliasTests : IDisposable
 
     private static TagsController Controller(CoveContext db) => new(null!, db, new CustomFieldService(db), null!);
 
-    private CoveContext CreateContext() =>
-        new(new DbContextOptionsBuilder<CoveContext>().UseSqlite(_connection).Options);
+    private CoveContext CreateContext() => _database!.CreateContext();
 }

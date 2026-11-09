@@ -1,16 +1,19 @@
 using Cove.Api.Controllers;
 using Cove.Core.Entities;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class MetadataImportIdentityTests
 {
     [Fact]
     public async Task ImportStudiosAsync_CollapsesNormalizedInputIntoAnExistingIdentity()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var existing = new Studio { Name = "Existing studio", Details = "Old" };
         db.Studios.Add(existing);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -34,7 +37,8 @@ public sealed class MetadataImportIdentityTests
     [Fact]
     public async Task ImportPerformersAsync_CollapsesExactNormalizedPairsButKeepsDifferentDisambiguations()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
 
         await MetadataController.ImportPerformersAsync(
             db,
@@ -58,7 +62,11 @@ public sealed class MetadataImportIdentityTests
     [Fact]
     public async Task ImportPerformersAsync_RejectsAnAmbiguousLegacyTargetInsteadOfChoosingOne()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        // The name constraints refuse a committed duplicate but allow one until the transaction commits, so the
+        // legacy pair is held in a transaction that is never committed.
+        await using var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         db.Performers.AddRange(
             new Performer { Name = "Legacy", Disambiguation = "Pair" },
             new Performer { Name = " legacy ", Disambiguation = " pair " });
@@ -73,16 +81,5 @@ public sealed class MetadataImportIdentityTests
                 CancellationToken.None));
 
         Assert.Equal(NameConflictEntityTypes.Performer, exception.EntityType);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
     }
 }

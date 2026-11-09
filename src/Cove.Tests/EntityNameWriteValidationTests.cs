@@ -1,31 +1,41 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class EntityNameWriteValidationTests
 {
     [Fact]
     public async Task AsyncValidationRejectsIdentitiesBeyondSeveralReadPages()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Performers.AddRange(Enumerable.Range(0, 600).Select(index => new Performer { Name = $"performer {index}" }));
         db.Studios.AddRange(Enumerable.Range(0, 600).Select(index => new Studio { Name = $"studio {index}" }));
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         db.ChangeTracker.Clear();
+        // The name constraints would refuse these rows too, but with a message that names no existing identity;
+        // these messages come only from the validation, so they show the validation found each conflict.
         db.Performers.Add(new Performer { Name = " PERFORMER 599 " });
-        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        var performerConflict = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "A performer with name \"performer 599\" and no disambiguation already exists. Performer name and disambiguation combinations must be unique.",
+            performerConflict.Message);
         db.ChangeTracker.Clear();
         db.Studios.Add(new Studio { Name = " STUDIO 599 " });
-        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        var studioConflict = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("A studio with name \"studio 599\" already exists. Studio names must be unique.", studioConflict.Message);
     }
 
     [Fact]
     public async Task PerformerWrites_TrimIdentityAndRejectMatchingNameDisambiguationPairs()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var first = new Performer { Name = " Alpha ", Disambiguation = " One " };
         db.Performers.Add(first);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -46,7 +56,8 @@ public sealed class EntityNameWriteValidationTests
     [Fact]
     public async Task PerformerWrites_AllowSameNameWithDifferentDisambiguationAndOverlappingAliases()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Performers.AddRange(
             new Performer
             {
@@ -70,19 +81,24 @@ public sealed class EntityNameWriteValidationTests
     [Fact]
     public async Task PerformerWrites_TreatBlankDisambiguationAsNull()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var first = new Performer { Name = "Alpha", Disambiguation = null };
         db.Performers.Add(first);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Performers.Add(new Performer { Name = " alpha ", Disambiguation = " \t " });
-        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "A performer with name \"Alpha\" and no disambiguation already exists. Performer name and disambiguation combinations must be unique.",
+            exception.Message);
     }
 
     [Fact]
     public async Task StudioWrites_TrimNamesAndRejectCaseFoldedDuplicates()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var first = new Studio { Name = " Studio " };
         db.Studios.Add(first);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -101,7 +117,8 @@ public sealed class EntityNameWriteValidationTests
     [Fact]
     public async Task PerformerWrites_IdentifyAnExistingIdentityWithoutDisambiguation()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Performers.Add(new Performer { Name = "Single Name" });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -116,7 +133,11 @@ public sealed class EntityNameWriteValidationTests
     [Fact]
     public async Task RepositoryUnrelatedUpdates_NormalizeButDoNotBlockOnPreExistingConflicts()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        // The name constraints refuse a committed duplicate but allow one until the transaction commits, so the
+        // pre-existing conflict is held in a transaction that is never committed.
+        await using var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         var first = new Performer { Name = "Duplicate", Disambiguation = "One" };
         var second = new Performer { Name = " duplicate ", Disambiguation = "one" };
         var firstStudio = new Studio { Name = "Duplicate studio" };
@@ -142,7 +163,8 @@ public sealed class EntityNameWriteValidationTests
     [Fact]
     public async Task DetachedRepositoryUpdate_StillRejectsAnIdentityChangeThatCollides()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var first = new Performer { Name = "Alpha", Disambiguation = "One" };
         var second = new Performer { Name = "Beta", Disambiguation = "Two" };
         db.Performers.AddRange(first, second);
@@ -157,16 +179,8 @@ public sealed class EntityNameWriteValidationTests
             () => new PerformerRepository(db).UpdateAsync(detached, TestContext.Current.CancellationToken));
 
         Assert.Equal(NameConflictEntityTypes.Performer, exception.EntityType);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
+        Assert.Equal(
+            "A performer with name \"Alpha\" and disambiguation \"One\" already exists. Performer name and disambiguation combinations must be unique.",
+            exception.Message);
     }
 }
