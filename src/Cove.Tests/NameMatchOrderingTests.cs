@@ -1,8 +1,10 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -12,9 +14,11 @@ public class NameMatchOrderingTests
     private const int TestUserId = 1;
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagRepository_RelevanceSearch_OrdersFavoritesThenNameMatchQuality()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Tags.AddRange(
             new Tag { Name = "Grand Piano" },
             new Tag { Name = "Piano Solo" },
@@ -22,7 +26,8 @@ public class NameMatchOrderingTests
             new Tag { Name = "Piano Coda" },
             new Tag { Name = "Upright Piano" },
             new Tag { Name = "Toy Piano" },
-            new Tag { Name = "Electropiano" },
+            // Search matches whole words or word prefixes, so the name-substring match needs "piano" after a hyphen.
+            new Tag { Name = "Electro-piano" },
             new Tag { Name = "Keyboard", Aliases = { new TagAlias { Alias = "Digital Piano" } } },
             new Tag { Name = "Music Lesson", Aliases = { new TagAlias { Alias = "Piano Lesson" } } },
             new Tag { Name = "Ivory Keys", Description = "Played on a piano." },
@@ -46,7 +51,7 @@ public class NameMatchOrderingTests
                 "Piano Solo",
                 "Toy Piano",
                 "Grand Piano",
-                "Electropiano",
+                "Electro-piano",
                 "Keyboard",
                 "Ivory Keys",
             ],
@@ -54,9 +59,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagRepository_RelevanceSearch_PagesByMatchQualityInsteadOfName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Tags.AddRange(
             Enumerable.Range(0, 30).Select(index => new Tag { Name = $"A{index:00} Piano" }).Append(new Tag { Name = "Piano" }));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -71,9 +78,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerRepository_RelevanceSearch_OrdersFavoritesThenNameMatchQuality()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Performers.AddRange(
             new Performer { Name = "Golden Needle" },
             new Performer { Name = "Needle Baker" },
@@ -107,9 +116,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task PerformerRepository_ExplicitNameSort_KeepsAlphabeticalOrderWhileSearching()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Performers.AddRange(
             new Performer { Name = "Needle Baker" },
             new Performer { Name = "Needle Artist" },
@@ -127,9 +138,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StudioRepository_RelevanceSearch_OrdersFavoritesThenNameMatchQuality()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Studios.AddRange(
             new Studio { Name = "Needle Films" },
             new Studio { Name = "Golden Needle" },
@@ -153,9 +166,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GroupRepository_RelevanceSearch_OrdersNameMatchQualityThenAliasText()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Groups.AddRange(
             new Group { Name = "Needle Collection" },
             new Group { Name = "Golden Needle" },
@@ -177,9 +192,11 @@ public class NameMatchOrderingTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagRepository_RelevanceSortWithoutSearchTerm_DoesNotApplyNameMatchOrdering()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
         context.Tags.AddRange(
             new Tag { Name = "Piano", UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
             new Tag { Name = "Keyboard", UpdatedAt = new DateTime(2024, 1, 2, 0, 0, 0, DateTimeKind.Utc) });
@@ -253,14 +270,18 @@ public class NameMatchOrderingTests
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
-    private static CoveContext CreateContext()
+    private static async Task<CoveContext> CreateContextAsync(CovePostgresDatabase database)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"name-match-ordering-{Guid.NewGuid():N}")
-            .Options;
+        // The favorites are affinities of this user, so the user row has to exist.
+        await using (var seed = database.CreateContext())
+        {
+            seed.Users.Add(new User { Id = TestUserId, Username = "test-user", PasswordHash = "test" });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
 
-        var principalAccessor = new CurrentPrincipalAccessor();
-        principalAccessor.Set(new CovePrincipal
+        // CurrentPrincipalAccessor keeps the principal in an AsyncLocal, which does not flow out of this async method.
+        var principalAccessor = new FixedPrincipalAccessor(new CovePrincipal
         {
             UserId = TestUserId,
             Username = "test-user",
@@ -269,6 +290,13 @@ public class NameMatchOrderingTests
             Roles = new HashSet<string>(),
         });
 
-        return new CoveContext(options, principalAccessor);
+        return new CoveContext(database.CreateOptions(), principalAccessor);
+    }
+
+    private sealed class FixedPrincipalAccessor(CovePrincipal principal) : ICurrentPrincipalAccessor
+    {
+        public CovePrincipal? Current => principal;
+
+        public void Set(CovePrincipal? value) => throw new NotSupportedException();
     }
 }

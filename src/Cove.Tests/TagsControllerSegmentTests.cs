@@ -4,17 +4,20 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class TagsControllerSegmentTests
 {
     [Fact]
     public async Task TagDetail_WithRecursiveDepth_AggregatesDistinctDescendantUsageCounts()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var parent = new Tag { Name = "Parent" };
         var child = new Tag { Name = "Child" };
         var image = new Image { Title = "Shared image" };
@@ -37,7 +40,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagDetail_IncludesRemoteIds()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var tag = new Tag { Name = "Linked tag" };
         tag.RemoteIds.Add(new TagRemoteId
         {
@@ -62,7 +66,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagDetail_UsesVideoSegmentCountsAndReturnsTagSegments()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var tag = new Tag { Name = "Body" };
         var otherTag = new Tag { Name = "Other" };
         var video = new Video { Title = "Imported Video" };
@@ -134,7 +139,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagDetail_UsesLiveUsageCountsInsteadOfStoredCounters()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var tag = new Tag { Name = "Body" };
         var video = new Video { Title = "Imported Video" };
@@ -191,7 +197,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagSegmentCount_TracksVideoSegments()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var tag = new Tag { Name = "Body" };
         var video = new Video { Title = "Imported Video" };
         context.AddRange(tag, video);
@@ -224,7 +231,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagDetail_RoundTripsPlayerBarOverrides()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var tag = new Tag
         {
             Name = "Body",
@@ -265,7 +273,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task Update_WithOnlyOrganized_KeepsDisplaySettings()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var group = new TagGroup { Name = "Group" };
         context.TagGroups.Add(group);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -293,7 +302,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task Update_WithClearFields_ClearsDisplaySettings()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var group = new TagGroup { Name = "Group" };
         context.TagGroups.Add(group);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -331,7 +341,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task TagDetail_OrdersParentsAndChildrenByEffectiveSortName()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var parent = new Tag { Name = "Parent" };
         var zebraChild = new Tag { Name = "Zebra Child" };
@@ -389,7 +400,8 @@ public class TagsControllerSegmentTests
     [Fact]
     public async Task GetSegmentTitles_UsesVideoSegmentTitles()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Segments.AddRange(
             new Segment
             {
@@ -463,22 +475,4 @@ public class TagsControllerSegmentTests
         SegmentColorOverride = "#44aaee",
         SegmentLaneOverride = 2,
     };
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"tags-controller-segments-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
-    }
 }

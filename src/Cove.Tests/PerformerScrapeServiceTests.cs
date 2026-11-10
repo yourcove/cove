@@ -3,6 +3,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Headers;
@@ -51,9 +52,11 @@ public class PerformerScrapeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAsync_SkipsMissingTags_WhenCreationIsDisabled()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -81,11 +84,13 @@ public class PerformerScrapeServiceTests
     [Theory]
     [InlineData("replace", 0)]
     [InlineData("merge", 2)]
+    [RequiresPostgres]
     public async Task ApplyAsync_ReplacesTagsWithTheSelectionEvenWhenNoneWasChosen(string tagsMode, int expectedTags)
     {
         // The tagger sends only the tags the person chose. In "Only <source>" with none chosen, the
         // performer ends up with no tags, as its URLs and aliases do; a merge keeps them.
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer
         {
             Name = "Original Name",
@@ -111,9 +116,11 @@ public class PerformerScrapeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAsync_RecordsScraperFieldAndTagProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -153,9 +160,11 @@ public class PerformerScrapeServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAsync_DownloadsAndReplacesPerformerImage()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer { Name = "Original Name", ImageBlobId = "old-blob" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);

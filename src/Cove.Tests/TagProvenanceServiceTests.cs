@@ -6,6 +6,7 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,12 +16,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class TagProvenanceServiceTests
 {
     [Fact]
     public async Task SyncTagSetAsync_UserRemovalDeletesEditableSourcesAndPreservesExtensions()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var logger = new RecordingLogger<TagProvenanceService>();
 
         var video = new Video { Title = "Tagged Video" };
@@ -94,7 +97,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task SyncTagSetAsync_UserRemovalAlsoDropsASourceRecordedEarlierInTheSameSave()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var video = new Video { Title = "Tagged Video" };
         var removedTag = new Tag { Name = "Removed" };
@@ -123,7 +127,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task RecordAsync_UpdatesExistingConfidenceForMatchingSource()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var image = new Image { Title = "Tagged Image" };
         var tag = new Tag { Name = "Action" };
@@ -147,7 +152,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task VideosController_CreateUpdateAndDelete_TracksUserTagProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var firstTag = new Tag { Name = "First" };
         var secondTag = new Tag { Name = "Second" };
@@ -203,7 +209,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task VideoMetadataApplyService_RecordsScraperTagProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var video = new Video { Title = "Scraped Video" };
         context.Videos.Add(video);
@@ -234,7 +241,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task FieldProvenanceService_RecordAsync_UpsertsMatchingSourceField()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var video = new Video { Title = "Tracked Video" };
         context.Videos.Add(video);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -257,7 +265,8 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task VideoMetadataApplyService_RecordsScraperFieldProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
@@ -293,7 +302,10 @@ public sealed class TagProvenanceServiceTests
     [Fact]
     public async Task GetLookupAsync_UsesSeparateContextWhenCallerHasActiveReader()
     {
-        await using var callerContext = CreateContext();
+        // Two databases stand in for the caller's context and the scope's, so the result shows which one served the lookup.
+        await using var callerDatabase = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var lookupDatabase = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var callerContext = callerDatabase.CreateContext();
         callerContext.AddRange(
             new Video { Id = 1, Title = "Caller Video" },
             new Tag { Id = 1, Name = "Action" },
@@ -309,7 +321,7 @@ public sealed class TagProvenanceServiceTests
             });
         await callerContext.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await using var lookupContext = CreateContext();
+        await using var lookupContext = lookupDatabase.CreateContext();
         lookupContext.AddRange(
             new Video { Id = 1, Title = "Lookup Video" },
             new Tag { Id = 1, Name = "Action" },
@@ -344,24 +356,6 @@ public sealed class TagProvenanceServiceTests
         var provenance = Assert.Single(lookup[1]);
         Assert.Equal("ext:ai.tagging", provenance.SourceKey);
         Assert.Equal("tagger-v1", provenance.ModelKey);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"tag-provenance-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
     }
 
     private sealed class FixedScopeFactory(CoveContext context) : IServiceScopeFactory

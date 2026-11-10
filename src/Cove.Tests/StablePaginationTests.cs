@@ -9,10 +9,11 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class StablePaginationTests
 {
     private static readonly string[] Entities = ["videos", "images", "galleries", "groups", "performers", "studios", "tags", "audios", "texts", "faces", "segments"];
@@ -45,8 +46,8 @@ public class StablePaginationTests
             UserId = 1, Username = "test-user", Kind = PrincipalKind.User,
             Permissions = new HashSet<string> { "*" }, Roles = new HashSet<string>(),
         });
-        await using var context = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"stable-pagination-{Guid.NewGuid():N}").Options, principal);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = new CoveContext(database.CreateOptions(), principal);
         var timestamp = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         if (entity == "segments")
             context.Videos.Add(new Video { Id = 100, Title = "Segment host" });
@@ -106,8 +107,8 @@ public class StablePaginationTests
     [InlineData(SortDirection.Desc)]
     public async Task EngagementSortsWithoutAUserFollowTheRequestedIdDirection(SortDirection direction)
     {
-        await using var context = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"unscoped-pagination-{Guid.NewGuid():N}").Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Videos.AddRange(Ids.Select(id => new Video { Id = id }));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         foreach (var sort in new[] { "rating", "play_count", "play_duration", "last_played_at", "last_like_at" })
@@ -127,8 +128,8 @@ public class StablePaginationTests
     [InlineData("texts", SortDirection.Desc)]
     public async Task ExplicitSingleClauseKeyOverridesLegacySortKey(string entity, SortDirection direction)
     {
-        await using var context = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"sort-key-precedence-{Guid.NewGuid():N}").Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         foreach (var id in new[] { 1, 2 })
         {
             var title = id == 1 ? "Alpha" : "Beta";
@@ -170,8 +171,8 @@ public class StablePaginationTests
     public async Task PageSizesOfferedByTheListToolbarAreHonoured(string entity, int perPage, int expectedItems)
     {
         // The list toolbar offers 500 and 1000 per page; these lists once returned only the first 250 (#698).
-        await using var context = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"page-size-cap-{Guid.NewGuid():N}").Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         if (entity == "segments")
             context.Videos.Add(new Video { Id = 1, Title = "Segment host" });
         const int seeded = 1001;

@@ -1,17 +1,19 @@
-using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class HierarchicalTagFilterTests
 {
     [Fact]
     public async Task VideoStudiosCriterion_IncludesAll_WithSubStudios_MatchesChildStudio()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var parent = new Studio { Name = "Parent" };
         var child = new Studio { Name = "Child", Parent = parent };
         context.Studios.AddRange(parent, child);
@@ -40,7 +42,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task VideoTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
 
         context.Videos.AddRange(
@@ -70,7 +73,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task VideoTagsCriterion_RequiredId_WithSubTags_MatchesChildTag()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (parentA, childA, _, _) = await SeedTagHierarchyAsync(context);
         context.Videos.AddRange(
             CreateVideo("child-match", childA.Id),
@@ -97,7 +101,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task VideoTagsCriterion_RequiredIdDepth_DoesNotExpandSavedValues()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
         context.Videos.AddRange(
             CreateVideo("exact-saved-value", childA.Id, parentB.Id),
@@ -125,7 +130,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task VideoStudiosCriterion_RequiredId_WithSubStudios_MatchesChildStudio()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var parent = new Studio { Name = "Parent" };
         var child = new Studio { Name = "Child", Parent = parent };
         context.Studios.AddRange(parent, child);
@@ -153,7 +159,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task GalleryStudiosCriterion_RequiredId_WithSubStudios_MatchesChildStudio()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var parent = new Studio { Name = "Parent" };
         var child = new Studio { Name = "Child", Parent = parent };
         context.Studios.AddRange(parent, child);
@@ -184,7 +191,8 @@ public class HierarchicalTagFilterTests
         // Repro for the reported bug: excluding a tag still returned videos that had it. The filter UI
         // sends excluded ids in MultiIdCriterion.Excludes alongside an Includes modifier (not by flipping
         // the modifier), so the exclude-only case must still filter the results.
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var keep = new Tag { Name = "Keep" };
         var excluded = new Tag { Name = "1F" };
         context.Tags.AddRange(keep, excluded);
@@ -218,7 +226,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task VideoTagsCriterion_IncludeWithExclude_AppliesBothSides()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var keep = new Tag { Name = "Keep" };
         var excluded = new Tag { Name = "1F" };
         context.Tags.AddRange(keep, excluded);
@@ -252,7 +261,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task ImageTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
 
         context.Images.AddRange(
@@ -282,7 +292,8 @@ public class HierarchicalTagFilterTests
     [Fact]
     public async Task GalleryTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
         context.Galleries.AddRange(
             CreateGallery("children-only-match", childA.Id, childB.Id),
@@ -346,22 +357,4 @@ public class HierarchicalTagFilterTests
             Title = title,
             GalleryTags = tagIds.Select(tagId => new GalleryTag { TagId = tagId }).ToList(),
         };
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"hierarchical-tag-filter-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
-    }
 }
