@@ -77,7 +77,21 @@ public sealed class CovePostgresTemplate : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Every copy has to be gone before the template can be dropped, and a failed copy drop is reported
+        // even if the template drop fails too.
+        Exception? drainFailure = null;
+        try
+        {
+            await DeferredDatabaseDrops.DrainAsync();
+        }
+        catch (Exception exception)
+        {
+            drainFailure = exception;
+        }
+
         if (Interlocked.Exchange(ref _template, null) is { } template)
             await template.DisposeAsync();
+        if (drainFailure != null)
+            ExceptionDispatchInfo.Throw(drainFailure);
     }
 }

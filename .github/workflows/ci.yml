@@ -103,6 +103,9 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+          # Test data is thrown away with the job, so the server skips crash safety: each DROP DATABASE
+          # waits for a checkpoint and each commit for a WAL flush, and neither needs to reach the disk.
+          POSTGRES_INITDB_ARGS: "-c fsync=off -c synchronous_commit=off -c full_page_writes=off"
         ports:
           - 5432:5432
         options: >-
@@ -110,6 +113,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --tmpfs /var/lib/postgresql/data
     env:
       COVE_API_TEST_PG_HOST: 127.0.0.1
       COVE_API_TEST_PG_PORT: 5432
@@ -180,6 +184,9 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+          # Test data is thrown away with the job, so the server skips crash safety: each DROP DATABASE
+          # waits for a checkpoint and each commit for a WAL flush, and neither needs to reach the disk.
+          POSTGRES_INITDB_ARGS: "-c fsync=off -c synchronous_commit=off -c full_page_writes=off"
         ports:
           - 5432:5432
         options: >-
@@ -187,6 +194,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --tmpfs /var/lib/postgresql/data
     env:
       COVE_API_TEST_PG_HOST: 127.0.0.1
       COVE_API_TEST_PG_PORT: 5432

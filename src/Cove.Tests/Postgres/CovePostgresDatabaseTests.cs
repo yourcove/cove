@@ -57,7 +57,7 @@ public sealed class CovePostgresDatabaseTests
     }
 
     [Fact]
-    public async Task DisposedDatabase_IsDropped()
+    public async Task DisposedDatabase_IsDroppedInTheBackground()
     {
         var ct = TestContext.Current.CancellationToken;
         var database = await CovePostgresDatabase.CreateAsync(ct);
@@ -72,6 +72,11 @@ public sealed class CovePostgresDatabaseTests
         {
             await database.DisposeAsync();
         }
+
+        // DeferredDatabaseDrops drops it in the background, possibly behind other tests' databases.
+        var deadline = DateTime.UtcNow.AddMinutes(5);
+        while (await PostgreSqlTestDatabase.ExistsAsync(name, ct) && DateTime.UtcNow < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
 
         Assert.False(await PostgreSqlTestDatabase.ExistsAsync(name, ct));
     }
