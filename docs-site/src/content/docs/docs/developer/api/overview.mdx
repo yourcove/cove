@@ -17,27 +17,32 @@ http://localhost:5073/api/extensions
 
 There is no `/api/v1` compatibility prefix or negotiated API version. The `v1` in the OpenAPI document name identifies the generated document, not a versioned route base. Cove makes no stable cross-release compatibility guarantee for these unversioned routes. Pin automation to a tested Cove release and compare its OpenAPI contract during upgrades.
 
-Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
+Routes are lowercase, and matching ignores case. Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
 
 ## Discover the OpenAPI contract
 
-When Cove runs in ASP.NET Core **Development** mode only, it publishes its generated OpenAPI document at:
+Every Cove instance publishes the generated OpenAPI document for its running build at:
 
 ```text
 /openapi/v1.json
 ```
 
-For a local source checkout, open `http://localhost:5073/openapi/v1.json` or save it for a client generator:
+Its `info.version` is the running Cove build. Cove builds the document once, after startup, so it includes the routes of the extensions that were enabled at that point. Restart Cove after installing, updating, enabling or disabling an extension to see its routes as they are now. Its server URL is `/`, so clients resolve requests against the origin they loaded it from.
+
+An interactive Swagger UI for the same document is at `/swagger`. While authentication is enabled, both require a signed-in user or an API token. They answer anonymous requests and share links from API clients with `401 Unauthorized`. Any signed-in user can read them; no specific permission is needed, and requests sent from Swagger UI are authorized like any other request from that user. While authentication is disabled, they follow the same access rules as the rest of the instance.
+
+In a browser, open `/swagger` on the same origin as Cove, or follow **API (Swagger)** in **Settings → System Info → About**. Swagger UI uses your Cove sign-in. When the browser has no current sign-in cookie, for example because you followed a link from another site or the cookie expired, Cove's sign-in page opens instead: if this browser is still signed in to Cove, it renews the session and returns to Swagger UI without asking; otherwise sign in and it returns there. **Try it out** requests run as your signed-in user, so Swagger UI asks for no token. Its sign-in cookie lasts as long as Cove's access token, 15 minutes by default, unless a Cove tab keeps the session refreshed, so when **Try it out** requests start returning `401`, reload Swagger UI. In a source checkout, the Vite dev server forwards `/swagger` and `/openapi` to the API, so `/swagger` works on either port.
+
+To save the document for a client generator, send an API token:
 
 ```bash
 curl --silent \
   --show-error \
   --fail-with-body \
+  --header "Authorization: Bearer ${COVE_API_TOKEN}" \
   --output cove-openapi.json \
   "${COVE_URL}/openapi/v1.json"
 ```
-
-Production mode does not map this discovery route. Generate or inspect the contract from a Development instance built from the same Cove revision; do not expose a development server merely to make discovery public.
 
 ## Authenticate with an API token
 
@@ -160,7 +165,7 @@ The global MVC permission filter does not wrap extension minimal-API delegates. 
 
 For compatibility with extensions built before these conventions existed, an endpoint without Cove authorization metadata remains anonymous and produces a registration warning. Do not rely on that fallback for new endpoints. See [Extension permissions](../../extensions/permissions/) for the full policy behavior and examples.
 
-An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
+Cove lists each extension's routes in their own section, named `Extension: <extension name>`, after Cove's own sections, and marks each operation with an `x-cove-extension` property holding the extension ID. Tags an extension sets on its routes are replaced, so an extension cannot place a route in a core section. An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
 
 ## Integration boundaries
 

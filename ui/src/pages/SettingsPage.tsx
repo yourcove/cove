@@ -524,6 +524,7 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
 };
 
 const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
+  "api-tokens": ["api", "token", "personal access token", "swagger", "openapi", "rest api"],
   "my-appearance-theme": [
     "appearance",
     "search",
@@ -586,7 +587,17 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
     "password",
     "credentials",
   ],
-  "system-info-about": ["about", "version", "release history", "changelog", "setup tour"],
+  "system-info-about": [
+    "about",
+    "version",
+    "release history",
+    "changelog",
+    "setup tour",
+    "api",
+    "swagger",
+    "openapi",
+    "rest api",
+  ],
   "system-info-runtime-status": ["runtime", "status", "shutdown", "database", "config file", "app directory"],
   "system-info-updates": ["update", "upgrade", "new version", "release notes", "nightly", "revert", "auto-update"],
   logs: ["logs", "tail", "server log level", "filter", "trace", "debug"],
@@ -4629,6 +4640,14 @@ export function SettingsPage() {
                       className="text-xs text-accent hover:underline"
                     >
                       Discord
+                    </a>
+                    <a
+                      href="/swagger"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-accent hover:underline"
+                    >
+                      API (Swagger)
                     </a>
                   </div>
                   {hasPermission("system.update") ? (

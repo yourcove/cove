@@ -310,8 +310,9 @@ public sealed class JsonEnumWireContractTests(JsonEnumWireContractTests.HostFixt
         var factory = host.Factory;
 
         // Proxy, stated as such: this is the identical API OpenApiSchemaService invokes, handed the
-        // same options object, but it is not the generated document. The document itself is covered by
-        // the live capture, because MapOpenApi() is Development-gated and no in-tree rig runs there.
+        // same options object, but it is not the generated document. The integration host now serves
+        // /openapi/v1.json in every environment (see ApiDocumentationAccessTests), so a test could read
+        // the generated document directly; this one still checks the exporter.
         var node = System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(
             HostHttpJsonOptions(factory),
             typeof(AiRunStatus));

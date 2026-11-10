@@ -549,6 +549,9 @@ try
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
         options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();
+        // [controller] keeps the class name's casing (/api/ApiTokens); lowercase it so every route and the
+        // OpenAPI document read the same way. Route matching ignores case, so existing callers are unaffected.
+        options.Conventions.Add(new Microsoft.AspNetCore.Mvc.ApplicationModels.RouteTokenTransformerConvention(new Cove.Api.Http.LowercaseRouteTokenTransformer()));
     })
         .AddJsonOptions(options =>
         {
@@ -561,9 +564,12 @@ try
         options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         Cove.Api.Http.CompactTagJson.Apply(options.SerializerOptions);
     });
-    builder.Services.AddOpenApi();
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddOpenApi(options =>
+    {
+        options.AddOperationTransformer<Cove.Api.Http.OpenApiExtensionSections.OperationTransformer>();
+        options.AddDocumentTransformer<Cove.Api.Http.CoveOpenApiDocumentTransformer>();
+    });
+    builder.Services.AddSingleton<Cove.Api.Http.OpenApiDocumentCache>();
 
     // Response compression â€” reduces 22KB video lists to ~2KB
     builder.Services.AddResponseCompression(options =>
@@ -686,13 +692,6 @@ try
     app.UseMiddleware<Cove.Api.Middleware.CompoundSortValidationMiddleware>();
     app.UseMiddleware<Cove.Api.Middleware.DatabaseUnavailableMiddleware>();
 
-    if (app.Environment.IsDevelopment())
-    {
-        app.MapOpenApi();
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
-
     app.UseResponseCompression();
     app.UseCors();
     app.UseOutputCache();
@@ -713,6 +712,22 @@ try
     // Always run our principal-resolver middleware so [RequiresPermission] can read it.
     // (When auth is disabled the filter short-circuits and treats requests as anonymous-allowed.)
     app.UseMiddleware<Cove.Api.Middleware.CurrentPrincipalMiddleware>();
+
+    // API documentation is served in every environment, but only to signed-in callers while auth is
+    // enabled. Swagger UI answers its own requests, so it lives in the branch behind the gate; the
+    // document endpoint (mapped below) runs at the end of the pipeline, also after the gate.
+    app.UseWhen(
+        Cove.Api.Middleware.ApiDocumentationAccessMiddleware.AppliesTo,
+        branch =>
+        {
+            branch.UseMiddleware<Cove.Api.Middleware.ApiDocumentationAccessMiddleware>();
+            branch.UseSwaggerUI(options =>
+            {
+                options.RoutePrefix = Cove.Api.Middleware.ApiDocumentationAccessMiddleware.SwaggerUiRoutePrefix;
+                options.SwaggerEndpoint(Cove.Api.Middleware.ApiDocumentationAccessMiddleware.DocumentPath, "Cove");
+                options.DocumentTitle = "Cove API";
+            });
+        });
 
     // Keep the request that starts each job, so the job can be retried by sending it again.
     app.Use(async (context, next) =>
@@ -741,7 +756,7 @@ try
         {
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
-    }).AllowAnonymous();
+    }).AllowAnonymous().WithTags("Health");
 
     if (isIntegrationStartupTest)
     {
@@ -890,6 +905,19 @@ try
     }
 
     app.MapControllers();
+    app.MapGet(Cove.Api.Middleware.ApiDocumentationAccessMiddleware.DocumentPath, async (HttpContext context, Cove.Api.Http.OpenApiDocumentCache documents) =>
+        {
+            var document = await documents.GetAsync(context.RequestAborted);
+            context.Response.Headers.ETag = document.ETag;
+            context.Response.Headers.CacheControl = "private, no-cache";
+            var etag = new Microsoft.Net.Http.Headers.EntityTagHeaderValue(document.ETag);
+            if (context.Request.GetTypedHeaders().IfNoneMatch.Any(tag =>
+                    tag.Equals(Microsoft.Net.Http.Headers.EntityTagHeaderValue.Any) || tag.Compare(etag, useStrongComparison: false)))
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            return Results.Bytes(document.Json, "application/json;charset=utf-8");
+        })
+        .ExcludeFromDescription()
+        .WithMetadata(new Cove.Api.Middleware.ApiDocumentationAccessMiddleware.EndpointMarker());
     app.MapHub<JobHub>("/hubs/jobs");
     app.MapHub<LogHub>("/hubs/logs");
     extensionManager.SetRouteBuilder(app);
@@ -1122,6 +1150,10 @@ try
     {
         Log.Warning(ex, "Update bookkeeping after startup failed");
     }
+    // Extensions have registered their routes by now, so the cached document includes them. Integration
+    // tests change routes and settings after startup and warm the cache themselves when they need it.
+    if (!isIntegrationTest)
+        app.Services.GetRequiredService<Cove.Api.Http.OpenApiDocumentCache>().WarmUp();
     Cove.Api.Updates.UpdateConsoleCapture.Stop();
     integrationStartupReady.TrySetResult();
     await app.WaitForShutdownAsync();

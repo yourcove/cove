@@ -1322,6 +1322,13 @@ export function ApiTokensTab() {
         </Btn>
       }
     >
+      <p className="mb-3 text-sm text-secondary">
+        To try the API in your browser, open{" "}
+        <a href="/swagger" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+          Swagger
+        </a>
+        . It uses your Cove sign-in, so it needs no token.
+      </p>
       {tokensQ.isLoading ? <p className="text-sm text-secondary">Loading…</p> : null}
       {tokensQ.data ? <ApiTokensTable tokens={tokensQ.data} onRevoke={(id) => revoke.mutate(id)} /> : null}
       {showCreate ? (
