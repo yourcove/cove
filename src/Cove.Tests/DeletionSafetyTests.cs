@@ -721,6 +721,219 @@ public sealed class DeletionSafetyTests
 
     [Fact]
     [RequiresPostgres]
+    public async Task VideoBatchDeletionCompletesPostCommitWorkAfterAnAmbiguousCommit()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
+        var options = database.CreateOptions(builder => builder
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(commitAmbiguity));
+        await using var db = new CoveContext(options);
+        var first = new Video { Title = "First of the batch", ImageBlobId = "first-artwork" };
+        var clip = new Video { Title = "Clip of the first", ParentVideo = first };
+        var second = new Video { Title = "Second of the batch", ImageBlobId = "second-artwork" };
+        db.AddRange(first, clip, second);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var customFields = new CustomFieldService(db);
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            eventBus);
+        commitAmbiguity.Arm();
+
+        var deleted = await service.DeleteBatchAsync(
+            BulkDeletionEntityKind.Video,
+            [first.Id, second.Id],
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None);
+
+        // The commit happened but its acknowledgement was lost. The retry must recognize the committed batch
+        // from its markers and still run the cleanup and events of every video in it, exactly once.
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), deleted.Order());
+        Assert.Equal(1, commitAmbiguity.FailuresRaised);
+        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(new[] { first.Id, clip.Id, second.Id }.Order(), deletedEventIds.Order());
+        Assert.Equal(new[] { first.Id, clip.Id, second.Id }.Order(), thumbnails.DeletedVideoIds.Order());
+        Assert.Contains("first-artwork", blobs.DeletedBlobIds);
+        Assert.Contains("second-artwork", blobs.DeletedBlobIds);
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task VideoDeletionCompletesPostCommitWorkWhenAnAmbiguousCommitIsNotRetried()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
+        // No retrying strategy: the failure reported for the commit reaches the deletion itself.
+        await using var db = new CoveContext(database.CreateOptions(builder => builder.AddInterceptors(commitAmbiguity)));
+        var first = new Video { Title = "First of the batch" };
+        var second = new Video { Title = "Second of the batch" };
+        db.AddRange(first, second);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var customFields = new CustomFieldService(db);
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            eventBus);
+        commitAmbiguity.Arm();
+
+        var deleted = await service.DeleteBatchAsync(
+            BulkDeletionEntityKind.Video,
+            [first.Id, second.Id],
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None);
+
+        // The videos are gone, so the failure must not be reported as "nothing deleted": a caller would then
+        // delete them one at a time, find nothing, and their cleanup and events would never happen.
+        Assert.Equal(1, commitAmbiguity.FailuresRaised);
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), deleted.Order());
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), deletedEventIds.Order());
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), thumbnails.DeletedVideoIds.Order());
+        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task RolledBackVideoBatchDeletionOnlyCompletesTheVideosItsRetryDeletes()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var preCommitFailure = new PreCommitFailureInterceptor();
+        var retryingOptions = database.CreateOptions(builder => builder
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(preCommitFailure));
+        var ordinaryOptions = database.CreateOptions();
+        await using var db = new CoveContext(retryingOptions);
+        var taken = new Video { Title = "Deleted by someone else between the attempts" };
+        var remaining = new Video { Title = "Still there for the retry" };
+        db.AddRange(taken, remaining);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        preCommitFailure.Arm(async () =>
+        {
+            await using var concurrentDb = new CoveContext(ordinaryOptions);
+            concurrentDb.Videos.Remove(await concurrentDb.Videos.SingleAsync(video => video.Id == taken.Id));
+            await concurrentDb.SaveChangesAsync();
+        });
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var customFields = new CustomFieldService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            eventBus);
+
+        var deleted = await service.DeleteBatchAsync(
+            BulkDeletionEntityKind.Video,
+            [taken.Id, remaining.Id],
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None);
+
+        // The first attempt staged both videos and rolled back. Its captured result must not be used as the
+        // outcome: the retry deleted only one of them, and the other deletion belongs to someone else.
+        Assert.Equal([remaining.Id], deleted);
+        Assert.Equal([remaining.Id], deletedEventIds);
+        Assert.Equal([remaining.Id], thumbnails.DeletedVideoIds);
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task VideoBatchDeletionTakesDescendantsOnceWhenABatchNamesAVideoAndItsAncestor()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
+        var root = new Video { Title = "Named parent" };
+        var child = new Video { Title = "Named child", ParentVideo = root };
+        var grandchild = new Video { Title = "Unnamed grandchild", ParentVideo = child };
+        var independent = new Video { Title = "Named independent" };
+        var kept = new Video { Title = "Not in the batch" };
+        var keptClip = new Video { Title = "Clip of a video not in the batch", ParentVideo = kept };
+        db.AddRange(root, child, grandchild, independent, kept, keptClip);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var customFields = new CustomFieldService(db);
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            eventBus);
+
+        var deleted = await service.DeleteBatchAsync(
+            BulkDeletionEntityKind.Video,
+            [root.Id, child.Id, independent.Id, int.MaxValue],
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None);
+
+        // The result names the given videos that existed. The unnamed grandchild goes with its ancestors, and
+        // every deleted video gets one event and one cleanup whether it was named, a descendant, or both.
+        int[] everyDeleted = [.. new[] { root.Id, child.Id, grandchild.Id, independent.Id }.Order()];
+        Assert.Equal(new[] { root.Id, child.Id, independent.Id }.Order(), deleted.Order());
+        Assert.Equal(everyDeleted, deletedEventIds.Order());
+        Assert.Equal(everyDeleted, thumbnails.DeletedVideoIds.Order());
+        db.ChangeTracker.Clear();
+        Assert.Equal(
+            new[] { kept.Id, keptClip.Id }.Order(),
+            (await db.Videos.IgnoreQueryFilters().Select(video => video.Id).ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken)).Order());
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
     public async Task VideoDeletionJobCollapsesSelectedDescendantsIntoTheirSelectedRoot()
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);

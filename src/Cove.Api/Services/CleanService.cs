@@ -191,7 +191,7 @@ public class CleanService(
             var deletion = scope.ServiceProvider.GetRequiredService<BulkEntityDeletionService>();
             if (BulkEntityDeletionService.SupportsBatchDeletion(entityKind))
             {
-                // One staged save for the whole page, so the queries and the transaction are paid per page
+                // One transaction for the whole page, so the queries and the commit are paid per page
                 // instead of per orphan. Cancellation is still only observed between saves.
                 ct.ThrowIfCancellationRequested();
                 try

@@ -178,16 +178,19 @@ public sealed class CleanServiceMemoryTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    [Fact]
-    public async Task CleanFailureDoesNotLeakIntoTheNextDeletionInTheBatch()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanFailureDoesNotLeakIntoTheNextDeletionInTheBatch(bool videos)
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-clean-failure-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
-            var failure = new ChosenImageDeleteFailure();
-            var options = database.CreateOptions(builder => builder.AddInterceptors(failure));
+            SaveChangesInterceptor interceptor = videos ? new ChosenDeleteFailure<Video>() : new ChosenDeleteFailure<Image>();
+            var failure = (IChosenDeleteFailure)interceptor;
+            var options = database.CreateOptions(builder => builder.AddInterceptors(interceptor));
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
             AddDeletionServices(services);
@@ -195,9 +198,18 @@ public sealed class CleanServiceMemoryTests
             await using (var db = new CoveContext(options))
             {
                 var folder = new Folder { Path = root };
-                db.AddRange(
-                    new Image { Title = "first", Files = [new ImageFile { ParentFolder = folder, Basename = "first.jpg" }] },
-                    new Image { Title = "second", Files = [new ImageFile { ParentFolder = folder, Basename = "second.jpg" }] });
+                if (videos)
+                {
+                    db.AddRange(
+                        new Video { Title = "first", Files = [new VideoFile { ParentFolder = folder, Basename = "first.mp4" }] },
+                        new Video { Title = "second", Files = [new VideoFile { ParentFolder = folder, Basename = "second.mp4" }] });
+                }
+                else
+                {
+                    db.AddRange(
+                        new Image { Title = "first", Files = [new ImageFile { ParentFolder = folder, Basename = "first.jpg" }] },
+                        new Image { Title = "second", Files = [new ImageFile { ParentFolder = folder, Basename = "second.jpg" }] });
+                }
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
@@ -206,22 +218,28 @@ public sealed class CleanServiceMemoryTests
             new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance).StartClean();
             await jobs.Completion;
 
-            // The page's shared save fails, so its images are removed one at a time. The failed image stays for
-            // the next clean; the other deletion must not replay its staged delete.
+            // The page's shared save fails, so its items are removed one at a time. The failed item stays for
+            // the next clean with its file row; the other deletion must not replay its staged delete.
             await using var verify = new CoveContext(options);
-            Assert.NotNull(failure.FailedImageId);
+            Assert.NotNull(failure.FailedId);
             Assert.Equal(2, failure.Failures);
-            Assert.Equal([failure.FailedImageId.Value], await verify.Images.Select(image => image.Id).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal([failure.FailedId.Value], videos
+                ? await verify.Videos.Select(video => video.Id).ToListAsync(TestContext.Current.CancellationToken)
+                : await verify.Images.Select(image => image.Id).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await verify.Set<BaseFileEntity>().CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(0, await verify.VideoDeletionCommitMarkers.CountAsync(TestContext.Current.CancellationToken));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    [Fact]
-    public async Task CleanRemovesAFullPageOfOrphansWithTheCommandsOfAFewOrphans()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanRemovesAFullPageOfOrphansWithTheCommandsOfAFewOrphans(bool videos)
     {
         // A query, a save or a transaction that ran once per orphan would make the full page cost more.
-        var few = await CountCleanCommandsAsync(orphans: 8);
-        var page = await CountCleanCommandsAsync(orphans: CleanPlan.BatchSize);
+        var few = await CountCleanCommandsAsync(orphans: 8, videos);
+        var page = await CountCleanCommandsAsync(orphans: CleanPlan.BatchSize, videos);
         Assert.Equal(few, page);
     }
 
@@ -263,7 +281,7 @@ public sealed class CleanServiceMemoryTests
         Assert.Equal(0, await db.Images.CountAsync(TestContext.Current.CancellationToken));
     }
 
-    private static async Task<(int Commands, int Transactions)> CountCleanCommandsAsync(int orphans)
+    private static async Task<(int Commands, int Transactions)> CountCleanCommandsAsync(int orphans, bool videos)
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var counter = new CommandCounter();
@@ -273,20 +291,30 @@ public sealed class CleanServiceMemoryTests
         services.AddScoped(_ => new CoveContext(options));
         AddDeletionServices(services, eventBus);
         await using var provider = services.BuildServiceProvider();
-        var deletedImages = 0;
+        var deletedEvents = 0;
         using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
         {
-            if (evt.Type == EventType.ImageDeleted)
-                Interlocked.Increment(ref deletedImages);
+            if (evt.Type == (videos ? EventType.VideoDeleted : EventType.ImageDeleted))
+                Interlocked.Increment(ref deletedEvents);
         });
         await using (var db = new CoveContext(options))
         {
-            // Nothing exists below this folder, so every image is an orphan.
+            // Nothing exists below this folder, so every item is an orphan.
             var folder = new Folder { Path = Path.Combine(Path.GetTempPath(), $"cove-clean-count-{Guid.NewGuid():N}") };
-            db.Images.AddRange(Enumerable.Range(0, orphans).Select(index => new Image
+            if (videos)
             {
-                Title = $"orphan {index}", Files = [new ImageFile { ParentFolder = folder, Basename = $"{index}.jpg" }],
-            }));
+                db.Videos.AddRange(Enumerable.Range(0, orphans).Select(index => new Video
+                {
+                    Title = $"orphan {index}", Files = [new VideoFile { ParentFolder = folder, Basename = $"{index}.mp4" }],
+                }));
+            }
+            else
+            {
+                db.Images.AddRange(Enumerable.Range(0, orphans).Select(index => new Image
+                {
+                    Title = $"orphan {index}", Files = [new ImageFile { ParentFolder = folder, Basename = $"{index}.jpg" }],
+                }));
+            }
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
@@ -298,13 +326,16 @@ public sealed class CleanServiceMemoryTests
 
         await using var verify = new CoveContext(options);
         Assert.Equal(0, await verify.Images.CountAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(0, await verify.ImageFiles.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await verify.Videos.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await verify.Set<BaseFileEntity>().CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await verify.VideoDeletionCommitMarkers.CountAsync(TestContext.Current.CancellationToken));
         // Batching the save must not batch away the per-entity event.
-        Assert.Equal(orphans, deletedImages);
+        Assert.Equal(orphans, deletedEvents);
         return (counter.Commands, counter.Transactions);
     }
 
     [Theory]
+    [InlineData(BulkDeletionEntityKind.Video)]
     [InlineData(BulkDeletionEntityKind.Image)]
     [InlineData(BulkDeletionEntityKind.Audio)]
     [InlineData(BulkDeletionEntityKind.Text)]
@@ -324,6 +355,7 @@ public sealed class CleanServiceMemoryTests
             await using var provider = services.BuildServiceProvider();
             var (hostType, ratingHostType, customFieldType, deletedEvent) = kind switch
             {
+                BulkDeletionEntityKind.Video => (AffinityHostType.Video, RatingHostType.Video, CustomFieldEntityTypes.Video, EventType.VideoDeleted),
                 BulkDeletionEntityKind.Image => (AffinityHostType.Image, RatingHostType.Image, CustomFieldEntityTypes.Image, EventType.ImageDeleted),
                 BulkDeletionEntityKind.Audio => (AffinityHostType.Audio, RatingHostType.Audio, CustomFieldEntityTypes.Audio, EventType.AudioDeleted),
                 BulkDeletionEntityKind.Text => (AffinityHostType.Text, RatingHostType.Text, CustomFieldEntityTypes.Text, EventType.TextDeleted),
@@ -347,6 +379,7 @@ public sealed class CleanServiceMemoryTests
                     await File.WriteAllBytesAsync(Path.Combine(root, $"{name}.bin"), [1], TestContext.Current.CancellationToken);
                     entities.Add(kind switch
                     {
+                        BulkDeletionEntityKind.Video => new Video { Title = name, Files = [new VideoFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
                         BulkDeletionEntityKind.Image => new Image { Title = name, Files = [new ImageFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
                         BulkDeletionEntityKind.Audio => new Audio { Title = name, Files = [new AudioFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
                         BulkDeletionEntityKind.Text => new TextDocument { Title = name, Files = [new TextFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
@@ -415,6 +448,7 @@ public sealed class CleanServiceMemoryTests
 
     private static Task<List<int>> RemainingIdsAsync(CoveContext db, BulkDeletionEntityKind kind) => kind switch
     {
+        BulkDeletionEntityKind.Video => db.Videos.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
         BulkDeletionEntityKind.Image => db.Images.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
         BulkDeletionEntityKind.Audio => db.Audios.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
         BulkDeletionEntityKind.Text => db.TextDocuments.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
@@ -455,21 +489,29 @@ public sealed class CleanServiceMemoryTests
         }
     }
 
-    private sealed class ChosenImageDeleteFailure : SaveChangesInterceptor
+    private interface IChosenDeleteFailure
+    {
+        bool Armed { get; set; }
+        int? FailedId { get; }
+        int Failures { get; }
+    }
+
+    private sealed class ChosenDeleteFailure<TEntity> : SaveChangesInterceptor, IChosenDeleteFailure
+        where TEntity : BaseEntity
     {
         public bool Armed { get; set; }
-        public int? FailedImageId { get; private set; }
+        public int? FailedId { get; private set; }
         public int Failures { get; private set; }
 
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            // Fails every save that deletes the chosen image: first the page's shared save, then that image's own.
+            // Fails every save that deletes the chosen entity: first the page's shared save, then that entity's own.
             if (Armed
-                && eventData.Context!.ChangeTracker.Entries<Image>().FirstOrDefault(entry => entry.State == EntityState.Deleted
-                    && (FailedImageId is null || entry.Entity.Id == FailedImageId)) is { } deleted)
+                && eventData.Context!.ChangeTracker.Entries<TEntity>().FirstOrDefault(entry => entry.State == EntityState.Deleted
+                    && (FailedId is null || entry.Entity.Id == FailedId)) is { } deleted)
             {
-                FailedImageId = deleted.Entity.Id;
+                FailedId = deleted.Entity.Id;
                 Failures++;
                 throw new DbUpdateException("Injected save failure");
             }

@@ -367,18 +367,22 @@ public sealed class BulkEntityDeletionService(
         return deleted;
     }
 
-    /// <summary>Kinds whose deletion is one staged save, so several entities can share that save.</summary>
+    /// <summary>Kinds whose deletion is one transaction that several entities can share.</summary>
     public static bool SupportsBatchDeletion(BulkDeletionEntityKind kind)
-        => kind is BulkDeletionEntityKind.Image
+        => kind is BulkDeletionEntityKind.Video
+            or BulkDeletionEntityKind.Image
             or BulkDeletionEntityKind.Audio
             or BulkDeletionEntityKind.Text
             or BulkDeletionEntityKind.Gallery;
 
     /// <summary>
-    /// Deletes several entities of one kind with one staged save, so the queries and the transaction are paid
+    /// Deletes several entities of one kind in one transaction, so the queries and the transaction are paid
     /// per batch instead of per entity. Every entity gets what <see cref="DeleteAsync"/> gives it: the same
     /// dependent rows staged with it, the same durable outbox rows for its files, the same post-commit cleanup
-    /// and its own Deleted event. The deletes are all-or-nothing. When they fail nothing was deleted, the change
+    /// and its own Deleted event. Videos take their descendants with them and lock the whole scope, as a
+    /// single video deletion does; the descendants get their events but are not part of the result, and one
+    /// video in the scope that the principal may not delete refuses the whole batch. The deletes are
+    /// all-or-nothing. When they fail nothing was deleted, the change
     /// tracker is cleared and the exception propagates; the caller then deletes the entities one at a time,
     /// which isolates a failing entity and resolves a deletion race the way a single deletion does.
     /// </summary>
@@ -390,11 +394,33 @@ public sealed class BulkEntityDeletionService(
         bool deleteFiles,
         bool deleteGenerated,
         CancellationToken ct,
-        bool publishEvent = true)
+        bool publishEvent = true,
+        CovePrincipal? authorizationPrincipal = null)
     {
         var batchIds = ids.Where(id => id > 0).Distinct().ToArray();
         if (batchIds.Length == 0)
             return [];
+
+        if (kind == BulkDeletionEntityKind.Video)
+        {
+            int[] deletedVideoIds;
+            try
+            {
+                deletedVideoIds = await DeleteVideosAsync(batchIds, executionContext, deleteFiles, deleteGenerated, authorizationPrincipal, ct);
+            }
+            catch
+            {
+                // Rows staged before the failure would otherwise be replayed by this context's next save.
+                db.ChangeTracker.Clear();
+                throw;
+            }
+            if (publishEvent)
+            {
+                foreach (var videoId in deletedVideoIds)
+                    PublishDeleted(kind, videoId);
+            }
+            return deletedVideoIds;
+        }
 
         StagedBatchDeletion staged;
         try
@@ -528,105 +554,143 @@ public sealed class BulkEntityDeletionService(
         bool deleteGenerated,
         CovePrincipal? authorizationPrincipal,
         CancellationToken ct)
+        => (await DeleteVideosAsync([id], context, deleteFiles, deleteGenerated, authorizationPrincipal, ct)).Length > 0;
+
+    /// <summary>
+    /// Deletes the given videos and all of their descendants in one serializable transaction that locks the
+    /// whole scope first. All-or-nothing: an exception means nothing was deleted, unless the database could
+    /// not be reached to confirm a commit whose acknowledgement was lost.
+    /// </summary>
+    /// <returns>The given videos that were deleted. One that no longer exists is left out.</returns>
+    private async Task<int[]> DeleteVideosAsync(
+        int[] rootIds,
+        BulkDeletionExecutionContext context,
+        bool deleteFiles,
+        bool deleteGenerated,
+        CovePrincipal? authorizationPrincipal,
+        CancellationToken ct)
     {
         VideoDeletionResult? committedDeletion = null;
         var executionStrategy = db.Database.CreateExecutionStrategy();
-        var deleted = await executionStrategy.ExecuteAsync(async () =>
+        bool deleted;
+        try
         {
-            db.ChangeTracker.Clear();
-            if (committedDeletion is not null
-                && await db.VideoDeletionCommitMarkers.AsNoTracking().AnyAsync(
-                    marker => marker.BatchId == context.PhysicalDeletionBatchId && marker.VideoId == id,
-                    ct))
+            deleted = await executionStrategy.ExecuteAsync(async () =>
             {
-                // Commit can succeed even when the provider loses its acknowledgement. The captured
-                // result and transaction marker let the retry verify that exact operation and still
-                // run every post-commit step.
-                return true;
-            }
-
-            var blobReferenceTransaction = blobReferenceTransactions is null
-                ? null
-                : await blobReferenceTransactions.BeginAsync(db, ct);
-            try
-            {
-                await using var transaction = db.Database.IsRelational()
-                    ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
-                    : null;
-                var scopeIds = await VideoHierarchyQueries.ExpandAndLockDeletionScopeAsync(db, [id], ct);
-                if (!scopeIds.Contains(id))
-                    return false;
-
-                var videos = await db.Videos
-                    .IgnoreQueryFilters()
-                    .Include(item => item.Files)
-                    .Where(item => scopeIds.Contains(item.Id))
-                    .ToArrayAsync(ct);
-                if (!videos.Any(video => video.Id == id))
-                    return false;
-                await AuthorizeVideoDeletionScopeAsync(authorizationPrincipal, scopeIds, ct);
-                await VideoHierarchyQueries.ReleasePrimaryFilesBeforeDeletionAsync(db, videos, ct);
-                var videoIds = videos.Select(video => video.Id).ToArray();
-                var descendantIds = scopeIds.Where(videoId => videoId != id).ToArray();
-                var physicalPaths = deleteFiles
-                    ? videos.SelectMany(item => item.Files).Select(file => file.Path).ToArray()
-                    : [];
-                var allFiles = videos.SelectMany(item => item.Files).ToArray();
-                if (allFiles.Length > 0)
-                    db.VideoFiles.RemoveRange(allFiles);
-
-                var hostCleanups = new List<EntityHostDependencyCleanup>(videos.Length);
-                foreach (var deletedVideo in videos)
+                db.ChangeTracker.Clear();
+                if (committedDeletion is not null && await HasCommitMarkerAsync(context, committedDeletion, ct))
                 {
-                    hostCleanups.Add(await _hostDependencies.StageDeleteAsync(AffinityHostType.Video, deletedVideo.Id, ct));
-                    await customFields.StageDeleteValuesForEntityAsync(CustomFieldEntityTypes.Video, deletedVideo.Id, ct);
+                    // Commit can succeed even when the provider loses its acknowledgement. The captured
+                    // result and transaction marker let the retry verify that exact operation and still
+                    // run every post-commit step.
+                    return true;
                 }
 
-                var blobIds = videos
-                    .Select(item => item.ImageBlobId)
-                    .Where(blobId => !string.IsNullOrWhiteSpace(blobId))
-                    .Cast<string>()
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                // Assign before SaveChanges/Commit so an ambiguous commit retry can recover the exact
-                // post-commit work even though the entity rows are no longer available to query.
-                committedDeletion = new VideoDeletionResult(
-                    videoIds,
-                    descendantIds,
-                    physicalPaths,
-                    blobIds,
-                    [.. hostCleanups]);
-                db.Videos.RemoveRange(videos);
-                db.VideoDeletionCommitMarkers.Add(new VideoDeletionCommitMarker
+                var blobReferenceTransaction = blobReferenceTransactions is null
+                    ? null
+                    : await blobReferenceTransactions.BeginAsync(db, ct);
+                try
                 {
-                    BatchId = context.PhysicalDeletionBatchId,
-                    VideoId = id,
-                });
-                context.StagePhysicalFiles(db, physicalPaths);
-                await db.SaveChangesAsync(ct);
-                if (transaction is not null)
-                    await transaction.CommitAsync(ct);
-                if (blobReferenceTransaction is not null)
-                    await blobReferenceTransaction.CompleteAsync();
-                return true;
-            }
-            finally
+                    await using var transaction = db.Database.IsRelational()
+                        ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                        : null;
+                    var scopeIds = await VideoHierarchyQueries.ExpandAndLockDeletionScopeAsync(db, rootIds, ct);
+                    if (scopeIds.Length == 0)
+                        return false;
+
+                    var videos = await db.Videos
+                        .IgnoreQueryFilters()
+                        .Include(item => item.Files)
+                        .Where(item => scopeIds.Contains(item.Id))
+                        .ToArrayAsync(ct);
+                    var videoIds = videos.Select(video => video.Id).ToArray();
+                    var loadedIds = videoIds.ToHashSet();
+                    var deletedRootIds = rootIds.Where(loadedIds.Contains).ToArray();
+                    if (deletedRootIds.Length == 0)
+                        return false;
+                    await AuthorizeVideoDeletionScopeAsync(authorizationPrincipal, scopeIds, ct);
+                    await VideoHierarchyQueries.ReleasePrimaryFilesBeforeDeletionAsync(db, videos, ct);
+                    // A given video that is also a descendant of another given video counts as given.
+                    var descendantIds = videoIds.Except(deletedRootIds).ToArray();
+                    var physicalPaths = deleteFiles
+                        ? videos.SelectMany(item => item.Files).Select(file => file.Path).ToArray()
+                        : [];
+                    var allFiles = videos.SelectMany(item => item.Files).ToArray();
+                    if (allFiles.Length > 0)
+                        db.VideoFiles.RemoveRange(allFiles);
+
+                    var hostCleanup = await _hostDependencies.StageDeleteAsync(AffinityHostType.Video, videoIds, ct);
+                    await customFields.StageDeleteValuesForEntitiesAsync(CustomFieldEntityTypes.Video, videoIds, ct);
+
+                    var blobIds = videos
+                        .Select(item => item.ImageBlobId)
+                        .Where(blobId => !string.IsNullOrWhiteSpace(blobId))
+                        .Cast<string>()
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    // Assign before SaveChanges/Commit so an ambiguous commit retry can recover the exact
+                    // post-commit work even though the entity rows are no longer available to query.
+                    committedDeletion = new VideoDeletionResult(
+                        deletedRootIds,
+                        MarkerVideoId: deletedRootIds[0],
+                        videoIds,
+                        descendantIds,
+                        physicalPaths,
+                        blobIds,
+                        hostCleanup);
+                    db.Videos.RemoveRange(videos);
+                    // One marker proves the whole transaction. It is keyed by a video this transaction deletes, and
+                    // ids are not reused, so no other deletion that shares the batch id can write the same marker
+                    // unless it deletes that same video, which calls on one execution context must not overlap on.
+                    db.VideoDeletionCommitMarkers.Add(new VideoDeletionCommitMarker
+                    {
+                        BatchId = context.PhysicalDeletionBatchId,
+                        VideoId = committedDeletion.MarkerVideoId,
+                    });
+                    context.StagePhysicalFiles(db, physicalPaths);
+                    await db.SaveChangesAsync(ct);
+                    if (transaction is not null)
+                        await transaction.CommitAsync(ct);
+                    if (blobReferenceTransaction is not null)
+                        await blobReferenceTransaction.CompleteAsync();
+                    return true;
+                }
+                finally
+                {
+                    if (blobReferenceTransaction is not null)
+                        await blobReferenceTransaction.DisposeAsync();
+                }
+            });
+        }
+        catch (Exception ex) when (committedDeletion is not null)
+        {
+            // The last attempt may have committed without the retries being able to confirm it. Rethrowing
+            // then would report "nothing deleted" for videos that are gone and skip their cleanup and events,
+            // so look for the marker once more before giving up.
+            db.ChangeTracker.Clear();
+            bool committed;
+            try
             {
-                if (blobReferenceTransaction is not null)
-                    await blobReferenceTransaction.DisposeAsync();
+                committed = await HasCommitMarkerAsync(context, committedDeletion, CancellationToken.None);
             }
-        });
+            catch (Exception probeException)
+            {
+                logger?.LogWarning(probeException, "Could not confirm whether a deletion of {Count} videos committed after it failed.", committedDeletion.VideoIds.Length);
+                committed = false;
+            }
+            if (!committed)
+                throw;
+            logger?.LogWarning(ex, "A deletion of {Count} videos reported a failure after it had committed; completing its cleanup.", committedDeletion.VideoIds.Length);
+            deleted = true;
+        }
 
         if (!deleted || committedDeletion is null)
-            return false;
+            return [];
 
         foreach (var path in committedDeletion.PhysicalPaths)
             context.TrackPhysicalFile(path);
-        foreach (var hostCleanup in committedDeletion.HostCleanups)
-            InvalidateSegmentCaches(hostCleanup);
-        await CleanupDependencyBlobsBestEffortAsync(
-            committedDeletion.HostCleanups.SelectMany(cleanup => cleanup.BlobIds),
-            ct);
+        InvalidateSegmentCaches(committedDeletion.HostCleanup);
+        await CleanupDependencyBlobsBestEffortAsync(committedDeletion.HostCleanup.BlobIds, ct);
 
         if (deleteGenerated)
         {
@@ -648,18 +712,27 @@ public sealed class BulkEntityDeletionService(
             PublishDeleted(BulkDeletionEntityKind.Video, descendantId);
         try
         {
+            var markerVideoId = committedDeletion.MarkerVideoId;
             await db.VideoDeletionCommitMarkers
-                .Where(marker => marker.BatchId == context.PhysicalDeletionBatchId && marker.VideoId == id)
+                .Where(marker => marker.BatchId == context.PhysicalDeletionBatchId && marker.VideoId == markerVideoId)
                 .ExecuteDeleteAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
             // Batch ids are unique per queued job, so an orphaned proof cannot be mistaken for a
             // future operation. Keep successful deletion and cleanup outcomes even if pruning fails.
-            logger?.LogWarning(ex, "Video {VideoId} was deleted, but its commit marker could not be removed.", id);
+            logger?.LogWarning(ex, "Videos {VideoIds} were deleted, but their commit marker could not be removed.", committedDeletion.RootIds);
         }
-        return true;
+        return committedDeletion.RootIds;
     }
+
+    private Task<bool> HasCommitMarkerAsync(
+        BulkDeletionExecutionContext context,
+        VideoDeletionResult deletion,
+        CancellationToken ct)
+        => db.VideoDeletionCommitMarkers.AsNoTracking().AnyAsync(
+            marker => marker.BatchId == context.PhysicalDeletionBatchId && marker.VideoId == deletion.MarkerVideoId,
+            ct);
 
     private async Task AuthorizeVideoDeletionScopeAsync(
         CovePrincipal? principal,
@@ -1093,11 +1166,13 @@ public sealed class BulkEntityDeletionService(
     private readonly record struct FaceDeletionCoreResult(bool Deleted, string? CoverBlobId);
     private readonly record struct ClearedFaceRunEvidence(DetectionHostType HostType, int HostId, string ModelKey);
     private sealed record VideoDeletionResult(
+        int[] RootIds,
+        int MarkerVideoId,
         int[] VideoIds,
         int[] DescendantIds,
         string[] PhysicalPaths,
         string[] BlobIds,
-        EntityHostDependencyCleanup[] HostCleanups);
+        EntityHostDependencyCleanup HostCleanup);
 
     private async Task CleanupBlobBestEffortAsync(string blobId, bool deleteGenerated, CancellationToken ct)
     {
