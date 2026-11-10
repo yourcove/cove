@@ -1,5 +1,6 @@
 using Cove.Api.Services;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
@@ -8,7 +9,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
 using Cove.Plugins;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
@@ -36,13 +37,15 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DurableOutboxDeletesAnUnreferencedFileAndClearsItsRow()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-outbox-{Guid.NewGuid():N}.jpg");
         await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
-            await using var db = CreateContext();
+            await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            await using var db = CreateContext(database);
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -62,19 +65,16 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ConcurrentOutboxDrainsSerializeFetchDeleteAndAcknowledgement()
     {
-        var databaseName = $"DeletionOutboxOverlap-{Guid.NewGuid():N}";
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source={databaseName};Mode=Memory;Cache=Shared")
-            .Options;
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions();
         var path = Path.Combine(Path.GetTempPath(), $"cove-outbox-overlap-{Guid.NewGuid():N}.jpg");
         await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
             await using var anchor = new CoveContext(options);
-            await anchor.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-            await anchor.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var staged = new BulkDeletionExecutionContext();
             staged.StagePhysicalFiles(anchor, [path]);
             await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -107,20 +107,17 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ReferenceAddedByAReaderBeforeWriterEntryProtectsTheFile()
     {
-        var databaseName = $"DeletionReferenceRace-{Guid.NewGuid():N}";
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source={databaseName};Mode=Memory;Cache=Shared")
-            .Options;
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions();
         var path = Path.Combine(Path.GetTempPath(), $"cove-reference-race-{Guid.NewGuid():N}.jpg");
         await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         var coordinator = new PhysicalFileAccessCoordinator();
         try
         {
             await using var anchor = new CoveContext(options);
-            await anchor.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-            await anchor.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var deletionContext = new BulkDeletionExecutionContext();
             deletionContext.StagePhysicalFiles(anchor, [path]);
             await anchor.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -146,7 +143,7 @@ public sealed class DeletionSafetyTests
             }
             reader.Dispose();
 
-            var result = await deletionTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            var result = await deletionTask.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.Equal(0, result.Deleted);
             Assert.Equal(0, result.Failed);
             Assert.True(File.Exists(path));
@@ -159,13 +156,15 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DurableOutboxPreservesAReplacementAtTheSamePath()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-replacement-{Guid.NewGuid():N}.jpg");
         await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
         try
         {
-            await using var db = CreateContext();
+            await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            await using var db = CreateContext(database);
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -186,12 +185,14 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DurableOutboxPreservesAFileCreatedAfterAnAbsentPathWasStaged()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-late-file-{Guid.NewGuid():N}.jpg");
         try
         {
-            await using var db = CreateContext();
+            await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            await using var db = CreateContext(database);
             var context = new BulkDeletionExecutionContext();
             context.StagePhysicalFiles(db, [path]);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -212,6 +213,7 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SingleImageDeletionDoesNotWaitForAnActiveProducerLease()
     {
         var path = Path.Combine(Path.GetTempPath(), $"cove-single-delete-{Guid.NewGuid():N}.jpg");
@@ -220,7 +222,8 @@ public sealed class DeletionSafetyTests
         using var activeProducer = await coordinator.AcquireReadAsync(CancellationToken.None);
         try
         {
-            await using var db = CreateContext();
+            await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            await using var db = CreateContext(database);
             var image = new Image
             {
                 Title = "Single deletion during scan",
@@ -246,14 +249,14 @@ public sealed class DeletionSafetyTests
                 physicalFileDeletionRecoverySignal: signal);
 
             Assert.True(await deletion.DeleteAsync(image.Id, deleteFile: true, deleteGenerated: false, ct: TestContext.Current.CancellationToken)
-                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
             Assert.True(File.Exists(path));
             Assert.Single(await db.PendingPhysicalFileDeletions.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
 
             activeProducer.Dispose();
             var physicalResult = await new PhysicalFileDeletionService(db, coordinator)
                 .ProcessPendingAsync(batchId: null, maxParallelism: 1, CancellationToken.None)
-                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.Equal(1, physicalResult.Deleted);
             Assert.False(File.Exists(path));
         }
@@ -271,10 +274,42 @@ public sealed class DeletionSafetyTests
             PhysicalFileDeletionService.NormalizeCaseInsensitivePath("a/folder/ß.JPG"));
     }
 
+    // The outbox tests need a database; this keeps the identity check they rely on running without one, on the
+    // forward-slash path form the outbox stores.
     [Fact]
+    public async Task StagedFileIdentityDoesNotMatchAReplacementOrAFileCreatedLater()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-identity-{Guid.NewGuid():N}.jpg");
+        var storedPath = FilesystemPaths.ToStoredPath(path);
+        try
+        {
+            var absent = PhysicalFileIdentitySnapshot.Capture(storedPath);
+            Assert.True(absent.Captured);
+            Assert.False(absent.Exists);
+
+            await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+            var staged = PhysicalFileIdentitySnapshot.Capture(storedPath);
+            Assert.True(staged.Captured);
+            Assert.True(staged.Exists);
+            Assert.Equal(3, staged.Length);
+            Assert.NotEqual(absent, staged);
+            Assert.Equal(staged, PhysicalFileIdentitySnapshot.Capture(storedPath));
+
+            await File.WriteAllBytesAsync(path, [9, 8, 7, 6], TestContext.Current.CancellationToken);
+            Assert.NotEqual(staged, PhysicalFileIdentitySnapshot.Capture(storedPath));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    [RequiresPostgres]
     public async Task PerformerCleanupIncludesContextAndNestedSegmentDependencies()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var performer = new Performer { Name = "Disposable performer" };
         var tag = new Tag { Name = "Disposable metadata tag" };
         var group = new Group { Name = "Segment container" };
@@ -335,10 +370,12 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task HostCleanupIgnoresUnrelatedEmbeddingAndAiRunReadPermissions()
     {
         var principalAccessor = new CurrentPrincipalAccessor();
-        await using var db = CreateContext(principalAccessor);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, principalAccessor);
         var video = new Video { Title = "Authorized deletion target" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -369,6 +406,12 @@ public sealed class DeletionSafetyTests
             Permissions = new HashSet<string> { Permissions.VideosRead, Permissions.VideosDelete },
             Roles = new HashSet<string>(),
         });
+        // The deleter cannot read the embedding or the run, so cleanup must find them past the authorization filters.
+        Assert.True(await db.Videos.AnyAsync(item => item.Id == video.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.Embeddings.AnyAsync(TestContext.Current.CancellationToken));
+        Assert.False(await db.AiRuns.AnyAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.Embeddings.IgnoreQueryFilters().ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.AiRuns.IgnoreQueryFilters().ToListAsync(TestContext.Current.CancellationToken));
 
         await new EntityHostDependencyService(db)
             .StageDeleteAsync(AffinityHostType.Video, video.Id, CancellationToken.None);
@@ -379,9 +422,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ParentVideoDeletionCleansDescendantDependenciesAndPublishesTheirEvents()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var root = new Video { Title = "Parent" };
         var child = new Video { Title = "Child", ParentVideo = root };
         var grandchild = new Video { Title = "Grandchild", ParentVideo = child };
@@ -470,9 +515,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoDeletionRemovesVideosTogetherWithTheirPrimaryFiles()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var folder = new Folder { Path = "/library" };
         var root = new Video { Title = "Parent", Files = [new VideoFile { ParentFolder = folder, Basename = "parent.mp4" }] };
         var child = new Video { Title = "Child", ParentVideo = root, Files = [new VideoFile { ParentFolder = folder, Basename = "child.mp4" }] };
@@ -508,10 +555,10 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoDeletionCompletesPostCommitWorkAfterAnAmbiguousCommit()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
         var services = new ServiceCollection();
         services.AddLogging();
@@ -519,7 +566,7 @@ public sealed class DeletionSafetyTests
         services.AddScoped<BlobReferenceTransactionCoordinator>();
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
         services.AddDbContext<CoveContext>((provider, options) =>
-            options.UseSqlite(connection)
+            database.Configure(options)
                 .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
                 .AddInterceptors(
                     provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>(),
@@ -527,7 +574,6 @@ public sealed class DeletionSafetyTests
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var video = new Video { Title = "Video with artwork", ImageBlobId = "video-artwork" };
         db.Videos.Add(video);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -567,23 +613,16 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task RolledBackVideoDeletionDoesNotUseAConcurrentRootDeletionAsCommitProof()
     {
-        var databaseName = $"video-delete-rollback-{Guid.NewGuid():N}";
-        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
-        await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var preCommitFailure = new PreCommitFailureInterceptor();
-        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
+        var retryingOptions = database.CreateOptions(builder => builder
             .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .AddInterceptors(preCommitFailure)
-            .Options;
-        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
-            .Options;
+            .AddInterceptors(preCommitFailure));
+        var ordinaryOptions = database.CreateOptions();
         await using var db = new CoveContext(retryingOptions);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var root = new Video { Title = "Deletion attempt that rolls back" };
         var child = new Video { Title = "Reparented during retry", ParentVideo = root };
         db.AddRange(root, child);
@@ -632,9 +671,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoDeletionJobCollapsesSelectedDescendantsIntoTheirSelectedRoot()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var root = new Video { Title = "Selected parent" };
         var child = new Video { Title = "Selected child", ParentVideo = root };
         var grandchild = new Video { Title = "Selected grandchild", ParentVideo = child };
@@ -651,9 +692,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GalleryDeletionRemovesFileRowsAndOnlyCleansUnsharedBlobs()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var gallery = new Gallery
         {
             Title = "Disposable gallery",
@@ -701,9 +744,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagDeletionInvalidatesAffectedVideoSegmentCachesAfterCommit()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var tag = new Tag { Name = "Timeline tag" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -741,9 +786,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagDeletionReturnsAConflictBeforeRemovingATagWithRestrictedExtensionReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var tag = new Tag { Name = "Extension-referenced tag" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -870,10 +917,12 @@ public sealed class DeletionSafetyTests
     [InlineData(BulkDeletionEntityKind.Audio)]
     [InlineData(BulkDeletionEntityKind.Text)]
     [InlineData(BulkDeletionEntityKind.Image)]
+    [RequiresPostgres]
     public async Task DeletionThatLosesARaceReportsNotFoundAndLeavesTheContextUsable(BulkDeletionEntityKind kind)
     {
         var concurrentDelete = new ConcurrentRowDeleteInterceptor();
-        await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: concurrentDelete);
         var folder = new Folder { Path = "/race", ModTime = DateTime.UtcNow };
         var lost = CreateRaceTarget(kind, "lost", folder);
         var next = CreateRaceTarget(kind, "next", folder);
@@ -967,10 +1016,12 @@ public sealed class DeletionSafetyTests
     };
 
     [Fact]
+    [RequiresPostgres]
     public async Task DeletionWhoseFollowUpCountSaveConflictsStillReportsTheCommittedDelete()
     {
         var concurrentDelete = new ConcurrentRowDeleteInterceptor();
-        await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: concurrentDelete);
         var tag = new Tag { Name = "Counted" };
         var performer = new Performer { Name = "Target", ImageBlobId = "followup-artwork" };
         performer.PerformerTags.Add(new PerformerTag { Tag = tag });
@@ -1023,10 +1074,12 @@ public sealed class DeletionSafetyTests
     [InlineData(BulkDeletionEntityKind.Audio)]
     [InlineData(BulkDeletionEntityKind.Text)]
     [InlineData(BulkDeletionEntityKind.Image)]
+    [RequiresPostgres]
     public async Task DeletionRetriesWhenAStagedTagApplicationDisappears(BulkDeletionEntityKind kind)
     {
         var concurrentDelete = new ConcurrentRowDeleteInterceptor();
-        await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: concurrentDelete);
         var target = CreateRaceTarget(kind, "target", new Folder { Path = "/race", ModTime = DateTime.UtcNow });
         var applied = new Tag { Name = "Applied" };
         db.AddRange(target, applied);
@@ -1072,10 +1125,12 @@ public sealed class DeletionSafetyTests
     [InlineData(BulkDeletionEntityKind.Audio)]
     [InlineData(BulkDeletionEntityKind.Text)]
     [InlineData(BulkDeletionEntityKind.Image)]
+    [RequiresPostgres]
     public async Task DeletionRetriesWhenAScanRemovesItsFileRowFirst(BulkDeletionEntityKind kind)
     {
         var concurrentDelete = new ConcurrentRowDeleteInterceptor();
-        await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: concurrentDelete);
         var target = CreateRaceTarget(kind, "target", new Folder { Path = "/race", ModTime = DateTime.UtcNow });
         db.Add(target);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1101,10 +1156,12 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StudioDeletionRethrowsWhenItsDependentsKeepChanging()
     {
         var concurrentDelete = new ConcurrentRowDeleteInterceptor();
-        await using var db = CreateContext(saveChangesInterceptor: concurrentDelete);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: concurrentDelete);
         var tag = new Tag { Name = "Applied" };
         var studio = new Studio { Name = "Survivor" };
         var next = new Studio { Name = "Next" };
@@ -1163,10 +1220,12 @@ public sealed class DeletionSafetyTests
     [Theory]
     [InlineData(PostgresErrorCodes.RestrictViolation)]
     [InlineData(PostgresErrorCodes.ForeignKeyViolation)]
+    [RequiresPostgres]
     public async Task TagDeletionMapsLatePostgresReferenceFailuresToASafeConflict(string sqlState)
     {
         var saveFailure = new PostgresSaveFailureInterceptor(sqlState);
-        await using var db = CreateContext(saveChangesInterceptor: saveFailure);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: saveFailure);
         var tag = new Tag { Name = "Late extension reference" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1200,10 +1259,12 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagDeletionDoesNotHideAnUnrelatedPostgresFailure()
     {
         var saveFailure = new PostgresSaveFailureInterceptor(PostgresErrorCodes.SerializationFailure);
-        await using var db = CreateContext(saveChangesInterceptor: saveFailure);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database, saveChangesInterceptor: saveFailure);
         var tag = new Tag { Name = "Unrelated database failure" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1234,9 +1295,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TagDeletionAllowsExtensionReferencesWithDatabaseManagedCleanup()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var tag = new Tag { Name = "Cascade-referenced tag" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1273,9 +1336,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MissingTagDeletionSkipsExternalReferenceInspection()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var customFields = new CustomFieldService(db);
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
@@ -1311,9 +1376,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task UninspectableTagReferencesExplainHowToRestoreAccess()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
         var tag = new Tag { Name = "Uninspectable extension reference" };
         db.Tags.Add(tag);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -1359,18 +1426,16 @@ public sealed class DeletionSafetyTests
     }
 
     private static CoveContext CreateContext(
+        CovePostgresDatabase database,
         ICurrentPrincipalAccessor? principalAccessor = null,
         SaveChangesInterceptor? saveChangesInterceptor = null)
     {
-        var optionsBuilder = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:");
-        if (saveChangesInterceptor is not null)
-            optionsBuilder.AddInterceptors(saveChangesInterceptor);
-        var options = optionsBuilder.Options;
-        var context = new CoveContext(options, principalAccessor);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
+        var options = database.CreateOptions(builder =>
+        {
+            if (saveChangesInterceptor is not null)
+                builder.AddInterceptors(saveChangesInterceptor);
+        });
+        return new CoveContext(options, principalAccessor);
     }
 
     private sealed class ConcurrentRowDeleteInterceptor : SaveChangesInterceptor

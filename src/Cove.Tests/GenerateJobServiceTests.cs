@@ -4,6 +4,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -160,11 +161,13 @@ public class GenerateJobServiceTests
     [InlineData(true, false, 1)]
     [InlineData(true, true, 0)]
     [InlineData(false, false, 0)]
+    [RequiresPostgres]
     public async Task Start_MakesStereoscopicVrAssetsOnlyWhenAskedAndOnlyForVrVideos(
         bool vrStereo,
         bool flatVideo,
         int expectedRequests)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -172,9 +175,7 @@ public class GenerateJobServiceTests
         {
             await File.WriteAllBytesAsync(Path.Combine(tempRoot, "vr.mp4"), [1], TestContext.Current.CancellationToken);
 
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
+            var dbOptions = database.CreateOptions();
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(dbOptions));
             await using var provider = services.BuildServiceProvider();
@@ -241,6 +242,7 @@ public class GenerateJobServiceTests
     // Face segments are made only when chosen; "" stands for segments without a kind.
     [InlineData(true, "FACE", false, false, false, new[] { 120d })]
     [InlineData(true, ",face", false, false, false, new[] { 10d, 100d, 120d })]
+    [RequiresPostgres]
     public async Task Start_MakesStartFramesForSegmentsWithoutChosenCovers(
         bool segmentCovers,
         string? kinds,
@@ -249,12 +251,13 @@ public class GenerateJobServiceTests
         bool framesFail,
         double[] expectedSeconds)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            await using var library = await SeedSegmentCoverLibraryAsync(database, tempRoot);
             var (sourceId, sourceFileId, clipId) = (library.SourceId, library.SourceFileId, library.ClipId);
             var jobs = new CapturingJobService();
             var thumbnails = new CapturingThumbnailService(tempRoot) { OnThumbnailFromFile = seconds => seconds == null || !framesFail };
@@ -288,14 +291,16 @@ public class GenerateJobServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [RequiresPostgres]
     public async Task EstimateAsync_CountsWhatAScopeHoldsAndWhatIsStillMissing(bool selectClipOnly)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            await using var library = await SeedSegmentCoverLibraryAsync(database, tempRoot);
             var thumbnails = new CapturingThumbnailService(tempRoot);
             await File.WriteAllBytesAsync(thumbnails.GetTimestampedThumbnailPath(library.SourceId, 30), [1], TestContext.Current.CancellationToken);
             await File.WriteAllBytesAsync(thumbnails.GetThumbnailPathForVideo(library.SourceId), [1], TestContext.Current.CancellationToken);
@@ -308,6 +313,8 @@ public class GenerateJobServiceTests
                 unreadable.Files.Single().Size = 5;
                 unreadable.Files.Single().SourceUnreadableAt = DateTime.UtcNow;
                 unreadable.Files.Single().SourceUnreadableSize = 5;
+                // Folder paths are unique, so the file goes in the folder the source video already uses.
+                unreadable.Files.Single().ParentFolder = await db.Folders.SingleAsync(folder => folder.Path == tempRoot, TestContext.Current.CancellationToken);
                 db.Videos.Add(unreadable);
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 unreadable.PrimaryFileId = 3;
@@ -361,14 +368,16 @@ public class GenerateJobServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task EstimateAsync_ScalesWhatASampleIsMissingToTheWholeScope()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            await using var library = await SeedSegmentCoverLibraryAsync(tempRoot);
+            await using var library = await SeedSegmentCoverLibraryAsync(database, tempRoot);
             var thumbnails = new CapturingThumbnailService(tempRoot);
             await using var scope = library.Provider.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -406,13 +415,11 @@ public class GenerateJobServiceTests
     }
 
     /// <summary>A 200 s source with a clip of it, and segments covering each case segment covers handle.</summary>
-    private static async Task<SegmentCoverLibrary> SeedSegmentCoverLibraryAsync(string tempRoot)
+    private static async Task<SegmentCoverLibrary> SeedSegmentCoverLibraryAsync(CovePostgresDatabase database, string tempRoot)
     {
         await File.WriteAllBytesAsync(Path.Combine(tempRoot, "source.mp4"), [1], TestContext.Current.CancellationToken);
 
-        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
+        var dbOptions = database.CreateOptions();
         var services = new ServiceCollection();
         services.AddScoped(_ => new CoveContext(dbOptions));
         var provider = services.BuildServiceProvider();
@@ -468,8 +475,10 @@ public class GenerateJobServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Start_PathScopedOverwrite_ReportsFailureForTheMatchingPrimaryFile()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generate-{Guid.NewGuid():N}");
         var originalRoot = Path.Combine(tempRoot, "original");
         var selectedRoot = Path.Combine(tempRoot, "selected");
@@ -481,9 +490,7 @@ public class GenerateJobServiceTests
             await File.WriteAllBytesAsync(Path.Combine(originalRoot, "first.mp4"), [1], TestContext.Current.CancellationToken);
             await File.WriteAllBytesAsync(Path.Combine(selectedRoot, "selected.mp4"), [2], TestContext.Current.CancellationToken);
 
-            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
+            var dbOptions = database.CreateOptions();
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(dbOptions));
             await using var provider = services.BuildServiceProvider();
@@ -547,13 +554,12 @@ public class GenerateJobServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [RequiresPostgres]
     public async Task ImageGenerationBoundsMaterializationAndAppliesSelectionBeforeLoadingFiles(bool scoped)
     {
         var guard = new GenerationMaterializationGuard();
-        var dbOptions = new DbContextOptionsBuilder<CoveContext>().UseSqlite("Data Source=:memory:").AddInterceptors(guard).Options;
-        await using var db = new CoveContext(dbOptions);
-        await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext(builder => builder.AddInterceptors(guard));
         var folder = new Folder { Path = "/generation/memory" };
         var images = Enumerable.Range(0, 601).Select(index => new Image
         {
@@ -590,15 +596,16 @@ public class GenerateJobServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoGenerationBatchesGraphsAndKeepsCountedUnitsWhenAssetsChange()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-generate-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
             var guard = new GenerationMaterializationGuard { EntityType = typeof(Video) };
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source={Path.Combine(root, "library.db")};Pooling=False").AddInterceptors(guard).Options;
+            var options = database.CreateOptions(builder => builder.AddInterceptors(guard));
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
             await using var provider = services.BuildServiceProvider();
@@ -606,7 +613,6 @@ public class GenerateJobServiceTests
             await using (var scope = provider.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var folder = new Folder { Path = Path.Combine(root, "missing-source") };
                 var videos = Enumerable.Range(0, 601).Select(index => new Video
                 {
