@@ -6,30 +6,27 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class DuplicateSearchControllerTests
 {
     [Fact]
     public async Task UpdateDuplicateSearchGroupDecision_UsesTheConfiguredExecutionStrategyAndMarksTheChoiceManual()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
+        var options = database.CreateOptions(builder => builder
             .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .AddInterceptors(commitAmbiguity)
-            .Options;
+            .AddInterceptors(commitAmbiguity));
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(options, principalAccessor);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
 
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
@@ -58,22 +55,14 @@ public sealed class DuplicateSearchControllerTests
     [Fact]
     public async Task KeeperDecisionRetryDoesNotOverwriteANewerChoice()
     {
-        var databaseName = $"keeper-retry-{Guid.NewGuid():N}";
-        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
-        await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
-        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
+        var retryingOptions = database.CreateOptions(builder => builder
             .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .AddInterceptors(commitAmbiguity)
-            .Options;
-        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
-            .Options;
+            .AddInterceptors(commitAmbiguity));
+        var ordinaryOptions = database.CreateOptions();
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(retryingOptions, principalAccessor);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
 
         commitAmbiguity.Arm(async () =>
@@ -108,22 +97,14 @@ public sealed class DuplicateSearchControllerTests
     [Fact]
     public async Task KeeperDecisionReturnsSuccessWhenTheGroupIsQueuedAfterItsCommittedChoice()
     {
-        var databaseName = $"keeper-queue-retry-{Guid.NewGuid():N}";
-        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
-        await using var anchor = new SqliteConnection(connectionString);
-        await anchor.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var commitAmbiguity = new CommitAmbiguityInterceptor();
-        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
+        var retryingOptions = database.CreateOptions(builder => builder
             .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .AddInterceptors(commitAmbiguity)
-            .Options;
-        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connectionString)
-            .Options;
+            .AddInterceptors(commitAmbiguity));
+        var ordinaryOptions = database.CreateOptions();
         var principalAccessor = CreatePrincipalAccessor();
         await using var db = new CoveContext(retryingOptions, principalAccessor);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var (search, group, keeper, unwanted) = await SeedCompletedSearchAsync(db);
         commitAmbiguity.Arm(async () =>
         {
@@ -154,8 +135,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task KeeperDecisionIsRejectedOnceTheGroupIsQueued()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (search, group, _, unwanted) = await SeedCompletedSearchAsync(db);
         await db.DuplicateSearchGroups.ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, DuplicateGroupStatus.Queued), cancellationToken: TestContext.Current.CancellationToken);
@@ -171,8 +152,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task ResolveQueuesOnlyGroupsWithSomethingToRemoveAndStartsOneWorker()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (search, groups, _) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
@@ -204,8 +185,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task ResolveStoresMetadataChoicesForOneGroupAndRejectsThemOtherwise()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (search, groups, _) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
@@ -241,8 +222,8 @@ public sealed class DuplicateSearchControllerTests
     [Fact]
     public async Task ResolveRejectsUnknownActionsAndFileDeletionWithoutPermission()
     {
-        var (connection, db) = await CreateDatabaseAsync(new CurrentPrincipalAccessor());
-        await using var __ = connection;
+        var (database, db) = await CreateDatabaseAsync(new CurrentPrincipalAccessor());
+        await using var __ = database;
         await using var ___ = db;
         var (search, _, _) = await DuplicateSearchJobTests.AddSearchAsync(db, [[(true, "a"), (false, "b")]], ownerKey: "user:1");
         var limited = new CurrentPrincipalAccessor();
@@ -267,8 +248,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task IgnoringAGroupRecordsEveryPairAndRestoringRemovesThem()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (search, groups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
@@ -298,8 +279,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task RestoringAnOverlappingGroupPreservesEarlierIgnoredPairs()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (firstSearch, firstGroups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
@@ -365,8 +346,8 @@ public sealed class DuplicateSearchControllerTests
     public async Task AutoSelectAppliesRulesButKeepsManualChoicesUnlessAskedToOverwrite()
     {
         var principalAccessor = CreatePrincipalAccessor();
-        var (connection, db) = await CreateDatabaseAsync(principalAccessor);
-        await using var _ = connection;
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
         await using var __ = db;
         var (search, groups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
@@ -419,17 +400,12 @@ public sealed class DuplicateSearchControllerTests
     /// The principal accessor is async-local, so callers must set the principal in the test method itself;
     /// a value set inside this helper would not flow back to the caller.
     /// </summary>
-    private static async Task<(SqliteConnection Connection, CoveContext Db)> CreateDatabaseAsync(CurrentPrincipalAccessor principalAccessor)
+    private static async Task<(CovePostgresDatabase Database, CoveContext Db)> CreateDatabaseAsync(CurrentPrincipalAccessor principalAccessor)
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-            .Options;
-        var db = new CoveContext(options, principalAccessor);
-        await db.Database.EnsureCreatedAsync();
-        return (connection, db);
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions(builder => builder
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>());
+        return (database, new CoveContext(options, principalAccessor));
     }
 
     private static VideosController CreateController(

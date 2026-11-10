@@ -5,8 +5,8 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -15,6 +15,7 @@ namespace Cove.Tests;
 public class EntityEngagementControllerTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task FavoriteAndRatingEndpoints_AreUserScopedForPerformerEntities()
     {
         await using var scope = await CreateContextAsync();
@@ -75,6 +76,7 @@ public class EntityEngagementControllerTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task GenericInteractionEndpoints_RecordAndQueryUserScopedHistory()
     {
         await using var scope = await CreateContextAsync();
@@ -206,33 +208,28 @@ public class EntityEngagementControllerTests
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
+        var ct = TestContext.Current.CancellationToken;
+        var database = await CovePostgresDatabase.CreateAsync(ct);
         var principalAccessor = new CurrentPrincipalAccessor();
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new EntityEngagementTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
-        context.Users.AddRange(
-            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
-            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
-        await context.SaveChangesAsync();
-        return new TestContextScope(context, connection, principalAccessor);
-    }
-
-    private sealed class EntityEngagementTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        var context = new CoveContext(database.CreateOptions(), principalAccessor);
+        var scope = new TestContextScope(context, database, principalAccessor);
+        try
         {
-            base.OnModelCreating(modelBuilder);
-
+            context.Users.AddRange(
+                new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+                new User { Id = 9, Username = "user-9", PasswordHash = "test" });
+            await context.SaveChangesAsync(ct);
+            await database.SyncIdentitySequencesAsync(ct);
+            return scope;
+        }
+        catch
+        {
+            await scope.DisposeAsync();
+            throw;
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
@@ -241,7 +238,7 @@ public class EntityEngagementControllerTests
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 }

@@ -9,14 +9,15 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class VideoEngagementControllerTests
 {
     [Fact]
@@ -30,7 +31,7 @@ public class VideoEngagementControllerTests
         context.TextDocuments.Add(new TextDocument { Title = "Liked Text" });
         context.Performers.Add(new Performer { Name = "Aggregate Performer" });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-        principalAccessor.Set(CreatePrincipal(7));
+        principalAccessor.Set(CreatePrincipal(7, Permissions.ImagesRead, Permissions.AudiosRead, Permissions.TextsRead, Permissions.PerformersRead));
         var service = new UserEngagementService(context, principalAccessor);
         var historicalAt = new DateTime(2022, 7, 3, 12, 0, 0, DateTimeKind.Utc);
 
@@ -397,47 +398,39 @@ public class VideoEngagementControllerTests
         return new PlaybackController(engagementService, principalAccessor);
     }
 
-    private static CovePrincipal CreatePrincipal(int userId) => new()
+    private static CovePrincipal CreatePrincipal(int userId, params string[] additionalPermissions) => new()
     {
         UserId = userId,
         Username = $"user-{userId}",
         Kind = PrincipalKind.User,
         Roles = new HashSet<string>(),
-        Permissions = new HashSet<string>
-        {
-            Permissions.VideosRead,
-        },
+        Permissions = new HashSet<string>([Permissions.VideosRead, .. additionalPermissions]),
     };
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
+        var ct = TestContext.Current.CancellationToken;
+        var database = await CovePostgresDatabase.CreateAsync(ct);
         var principalAccessor = new CurrentPrincipalAccessor();
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new VideoEngagementTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
-        context.Users.AddRange(
-            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
-            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
-        await context.SaveChangesAsync();
-        return new TestContextScope(context, connection, principalAccessor);
-    }
-
-    private sealed class VideoEngagementTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        var context = new CoveContext(database.CreateOptions(), principalAccessor);
+        var scope = new TestContextScope(context, database, principalAccessor);
+        try
         {
-            base.OnModelCreating(modelBuilder);
-
+            context.Users.AddRange(
+                new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+                new User { Id = 9, Username = "user-9", PasswordHash = "test" });
+            await context.SaveChangesAsync(ct);
+            await database.SyncIdentitySequencesAsync(ct);
+            return scope;
+        }
+        catch
+        {
+            await scope.DisposeAsync();
+            throw;
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
@@ -446,7 +439,7 @@ public class VideoEngagementControllerTests
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 

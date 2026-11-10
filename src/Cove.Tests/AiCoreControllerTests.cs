@@ -7,15 +7,16 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class AiCoreControllerTests
 {
     [Fact]
@@ -1051,25 +1052,8 @@ public class AiCoreControllerTests
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new AiCoreTestContext(options);
-        await context.Database.EnsureCreatedAsync();
-        return new TestContextScope(context, connection);
-    }
-
-    private sealed class AiCoreTestContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        return new TestContextScope(database.CreateContext(), database);
     }
 
     private sealed class TemporaryDirectory : IDisposable
@@ -1083,14 +1067,14 @@ public class AiCoreControllerTests
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 
