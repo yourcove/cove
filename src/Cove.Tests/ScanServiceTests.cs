@@ -8,6 +8,7 @@ using Cove.Core.Interfaces;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Data;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -637,6 +638,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsZeroByteVideoWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -662,6 +664,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsVideoRejectedByFfprobeWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -689,6 +692,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DefersRecentlyModifiedFileWithoutRunningProbeThenImportsItLater()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -699,7 +703,9 @@ public class ScanServiceTests
             var videoPath = Path.Combine(tempRoot, "recent.mp4");
             await WriteValidVideoAsync(videoPath);
             var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
-            await using var environment = await CreateBareEnvironmentAsync(tempRoot, probe, TimeProvider.System);
+            // The clock stands still at the file's modification time, so creating the environment cannot use up the quiet period.
+            var clock = new ManualTimeProvider(new DateTimeOffset(File.GetLastWriteTimeUtc(videoPath), TimeSpan.Zero));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot, probe, clock);
 
             environment.Service.StartScan();
 
@@ -711,7 +717,7 @@ public class ScanServiceTests
             Assert.Equal(0, probe.CallCount);
             Assert.Contains("1 unsettled file deferred", environment.JobService.LatestSubTask);
 
-            File.SetLastWriteTimeUtc(videoPath, DateTime.UtcNow.Subtract(ScanFileValidator.FileQuietPeriod).AddSeconds(-1));
+            clock.Advance(ScanFileValidator.FileQuietPeriod + TimeSpan.FromSeconds(1));
             environment.Service.StartScan();
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
@@ -726,6 +732,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ReportsUnavailableProbeAsFileFailureRatherThanInvalidMedia()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -752,6 +759,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DefersFileThatChangesDuringProbeAndImportsItOnRetry()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -799,6 +807,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_AcceptsVideoStreamWithoutDeclaredDuration()
     {
         const string probeJson = """
@@ -829,6 +838,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsCorruptImageWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -854,6 +864,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsCorruptGalleryWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -879,6 +890,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ChangedGalleryArchiveReconcilesImagesAndMetadata()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -925,6 +937,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ForcedUnchangedGalleryRescanPreservesExistingImages()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -957,6 +970,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_InvalidChangedGalleryArchivePreservesExistingGallery()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -997,6 +1011,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ChangedGalleryArchiveDeduplicatesInternalEntryNames()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1026,6 +1041,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsTruncatedEpubWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1051,6 +1067,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ValidatesAndImportsAudioWithOneProbe()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1081,6 +1098,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ImportsPreviouslySkippedVideoAfterCopyCompletes()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1111,6 +1129,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_VerifiesUnchangedDirectoryBeforeSkippingItsFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1150,6 +1169,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_RetriesCompletedCopyAfterPartialFileMadeVerifiedDirectoryDirty()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1194,6 +1214,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ForceRescanBypassesVerifiedDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1222,6 +1243,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_AssetGenerationFindsContentChangesInsideVerifiedDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1259,6 +1281,7 @@ public class ScanServiceTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    [RequiresPostgres]
     public async Task StartScan_MakesStereoscopicVrAssetsOnlyWhenAskedAndOnlyForVrVideos(bool vrStereo)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1295,6 +1318,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ExplicitUnchangedAssetGenerationBypassesVerifiedDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1323,6 +1347,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ScanPolicyChangeInvalidatesVerifiedDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1351,6 +1376,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ConfiguredExcludePatternsSupportGlobsAndLiteralFragments()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1386,6 +1412,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ConfiguredImageExcludeGlobDoesNotExcludeOtherMediaTypes()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1434,6 +1461,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ConfiguredExcludeGlobAppliesToSelectedFileTarget()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1460,6 +1488,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ConfiguredExcludeGlobUsesLibraryRootForSelectedDirectoryTarget()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1496,6 +1525,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SelectiveScanCheckpointDoesNotHideFilesFromLaterFullScan()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1536,6 +1566,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_TraversesVerifiedParentToFindChangesInExistingChildDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1571,6 +1602,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DoesNotVerifyDirectoriesControlledByIgnoreFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1608,6 +1640,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DoesNotVerifySymlinkLibraryRoot()
     {
         if (OperatingSystem.IsWindows())
@@ -1639,6 +1672,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DoesNotVerifyDirectoryContainingSymlinkedMediaFile()
     {
         if (OperatingSystem.IsWindows())
@@ -1673,6 +1707,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_RepairsExistingBrokenVideoAfterCopyCompletes()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1716,6 +1751,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ReportsCoverGenerationThatProducesNoFileAsFailure()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1737,6 +1773,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_DoesNotGenerateRequestedAssetsForUnchangedFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1766,6 +1803,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ExplicitlyGeneratesRequestedImageAssetsForUnchangedFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1792,6 +1830,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ExplicitUnchangedAssetGenerationKeepsCaseDistinctLinuxPaths()
     {
         if (!OperatingSystem.IsLinux())
@@ -1825,6 +1864,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_MetadataRepairDoesNotGenerateRequestedAssets()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1862,6 +1902,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_GeneratesRequestedAssetsOnlyForNewFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1892,6 +1933,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_GeneratesRequestedAssetsForContentChangedFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1917,6 +1959,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ReportsImageThumbnailThatProducesNoOutputAsFailure()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1939,6 +1982,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsCaptionSyncForKnownUnchangedVideosDuringNormalScan()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1967,6 +2011,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_TreatsSubSecondStoredModTimeDifferenceAsUnchanged()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1997,6 +2042,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SkipsChangedPathWhenExistingFileKindDiffersFromExtension()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2026,6 +2072,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_RescanSyncsCaptionsForKnownVideos()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2058,6 +2105,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ForcedRescanDoesNotGenerateFrameCoverForExplicitBlobCover()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2092,6 +2140,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ForcedRescanPreservesExistingGeneratedVideoAssets()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2129,6 +2178,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ForcedRescanPreservesExistingFingerprints()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2176,6 +2226,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ContentChangeRegeneratesPhashForEveryFileAttachedToVideo()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2234,6 +2285,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_ContentChangePreservesExistingAssetsWhenReplacementGenerationFails()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2309,6 +2361,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_RelinksMovedVideoInsteadOfCreatingDuplicate()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2366,6 +2419,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_AttachesDuplicateFileToExistingEntityInsteadOfCreatingSecondVideo()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2403,6 +2457,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_AttachesDuplicateToMovedEntityWhenMoveAndCopyAppearTogether()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2447,6 +2502,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_FolderGalleriesDeduplicateImagesWithinEachFolderAndRemainIdempotent()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-folder-gallery-{Guid.NewGuid():N}");
@@ -2528,6 +2584,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_SelectedForceGalleryHonorsFolderGalleryEligibilityRules()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-folder-gallery-eligibility-{Guid.NewGuid():N}");
@@ -2662,6 +2719,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Discovery_DoesNotRetainEnumeratedCandidateObjectsAndDeduplicatesRoots()
     {
         var root = Path.Combine(Path.GetTempPath(), $"scan-paged-{Guid.NewGuid():N}");
@@ -2688,6 +2746,7 @@ public class ScanServiceTests
     private static WeakReference FirstCandidateReference(IEnumerable<DiscoveredFile> files) => new(files.First());
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_LinksCanonicalParentBeforeChildAcrossDirectoryPages()
     {
         var root = Path.Combine(Path.GetTempPath(), $"scan-hierarchy-{Guid.NewGuid():N}");
@@ -2727,6 +2786,7 @@ public class ScanServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task StartScan_RecognizesFilesInFolderStoredUnderDifferentlyNormalizedPath()
     {
         // Stash-migrated folders can be stored under a spelling that only canonicalizes to the real
@@ -2747,7 +2807,7 @@ public class ScanServiceTests
             if (OperatingSystem.IsWindows())
                 storedFolderPath = char.ToLowerInvariant(storedFolderPath[0]) + storedFolderPath[1..];
 
-            await using var environment = await CreateBareEnvironmentAsync(root, relational: true);
+            await using var environment = await CreateBareEnvironmentAsync(root);
             environment.Config.EnableMoveDetection = false;
             int folderId, existingFileId, existingVideoId;
             await using (var setupScope = environment.Services.CreateAsyncScope())
@@ -2813,6 +2873,7 @@ public class ScanServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [RequiresPostgres]
     public async Task StartScan_PagesGalleryLinksAndRollsBackLaterPageFailure(bool failLaterPage)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -2824,7 +2885,7 @@ public class ScanServiceTests
             await File.WriteAllTextAsync(Path.Combine(excluded, ".nogallery"), "", ct);
             await WriteValidVideoAsync(Path.Combine(root, "trigger.mp4"));
             var failure = new GalleryPageFailure(failLaterPage);
-            await using var environment = await CreateBareEnvironmentAsync(root, relational: true, interceptor: failure);
+            await using var environment = await CreateBareEnvironmentAsync(root, interceptor: failure);
             environment.Config.CreateGalleriesFromFolders = true;
             await using (var scope = environment.Services.CreateAsyncScope())
             {
@@ -2881,57 +2942,63 @@ public class ScanServiceTests
     private static async Task<TestEnvironment> CreateBareEnvironmentAsync(
         string libraryRoot,
         IMediaProbeService? mediaProbeService = null,
-        TimeProvider? timeProvider = null, bool relational = false, Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor? interceptor = null)
+        TimeProvider? timeProvider = null, Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor? interceptor = null)
     {
-        var services = new ServiceCollection();
-        var builder = new DbContextOptionsBuilder<CoveContext>();
-        if (relational) builder.UseSqlite($"Data Source={Path.Combine(libraryRoot, "scan-test.db")};Pooling=False");
-        else builder.UseInMemoryDatabase($"scan-service-{Guid.NewGuid():N}");
-        if (interceptor != null) builder.AddInterceptors(interceptor);
-        var dbOptions = builder.Options;
-
-        services.AddSingleton(dbOptions);
-        services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
-
-        var provider = services.BuildServiceProvider();
-        await using (var scope = provider.CreateAsyncScope())
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        ServiceProvider? provider = null;
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            await db.Database.EnsureCreatedAsync();
+            var services = new ServiceCollection();
+            var dbOptions = database.CreateOptions(builder =>
+            {
+                if (interceptor != null) builder.AddInterceptors(interceptor);
+            });
+
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+
+            provider = services.BuildServiceProvider();
+
+            var config = new CoveConfiguration
+            {
+                CovePaths = [new CovePath { Path = libraryRoot }],
+            };
+
+            var extensionManager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = libraryRoot,
+                CoveVersion = "test",
+            });
+
+            var jobService = new ImmediateJobService();
+            var probeService = mediaProbeService ?? new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+            var clock = timeProvider ?? ReadyTimeProvider;
+            var galleryReader = new ZipGalleryReader(new ZipFileReader());
+            var thumbnailService = new NoOpThumbnailService();
+            var service = new ScanService(
+                jobService,
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                config,
+                new EventBus(),
+                new NoOpFingerprintService(),
+                thumbnailService,
+                new TextExtractionService(),
+                galleryReader,
+                extensionManager,
+                probeService,
+                new ScanFileValidator(probeService, galleryReader, clock),
+                NullLogger<ScanService>.Instance);
+
+            return new TestEnvironment(database, provider, service, jobService, thumbnailService, config);
         }
-
-        var config = new CoveConfiguration
+        catch
         {
-            CovePaths = [new CovePath { Path = libraryRoot }],
-        };
-
-        var extensionManager = new ExtensionManager(new ExtensionContext
-        {
-            Configuration = new ConfigurationBuilder().Build(),
-            DataDirectory = libraryRoot,
-            CoveVersion = "test",
-        });
-
-        var jobService = new ImmediateJobService();
-        var probeService = mediaProbeService ?? new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
-        var clock = timeProvider ?? ReadyTimeProvider;
-        var galleryReader = new ZipGalleryReader(new ZipFileReader());
-        var thumbnailService = new NoOpThumbnailService();
-        var service = new ScanService(
-            jobService,
-            provider.GetRequiredService<IServiceScopeFactory>(),
-            config,
-            new EventBus(),
-            new NoOpFingerprintService(),
-            thumbnailService,
-            new TextExtractionService(),
-            galleryReader,
-            extensionManager,
-            probeService,
-            new ScanFileValidator(probeService, galleryReader, clock),
-            NullLogger<ScanService>.Instance);
-
-        return new TestEnvironment(provider, service, jobService, thumbnailService, config);
+            if (provider != null)
+                await provider.DisposeAsync();
+            await database.DisposeAsync();
+            throw;
+        }
     }
 
     private static async Task<TestEnvironment> CreateEnvironmentAsync(
@@ -2944,89 +3011,98 @@ public class ScanServiceTests
         NoOpThumbnailService? thumbnailService = null,
         IFingerprintService? fingerprintService = null)
     {
-        var services = new ServiceCollection();
-        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"scan-service-{Guid.NewGuid():N}")
-            .Options;
-
-        services.AddSingleton(dbOptions);
-        services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
-
-        var provider = services.BuildServiceProvider();
-        await using (var scope = provider.CreateAsyncScope())
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        ServiceProvider? provider = null;
+        try
         {
-            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            await db.Database.EnsureCreatedAsync();
+            var services = new ServiceCollection();
+            var dbOptions = database.CreateOptions();
 
-            var folder = new Folder
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+
+            provider = services.BuildServiceProvider();
+            await using (var scope = provider.CreateAsyncScope())
             {
-                Path = NormalizeStoredFolderPath(libraryRoot),
-                ModTime = Directory.GetLastWriteTimeUtc(libraryRoot),
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+
+                var folder = new Folder
+                {
+                    Path = NormalizeStoredFolderPath(libraryRoot),
+                    ModTime = Directory.GetLastWriteTimeUtc(libraryRoot),
+                };
+
+                var video = new Video
+                {
+                    Title = "Known video",
+                    ImageBlobId = imageBlobId,
+                };
+
+                var fileInfo = new FileInfo(videoPath);
+                var effectiveStoredModTime = storedModTime ?? fileInfo.LastWriteTimeUtc;
+                video.Files.Add(new VideoFile
+                {
+                    Basename = Path.GetFileName(videoPath),
+                    ParentFolder = folder,
+                    Size = fileInfo.Length,
+                    ModTime = effectiveStoredModTime,
+                    Format = "mp4",
+                    Width = 1920,
+                    Height = 1080,
+                    Duration = 42,
+                    VideoCodec = "h264",
+                    AudioCodec = "aac",
+                });
+
+                db.Videos.Add(video);
+                await db.SaveChangesAsync();
+            }
+            var jobService = new ImmediateJobService();
+            var config = new CoveConfiguration
+            {
+                CovePaths =
+                [
+                    new CovePath
+                    {
+                        Path = libraryRoot,
+                    }
+                ],
             };
 
-            var video = new Video
+            var extensionManager = new ExtensionManager(new ExtensionContext
             {
-                Title = "Known video",
-                ImageBlobId = imageBlobId,
-            };
-
-            var fileInfo = new FileInfo(videoPath);
-            var effectiveStoredModTime = storedModTime ?? fileInfo.LastWriteTimeUtc;
-            video.Files.Add(new VideoFile
-            {
-                Basename = Path.GetFileName(videoPath),
-                ParentFolder = folder,
-                Size = fileInfo.Length,
-                ModTime = effectiveStoredModTime,
-                Format = "mp4",
-                Width = 1920,
-                Height = 1080,
-                Duration = 42,
-                VideoCodec = "h264",
-                AudioCodec = "aac",
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = libraryRoot,
+                CoveVersion = "test",
             });
 
-            db.Videos.Add(video);
-            await db.SaveChangesAsync();
+            var probeService = mediaProbeService ?? new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+            var clock = timeProvider ?? ReadyTimeProvider;
+            var galleryReader = new ZipGalleryReader(new ZipFileReader());
+            thumbnailService ??= new NoOpThumbnailService();
+            var service = new ScanService(
+                jobService,
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                config,
+                new EventBus(),
+                fingerprintService ?? new NoOpFingerprintService(),
+                thumbnailService,
+                new TextExtractionService(),
+                galleryReader,
+                extensionManager,
+                probeService,
+                new ScanFileValidator(probeService, galleryReader, clock),
+                NullLogger<ScanService>.Instance);
+
+            return new TestEnvironment(database, provider, service, jobService, thumbnailService, config);
         }
-        var jobService = new ImmediateJobService();
-        var config = new CoveConfiguration
+        catch
         {
-            CovePaths =
-            [
-                new CovePath
-                {
-                    Path = libraryRoot,
-                }
-            ],
-        };
-
-        var extensionManager = new ExtensionManager(new ExtensionContext
-        {
-            Configuration = new ConfigurationBuilder().Build(),
-            DataDirectory = libraryRoot,
-            CoveVersion = "test",
-        });
-
-        var probeService = mediaProbeService ?? new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
-        var clock = timeProvider ?? ReadyTimeProvider;
-        var galleryReader = new ZipGalleryReader(new ZipFileReader());
-        thumbnailService ??= new NoOpThumbnailService();
-        var service = new ScanService(
-            jobService,
-            provider.GetRequiredService<IServiceScopeFactory>(),
-            config,
-            new EventBus(),
-            fingerprintService ?? new NoOpFingerprintService(),
-            thumbnailService,
-            new TextExtractionService(),
-            galleryReader,
-            extensionManager,
-            probeService,
-            new ScanFileValidator(probeService, galleryReader, clock),
-            NullLogger<ScanService>.Instance);
-
-        return new TestEnvironment(provider, service, jobService, thumbnailService, config);
+            if (provider != null)
+                await provider.DisposeAsync();
+            await database.DisposeAsync();
+            throw;
+        }
     }
 
     private static async Task<Dictionary<string, byte[]>> WriteGeneratedVideoAssetsAsync(
@@ -3088,6 +3164,15 @@ public class ScanServiceTests
     private sealed class OffsetTimeProvider(TimeSpan offset) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.Add(offset);
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan by) => _utcNow += by;
     }
 
     private sealed class StubMediaProbeService(MediaProbeResult result, Action<string>? onProbe = null) : IMediaProbeService
@@ -3283,6 +3368,7 @@ public class ScanServiceTests
     }
 
     private sealed class TestEnvironment(
+        CovePostgresDatabase database,
         ServiceProvider services,
         ScanService service,
         ImmediateJobService jobService,
@@ -3298,6 +3384,7 @@ public class ScanServiceTests
         public async ValueTask DisposeAsync()
         {
             await Services.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 }

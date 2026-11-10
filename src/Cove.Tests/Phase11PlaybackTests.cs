@@ -5,13 +5,14 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class Phase11PlaybackTests
 {
     [Fact]
@@ -266,104 +267,93 @@ public sealed class Phase11PlaybackTests
     [Fact]
     public async Task SegmentFirstTouch_ConcurrentInteractionAndPlaybackShareOneAffinity()
     {
-        var databasePath = Path.Combine(Path.GetTempPath(), $"cove-phase11-{Guid.NewGuid():N}.db");
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source={databasePath};Pooling=False")
-            .Options;
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions();
 
-        try
+        int videoId;
+        int segmentId;
+        var setupPrincipalAccessor = new CurrentPrincipalAccessor();
+        await using (var setupContext = new PlaybackTestContext(options, setupPrincipalAccessor))
         {
-            int videoId;
-            int segmentId;
-            var setupPrincipalAccessor = new CurrentPrincipalAccessor();
-            await using (var setupContext = new PlaybackTestContext(options, setupPrincipalAccessor))
+            setupContext.Users.Add(new User
             {
-                await setupContext.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-                setupContext.Users.Add(new User
-                {
-                    Id = 29,
-                    Username = "user-29",
-                    PasswordHash = "test",
-                });
-                var video = new Video { Title = "Concurrent Segment Host" };
-                setupContext.Videos.Add(video);
-                await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
-                videoId = video.Id;
-
-                var segment = new Segment
-                {
-                    HostType = SegmentHostType.Video,
-                    HostId = videoId,
-                    SourceKey = "test",
-                    StartSec = 10,
-                    EndSec = 20,
-                    Title = "Concurrent segment",
-                };
-                setupContext.Segments.Add(segment);
-                await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
-                segmentId = segment.Id;
-            }
-
-            var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            var interactionTask = Task.Run(async () =>
-            {
-                var principalAccessor = new CurrentPrincipalAccessor();
-                principalAccessor.Set(CreatePrincipal(29, Permissions.SegmentsRead));
-                await using var context = new PlaybackTestContext(options, principalAccessor);
-                var controller = CreateEngagementController(context, principalAccessor);
-                await gate.Task;
-                return await controller.RecordInteraction(new EngagementInteractionWriteDto("segment", segmentId, "seek"), CancellationToken.None);
+                Id = 29,
+                Username = "user-29",
+                PasswordHash = "test",
             });
+            var video = new Video { Title = "Concurrent Segment Host" };
+            setupContext.Videos.Add(video);
+            await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+            videoId = video.Id;
+            await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
 
-            var playbackTask = Task.Run(async () =>
+            var segment = new Segment
             {
-                var principalAccessor = new CurrentPrincipalAccessor();
-                principalAccessor.Set(CreatePrincipal(29, Permissions.SegmentsRead));
-                await using var context = new PlaybackTestContext(options, principalAccessor);
-                var controller = CreateController(context, principalAccessor);
-                await gate.Task;
-                return await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
-                    "segment",
-                    segmentId,
-                    Guid.NewGuid(),
-                    120.0,
-                    12.0,
-                    "ended",
-                    [new PlaybackIntervalInputDto(10.0, 12.0)],
-                    Surface: "segmentDetail",
-                    ScopeKey: $"segment:{segmentId}",
-                    ParentHostType: "video",
-                    ParentHostId: videoId,
-                    ItemHostType: "video",
-                    ItemHostId: videoId,
-                    SegmentId: segmentId,
-                    ClipStartSec: 10.0,
-                    ClipEndSec: 20.0), CancellationToken.None);
-            });
-
-            gate.SetResult(true);
-
-            var results = await Task.WhenAll(interactionTask, playbackTask);
-            Assert.All(results, result => Assert.IsType<NoContentResult>(result));
-
-            await using var verifyContext = new PlaybackTestContext(options, new CurrentPrincipalAccessor());
-            var affinity = await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
-                .SingleAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken);
-            Assert.Equal(1, affinity.InteractionCount);
-            Assert.Equal(1, affinity.SeekCount);
-            Assert.Equal(1, affinity.PlayerControlCount);
-            Assert.Equal(2.0, affinity.TotalConsumedSec, precision: 5);
-            Assert.Equal(2.0, affinity.LastPositionSec);
-            Assert.Equal(1, await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
-                .CountAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken));
+                HostType = SegmentHostType.Video,
+                HostId = videoId,
+                SourceKey = "test",
+                StartSec = 10,
+                EndSec = 20,
+                Title = "Concurrent segment",
+            };
+            setupContext.Segments.Add(segment);
+            await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+            segmentId = segment.Id;
         }
-        finally
+
+        var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var interactionTask = Task.Run(async () =>
         {
-            SqliteConnection.ClearAllPools();
-            if (File.Exists(databasePath))
-                File.Delete(databasePath);
-        }
+            var principalAccessor = new CurrentPrincipalAccessor();
+            principalAccessor.Set(CreatePrincipal(29, Permissions.SegmentsRead));
+            await using var context = new PlaybackTestContext(options, principalAccessor);
+            var controller = CreateEngagementController(context, principalAccessor);
+            await gate.Task;
+            return await controller.RecordInteraction(new EngagementInteractionWriteDto("segment", segmentId, "seek"), CancellationToken.None);
+        });
+
+        var playbackTask = Task.Run(async () =>
+        {
+            var principalAccessor = new CurrentPrincipalAccessor();
+            principalAccessor.Set(CreatePrincipal(29, Permissions.SegmentsRead));
+            await using var context = new PlaybackTestContext(options, principalAccessor);
+            var controller = CreateController(context, principalAccessor);
+            await gate.Task;
+            return await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
+                "segment",
+                segmentId,
+                Guid.NewGuid(),
+                120.0,
+                12.0,
+                "ended",
+                [new PlaybackIntervalInputDto(10.0, 12.0)],
+                Surface: "segmentDetail",
+                ScopeKey: $"segment:{segmentId}",
+                ParentHostType: "video",
+                ParentHostId: videoId,
+                ItemHostType: "video",
+                ItemHostId: videoId,
+                SegmentId: segmentId,
+                ClipStartSec: 10.0,
+                ClipEndSec: 20.0), CancellationToken.None);
+        });
+
+        gate.SetResult(true);
+
+        var results = await Task.WhenAll(interactionTask, playbackTask);
+        Assert.All(results, result => Assert.IsType<NoContentResult>(result));
+
+        await using var verifyContext = new PlaybackTestContext(options, new CurrentPrincipalAccessor());
+        var affinity = await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
+            .SingleAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, affinity.InteractionCount);
+        Assert.Equal(1, affinity.SeekCount);
+        Assert.Equal(1, affinity.PlayerControlCount);
+        Assert.Equal(2.0, affinity.TotalConsumedSec, precision: 5);
+        Assert.Equal(2.0, affinity.LastPositionSec);
+        Assert.Equal(1, await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
+            .CountAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -604,28 +594,32 @@ public sealed class Phase11PlaybackTests
             PasswordHash = "test",
             UiPreferencesJson = uiPreferencesJson,
         });
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await scope.Database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
     }
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
         var principalAccessor = new CurrentPrincipalAccessor();
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var context = new PlaybackTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
-        context.Users.AddRange(
-            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
-            new User { Id = 11, Username = "user-11", PasswordHash = "test" },
-            new User { Id = 12, Username = "user-12", PasswordHash = "test" },
-            new User { Id = 13, Username = "user-13", PasswordHash = "test" });
-        await context.SaveChangesAsync();
-        return new TestContextScope(context, connection, principalAccessor);
+        var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var context = new PlaybackTestContext(database.CreateOptions(), principalAccessor);
+        try
+        {
+            context.Users.AddRange(
+                new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+                new User { Id = 11, Username = "user-11", PasswordHash = "test" },
+                new User { Id = 12, Username = "user-12", PasswordHash = "test" },
+                new User { Id = 13, Username = "user-13", PasswordHash = "test" });
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+            return new TestContextScope(context, database, principalAccessor);
+        }
+        catch
+        {
+            await context.DisposeAsync();
+            await database.DisposeAsync();
+            throw;
+        }
     }
 
     private sealed class PlaybackTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
@@ -636,15 +630,16 @@ public sealed class Phase11PlaybackTests
         }
     }
 
-    private sealed class TestContextScope(CoveContext context, SqliteConnection connection, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
+        public CovePostgresDatabase Database { get; } = database;
         public CurrentPrincipalAccessor PrincipalAccessor { get; } = principalAccessor;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await connection.DisposeAsync();
+            await Database.DisposeAsync();
             PrincipalAccessor.Set(null);
         }
     }

@@ -5,7 +5,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +20,7 @@ namespace Cove.Tests;
 public sealed class VideoShotServiceTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task WritingAnAnalysisStoresTheSetWithItsProvenance()
     {
         await using var harness = await Harness.CreateAsync();
@@ -58,6 +59,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SkipIfExistsLeavesAnyExistingSetAlone()
     {
         await using var harness = await Harness.CreateAsync();
@@ -72,6 +74,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ReplaceOverwritesEvenAnEditedSetAndClearsTheEdit()
     {
         await using var harness = await Harness.CreateAsync();
@@ -92,6 +95,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ConditionalReplaceNeedsTheExactSet()
     {
         await using var harness = await Harness.CreateAsync();
@@ -110,6 +114,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnInvalidWriteNeverTouchesTheExistingSet()
     {
         await using var harness = await Harness.CreateAsync();
@@ -131,6 +136,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnAnalysisMayEndBeforeTheFileButNotFarBeforeOrAfterIt()
     {
         await using var harness = await Harness.CreateAsync();
@@ -150,6 +156,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AFileWithoutAProbedDurationAcceptsAnyAnalysedDuration()
     {
         await using var harness = await Harness.CreateAsync();
@@ -161,6 +168,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnImportedEditedSetKeepsItsEditTime()
     {
         await using var harness = await Harness.CreateAsync();
@@ -173,6 +181,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SplittingCutsTheContainingShotAndKeepsTheOthers()
     {
         await using var harness = await Harness.CreateAsync();
@@ -195,6 +204,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task SplittingAFileWithoutShotsDrawsAManualSetFirst()
     {
         await using var harness = await Harness.CreateAsync();
@@ -209,6 +219,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task EditsAreRejectedOnAStaleOrMissingVersion()
     {
         await using var harness = await Harness.CreateAsync();
@@ -230,6 +241,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task MergingAndMovingCutsKeepThePartition()
     {
         await using var harness = await Harness.CreateAsync();
@@ -252,6 +264,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ReplacingShotsStoresTheNewPartition()
     {
         await using var harness = await Harness.CreateAsync();
@@ -281,6 +294,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ReplacingShotsOnAFileWithoutASetCreatesOne()
     {
         await using var harness = await Harness.CreateAsync();
@@ -298,14 +312,12 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ARecreatedSetDoesNotAcceptTheOldVersion()
     {
         await using var harness = await Harness.CreateAsync();
         var (_, fileId) = await harness.SeedVideoAsync(duration: 10, size: 1_000);
         var first = await harness.WriteAsync(Analysis(fileId, Shot(0, 5), Shot(5, 10)));
-        // PostgreSQL never reuses identity values; keep SQLite from reusing the deleted row id.
-        var (_, otherFileId) = await harness.SeedVideoAsync(duration: 10, size: 1_000);
-        await harness.WriteAsync(Analysis(otherFileId, Shot(0, 10)));
 
         var staleDelete = await harness.Service().DeleteAsync(new VideoShotDeleteRequest { FileId = fileId, Expected = Version(first.Set!) with { Revision = 2 } }, TestContext.Current.CancellationToken);
         var deleted = await harness.Service().DeleteAsync(new VideoShotDeleteRequest { FileId = fileId, Expected = Version(first.Set!) }, TestContext.Current.CancellationToken);
@@ -322,6 +334,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task EditsAreCheckedAgainstTheSetsOwnDuration()
     {
         await using var harness = await Harness.CreateAsync();
@@ -340,6 +353,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task VideoReadsFollowThePrimaryFileWithoutMappingTime()
     {
         await using var harness = await Harness.CreateAsync();
@@ -361,6 +375,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ASetIsStaleOnceItsFileChangesSize()
     {
         await using var harness = await Harness.CreateAsync();
@@ -378,6 +393,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DeletingTheFileRemovesItsShots()
     {
         await using var harness = await Harness.CreateAsync();
@@ -398,6 +414,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task WritesJoinTheCallersTransactionWithoutSavingItsPendingChanges()
     {
         await using var harness = await Harness.CreateAsync();
@@ -429,6 +446,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ASetStoresEachBoundaryOnceAsCutsInItsOwnRow()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -456,6 +474,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnEditThatLosesARaceChangesNothingAndReturnsTheCurrentSet()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -475,6 +494,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AReplaceWithoutAVersionRetriesAfterLosingARace()
     {
         await using var harness = await Harness.CreateAsync();
@@ -491,6 +511,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task CreatingASetThatLosesARaceFindsTheOtherSet()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -511,6 +532,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnEditThatCreatesASetReturnsItsStoredVersion()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -525,6 +547,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AWriteForAFileDeletedMeanwhileFindsNoFile()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -545,6 +568,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ACarryOverLeavesASetThatChangedWhileItMoved()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -562,6 +586,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnEditChecksTheDatabaseEvenWhenTheCallerTracksAnOlderCopy()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -582,6 +607,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnEditLeavesTheCallersTrackedCopyAndPendingChangesAlone()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -606,6 +632,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AnEditTimeGivenInLocalOrUnspecifiedTimeIsStoredInUtc()
     {
         await using var harness = await Harness.CreateAsync();
@@ -622,6 +649,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ACutWithFramesLandsOnAFrameAtThatFramesTime()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -642,6 +670,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AReplacementSetsTheFrameCountFromItsOwnFrames()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -665,6 +694,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task APayloadIsMeasuredInUtf8AndMayNotHoldNul()
     {
         await using var harness = await Harness.CreateAsync();
@@ -682,6 +712,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task AReplacementWithAMissingShotIsInvalid()
     {
         await using var harness = await Harness.CreateAsync();
@@ -693,6 +724,7 @@ public sealed class VideoShotServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task DeletingASetLeavesTheCallersPendingChangesAlone()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -762,7 +794,7 @@ public sealed class VideoShotServiceTests
         private async Task RaceAsync(DbCommand command)
         {
             var text = command.CommandText.TrimStart();
-            if (_raced || !text.StartsWith(statement, StringComparison.Ordinal) || !text.Contains("\"video_shot_sets\"", StringComparison.Ordinal))
+            if (_raced || !text.StartsWith(statement, StringComparison.Ordinal) || !text.Contains("video_shot_sets", StringComparison.Ordinal))
                 return;
             _raced = true;
             await using var other = harness.CreateContext();
@@ -777,33 +809,19 @@ public sealed class VideoShotServiceTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        private readonly SqliteConnection _anchor;
-        private readonly string _connectionString;
+        private readonly CovePostgresDatabase _database;
 
-        private Harness(SqliteConnection anchor, string connectionString)
-        {
-            _anchor = anchor;
-            _connectionString = connectionString;
-        }
+        private Harness(CovePostgresDatabase database) => _database = database;
 
         public static async Task<Harness> CreateAsync()
-        {
-            var connectionString = $"Data Source=video-shots-{Guid.NewGuid():N};Mode=Memory;Cache=Shared;Foreign Keys=True";
-            var anchor = new SqliteConnection(connectionString);
-            await anchor.OpenAsync();
-            var harness = new Harness(anchor, connectionString);
-            await using var db = harness.CreateContext();
-            await db.Database.EnsureCreatedAsync();
-            return harness;
-        }
+            => new(await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken));
 
         public CoveContext CreateContext(params IInterceptor[] interceptors)
-        {
-            var builder = new DbContextOptionsBuilder<CoveContext>().UseSqlite(_connectionString);
-            if (interceptors.Length > 0)
-                builder.AddInterceptors(interceptors);
-            return new CoveContext(builder.Options);
-        }
+            => _database.CreateContext(builder =>
+            {
+                if (interceptors.Length > 0)
+                    builder.AddInterceptors(interceptors);
+            });
 
         public VideoShotService Service() => new(CreateContext());
 
@@ -859,6 +877,6 @@ public sealed class VideoShotServiceTests
             await db.SaveChangesAsync();
         }
 
-        public async ValueTask DisposeAsync() => await _anchor.DisposeAsync();
+        public ValueTask DisposeAsync() => _database.DisposeAsync();
     }
 }

@@ -4,6 +4,7 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,11 +12,13 @@ using System.Collections.Concurrent;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ImageDeletionJobTests
 {
     [Fact]
     public async Task FailedEntityCommitDoesNotMakeItsPhysicalPathEligibleForDeletion()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var mediaDirectory = Path.Combine(Path.GetTempPath(), $"cove-image-delete-failure-{Guid.NewGuid():N}");
         Directory.CreateDirectory(mediaDirectory);
         var mediaPath = Path.Combine(mediaDirectory, "must-survive.jpg");
@@ -24,13 +27,8 @@ public sealed class ImageDeletionJobTests
 
         try
         {
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source=ImageDeletionCommitFailureTests-{Guid.NewGuid():N};Mode=Memory;Cache=Shared")
-                .AddInterceptors(interceptor)
-                .Options;
+            var options = database.CreateOptions(builder => builder.AddInterceptors(interceptor));
             await using var db = new CoveContext(options);
-            await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var image = new Image
             {
                 Title = "Survivor",
@@ -73,6 +71,7 @@ public sealed class ImageDeletionJobTests
     [Fact]
     public async Task JobDeletesThePhysicalFileFromAnIsolatedLibraryPath()
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var mediaDirectory = Path.Combine(Path.GetTempPath(), $"cove-image-delete-{Guid.NewGuid():N}");
         Directory.CreateDirectory(mediaDirectory);
         var mediaPath = Path.Combine(mediaDirectory, "delete-me.jpg");
@@ -80,12 +79,8 @@ public sealed class ImageDeletionJobTests
 
         try
         {
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite($"Data Source=ImageDeletionPhysicalFileTests-{Guid.NewGuid():N};Mode=Memory;Cache=Shared")
-                .Options;
+            var options = database.CreateOptions();
             await using var db = new CoveContext(options);
-            await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             var folder = new Folder { Path = mediaDirectory, ModTime = DateTime.UtcNow };
             var image = new Image
             {
@@ -144,12 +139,9 @@ public sealed class ImageDeletionJobTests
     [Fact]
     public async Task JobDeletesImagesAsObservableUnitsAndSkipsMissingIds()
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source=ImageDeletionJobTests-{Guid.NewGuid():N};Mode=Memory;Cache=Shared")
-            .Options;
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var options = database.CreateOptions();
         await using var db = new CoveContext(options);
-        await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var first = new Image { Title = "First" };
         var second = new Image { Title = "Second" };
         db.Images.AddRange(first, second);
@@ -183,8 +175,7 @@ public sealed class ImageDeletionJobTests
         var deletionJobs = new BulkDeletionJobService(
             jobs,
             services.GetRequiredService<IServiceScopeFactory>(),
-            // SQLite serializes writes; production PostgreSQL parallelism is covered separately by
-            // the configured-worker tests.
+            // One worker keeps the capturing progress, which is not thread-safe, on a single thread.
             new CoveConfiguration { MaxParallelTasks = 1 });
 
         var queued = deletionJobs.Start(null, BulkDeletionEntityKind.Image, [first.Id, first.Id, -1, 999, second.Id], deleteFiles: false, deleteGenerated: false);

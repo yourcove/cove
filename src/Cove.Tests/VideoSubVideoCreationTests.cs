@@ -6,20 +6,20 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class VideoSubVideoCreationTests
 {
     [Fact]
     public async Task VideosController_Create_AllowsNestedSubVideosUsingRelativeClipOffsets()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(new CovePrincipal
@@ -31,12 +31,7 @@ public class VideoSubVideoCreationTests
             Roles = new HashSet<string>(),
         });
 
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        await using var context = new CoveContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var context = new CoveContext(database.CreateOptions(), principalAccessor);
 
         var sourceVideo = new Video
         {

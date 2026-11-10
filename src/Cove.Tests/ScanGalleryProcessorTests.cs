@@ -3,7 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ScanGalleryProcessorTests
 {
     [Theory]
@@ -19,6 +20,7 @@ public sealed class ScanGalleryProcessorTests
     public async Task ChangedArchiveReplacementIsRetrySafe(bool failAfterCommit)
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
         var root = Path.Combine(Path.GetTempPath(), $"cove-gallery-retry-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         var archivePath = Path.Combine(root, "gallery.zip");
@@ -26,18 +28,13 @@ public sealed class ScanGalleryProcessorTests
 
         try
         {
-            await using var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync(ct);
             var interceptor = failAfterCommit
                 ? (IInterceptor)new CommitAmbiguityInterceptor()
                 : new PreCommitFailureInterceptor();
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(connection)
+            var options = database.CreateOptions(builder => builder
                 .ReplaceService<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
-                .AddInterceptors(interceptor)
-                .Options;
+                .AddInterceptors(interceptor));
             await using var db = new CoveContext(options);
-            await db.Database.EnsureCreatedAsync(ct);
 
             var folder = new Folder { Path = root };
             var virtualFolder = new Folder { Path = $"{archivePath}#virtual" };
