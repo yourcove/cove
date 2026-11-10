@@ -171,6 +171,10 @@ public sealed class PhysicalFileDeletionService(
 {
     private readonly PhysicalFileAccessCoordinator _coordinator = coordinator ?? PhysicalFileAccessCoordinator.Shared;
 
+    // How the final reference check compares a candidate with the stored file paths. Tests set it to run the
+    // case-insensitive check of Windows and macOS on a case-sensitive host.
+    internal StringComparison PathComparison { get; init; } = FilesystemPaths.PathComparison;
+
     public async Task<BulkPhysicalDeletionResult> DeleteUnreferencedAsync(
         IEnumerable<string> candidatePaths,
         int maxParallelism,
@@ -357,16 +361,24 @@ public sealed class PhysicalFileDeletionService(
     {
         var query = db.Set<BaseFileEntity>().AsNoTracking();
         List<string> referenced;
-        if (FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase)
+        if (PathComparison == StringComparison.OrdinalIgnoreCase)
         {
-            var normalizedPaths = candidatePaths
-                .Select(NormalizeCaseInsensitivePath)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
+            // The stored side is folded with SQL upper(), which IX_files_Path_upper indexes, and under managed
+            // PostgreSQL's C locale upper() changes only ASCII letters. No single fold of the candidates agrees
+            // with it for every non-ASCII letter: folded in .NET, a referenced "café.mp4" never matches
+            // "CAFÉ.MP4"; folded in SQL, a stored "CRÈME.jpg" never matches a candidate "crème.jpg". A miss here
+            // deletes a referenced file while an extra match only keeps one, so a path counts as referenced
+            // when either fold matches. The two lookups stay separate queries so each can use the index; the
+            // SQL-folded one has to use the file row in its lambda, or EF Core would evaluate it in .NET.
+            var invariantFolded = candidatePaths.Select(path => path.ToUpperInvariant()).Distinct().ToArray();
             referenced = await query
-                .Where(file => normalizedPaths.Contains(file.Path.ToUpper()))
+                .Where(file => invariantFolded.Contains(file.Path.ToUpper()))
                 .Select(file => file.Path)
                 .ToListAsync(ct);
+            referenced.AddRange(await query
+                .Where(file => candidatePaths.Any(candidate => candidate.ToUpper() == file.Path.ToUpper()))
+                .Select(file => file.Path)
+                .ToListAsync(ct));
         }
         else
         {
@@ -375,10 +387,8 @@ public sealed class PhysicalFileDeletionService(
                 .Select(file => file.Path)
                 .ToListAsync(ct);
         }
-        return new HashSet<string>(referenced, FilesystemPaths.PathComparer);
+        return new HashSet<string>(referenced, StringComparer.FromComparison(PathComparison));
     }
-
-    internal static string NormalizeCaseInsensitivePath(string path) => path.ToUpperInvariant();
 
     private sealed record PhysicalPathDeletionResult(
         int Deleted,
