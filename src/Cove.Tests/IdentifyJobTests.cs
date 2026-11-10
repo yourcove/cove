@@ -8,6 +8,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,9 +23,11 @@ public sealed class IdentifyJobTests
     private const string GoodEndpoint = "https://good.example/graphql";
 
     [Fact]
+    [RequiresPostgres]
     public async Task OneSourceFailing_StillTriesTheNextSourceAndReportsTheError()
     {
-        var run = await RunIdentifyAsync(["Broken Box", "Good Box"]);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var run = await RunIdentifyAsync(database, ["Broken Box", "Good Box"]);
 
         var video = await run.LoadVideoAsync();
         Assert.Equal("Remote Video", video.Title);
@@ -41,9 +44,11 @@ public sealed class IdentifyJobTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task EverySourceFailing_ReportsTheVideoAsFailedRatherThanUnmatched()
     {
-        var run = await RunIdentifyAsync(["Broken Box"]);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var run = await RunIdentifyAsync(database, ["Broken Box"]);
 
         var video = await run.LoadVideoAsync();
         Assert.Equal("Local Video", video.Title);
@@ -69,7 +74,7 @@ public sealed class IdentifyJobTests
         Assert.Equal("Identified 2 of 6 videos, 1 failed, 3 unmatched. Source errors: Box A: one | two | three (+2 more); Box B: boom", summary);
     }
 
-    private static async Task<IdentifyRun> RunIdentifyAsync(List<string> sources)
+    private static async Task<IdentifyRun> RunIdentifyAsync(CovePostgresDatabase database, List<string> sources)
     {
         var config = new CoveConfiguration
         {
@@ -90,8 +95,7 @@ public sealed class IdentifyJobTests
 
         var httpClient = new HttpClient(new TwoServerHandler());
         var services = new ServiceCollection();
-        var databaseName = $"identify-job-{Guid.NewGuid():N}";
-        services.AddDbContext<CoveContext>(options => options.UseInMemoryDatabase(databaseName));
+        services.AddDbContext<CoveContext>(options => database.Configure(options));
         services.AddScoped(provider =>
         {
             var db = provider.GetRequiredService<CoveContext>();
@@ -105,7 +109,13 @@ public sealed class IdentifyJobTests
         {
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
             var video = new Video { Title = "Local Video" };
-            var file = new VideoFile { Duration = 120 };
+            var file = new VideoFile
+            {
+                Basename = "local-video.mp4",
+                Path = "/library/local-video.mp4",
+                ParentFolder = new Folder { Path = "/library" },
+                Duration = 120,
+            };
             file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
             video.Files.Add(file);
             db.Videos.Add(video);
@@ -129,8 +139,10 @@ public sealed class IdentifyJobTests
         return new IdentifyRun(provider, videoId, progress);
     }
 
-    private sealed record IdentifyRun(ServiceProvider Provider, int VideoId, RecordingProgress Progress)
+    private sealed record IdentifyRun(ServiceProvider Provider, int VideoId, RecordingProgress Progress) : IAsyncDisposable
     {
+        public ValueTask DisposeAsync() => Provider.DisposeAsync();
+
         public async Task<Video> LoadVideoAsync()
         {
             using var scope = Provider.CreateScope();

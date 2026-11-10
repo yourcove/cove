@@ -7,10 +7,10 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Plugins;
 using Cove.Sdk;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -22,13 +22,13 @@ namespace Cove.Tests;
 public class ExtensionBundleSupportTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task Extension_migrations_execute_literal_braces_without_composite_formatting()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
 
         var services = new ServiceCollection();
-        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
+        services.AddDbContext<CoveContext>(options => database.Configure(options));
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<CoveContext>());
         await using var provider = services.BuildServiceProvider();
 
@@ -42,10 +42,12 @@ public class ExtensionBundleSupportTests
 
         Assert.True(await manager.InitializeExtensionAsync(LiteralBraceMigrationExtension.ExtensionId, provider, TestContext.Current.CancellationToken));
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT sql FROM sqlite_master WHERE name = 'brace_migration'";
-        var schema = Assert.IsType<string>(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
-        Assert.Contains("DEFAULT '{}'", schema);
+        await using var command = database.DataSource.CreateCommand("""
+            SELECT column_default FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'brace_migration' AND column_name = 'payload'
+            """);
+        var columnDefault = Assert.IsType<string>(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("'{}'::text", columnDefault);
     }
 
     [Fact]
@@ -1833,27 +1835,27 @@ public class ExtensionBundleSupportTests
     [InlineData(null, true)]
     [InlineData(true, true)]
     [InlineData(false, false)]
+    [RequiresPostgres]
     public async Task InitializeAllAsync_persists_the_record_of_an_extension_that_failed_to_load_without_overwriting_its_saved_enabled_choice(
         bool? savedEnabled,
         bool expectedSavedEnabled)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var root = Path.Combine(Path.GetTempPath(), $"cove-failed-load-persist-{Guid.NewGuid():N}");
         var dataDir = Path.Combine(root, "data");
         var extensionsDir = Path.Combine(root, "extensions");
         Directory.CreateDirectory(dataDir);
         await WriteUnloadableExtensionAsync(Path.Combine(extensionsDir, "broken.extension"), "broken.extension", dependencies: null);
 
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var services = new ServiceCollection();
-        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
+        services.AddDbContext<CoveContext>(options => database.Configure(options));
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<CoveContext>());
         await using var provider = services.BuildServiceProvider();
 
         if (savedEnabled is bool enabled)
         {
             // A row saved before this start, carrying the user's last enable or disable choice.
-            await using var seed = connection.CreateCommand();
+            await using var seed = database.DataSource.CreateCommand();
             seed.CommandText = $"""
                 CREATE TABLE extension_installations (
                     extension_id VARCHAR(256) PRIMARY KEY,
@@ -1866,7 +1868,7 @@ public class ExtensionBundleSupportTests
                     categories TEXT
                 );
                 INSERT INTO extension_installations (extension_id, version, enabled, source)
-                VALUES ('broken.extension', '1.0.0', {(enabled ? 1 : 0)}, 'registry');
+                VALUES ('broken.extension', '1.0.0', {(enabled ? "TRUE" : "FALSE")}, 'registry');
                 """;
             await seed.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
@@ -1885,7 +1887,7 @@ public class ExtensionBundleSupportTests
 
             // Disabled while this process runs, but a later start, perhaps with the DLL fixed, honours the saved choice.
             Assert.False(manager.IsEnabled("broken.extension"));
-            await using var command = connection.CreateCommand();
+            await using var command = database.DataSource.CreateCommand();
             command.CommandText = "SELECT enabled, manifest_json IS NULL, categories IS NULL FROM extension_installations WHERE extension_id = 'broken.extension'";
             await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
             Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken), "The failed extension's installation record was not persisted.");

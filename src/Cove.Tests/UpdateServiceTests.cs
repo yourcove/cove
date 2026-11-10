@@ -8,9 +8,8 @@ using Cove.Core.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -22,7 +21,8 @@ namespace Cove.Tests;
 /// Install and automatic-update decisions of <see cref="UpdateService"/> for a native install, against a
 /// fake release feed. Downloads fail (the feed serves no archives), so nothing is ever installed.
 /// </summary>
-public sealed class UpdateServiceTests : IAsyncDisposable
+[RequiresPostgres]
+public sealed class UpdateServiceTests : IAsyncLifetime
 {
     private const string Offered = "999.0.0";
     private static readonly string OldSha = new('a', 64);
@@ -30,7 +30,7 @@ public sealed class UpdateServiceTests : IAsyncDisposable
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cove-update-service-" + Guid.NewGuid().ToString("N"));
     private readonly FakeFeed _feed = new();
-    private readonly SqliteConnection _sqlite = new("Data Source=:memory:");
+    private CovePostgresDatabase? _database;
     private readonly ServiceProvider _services;
     private readonly JobService _jobs = new(new EventBus(), new NullHubContext(), NullLogger<JobService>.Instance);
     private readonly CoveConfiguration _config = new();
@@ -39,8 +39,9 @@ public sealed class UpdateServiceTests : IAsyncDisposable
     public UpdateServiceTests()
     {
         Directory.CreateDirectory(Path.Combine(_root, "app"));
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(_sqlite).Options;
-        _services = new ServiceCollection().AddScoped(_ => new CoveContext(options)).BuildServiceProvider();
+        _services = new ServiceCollection()
+            .AddScoped(_ => (_database ?? throw new InvalidOperationException("The database is not initialized.")).CreateContext())
+            .BuildServiceProvider();
         _config.Updates.Channel = "stable";
         var environment = new InstallEnvironment
         {
@@ -71,12 +72,22 @@ public sealed class UpdateServiceTests : IAsyncDisposable
             _root);
     }
 
+    public async ValueTask InitializeAsync()
+        => _database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+
     public async ValueTask DisposeAsync()
     {
-        await _jobs.CancelAllAndWaitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
-        await _services.DisposeAsync();
-        await _sqlite.DisposeAsync();
-        Directory.Delete(_root, recursive: true);
+        try
+        {
+            await _jobs.CancelAllAndWaitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            await _services.DisposeAsync();
+            if (_database != null)
+                await _database.DisposeAsync();
+            Directory.Delete(_root, recursive: true);
+        }
     }
 
     [Fact]

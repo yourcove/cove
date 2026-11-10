@@ -6,7 +6,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class MetadataExportTests
 {
     [Theory]
@@ -23,18 +24,16 @@ public sealed class MetadataExportTests
     public async Task Export_WritesBeforeMaterializingTheWholeLibrary_AndPreservesVideoRelationships(int count)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"cove-export-test-{Guid.NewGuid():N}");
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var guard = new ExportReadGuard(directory);
         var services = new ServiceCollection();
-        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection).AddInterceptors(guard));
+        services.AddDbContext<CoveContext>(options => database.Configure(options).AddInterceptors(guard));
         await using var provider = services.BuildServiceProvider();
         try
         {
             using (var scope = provider.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var folder = new Folder { Path = "/export-test" };
                 var studio = new Studio { Name = "Export studio" };
                 var tag = new Tag { Name = "Export tag" };
@@ -97,9 +96,10 @@ public sealed class MetadataExportTests
     [InlineData(true, "fail")]
     public async Task Export_HonorsSelection_AndPublishesOnlyCompleteFiles(bool includeTags, string outcome)
     {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var directory = Path.Combine(Path.GetTempPath(), $"cove-export-test-{Guid.NewGuid():N}");
         var services = new ServiceCollection();
-        services.AddDbContext<CoveContext>(options => options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+        services.AddDbContext<CoveContext>(options => database.Configure(options));
         await using var provider = services.BuildServiceProvider();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         try
