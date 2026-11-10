@@ -10,27 +10,38 @@ namespace Cove.Api.Services;
 /// </summary>
 public sealed class EntityHostDependencyService(CoveContext db)
 {
-    public async Task<EntityHostDependencyCleanup> StageDeleteAsync(
+    public Task<EntityHostDependencyCleanup> StageDeleteAsync(
         AffinityHostType hostType,
         int hostId,
         CancellationToken ct)
+        => StageDeleteAsync(hostType, [hostId], ct);
+
+    /// <summary>
+    /// Stages the dependent rows of several hosts of one type with the same number of queries as for one host.
+    /// The returned cleanup covers all of them together.
+    /// </summary>
+    public async Task<EntityHostDependencyCleanup> StageDeleteAsync(
+        AffinityHostType hostType,
+        IReadOnlyCollection<int> hostIdSet,
+        CancellationToken ct)
     {
+        var hostIds = hostIdSet.Distinct().ToArray();
         var (groupHostType, groupKinds) = GroupHost(hostType);
         // Keep each branch aligned with its composite index. Combining HostType and Kind with OR can
         // make PostgreSQL scan the whole group_items table once for every entity in a large job.
         var groupItems = await db.GroupItems
             .IgnoreQueryFilters()
-            .Where(item => item.HostType == groupHostType && item.HostId == hostId)
+            .Where(item => item.HostType == groupHostType && hostIds.Contains(item.HostId))
             .ToListAsync(ct);
         var legacyGroupItems = await db.GroupItems
             .IgnoreQueryFilters()
             .Where(item => groupKinds.Contains(item.Kind)
-                && item.HostId == hostId
+                && hostIds.Contains(item.HostId)
                 && item.HostType != groupHostType)
             .ToListAsync(ct);
         var tagApplications = await db.TagApplications
             .IgnoreQueryFilters()
-            .Where(item => item.HostType == hostType && item.HostId == hostId)
+            .Where(item => item.HostType == hostType && hostIds.Contains(item.HostId))
             .ToListAsync(ct);
         var contextType = hostType switch
         {
@@ -41,30 +52,31 @@ public sealed class EntityHostDependencyService(CoveContext db)
         var contextualTagApplications = contextType is not null
             ? await db.TagApplications
                 .IgnoreQueryFilters()
-                .Where(item => item.ContextType == contextType && item.ContextId == hostId)
+                .Where(item => item.ContextType == contextType && item.ContextId != null && hostIds.Contains(item.ContextId.Value))
                 .ToListAsync(ct)
             : [];
         var fieldProvenance = await db.FieldProvenance
             .IgnoreQueryFilters()
-            .Where(item => item.HostType == hostType && item.HostId == hostId)
+            .Where(item => item.HostType == hostType && hostIds.Contains(item.HostId))
             .ToListAsync(ct);
 
+        var referenceIds = hostIds.Select(id => (long)id).ToArray();
         var referencedSegments = hostType is AffinityHostType.Performer or AffinityHostType.Face
             ? await db.Segments
                 .IgnoreQueryFilters()
                 .Where(item => item.Kind != null
                     && item.Kind.ToLower() == (hostType == AffinityHostType.Performer ? "performer" : "face")
-                    && item.RefId == hostId)
+                    && item.RefId != null && referenceIds.Contains(item.RefId.Value))
                 .ToListAsync(ct)
             : [];
         var referencedDetections = hostType == AffinityHostType.Performer
             ? await db.Detections
                 .IgnoreQueryFilters()
-                .Where(item => item.RefKind != null && item.RefKind.ToLower() == "performer" && item.RefId == hostId)
+                .Where(item => item.RefKind != null && item.RefKind.ToLower() == "performer" && item.RefId != null && referenceIds.Contains(item.RefId.Value))
                 .ToListAsync(ct)
             : [];
 
-        var segments = (await LoadSegmentsAsync(hostType, hostId, ct))
+        var segments = (await LoadSegmentsAsync(hostType, hostIds, ct))
             .Concat(referencedSegments)
             .DistinctBy(item => item.Id)
             .ToArray();
@@ -87,10 +99,10 @@ public sealed class EntityHostDependencyService(CoveContext db)
                 .IgnoreQueryFilters()
                 .Where(item => item.HostType == AffinityHostType.Segment && segmentIds.Contains(item.HostId))
                 .ToListAsync(ct);
-        var embeddings = await LoadEmbeddingsAsync(hostType, hostId, segmentIds, ct);
-        var detections = await LoadDetectionsAsync(hostType, hostId, ct);
-        var appearances = await LoadFaceAppearancesAsync(hostType, hostId, ct);
-        var aiRuns = await LoadAiRunsAsync(hostType, hostId, ct);
+        var embeddings = await LoadEmbeddingsAsync(hostType, hostIds, segmentIds, ct);
+        var detections = await LoadDetectionsAsync(hostType, hostIds, ct);
+        var appearances = await LoadFaceAppearancesAsync(hostType, hostIds, ct);
+        var aiRuns = await LoadAiRunsAsync(hostType, hostIds, ct);
         var affectedSegmentVideoIds = segments
             .Where(segment => segment.HostType == SegmentHostType.Video)
             .Select(segment => segment.HostId)
@@ -100,7 +112,7 @@ public sealed class EntityHostDependencyService(CoveContext db)
         {
             affectedSegmentVideoIds.UnionWith(await db.Segments
                 .IgnoreQueryFilters()
-                .Where(segment => segment.HostType == SegmentHostType.Video && segment.TagId == hostId)
+                .Where(segment => segment.HostType == SegmentHostType.Video && segment.TagId != null && hostIds.Contains(segment.TagId.Value))
                 .Select(segment => segment.HostId)
                 .Distinct()
                 .ToListAsync(ct));
@@ -132,27 +144,27 @@ public sealed class EntityHostDependencyService(CoveContext db)
             db.Set<TEntity>().RemoveRange(items);
     }
 
-    private Task<List<Segment>> LoadSegmentsAsync(AffinityHostType hostType, int hostId, CancellationToken ct)
+    private Task<List<Segment>> LoadSegmentsAsync(AffinityHostType hostType, int[] hostIds, CancellationToken ct)
         => hostType switch
         {
-            AffinityHostType.Video => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Video && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Image => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Image && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Audio => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Audio && item.HostId == hostId).ToListAsync(ct),
+            AffinityHostType.Video => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Video && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Image => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Image && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Audio => db.Segments.IgnoreQueryFilters().Where(item => item.HostType == SegmentHostType.Audio && hostIds.Contains(item.HostId)).ToListAsync(ct),
             _ => Task.FromResult(new List<Segment>()),
         };
 
     private async Task<List<Embedding>> LoadEmbeddingsAsync(
         AffinityHostType hostType,
-        int hostId,
+        int[] hostIds,
         int[] segmentIds,
         CancellationToken ct)
     {
         var direct = hostType switch
         {
-            AffinityHostType.Video => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Video && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Image => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Image && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Performer => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Performer && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Face => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Face && item.HostId == hostId).ToListAsync(ct),
+            AffinityHostType.Video => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Video && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Image => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Image && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Performer => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Performer && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Face => await db.Embeddings.IgnoreQueryFilters().Where(item => item.HostType == EmbeddingHostType.Face && hostIds.Contains(item.HostId)).ToListAsync(ct),
             _ => [],
         };
         if (segmentIds.Length == 0)
@@ -165,29 +177,29 @@ public sealed class EntityHostDependencyService(CoveContext db)
         return direct.Concat(segmentEmbeddings).DistinctBy(item => item.Id).ToList();
     }
 
-    private Task<List<Detection>> LoadDetectionsAsync(AffinityHostType hostType, int hostId, CancellationToken ct)
+    private Task<List<Detection>> LoadDetectionsAsync(AffinityHostType hostType, int[] hostIds, CancellationToken ct)
         => hostType switch
         {
-            AffinityHostType.Video => db.Detections.IgnoreQueryFilters().Where(item => item.HostType == DetectionHostType.Video && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Image => db.Detections.IgnoreQueryFilters().Where(item => item.HostType == DetectionHostType.Image && item.HostId == hostId).ToListAsync(ct),
+            AffinityHostType.Video => db.Detections.IgnoreQueryFilters().Where(item => item.HostType == DetectionHostType.Video && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Image => db.Detections.IgnoreQueryFilters().Where(item => item.HostType == DetectionHostType.Image && hostIds.Contains(item.HostId)).ToListAsync(ct),
             _ => Task.FromResult(new List<Detection>()),
         };
 
-    private Task<List<FaceAppearance>> LoadFaceAppearancesAsync(AffinityHostType hostType, int hostId, CancellationToken ct)
+    private Task<List<FaceAppearance>> LoadFaceAppearancesAsync(AffinityHostType hostType, int[] hostIds, CancellationToken ct)
         => hostType switch
         {
-            AffinityHostType.Video => db.FaceAppearances.IgnoreQueryFilters().Where(item => item.HostType == FaceAppearanceHostType.Video && item.HostId == hostId).ToListAsync(ct),
-            AffinityHostType.Image => db.FaceAppearances.IgnoreQueryFilters().Where(item => item.HostType == FaceAppearanceHostType.Image && item.HostId == hostId).ToListAsync(ct),
+            AffinityHostType.Video => db.FaceAppearances.IgnoreQueryFilters().Where(item => item.HostType == FaceAppearanceHostType.Video && hostIds.Contains(item.HostId)).ToListAsync(ct),
+            AffinityHostType.Image => db.FaceAppearances.IgnoreQueryFilters().Where(item => item.HostType == FaceAppearanceHostType.Image && hostIds.Contains(item.HostId)).ToListAsync(ct),
             _ => Task.FromResult(new List<FaceAppearance>()),
         };
 
-    private Task<List<AiRun>> LoadAiRunsAsync(AffinityHostType hostType, int hostId, CancellationToken ct)
+    private Task<List<AiRun>> LoadAiRunsAsync(AffinityHostType hostType, int[] hostIds, CancellationToken ct)
         => hostType switch
         {
-            AffinityHostType.Video => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Video && item.TargetId == hostId).ToListAsync(ct),
-            AffinityHostType.Image => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Image && item.TargetId == hostId).ToListAsync(ct),
-            AffinityHostType.Performer => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Performer && item.TargetId == hostId).ToListAsync(ct),
-            AffinityHostType.Face => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Face && item.TargetId == hostId).ToListAsync(ct),
+            AffinityHostType.Video => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Video && hostIds.Contains(item.TargetId)).ToListAsync(ct),
+            AffinityHostType.Image => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Image && hostIds.Contains(item.TargetId)).ToListAsync(ct),
+            AffinityHostType.Performer => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Performer && hostIds.Contains(item.TargetId)).ToListAsync(ct),
+            AffinityHostType.Face => db.AiRuns.IgnoreQueryFilters().Where(item => item.TargetType == AiRunTargetType.Face && hostIds.Contains(item.TargetId)).ToListAsync(ct),
             _ => Task.FromResult(new List<AiRun>()),
         };
 

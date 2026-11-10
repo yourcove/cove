@@ -2,6 +2,8 @@ using System.Collections;
 using System.Data.Common;
 using System.Text.RegularExpressions;
 using Cove.Api.Services;
+using Cove.Core.Entities.Auth;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
@@ -9,6 +11,7 @@ using Cove.Data;
 using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -183,7 +186,7 @@ public sealed class CleanServiceMemoryTests
         Directory.CreateDirectory(root);
         try
         {
-            var failure = new FirstImageDeleteFailure();
+            var failure = new ChosenImageDeleteFailure();
             var options = database.CreateOptions(builder => builder.AddInterceptors(failure));
             var services = new ServiceCollection();
             services.AddScoped(_ => new CoveContext(options));
@@ -203,26 +206,271 @@ public sealed class CleanServiceMemoryTests
             new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance).StartClean();
             await jobs.Completion;
 
-            // The failed image stays for the next clean; the second deletion must not replay its staged delete.
+            // The page's shared save fails, so its images are removed one at a time. The failed image stays for
+            // the next clean; the other deletion must not replay its staged delete.
             await using var verify = new CoveContext(options);
             Assert.NotNull(failure.FailedImageId);
+            Assert.Equal(2, failure.Failures);
             Assert.Equal([failure.FailedImageId.Value], await verify.Images.Select(image => image.Id).ToListAsync(TestContext.Current.CancellationToken));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    private sealed class FirstImageDeleteFailure : SaveChangesInterceptor
+    [Fact]
+    public async Task CleanRemovesAFullPageOfOrphansWithTheCommandsOfAFewOrphans()
+    {
+        // A query, a save or a transaction that ran once per orphan would make the full page cost more.
+        var few = await CountCleanCommandsAsync(orphans: 8);
+        var page = await CountCleanCommandsAsync(orphans: CleanPlan.BatchSize);
+        Assert.Equal(few, page);
+    }
+
+    [Fact]
+    public async Task ASecondDeletionCompilesNoNewQueries()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var counting = false;
+        var compilations = 0;
+        // A cache of its own: the shared one is size-limited and drops new entries when the rest of the suite
+        // has filled it, which would make the second save compile again for an unrelated reason.
+        using var queryCache = new MemoryCache(new MemoryCacheOptions());
+        var options = database.CreateOptions(builder => builder.UseMemoryCache(queryCache).LogTo(
+            (eventId, _) => eventId == CoreEventId.QueryCompilationStarting,
+            _ =>
+            {
+                if (counting)
+                    Interlocked.Increment(ref compilations);
+            }));
+        await using var db = new CoveContext(options);
+        var folder = new Folder { Path = "/library" };
+        db.Images.AddRange(
+            new Image { Title = "first", Files = [new ImageFile { ParentFolder = folder, Basename = "first.jpg" }] },
+            new Image { Title = "second", Files = [new ImageFile { ParentFolder = folder, Basename = "second.jpg" }] });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var images = await db.Images.OrderBy(image => image.Id).ToListAsync(TestContext.Current.CancellationToken);
+
+        db.Images.Remove(images[0]);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        // The first save compiled every query a deletion's save runs. A save for another id must reuse them: an id
+        // that ends up in a query's cache key instead of a parameter makes every save compile that query again.
+        counting = true;
+        db.Images.Remove(images[1]);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        counting = false;
+
+        Assert.Equal(0, compilations);
+        Assert.Equal(0, await db.Images.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static async Task<(int Commands, int Transactions)> CountCleanCommandsAsync(int orphans)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var counter = new CommandCounter();
+        var options = database.CreateOptions(builder => builder.AddInterceptors(counter));
+        var eventBus = new EventBus();
+        var services = new ServiceCollection();
+        services.AddScoped(_ => new CoveContext(options));
+        AddDeletionServices(services, eventBus);
+        await using var provider = services.BuildServiceProvider();
+        var deletedImages = 0;
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.ImageDeleted)
+                Interlocked.Increment(ref deletedImages);
+        });
+        await using (var db = new CoveContext(options))
+        {
+            // Nothing exists below this folder, so every image is an orphan.
+            var folder = new Folder { Path = Path.Combine(Path.GetTempPath(), $"cove-clean-count-{Guid.NewGuid():N}") };
+            db.Images.AddRange(Enumerable.Range(0, orphans).Select(index => new Image
+            {
+                Title = $"orphan {index}", Files = [new ImageFile { ParentFolder = folder, Basename = $"{index}.jpg" }],
+            }));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        counter.Enabled = true;
+        var jobs = new CapturingJobs(new InspectionGuard(), TestContext.Current.CancellationToken);
+        new CleanService(jobs, provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CleanService>.Instance).StartClean();
+        await jobs.Completion;
+        counter.Enabled = false;
+
+        await using var verify = new CoveContext(options);
+        Assert.Equal(0, await verify.Images.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await verify.ImageFiles.CountAsync(TestContext.Current.CancellationToken));
+        // Batching the save must not batch away the per-entity event.
+        Assert.Equal(orphans, deletedImages);
+        return (counter.Commands, counter.Transactions);
+    }
+
+    [Theory]
+    [InlineData(BulkDeletionEntityKind.Image)]
+    [InlineData(BulkDeletionEntityKind.Audio)]
+    [InlineData(BulkDeletionEntityKind.Text)]
+    [InlineData(BulkDeletionEntityKind.Gallery)]
+    public async Task BatchDeletionGivesEachEntityWhatASingleDeletionGives(BulkDeletionEntityKind kind)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var root = Path.Combine(Path.GetTempPath(), $"cove-batch-delete-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var options = database.CreateOptions();
+            var eventBus = new EventBus();
+            var services = new ServiceCollection();
+            services.AddScoped(_ => new CoveContext(options));
+            AddDeletionServices(services, eventBus);
+            await using var provider = services.BuildServiceProvider();
+            var (hostType, ratingHostType, customFieldType, deletedEvent) = kind switch
+            {
+                BulkDeletionEntityKind.Image => (AffinityHostType.Image, RatingHostType.Image, CustomFieldEntityTypes.Image, EventType.ImageDeleted),
+                BulkDeletionEntityKind.Audio => (AffinityHostType.Audio, RatingHostType.Audio, CustomFieldEntityTypes.Audio, EventType.AudioDeleted),
+                BulkDeletionEntityKind.Text => (AffinityHostType.Text, RatingHostType.Text, CustomFieldEntityTypes.Text, EventType.TextDeleted),
+                _ => (AffinityHostType.Gallery, RatingHostType.Gallery, CustomFieldEntityTypes.Gallery, EventType.GalleryDeleted),
+            };
+            var deletedEventIds = new List<int>();
+            using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+            {
+                if (evt.Type == deletedEvent)
+                    deletedEventIds.Add(evt.EntityId);
+            });
+
+            string[] names = ["first", "second", "kept"];
+            int[] ids;
+            await using (var db = new CoveContext(options))
+            {
+                var folder = new Folder { Path = root };
+                var entities = new List<BaseEntity>();
+                foreach (var name in names)
+                {
+                    await File.WriteAllBytesAsync(Path.Combine(root, $"{name}.bin"), [1], TestContext.Current.CancellationToken);
+                    entities.Add(kind switch
+                    {
+                        BulkDeletionEntityKind.Image => new Image { Title = name, Files = [new ImageFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
+                        BulkDeletionEntityKind.Audio => new Audio { Title = name, Files = [new AudioFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
+                        BulkDeletionEntityKind.Text => new TextDocument { Title = name, Files = [new TextFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
+                        _ => new Gallery { Title = name, Files = [new GalleryFile { ParentFolder = folder, Basename = $"{name}.bin" }] },
+                    });
+                }
+                var tag = new Tag { Name = "tag" };
+                var definition = new CustomFieldDefinition { Key = "batch_fixture", Label = "Batch fixture", EntityTypes = [customFieldType] };
+                db.AddRange(entities);
+                var user = new User { Username = "rater", PasswordHash = "test" };
+                db.AddRange(tag, definition, user);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                ids = entities.Select(entity => entity.Id).ToArray();
+                foreach (var id in ids)
+                {
+                    db.AddRange(
+                        new TagApplication { HostType = hostType, HostId = id, TagId = tag.Id, SourceKey = "test" },
+                        new Rating { UserId = user.Id, HostType = ratingHostType, HostId = id, Value = 80 },
+                        new CustomFieldValue { DefinitionId = definition.Id, EntityType = customFieldType, EntityId = id, TextValue = "x" });
+                }
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            int[] expectedDeleted = [ids[0], ids[1]];
+            int[] expectedKept = [ids[2]];
+            var context = new BulkDeletionExecutionContext();
+            using (var scope = provider.CreateScope())
+            {
+                var deletion = scope.ServiceProvider.GetRequiredService<BulkEntityDeletionService>();
+                // An id that no longer exists is skipped and left out of the result, not treated as a failure.
+                var deleted = await deletion.DeleteBatchAsync(kind, [ids[0], ids[1], int.MaxValue], context,
+                    deleteFiles: true, deleteGenerated: true, TestContext.Current.CancellationToken);
+                Assert.Equal(expectedDeleted, deleted.Order());
+            }
+
+            // A gallery's files are never deleted from disk with it; the other kinds get one durable outbox row each.
+            string[] expectedOutbox = kind == BulkDeletionEntityKind.Gallery
+                ? []
+                : [.. names.Take(2).Select(name => FilesystemPaths.ToStoredPath(Path.Combine(root, $"{name}.bin"))).Order(StringComparer.Ordinal)];
+            await using (var verify = new CoveContext(options))
+            {
+                Assert.Equal(expectedKept, await RemainingIdsAsync(verify, kind));
+                Assert.Equal(expectedKept, await verify.TagApplications.Select(item => item.HostId).ToListAsync(TestContext.Current.CancellationToken));
+                Assert.Equal(expectedKept, await verify.Ratings.Select(item => item.HostId).ToListAsync(TestContext.Current.CancellationToken));
+                Assert.Equal(expectedKept, await verify.CustomFieldValues.Select(item => item.EntityId).ToListAsync(TestContext.Current.CancellationToken));
+                Assert.Equal(1, await verify.Set<BaseFileEntity>().CountAsync(TestContext.Current.CancellationToken));
+                var outbox = await verify.PendingPhysicalFileDeletions.ToListAsync(TestContext.Current.CancellationToken);
+                Assert.Equal(expectedOutbox, outbox.Select(item => item.Path).Order(StringComparer.Ordinal));
+                Assert.All(outbox, item => Assert.Equal(context.PhysicalDeletionBatchId, item.BatchId));
+            }
+            Assert.Equal(expectedDeleted, deletedEventIds.Order());
+            // The files are only removed by the outbox pass, after its referenced-path check.
+            Assert.All(names, name => Assert.True(File.Exists(Path.Combine(root, $"{name}.bin"))));
+
+            if (kind != BulkDeletionEntityKind.Gallery)
+            {
+                using var scope = provider.CreateScope();
+                var result = await scope.ServiceProvider.GetRequiredService<BulkEntityDeletionService>()
+                    .DeleteTrackedPhysicalFilesAsync(kind, context, maxParallelism: 1, TestContext.Current.CancellationToken);
+                Assert.Equal(new BulkPhysicalDeletionResult(2, 0), result);
+                Assert.Equal([false, false, true], names.Select(name => File.Exists(Path.Combine(root, $"{name}.bin"))));
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static Task<List<int>> RemainingIdsAsync(CoveContext db, BulkDeletionEntityKind kind) => kind switch
+    {
+        BulkDeletionEntityKind.Image => db.Images.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
+        BulkDeletionEntityKind.Audio => db.Audios.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
+        BulkDeletionEntityKind.Text => db.TextDocuments.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
+        _ => db.Galleries.Select(item => item.Id).ToListAsync(TestContext.Current.CancellationToken),
+    };
+
+    private sealed class CommandCounter : DbCommandInterceptor, IDbTransactionInterceptor
+    {
+        private int commands;
+        private int transactions;
+        public bool Enabled { get; set; }
+        public int Commands => commands;
+        public int Transactions => transactions;
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        { Count(ref commands); return ValueTask.FromResult(result); }
+        public override InterceptionResult<DbDataReader> ReaderExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+        { Count(ref commands); return result; }
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        { Count(ref commands); return ValueTask.FromResult(result); }
+        public override InterceptionResult<int> NonQueryExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<int> result)
+        { Count(ref commands); return result; }
+        public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<object> result, CancellationToken cancellationToken = default)
+        { Count(ref commands); return ValueTask.FromResult(result); }
+        public override InterceptionResult<object> ScalarExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<object> result)
+        { Count(ref commands); return result; }
+        public Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        { Count(ref transactions); return Task.CompletedTask; }
+        public void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData) => Count(ref transactions);
+
+        private void Count(ref int counter)
+        {
+            if (Enabled)
+                Interlocked.Increment(ref counter);
+        }
+    }
+
+    private sealed class ChosenImageDeleteFailure : SaveChangesInterceptor
     {
         public bool Armed { get; set; }
         public int? FailedImageId { get; private set; }
+        public int Failures { get; private set; }
 
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Armed && FailedImageId is null
-                && eventData.Context!.ChangeTracker.Entries<Image>().FirstOrDefault(entry => entry.State == EntityState.Deleted) is { } deleted)
+            // Fails every save that deletes the chosen image: first the page's shared save, then that image's own.
+            if (Armed
+                && eventData.Context!.ChangeTracker.Entries<Image>().FirstOrDefault(entry => entry.State == EntityState.Deleted
+                    && (FailedImageId is null || entry.Entity.Id == FailedImageId)) is { } deleted)
             {
                 FailedImageId = deleted.Entity.Id;
+                Failures++;
                 throw new DbUpdateException("Injected save failure");
             }
             return ValueTask.FromResult(result);

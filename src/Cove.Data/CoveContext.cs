@@ -1369,25 +1369,31 @@ public partial class CoveContext : DbContext
 
     private void CleanupEngagementRowsForDeletedEntities()
     {
-        foreach (var target in CollectDeletedEngagementTargets())
+        // One round trip per table for each kind of deleted entity, however many of that kind the save deletes.
+        foreach (var targets in CollectDeletedEngagementTargets().GroupBy(target => (target.AffinityHostType, target.InteractionHostType, target.RatingHostType)))
         {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToList());
+            var (affinityHostType, interactionHostType, ratingHostType) = targets.Key;
+            var hostIds = targets.Select(target => target.HostId).ToArray();
+            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == affinityHostType && hostIds.Contains(row.HostId)).ToList());
+            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == affinityHostType && hostIds.Contains(row.HostId)).ToList());
+            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => row.HostType == interactionHostType && hostIds.Contains(row.HostId)).ToList());
+            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == interactionHostType && hostIds.Contains(row.HostId)).ToList());
+            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => row.HostType == ratingHostType && hostIds.Contains(row.HostId)).ToList());
         }
     }
 
     private async Task CleanupEngagementRowsForDeletedEntitiesAsync(CancellationToken cancellationToken)
     {
-        foreach (var target in CollectDeletedEngagementTargets())
+        // One round trip per table for each kind of deleted entity, however many of that kind the save deletes.
+        foreach (var targets in CollectDeletedEngagementTargets().GroupBy(target => (target.AffinityHostType, target.InteractionHostType, target.RatingHostType)))
         {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            var (affinityHostType, interactionHostType, ratingHostType) = targets.Key;
+            var hostIds = targets.Select(target => target.HostId).ToArray();
+            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == affinityHostType && hostIds.Contains(row.HostId)).ToListAsync(cancellationToken));
+            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == affinityHostType && hostIds.Contains(row.HostId)).ToListAsync(cancellationToken));
+            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => row.HostType == interactionHostType && hostIds.Contains(row.HostId)).ToListAsync(cancellationToken));
+            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == interactionHostType && hostIds.Contains(row.HostId)).ToListAsync(cancellationToken));
+            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => row.HostType == ratingHostType && hostIds.Contains(row.HostId)).ToListAsync(cancellationToken));
         }
     }
 
@@ -3022,6 +3028,17 @@ public partial class CoveContext : DbContext
         }
     }
 
+    // Reads the ids through a member of a captured object, as a C# closure would, so EF Core sends them as a
+    // parameter. An array embedded as a constant becomes part of the query's cache key: every distinct set of
+    // ids then compiles a new query, which cost more than running it and happened on every save that refreshed
+    // a derived count.
+    private sealed class IdList(int[] ids)
+    {
+        public int[] Ids { get; } = ids;
+
+        public Expression ToExpression() => Expression.Property(Expression.Constant(this), nameof(Ids));
+    }
+
     private static Expression<Func<TLink, bool>> BuildContainsPredicate<TLink>(
         Expression<Func<TLink, int>> selector, int[] ids)
     {
@@ -3030,7 +3047,7 @@ public partial class CoveContext : DbContext
             typeof(System.Linq.Enumerable),
             nameof(System.Linq.Enumerable.Contains),
             new[] { typeof(int) },
-            Expression.Constant(ids),
+            new IdList(ids).ToExpression(),
             selector.Body);
         return Expression.Lambda<Func<TLink, bool>>(contains, param);
     }
@@ -3043,7 +3060,7 @@ public partial class CoveContext : DbContext
             typeof(System.Linq.Enumerable),
             nameof(System.Linq.Enumerable.Contains),
             new[] { typeof(int) },
-            Expression.Constant(ids),
+            new IdList(ids).ToExpression(),
             idProperty);
         return Expression.Lambda<Func<TParent, bool>>(contains, param);
     }
