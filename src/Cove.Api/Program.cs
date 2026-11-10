@@ -549,6 +549,9 @@ try
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
         options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();
+        // [controller] keeps the class name's casing (/api/ApiTokens); lowercase it so every route and the
+        // OpenAPI document read the same way. Route matching ignores case, so existing callers are unaffected.
+        options.Conventions.Add(new Microsoft.AspNetCore.Mvc.ApplicationModels.RouteTokenTransformerConvention(new Cove.Api.Http.LowercaseRouteTokenTransformer()));
     })
         .AddJsonOptions(options =>
         {

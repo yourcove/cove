@@ -17,7 +17,7 @@ http://localhost:5073/api/extensions
 
 There is no `/api/v1` compatibility prefix or negotiated API version. The `v1` in the OpenAPI document name identifies the generated document, not a versioned route base. Cove makes no stable cross-release compatibility guarantee for these unversioned routes. Pin automation to a tested Cove release and compare its OpenAPI contract during upgrades.
 
-Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
+Routes are lowercase, and matching ignores case. Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
 
 ## Discover the OpenAPI contract
 

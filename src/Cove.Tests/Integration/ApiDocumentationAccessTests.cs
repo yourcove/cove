@@ -90,7 +90,7 @@ public sealed class ApiDocumentationAccessTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var document = JsonDocument.Parse(body);
         Assert.True(document.RootElement.TryGetProperty("openapi", out _));
-        Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/api/Auth/me", out _));
+        Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/api/auth/me", out _));
     }
 
     [Fact]
@@ -210,6 +210,30 @@ public sealed class ApiDocumentationAccessTests
         Assert.Equal("Cove", info.GetProperty("title").GetString());
         Assert.Equal(Cove.Core.Common.CoveVersion.Display, info.GetProperty("version").GetString());
         Assert.Contains("Do not run untrusted input", info.GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public async Task Controller_routes_are_lowercase_in_the_document_and_still_match_any_case()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        factory.Services.GetRequiredService<CoveConfiguration>().Auth.Enabled = true;
+        using var client = factory.CreateAuthenticatedClient();
+
+        using var response = await client.GetAsync(DocumentPath, TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        // Route parameters keep their names ({videoId}); only the literal segments are compared.
+        var mixedCase = document.RootElement.GetProperty("paths").EnumerateObject()
+            .Select(path => path.Name)
+            .Where(path => System.Text.RegularExpressions.Regex.Replace(path, "\\{[^}]*\\}", "").Any(char.IsUpper))
+            .ToList();
+        Assert.Empty(mixedCase);
+        Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/api/apitokens", out _));
+
+        // Callers that used the old class-name casing keep working.
+        using var legacy = await client.GetAsync("/api/Auth/me", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
     }
 
     [Fact]
