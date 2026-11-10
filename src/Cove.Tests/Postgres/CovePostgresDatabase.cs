@@ -86,7 +86,7 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
         if (_dataSource != null)
             await _dataSource.DisposeAsync();
         if (_database != null)
-            await _database.DisposeAsync();
+            await DeferredDatabaseDrops.EnqueueAsync(_database);
     }
 
     internal static DbContextOptions<CoveContext> CreateOptions(
