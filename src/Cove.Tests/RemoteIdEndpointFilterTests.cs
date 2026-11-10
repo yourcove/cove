@@ -2,11 +2,11 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class RemoteIdEndpointFilterTests
 {
     public static TheoryData<string, CriterionModifier, string[]> Cases => new()
@@ -72,11 +72,8 @@ public class RemoteIdEndpointFilterTests
         CriterionModifier modifier,
         string[] expected)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         Seed(context);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
@@ -100,11 +97,8 @@ public class RemoteIdEndpointFilterTests
         CriterionModifier modifier,
         string[] expected)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var context = new CoveContext(options);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         Seed(context);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
