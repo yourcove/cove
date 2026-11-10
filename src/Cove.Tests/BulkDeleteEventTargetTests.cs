@@ -7,6 +7,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,9 +17,11 @@ namespace Cove.Tests;
 public sealed class BulkDeleteEventTargetTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task AudioBulkDeleteQueuesAllDistinctSelectedIds()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var audio = new Audio { Title = "Audio" };
         db.Audios.Add(audio);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -37,9 +40,9 @@ public sealed class BulkDeleteEventTargetTests
     }
 
     [Fact]
-    public async Task AudioBulkDeleteChecksPhysicalFilePermissionBeforeSelectionSize()
+    public void AudioBulkDeleteChecksPhysicalFilePermissionBeforeSelectionSize()
     {
-        await using var db = CreateContext();
+        using var db = CreateOfflineContext();
         var principal = MetadataDeleteOnlyPrincipal(Permissions.AudiosDelete);
         var controller = new AudiosController(
             db,
@@ -59,7 +62,7 @@ public sealed class BulkDeleteEventTargetTests
     [Fact]
     public async Task AudioDeleteChecksPhysicalFilePermissionBeforeEntityLookup()
     {
-        await using var db = CreateContext();
+        await using var db = CreateOfflineContext();
         var controller = new AudiosController(
             db,
             new CustomFieldService(db),
@@ -74,9 +77,11 @@ public sealed class BulkDeleteEventTargetTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task ImageBulkDeleteQueuesAJob()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var image = new Image { Title = "Image" };
         db.Images.Add(image);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -99,9 +104,9 @@ public sealed class BulkDeleteEventTargetTests
     }
 
     [Fact]
-    public async Task ImageBulkDeleteChecksFilePermissionBeforeSelectionSize()
+    public void ImageBulkDeleteChecksFilePermissionBeforeSelectionSize()
     {
-        await using var db = CreateContext();
+        using var db = CreateOfflineContext();
         var principal = new CurrentPrincipalAccessor();
         principal.Set(new CovePrincipal
         {
@@ -128,9 +133,11 @@ public sealed class BulkDeleteEventTargetTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task TextBulkDeleteQueuesAllDistinctSelectedIds()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var text = new TextDocument { Title = "Text" };
         db.TextDocuments.Add(text);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -150,9 +157,9 @@ public sealed class BulkDeleteEventTargetTests
     }
 
     [Fact]
-    public async Task TextBulkDeleteChecksPhysicalFilePermissionBeforeSelectionSize()
+    public void TextBulkDeleteChecksPhysicalFilePermissionBeforeSelectionSize()
     {
-        await using var db = CreateContext();
+        using var db = CreateOfflineContext();
         var principal = MetadataDeleteOnlyPrincipal(Permissions.TextsDelete);
         var controller = new TextsController(
             db,
@@ -173,7 +180,7 @@ public sealed class BulkDeleteEventTargetTests
     [Fact]
     public async Task TextDeleteChecksPhysicalFilePermissionBeforeEntityLookup()
     {
-        await using var db = CreateContext();
+        await using var db = CreateOfflineContext();
         var controller = new TextsController(
             db,
             new CustomFieldService(db),
@@ -187,6 +194,12 @@ public sealed class BulkDeleteEventTargetTests
 
         Assert.IsType<ForbidResult>(result);
     }
+
+    // The permission checks refuse these requests before any query, so the tests that only check them need no server.
+    private static CoveContext CreateOfflineContext()
+        => new(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=unused", npgsql => npgsql.UseVector())
+            .Options);
 
     private static CurrentPrincipalAccessor MetadataDeleteOnlyPrincipal(string deletePermission)
     {
@@ -213,17 +226,6 @@ public sealed class BulkDeleteEventTargetTests
         Assert.Equal("image-delete-job", queued.JobId);
         Assert.Equal(itemCount, queued.ItemCount);
         Assert.Equal(type, jobs.Type);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
     }
 
     private sealed class CapturingJobService : Cove.Core.Interfaces.IJobService

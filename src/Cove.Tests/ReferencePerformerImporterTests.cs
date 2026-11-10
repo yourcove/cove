@@ -1,30 +1,28 @@
 using Cove.Api.Services;
 using Cove.Core.Entities;
 using Cove.Data;
-using Microsoft.Data.Sqlite;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ReferencePerformerImporterTests
 {
     [Fact]
     public async Task TryImportAsync_RecordsRemoteIdForExistingPerformerBeforeHydration()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
 
         var services = new ServiceCollection();
-        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
+        services.AddDbContext<CoveContext>(options => database.Configure(options));
         using var provider = services.BuildServiceProvider();
 
         int performerId;
         await using (var scope = provider.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-
             var performer = new Performer { Name = "Existing Performer" };
             db.Performers.Add(performer);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);

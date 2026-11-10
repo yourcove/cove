@@ -4,16 +4,19 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class TagMergeServiceTests
 {
     [Fact]
     public async Task MergeAsync_StopsBeforeMutationWhenExtensionReferencesCannotBeTransferred()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         db.Tags.AddRange(target, source);
@@ -35,7 +38,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_FailsClosedWhenNonCoreReferencesCannotBeInspected()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         db.Tags.AddRange(target, source);
@@ -56,7 +60,11 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_TransfersRelationshipsMetadataAndStoredTagReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        // The name constraints refuse committed duplicates but allow them until the transaction commits, the only
+        // place a merge can still meet one, so the duplicates are seeded and merged in one transaction.
+        await using var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         var target = new Tag { Name = "Target", Description = "Survivor description" };
         var source = new Tag
         {
@@ -138,6 +146,8 @@ public sealed class TagMergeServiceTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var result = await new TagMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
+        // Committing checks the deferred name constraints: the merge must leave no duplicate behind.
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(target.Id, result.TargetId);
         Assert.Equal([source.Id], result.MergedSourceIds);
@@ -152,6 +162,10 @@ public sealed class TagMergeServiceTests
         Assert.Equal("Source supplemental search text", merged.SearchText);
         Assert.Contains(merged.Aliases, alias => alias.Alias == "Historical alias");
         Assert.DoesNotContain(merged.Aliases, alias => TagNameRules.NamesEqual(alias.Alias, target.Name));
+        // The source's alias " source " and its name " Source " claim the same name; the merge keeps the alias,
+        // which comes first, trimmed, and drops the name.
+        Assert.Equal("source", Assert.Single(merged.Aliases, alias => TagNameRules.NamesEqual(alias.Alias, "Source")).Alias);
+        Assert.Equal(2, merged.Aliases.Count);
         Assert.Contains(merged.RemoteIds, remote => remote.RemoteId == "remote-source");
 
         Assert.True(await db.Set<VideoTag>().AnyAsync(link => link.VideoId == video.Id && link.TagId == target.Id, cancellationToken: TestContext.Current.CancellationToken));
@@ -189,7 +203,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_AppliesDocumentedPoliciesToGenericAndSecurityReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var user = new User { Username = "merge-fixture", PasswordHash = "fixture" };
@@ -356,7 +371,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_PreservesTagApplicationMetricsWhenMappedRowsCollide()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var video = new Video { Title = "Tag application merge fixture" };
@@ -397,7 +413,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_PreservesTheProvenanceValueThatSuppliedFilledMetadata()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target", Description = " " };
         var emptySource = new Tag { Name = "Empty source" };
         var valueSource = new Tag { Name = "Value source", Description = "Transferred description" };
@@ -445,7 +462,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_UnionsSetValuedTagProvenanceCollisions()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag
         {
             Name = "Target",
@@ -519,7 +537,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_RewritesSegmentFieldProvenanceTagReferences()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var video = new Video { Title = "Segment provenance merge fixture" };
@@ -574,7 +593,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_CombinesPlaybackSessionsAndRetainsTheirIntervals()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var user = new User { Username = "playback-merge-fixture", PasswordHash = "fixture" };
@@ -662,7 +682,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_PreservesWatchedTimeNotRepresentedByIntervals()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var user = new User { Username = "partial-playback-merge-fixture", PasswordHash = "fixture" };
@@ -711,7 +732,8 @@ public sealed class TagMergeServiceTests
     [Fact]
     public async Task MergeAsync_RewritesTagPageContextInEngagementJson()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         var image = new Image { Title = "Context host fixture" };
@@ -762,17 +784,6 @@ public sealed class TagMergeServiceTests
             Assert.Equal(target.Id, document.RootElement.GetProperty("tagId").GetInt32());
             Assert.Equal(source.Id, document.RootElement.GetProperty("unrelatedId").GetInt32());
         }
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
     }
 
     private sealed class StubExternalReferenceInspector(

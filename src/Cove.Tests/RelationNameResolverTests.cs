@@ -1,16 +1,19 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class RelationNameResolverTests
 {
     [Fact]
     public async Task ResolvePerformersAsync_UsesTheManagedIdentityKeyForUnicodeNames()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var latinI = new Performer { Name = "I" };
         var dotlessI = new Performer { Name = "ı" };
         db.Performers.AddRange(latinI, dotlessI);
@@ -26,7 +29,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task ResolveStudiosAsync_UsesTheManagedIdentityKeyForUnicodeNames()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var latinI = new Studio { Name = "I" };
         var dotlessI = new Studio { Name = "ı" };
         db.Studios.AddRange(latinI, dotlessI);
@@ -42,7 +46,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task ResolveStudiosAsync_PrefersCanonicalNamesAndFallsBackToAliases()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var aliasOwner = new Studio
         {
             Name = "Surviving Studio",
@@ -73,7 +78,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task NameOnlyPerformerRelations_DoNotResolveAliasesOrDisambiguatedIdentities()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Performers.AddRange(
             new Performer
             {
@@ -96,7 +102,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task ResolveTagsAsync_MatchesNamesAndAliasesByTheirNamespaceKey()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var worship = new Tag { Name = "Tit Worship", Aliases = [new TagAlias { Alias = "Tit Tease" }] };
         var blonde = new Tag { Name = "Blonde" };
         db.Tags.AddRange(worship, blonde);
@@ -116,7 +123,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task ResolveTagsAsync_LoadsOnlyTheMatchedTags()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var wanted = new Tag { Name = "Wanted" };
         var aliased = new Tag { Name = "Aliased", Aliases = [new TagAlias { Alias = "Other name" }] };
         db.Tags.AddRange(wanted, aliased);
@@ -139,7 +147,8 @@ public sealed class RelationNameResolverTests
     [Fact]
     public async Task ResolvePerformerAsync_FindsTheExactIdentityByItsStoredKey()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var plain = new Performer { Name = "Jane Doe" };
         var disambiguated = new Performer { Name = "Jane Doe", Disambiguation = "Other person" };
         db.Performers.AddRange(plain, disambiguated);
@@ -150,16 +159,5 @@ public sealed class RelationNameResolverTests
 
         Assert.Equal(disambiguated.Id, exact?.Id);
         Assert.Equal(plain.Id, nameOnly["JANE DOE"].Id);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
-        context.Database.OpenConnection();
-        context.Database.EnsureCreated();
-        return context;
     }
 }
