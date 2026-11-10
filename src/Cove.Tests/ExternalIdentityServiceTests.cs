@@ -3,11 +3,11 @@ using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Auth;
 using Cove.Plugins;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ExternalIdentityServiceTests
 {
     [Fact]
@@ -106,18 +106,12 @@ public sealed class ExternalIdentityServiceTests
         Permissions = new HashSet<string>(),
     };
 
-    private sealed class Fixture(SqliteConnection connection, CoveContext db) : IAsyncDisposable
+    private sealed class Fixture(CovePostgresDatabase database, CoveContext db) : IAsyncDisposable
     {
         public static async Task<Fixture> CreateAsync()
         {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<CoveContext>()
-                .UseSqlite(connection)
-                .Options;
-            var db = new CoveContext(options);
-            await db.Database.EnsureCreatedAsync();
-            return new Fixture(connection, db);
+            var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            return new Fixture(database, database.CreateContext());
         }
 
         public async Task<User> AddUserAsync(int id, string username, bool hasPassword)
@@ -143,7 +137,7 @@ public sealed class ExternalIdentityServiceTests
         public async ValueTask DisposeAsync()
         {
             await db.DisposeAsync();
-            await connection.DisposeAsync();
+            await database.DisposeAsync();
         }
     }
 

@@ -10,9 +10,9 @@ using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -215,13 +215,11 @@ public sealed class ExtensionEntityFilterServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Tags_find_composes_core_sort_count_and_pagination_after_extension_membership()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Tags.AddRange(
             new Tag { Name = "Alpha" },
             new Tag { Name = "Beta" },
@@ -263,13 +261,11 @@ public sealed class ExtensionEntityFilterServiceTests
     // Providers may answer per user (Segment Studio by the user's mode), and the find cache key does
     // not identify the user, so a request with extension criteria must reach the provider every time.
     [Fact]
+    [RequiresPostgres]
     public async Task Videos_find_does_not_cache_results_that_depend_on_an_extension_provider()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Videos.AddRange(new Video { Title = "Alpha" }, new Video { Title = "Beta" });
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var matchEverything = true;
@@ -305,11 +301,10 @@ public sealed class ExtensionEntityFilterServiceTests
     [Fact]
     public async Task Tags_find_keeps_the_candidate_limit_at_its_query_planning_boundary()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        // The candidate limit rejects the request before any query, so it needs no server.
+        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql("Host=localhost;Database=unused", npgsql => npgsql.UseVector())
+            .Options);
         var tags = Enumerable.Range(1, 5_001)
             .Select(id => new Tag { Id = id, Name = $"Tag {id}" })
             .ToArray();
@@ -345,14 +340,12 @@ public sealed class ExtensionEntityFilterServiceTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task Tags_graph_filters_the_full_candidate_set_and_authorizes_before_provider_and_node_limit()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var accessor = new CurrentPrincipalAccessor();
-        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
-        await using var db = new CoveContext(options, accessor);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var db = new CoveContext(database.CreateOptions(), accessor);
         var tags = new[]
         {
             new Tag { Name = "Alpha denied" },
@@ -386,6 +379,10 @@ public sealed class ExtensionEntityFilterServiceTests
         accessor.Set(principal);
         try
         {
+            // The deny override hides the first tag from this principal in the database itself.
+            Assert.Equal(
+                tags.Skip(1).Select(tag => tag.Id).Order(),
+                (await db.Tags.AsNoTracking().Select(tag => tag.Id).ToListAsync(TestContext.Current.CancellationToken)).Order());
             var runtime = new FakeRuntime(
                 new UIListFilterContribution("preview", "tags", "Animated preview", "boolean", "owner.actual", Modifiers: ["equals"]) { FilterId = "has-preview" },
                 request => new ExtensionEntityFilterResult(request.CandidateIds.Where(id => id >= tags[2].Id).ToArray(), "revision-1"));

@@ -5,22 +5,21 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class ExtensionLoginSessionServiceTests
 {
     [Fact]
     public async Task Completed_external_login_is_browser_bound_and_one_time()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
@@ -56,10 +55,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Completion_rejects_missing_browser_binding_and_unusable_users()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         db.Users.AddRange(
             User(2, "inactive", isActive: false),
@@ -93,10 +90,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Completed_external_login_expires_before_redemption()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         var time = new MutableTimeProvider(DateTimeOffset.UnixEpoch);
         var service = CreateService(db, time);
@@ -114,10 +109,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Redemption_rechecks_account_state_before_issuing_tokens()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
@@ -135,10 +128,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Redemption_rechecks_password_before_issuing_tokens()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
@@ -156,10 +147,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Redemption_rechecks_identity_link_before_issuing_tokens()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         await SeedUserAsync(db);
         var service = CreateService(db);
         var browser = NewContext();
@@ -176,10 +165,8 @@ public sealed class ExtensionLoginSessionServiceTests
     [Fact]
     public async Task Token_issuance_and_external_resolution_reject_users_without_passwords()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var db = NewDb(connection);
-        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Users.Add(User(1, "missing-password", hasPassword: false));
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var tokens = new TokenService(
@@ -222,14 +209,6 @@ public sealed class ExtensionLoginSessionServiceTests
             RefreshTokenDays = 30,
         },
     };
-
-    private static CoveContext NewDb(SqliteConnection connection)
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        return new TestCoveContext(options);
-    }
 
     private static async Task SeedUserAsync(CoveContext db)
     {
@@ -286,11 +265,6 @@ public sealed class ExtensionLoginSessionServiceTests
 
     private static void SetBindingCookie(DefaultHttpContext context, string binding) =>
         context.Request.Headers.Cookie = $"{ExtensionLoginSessionService.BrowserBindingCookieName}={binding}";
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder) => base.OnModelCreating(modelBuilder);
-    }
 
     private sealed class NoopAudit : IAuditService
     {
