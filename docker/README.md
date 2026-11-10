@@ -26,7 +26,18 @@ Then open http://localhost:5073.
 
 ## Option 2: App + PostgreSQL (recommended for docker-compose users)
 
-Separate containers for the app and database. Easier to manage, upgrade, and back up independently. The provided compose file uses the official `pgvector/pgvector` PostgreSQL 18 image.
+Separate containers for the app and database. Easier to manage, upgrade, and back up independently. The provided compose file uses the official `pgvector/pgvector` PostgreSQL 18 image. PostgreSQL 18 images expect a single mount at `/var/lib/postgresql` (the data goes in its `18/docker` subdirectory) and refuse to start with a mount at `/var/lib/postgresql/data`, the path older PostgreSQL images used.
+
+## File ownership
+
+Cove runs as the `cove` user, uid 1000 and gid 1000, in both images. Docker creates missing bind-mount directories as `root`, so make the Cove directories writable by that user before the first start:
+
+```bash
+mkdir -p cove-data/config cove-data/data cove-data/generated cove-data/backups
+sudo chown -R 1000:1000 cove-data/config cove-data/data cove-data/generated cove-data/backups
+```
+
+Leave `cove-data/pgdata` to the database container, which sets its own ownership.
 
 ```bash
 docker compose up --detach

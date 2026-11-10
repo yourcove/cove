@@ -70,7 +70,9 @@ services:
       POSTGRES_USER: cove
       POSTGRES_PASSWORD: cove
     volumes:
-      - ${COVE_DATA_DIR:-./cove-data}/pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18+ images keep data under a version-specific subdirectory of this mount
+      # (/var/lib/postgresql/18/docker) and refuse to start with a mount at /var/lib/postgresql/data.
+      - ${COVE_DATA_DIR:-./cove-data}/pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cove -d cove"]
       interval: 5s

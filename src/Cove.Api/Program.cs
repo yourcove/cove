@@ -128,12 +128,38 @@ static void EnsureDataRootWriteable()
     {
         Console.Error.WriteLine(
             $"FATAL: Cove cannot write to its config/data directory '{dataRoot}' (set via COVE_HOME).");
+        var (uid, gid) = ReadProcessIds();
+        var ids = uid is null ? "1000:1000" : $"{uid}:{gid}";
         Console.Error.WriteLine(
-            "In Docker this usually means the mounted volume is owned by a different user than the one Cove runs as ('cove', uid 1000).");
+            $"In Docker this usually means the mounted volume is owned by a different user than the one Cove runs as ('{Environment.UserName}', uid:gid {ids}).");
         Console.Error.WriteLine(
-            "Fix the host directory permissions, e.g. 'chown -R 1000:1000 ./cove-data', or run the container with a matching --user/PUID.");
+            $"Fix the host directory permissions, e.g. 'chown -R {ids} ./cove-data', or run the container with a matching --user.");
         Console.Error.WriteLine($"Underlying error: {ex.GetType().Name}: {ex.Message}");
         Environment.Exit(1);
+    }
+}
+
+// The effective uid and gid on Linux, read from /proc so the startup error names the ids the process
+// really runs as rather than the ones the images are expected to use; null elsewhere.
+static (string? Uid, string? Gid) ReadProcessIds()
+{
+    try
+    {
+        if (!OperatingSystem.IsLinux())
+            return (null, null);
+        string? uid = null, gid = null;
+        foreach (var line in File.ReadLines("/proc/self/status"))
+        {
+            // "Uid:\t<real>\t<effective>\t<saved>\t<fs>"
+            var fields = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length >= 3 && fields[0] == "Uid:") uid = fields[2];
+            else if (fields.Length >= 3 && fields[0] == "Gid:") gid = fields[2];
+        }
+        return uid is null || gid is null ? (null, null) : (uid, gid);
+    }
+    catch (IOException)
+    {
+        return (null, null);
     }
 }
 

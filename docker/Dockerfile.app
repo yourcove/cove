@@ -126,7 +126,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove gnupg lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -s /bin/bash cove
+# Pin uid/gid 1000 so bind mounts created by a typical host user are writable, and so the ids match
+# what the docs and Cove's startup error tell people to chown to. The aspnet base image already has
+# an `app` user at 1654, so an unpinned useradd would land on 1655.
+RUN groupadd --gid 1000 cove     && useradd --uid 1000 --gid 1000 -m -s /bin/bash cove
 
 # Python for extensions that ship Python tooling (a pip-installed yt-dlp, gallery-dl, and similar).
 # Debian marks its system Python as externally managed, so pip refuses to install into it; a venv
