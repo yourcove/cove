@@ -11,7 +11,6 @@ namespace Cove.Api.Middleware;
 /// </summary>
 public sealed class ApiDocumentationAccessMiddleware(RequestDelegate next)
 {
-    public const string DocumentPattern = "/openapi/{documentName}.json";
     public const string DocumentPath = "/openapi/v1.json";
     public const string SwaggerUiRoutePrefix = "swagger";
 

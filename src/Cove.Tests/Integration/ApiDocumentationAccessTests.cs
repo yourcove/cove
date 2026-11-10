@@ -27,7 +27,7 @@ public sealed class ApiDocumentationAccessTests
     [Theory]
     [InlineData(SwaggerUiPath, "/login?redirect=%2Fswagger%2Findex.html")]
     [InlineData("/swagger", "/login?redirect=%2Fswagger")]
-    [InlineData("/swagger/index.html?urls.primaryName=Cove%20v1", "/login?redirect=%2Fswagger%2Findex.html%3Furls.primaryName%3DCove%2520v1")]
+    [InlineData("/swagger/index.html?urls.primaryName=Cove", "/login?redirect=%2Fswagger%2Findex.html%3Furls.primaryName%3DCove")]
     [InlineData(DocumentPath, "/login?redirect=%2Fopenapi%2Fv1.json")]
     public async Task Anonymous_browser_navigation_is_sent_to_sign_in_and_back(string path, string expectedLocation)
     {
@@ -192,6 +192,55 @@ public sealed class ApiDocumentationAccessTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty(UploadEndpointExtension.Route, out _));
+    }
+
+    [Fact]
+    public async Task Document_names_cove_and_the_running_build_version()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        factory.Services.GetRequiredService<CoveConfiguration>().Auth.Enabled = true;
+        using var client = factory.CreateAuthenticatedClient();
+
+        using var response = await client.GetAsync(DocumentPath, TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var info = document.RootElement.GetProperty("info");
+        Assert.Equal("Cove", info.GetProperty("title").GetString());
+        Assert.Equal(Cove.Core.Common.CoveVersion.Display, info.GetProperty("version").GetString());
+        Assert.Contains("Do not run untrusted input", info.GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public async Task Warmed_document_is_served_from_memory_and_revalidates_with_its_etag()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        factory.Services.GetRequiredService<CoveConfiguration>().Auth.Enabled = true;
+        var cache = factory.Services.GetRequiredService<Cove.Api.Http.OpenApiDocumentCache>();
+        cache.WarmUp();
+        var warmed = await cache.GetAsync(TestContext.Current.CancellationToken);
+        using var client = factory.CreateAuthenticatedClient();
+
+        using var response = await client.GetAsync(DocumentPath, TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(warmed.Json, body);
+        Assert.Equal(warmed.ETag, response.Headers.ETag?.Tag);
+        Assert.Same(warmed, await cache.GetAsync(TestContext.Current.CancellationToken));
+
+        using var revalidate = new HttpRequestMessage(HttpMethod.Get, DocumentPath);
+        revalidate.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(warmed.ETag));
+        using var notModified = await client.SendAsync(revalidate, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
+
+        // Proxies may weaken the tag, and clients may send several.
+        using var weak = new HttpRequestMessage(HttpMethod.Get, DocumentPath);
+        weak.Headers.TryAddWithoutValidation("If-None-Match", "\"other\", W/" + warmed.ETag);
+        using var weakResponse = await client.SendAsync(weak, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotModified, weakResponse.StatusCode);
     }
 
     [Fact]
