@@ -3,6 +3,7 @@ using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -10,9 +11,11 @@ namespace Cove.Tests;
 public class GalleryImagePathFilterBehaviorTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task GalleryPathCriterion_UnderPath_MatchesGalleryFolderWithoutPrefixCollisions()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         context.Galleries.AddRange(
             new Gallery { Title = "folder", Folder = new Folder { Path = @"C:\library\matching", ModTime = DateTime.UtcNow } },
             new Gallery { Title = "nested", Folder = new Folder { Path = @"C:\library\matching\nested", ModTime = DateTime.UtcNow } },
@@ -189,6 +192,10 @@ public class GalleryImagePathFilterBehaviorTests
         return image;
     }
 
+    // The tests still on the in-memory provider seed several new folders, each with a new file, in one save.
+    // On PostgreSQL that save gives every such file the path of one of those folders (CoveContext.ComputeFilePaths
+    // keys folder paths by ParentFolderId, which is still 0 for a folder that has not been inserted yet), so they
+    // stay here until that is fixed.
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

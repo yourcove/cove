@@ -5,20 +5,22 @@ using Cove.Core.Events;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using GalleriesController = Cove.Api.Controllers.GalleriesController;
 using VideosController = Cove.Api.Controllers.VideosController;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class Phase10TagProvenanceTests
 {
     [Fact]
     public async Task VideosController_GetById_IncludesProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var tag = new Tag { Name = "Detected" };
         var video = new Video { Title = "Video with provenance" };
@@ -68,7 +70,8 @@ public sealed class Phase10TagProvenanceTests
     [Fact]
     public async Task GalleriesController_GetById_IncludesProvenance()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
 
         var tag = new Tag { Name = "Generated" };
         var gallery = new Gallery { Title = "Gallery with provenance" };
@@ -106,22 +109,5 @@ public sealed class Phase10TagProvenanceTests
         Assert.Equal("run-gallery", provenance.SourceRunId);
         Assert.Equal("model-gallery", provenance.ModelKey);
         Assert.Equal(0.67f, provenance.Confidence);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"phase10-tag-provenance-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-        }
     }
 }

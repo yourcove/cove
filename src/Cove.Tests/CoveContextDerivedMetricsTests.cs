@@ -1,10 +1,11 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Data;
-using Microsoft.EntityFrameworkCore;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class CoveContextDerivedMetricsTests
 {
     private const int TestUserId = 1;
@@ -12,7 +13,8 @@ public class CoveContextDerivedMetricsTests
     [Fact]
     public async Task SaveChangesAsync_NewVideoWithNewVideoFile_RefreshesFileMetricsAfterFirstSave()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = CreateContext(database);
         var folder = new Folder { Path = "E:/media/videos" };
         var video = new Video
         {
@@ -47,7 +49,8 @@ public class CoveContextDerivedMetricsTests
     [Fact]
     public async Task SaveChangesAsync_NewImageWithNewImageFile_RefreshesFileMetricsAfterFirstSave()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = CreateContext(database);
         var folder = new Folder { Path = "E:/media/images" };
         var image = new Image
         {
@@ -75,11 +78,9 @@ public class CoveContextDerivedMetricsTests
         Assert.Equal("E:/media/images/direct.jpg", image.MinPath);
     }
 
-    private static CoveContext CreateContext()
+    private static CoveContext CreateContext(CovePostgresDatabase database)
     {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"derived-metrics-{Guid.NewGuid():N}")
-            .Options;
+        var options = database.CreateOptions();
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(new CovePrincipal

@@ -1,16 +1,19 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public sealed class CustomFieldRepositoryTests
 {
     [Fact]
     public async Task FindOrCreateDefinitionAsync_LongTextNormalizesExtensionDefinitionAndUsesLongTextStorage()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var repository = new CustomFieldRepository(context);
         var value = $"Short values work too.\n\n{new string('x', 5_001)}";
 
@@ -45,13 +48,5 @@ public sealed class CustomFieldRepositoryTests
         var persistedValue = await context.CustomFieldValues.SingleAsync(TestContext.Current.CancellationToken);
         Assert.Null(persistedValue.TextValue);
         Assert.Equal(value, persistedValue.LongTextValue);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"custom-field-repository-{Guid.NewGuid():N}")
-            .Options;
-        return new CoveContext(options);
     }
 }

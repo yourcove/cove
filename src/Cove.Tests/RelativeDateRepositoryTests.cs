@@ -3,6 +3,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
 
@@ -11,9 +12,11 @@ namespace Cove.Tests;
 public class RelativeDateRepositoryTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task VideoResultsAndCountMoveTogether_WhenSameFilterIsReused()
     {
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         db.Videos.AddRange(
             new Video { Title = "first", Date = new DateOnly(2024, 2, 24) },
             new Video { Title = "second", Date = new DateOnly(2024, 3, 1) },
@@ -38,9 +41,11 @@ public class RelativeDateRepositoryTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task NestedExpressionAndRelatedPerformerShareOneClockReading()
     {
-        await using var db = new CoveContext(new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var today = new DateOnly(2024, 2, 29);
         db.Videos.AddRange(
             new Video { Title = "matches", Date = today, VideoPerformers = [new() { Performer = new Performer { Name = "today", Birthdate = today } }] },

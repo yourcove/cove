@@ -3,6 +3,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Tests.Postgres;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,12 +15,14 @@ namespace Cove.Tests;
 /// appended on the server, so an alias saved meanwhile is kept, and refused when another studio already
 /// goes by that name, since lookups would keep finding that one.
 /// </summary>
+[RequiresPostgres]
 public class StudioAliasAddTests
 {
     [Fact]
     public async Task AddsTheAliasOnceAndKeepsTheOthers()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var studio = new Studio { Name = "Miss Example", Aliases = [new StudioAlias { Alias = "Saved meanwhile" }] };
         db.Studios.Add(studio);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -41,7 +44,8 @@ public class StudioAliasAddTests
     [Fact]
     public async Task RefusesANameAnotherStudioGoesBy()
     {
-        await using var db = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
         var studio = new Studio { Name = "Miss Example" };
         var other = new Studio { Name = "Other Studio", Aliases = [new StudioAlias { Alias = "Taken Alias" }] };
         db.Studios.AddRange(studio, other);
@@ -54,9 +58,4 @@ public class StudioAliasAddTests
         Assert.IsType<NotFoundResult>((await controller.AddAlias(9999, new StudioAliasAddDto { Alias = "Anything" }, TestContext.Current.CancellationToken)).Result);
         Assert.False(await db.Set<StudioAlias>().AnyAsync(alias => alias.StudioId == studio.Id, TestContext.Current.CancellationToken));
     }
-
-    private static CoveContext CreateContext()
-        => new(new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"studio-alias-add-{Guid.NewGuid():N}")
-            .Options);
 }

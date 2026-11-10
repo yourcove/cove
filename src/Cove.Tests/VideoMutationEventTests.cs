@@ -3,39 +3,49 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Events;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Cove.Tests;
 
+[RequiresPostgres]
 public class VideoMutationEventTests
 {
     [Fact]
     public async Task BulkRelationshipUpdateTouchesParentOnlyWhenCollectionChanges()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
+            var tag = new Tag { Name = "Removed tag" };
             var video = new Video
             {
                 Title = "Bulk relationship update",
-                VideoTags = [new VideoTag { TagId = 10 }],
+                VideoTags = [new VideoTag { Tag = tag }],
             };
             db.Videos.Add(video);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
-            var originalUpdatedAt = DateTime.UtcNow.AddDays(-1);
-            video.UpdatedAt = originalUpdatedAt;
-            db.Entry(video).Property(item => item.UpdatedAt).IsModified = false;
+            var yesterday = DateTime.UtcNow.AddDays(-1);
+            await db.Videos
+                .Where(item => item.Id == video.Id)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.UpdatedAt, yesterday), TestContext.Current.CancellationToken);
+            await db.Entry(video).ReloadAsync(TestContext.Current.CancellationToken);
+            var originalUpdatedAt = video.UpdatedAt;
+            Assert.True(originalUpdatedAt < DateTime.UtcNow.AddHours(-1));
             using var cache = new MemoryCache(new MemoryCacheOptions());
             var controller = CreateController(db, principal, new EventBus(), cache);
             var update = new BulkVideoUpdateDto
             {
                 Ids = [video.Id],
-                TagIds = [10],
+                TagIds = [tag.Id],
                 TagMode = BulkUpdateMode.Remove,
             };
 
@@ -59,15 +69,18 @@ public class VideoMutationEventTests
     [InlineData(true, true)]
     public async Task SplitUsesExplicitMetadataAndRetainsLegacyDefaults(bool explicitMetadata, bool populated)
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var source = new Video { Title = "Source", Code = "Old", Details = "Old details", Director = "Old director", Organized = true, IsVr = true };
             var folder = new Folder { Path = "/library" };
             var primary = new VideoFile { Basename = "primary.mp4", ParentFolder = folder, Video = source };
             var file = new VideoFile { Basename = "secondary.mp4", ParentFolder = folder, Video = source };
-            source.PrimaryFile = primary;
             db.AddRange(source, folder, primary, file);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            source.PrimaryFile = primary;
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             var sourceId = source.Id;
             var fileId = file.Id;
@@ -102,13 +115,16 @@ public class VideoMutationEventTests
     [Fact]
     public async Task SplitRejectsPrimaryAndMissingFilesWithoutCreatingVideo()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var source = new Video { Title = "Source" };
             var primary = new VideoFile { Basename = "primary.mp4", ParentFolder = new Folder { Path = "/library" }, Video = source };
-            source.PrimaryFile = primary;
             db.AddRange(source, primary);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            source.PrimaryFile = primary;
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             var sourceId = source.Id;
             var primaryId = primary.Id;
@@ -123,7 +139,9 @@ public class VideoMutationEventTests
     [Fact]
     public async Task AssignFilePublishesUpdatesForPreviousAndNewOwners()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var previousOwner = new Video { Title = "Previous owner" };
@@ -131,8 +149,9 @@ public class VideoMutationEventTests
             var folder = new Folder { Path = "/library" };
             var primaryFile = new VideoFile { Basename = "primary.mp4", ParentFolder = folder, Video = previousOwner };
             var file = new VideoFile { Basename = "video.mp4", ParentFolder = folder, Video = previousOwner };
-            previousOwner.PrimaryFile = primaryFile;
             db.AddRange(previousOwner, newOwner, folder, primaryFile, file);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            previousOwner.PrimaryFile = primaryFile;
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
@@ -152,7 +171,9 @@ public class VideoMutationEventTests
     [Fact]
     public async Task SettingRatingPublishesOneLifecycleEvent()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var video = new Video { Title = "Rated video" };
@@ -175,7 +196,9 @@ public class VideoMutationEventTests
     [Fact]
     public async Task MergePublishesTargetUpdateAndSourceDeletes()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var target = new Video { Title = "Target" };
@@ -217,7 +240,9 @@ public class VideoMutationEventTests
     [Fact]
     public async Task MergeWithNoPersistedSourcesPublishesNothing()
     {
-        var (db, principal) = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await SeedSignedInUserAsync(database);
+        var (db, principal) = CreateContext(database);
         await using (db)
         {
             var target = new Video { Title = "Target" };
@@ -262,20 +287,32 @@ public class VideoMutationEventTests
             videoMergeService: new VideoMergeService(db, new CustomFieldService(db), null!, null!, eventBus, principalAccessor: principal));
     }
 
-    private static (CoveContext Context, CurrentPrincipalAccessor Principal) CreateContext()
+    private const int SignedInUserId = 7;
+
+    // The signed-in user exists, as it does in production, so rows that reference it, such as ratings, can be saved.
+    private static async Task SeedSignedInUserAsync(CovePostgresDatabase database)
+    {
+        await using (var seed = database.CreateContext())
+        {
+            seed.Users.Add(new User { Id = SignedInUserId, Username = "event-test", PasswordHash = "unused" });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        await database.SyncIdentitySequencesAsync(TestContext.Current.CancellationToken);
+    }
+
+    // Synchronous on purpose: the accessor keeps the principal in an AsyncLocal, which an awaited async method
+    // would not flow back to the test.
+    private static (CoveContext Context, CurrentPrincipalAccessor Principal) CreateContext(CovePostgresDatabase database)
     {
         var principal = new CurrentPrincipalAccessor();
         principal.Set(new CovePrincipal
         {
-            UserId = 7,
+            UserId = SignedInUserId,
             Username = "event-test",
             Kind = PrincipalKind.User,
             Roles = new HashSet<string>(),
             Permissions = new HashSet<string> { Permissions.VideosRead, Permissions.VideosWrite },
         });
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        return (new CoveContext(options, principal), principal);
+        return (new CoveContext(database.CreateOptions(), principal), principal);
     }
 }
