@@ -234,9 +234,14 @@ public class PerformerScrapeService(
 
                 appliedTagNames.Add(tag.Name);
 
-                if (!existingTagIds.Contains(tag.Id) && existingTagNames.Add(tag.Name))
+                // A tag created above has no id until the save inserts it, so it is matched by reference.
+                var alreadyLinked = tag.Id > 0
+                    ? existingTagIds.Contains(tag.Id)
+                    : performer.PerformerTags.Any(item => ReferenceEquals(item.Tag, tag));
+                if (!alreadyLinked && existingTagNames.Add(tag.Name))
                 {
-                    existingTagIds.Add(tag.Id);
+                    if (tag.Id > 0)
+                        existingTagIds.Add(tag.Id);
                     performer.PerformerTags.Add(new PerformerTag { Performer = performer, Tag = tag, TagId = tag.Id });
                 }
 

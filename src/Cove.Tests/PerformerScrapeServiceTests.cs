@@ -14,9 +14,11 @@ namespace Cove.Tests;
 public class PerformerScrapeServiceTests
 {
     [Fact]
+    [RequiresPostgres]
     public async Task ApplyAsync_MergesPerformerFieldsAndCreatesMissingTags()
     {
-        await using var context = CreateContext();
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = database.CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -315,24 +317,6 @@ public class PerformerScrapeServiceTests
         Assert.NotNull(scraped);
         Assert.Equal("https://example.com/images/candidate.jpg", scraped!.ImageUrl);
         Assert.Contains("https://example.com/performers/related-profile", scraped.Urls);
-    }
-
-    private static CoveContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseInMemoryDatabase($"performer-scrape-service-{Guid.NewGuid():N}")
-            .Options;
-
-        return new TestCoveContext(options);
-    }
-
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
     }
 
     private sealed class FakeBlobService : IBlobService
