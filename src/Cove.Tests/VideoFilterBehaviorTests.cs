@@ -3002,13 +3002,12 @@ public class VideoFilterBehaviorTests
         Assert.Equal(["recent-play", "older-play", "never-played"], items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
-    // Folder paths are unique, so each path gets one folder per test. Its explicit id lets the context work out
-    // the paths of new files in the same save, which it looks up by ParentFolderId.
+    // Folder paths are unique, so each path gets one folder per test.
     private Folder FolderAt(string path)
     {
         var key = path.Replace('\\', '/');
         if (!_folders.TryGetValue(key, out var folder))
-            _folders[key] = folder = new Folder { Id = _folders.Count + 1, Path = path, ModTime = DateTime.UtcNow };
+            _folders[key] = folder = new Folder { Path = path, ModTime = DateTime.UtcNow };
         return folder;
     }
 

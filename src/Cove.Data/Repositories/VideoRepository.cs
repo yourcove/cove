@@ -795,8 +795,8 @@ public class VideoRepository : IVideoRepository
             CriterionModifier.NotEquals => query.Where(s => s.FileSearchText == null || !EF.Functions.Like(s.FileSearchText, exactPattern)),
             CriterionModifier.Includes => query.Where(s => s.FileSearchText != null && EF.Functions.ILike(s.FileSearchText, pattern)),
             CriterionModifier.Excludes => query.Where(s => s.FileSearchText == null || !EF.Functions.ILike(s.FileSearchText, pattern)),
-            CriterionModifier.MatchesRegex => query.Where(s => s.FileSearchText != null && Regex.IsMatch(s.FileSearchText, value, RegexOptions.IgnoreCase)),
-            CriterionModifier.NotMatchesRegex => query.Where(s => s.FileSearchText == null || !Regex.IsMatch(s.FileSearchText, value, RegexOptions.IgnoreCase)),
+            CriterionModifier.MatchesRegex => query.Where(s => s.FileSearchText != null && Regex.IsMatch(s.FileSearchText.Trim('\n'), value, RegexOptions.IgnoreCase | RegexOptions.Multiline)),
+            CriterionModifier.NotMatchesRegex => query.Where(s => s.FileSearchText == null || !Regex.IsMatch(s.FileSearchText.Trim('\n'), value, RegexOptions.IgnoreCase | RegexOptions.Multiline)),
             CriterionModifier.UnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(s => s.FileSearchText != null
                 && (s.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) || s.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
             CriterionModifier.NotUnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(s => s.FileSearchText == null
