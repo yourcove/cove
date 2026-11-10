@@ -176,6 +176,11 @@ export default defineConfig(({ command }) => {
           changeOrigin: true,
           ws: true,
         },
+        // API documentation (Swagger UI and the OpenAPI document), served by the API like in production.
+        "^/(swagger|openapi)(/|$)": {
+          target: "http://localhost:5073",
+          changeOrigin: true,
+        },
       },
     },
     build: {

@@ -18,6 +18,7 @@ import { AuthBootstrapPage } from "./pages/AuthBootstrapPage";
 import { RedeemInvitePage } from "./pages/RedeemInvitePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import type { AuthUser } from "./auth/authStore";
+import { claimServerPageRedirect, getPostLoginRedirectUrl, isServerPage } from "./auth/postLoginRedirect";
 import { auth, database, jobs } from "./api/client";
 import { useExtensionNames } from "./components/useExtensionNames";
 import { dashboardPrincipalKey, prefetchDashboardPage } from "./pages/dashboardPageQuery";
@@ -384,21 +385,11 @@ export function useFirstScreenPrefetch(user: Pick<AuthUser, "id" | "kind"> | nul
   }, [loading, queryClient, user]);
 }
 
-function getPostLoginRedirectUrl(): string {
-  const redirect = new URLSearchParams(window.location.search).get("redirect");
-  if (!redirect || !redirect.startsWith("/") || redirect.startsWith("//")) {
-    return "/";
-  }
-
+function sessionStorageOrUndefined(): Storage | undefined {
   try {
-    const url = new URL(redirect, window.location.origin);
-    if (url.origin !== window.location.origin || url.pathname === "/login") {
-      return "/";
-    }
-
-    return `${url.pathname}${url.search}${url.hash}`;
+    return window.sessionStorage;
   } catch {
-    return "/";
+    return undefined;
   }
 }
 
@@ -415,7 +406,18 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    navigateToUrl(getPostLoginRedirectUrl(), { replace: true });
+    const target = getPostLoginRedirectUrl(window.location.search, window.location.origin);
+    if (isServerPage(target)) {
+      // A full page load from this page also makes the browser send the access cookie, which it withholds
+      // from a link followed from another site.
+      if (claimServerPageRedirect(target, Date.now(), sessionStorageOrUndefined())) {
+        window.location.replace(target);
+        return;
+      }
+      navigateToUrl("/", { replace: true });
+      return;
+    }
+    navigateToUrl(target, { replace: true });
   }, [authEnabled, loading, user]);
 
   // After the redirect above, so the destination it reads is the one shown.

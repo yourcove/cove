@@ -561,9 +561,7 @@ try
         options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         Cove.Api.Http.CompactTagJson.Apply(options.SerializerOptions);
     });
-    builder.Services.AddOpenApi();
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddOpenApi(options => options.AddDocumentTransformer<Cove.Api.Http.CoveOpenApiDocumentTransformer>());
 
     // Response compression â€” reduces 22KB video lists to ~2KB
     builder.Services.AddResponseCompression(options =>
@@ -686,13 +684,6 @@ try
     app.UseMiddleware<Cove.Api.Middleware.CompoundSortValidationMiddleware>();
     app.UseMiddleware<Cove.Api.Middleware.DatabaseUnavailableMiddleware>();
 
-    if (app.Environment.IsDevelopment())
-    {
-        app.MapOpenApi();
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
-
     app.UseResponseCompression();
     app.UseCors();
     app.UseOutputCache();
@@ -713,6 +704,21 @@ try
     // Always run our principal-resolver middleware so [RequiresPermission] can read it.
     // (When auth is disabled the filter short-circuits and treats requests as anonymous-allowed.)
     app.UseMiddleware<Cove.Api.Middleware.CurrentPrincipalMiddleware>();
+
+    // API documentation is served in every environment, but only to signed-in callers while auth is
+    // enabled. Swagger UI answers its own requests, so it lives in the branch behind the gate; the
+    // document endpoint (MapOpenApi below) runs at the end of the pipeline, also after the gate.
+    app.UseWhen(
+        Cove.Api.Middleware.ApiDocumentationAccessMiddleware.AppliesTo,
+        branch =>
+        {
+            branch.UseMiddleware<Cove.Api.Middleware.ApiDocumentationAccessMiddleware>();
+            branch.UseSwaggerUI(options =>
+            {
+                options.RoutePrefix = Cove.Api.Middleware.ApiDocumentationAccessMiddleware.SwaggerUiRoutePrefix;
+                options.SwaggerEndpoint(Cove.Api.Middleware.ApiDocumentationAccessMiddleware.DocumentPath, "Cove v1");
+            });
+        });
 
     // Keep the request that starts each job, so the job can be retried by sending it again.
     app.Use(async (context, next) =>
@@ -890,6 +896,8 @@ try
     }
 
     app.MapControllers();
+    app.MapOpenApi(Cove.Api.Middleware.ApiDocumentationAccessMiddleware.DocumentPattern)
+        .WithMetadata(new Cove.Api.Middleware.ApiDocumentationAccessMiddleware.EndpointMarker());
     app.MapHub<JobHub>("/hubs/jobs");
     app.MapHub<LogHub>("/hubs/logs");
     extensionManager.SetRouteBuilder(app);
