@@ -8,11 +8,13 @@ using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class ExtensionAuthenticationSmokeTests
 {
     [Fact]
@@ -259,8 +261,9 @@ public sealed class ExtensionAuthenticationSmokeTests
         }
     }
 
-    private static Task SeedSecondIdentityAsync(CoveWebApplicationFactory factory) =>
-        factory.WithDbContextAsync(async db =>
+    private static async Task SeedSecondIdentityAsync(CoveWebApplicationFactory factory)
+    {
+        await factory.WithDbContextAsync(async db =>
         {
             db.Users.Add(new User
             {
@@ -281,6 +284,8 @@ public sealed class ExtensionAuthenticationSmokeTests
             });
             await db.SaveChangesAsync();
         });
+        await factory.SyncIdentitySequencesAsync();
+    }
 
     private static ExtensionIdentityAssertion Identity() => new(
         "integration.login",

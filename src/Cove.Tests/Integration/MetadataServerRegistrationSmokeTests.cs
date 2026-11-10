@@ -1,5 +1,6 @@
 using Cove.Api.Services;
 using Cove.Core.Interfaces;
+using Cove.Tests.Postgres;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.Tests.Integration;
@@ -10,6 +11,7 @@ namespace Cove.Tests.Integration;
 /// <c>Cove.Api</c> client. Nothing at compile time ties the registration to the interface, so dropping it
 /// would silently return null to every extension that resolves it — this asserts it stays wired.
 /// </summary>
+[RequiresPostgres]
 public sealed class MetadataServerRegistrationSmokeTests
 {
     [Fact]

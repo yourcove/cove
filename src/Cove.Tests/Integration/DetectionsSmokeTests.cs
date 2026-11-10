@@ -2,9 +2,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Tests.Postgres;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class ImageDetectionsControllerSmokeTests
 {
     [Fact]
@@ -52,6 +54,7 @@ public sealed class ImageDetectionsControllerSmokeTests
     }
 }
 
+[RequiresPostgres]
 public sealed class VideoDetectionsControllerSmokeTests
 {
     [Fact]

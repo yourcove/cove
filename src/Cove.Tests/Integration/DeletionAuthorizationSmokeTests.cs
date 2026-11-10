@@ -6,12 +6,14 @@ using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Tests.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Cove.Tests.Integration;
 
+[RequiresPostgres]
 public sealed class DeletionAuthorizationSmokeTests
 {
     [Fact]

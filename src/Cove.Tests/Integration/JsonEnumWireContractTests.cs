@@ -5,6 +5,7 @@ using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
@@ -40,9 +41,25 @@ namespace Cove.Tests.Integration;
 /// what the live capture recorded: <c>JsonSchemaExporter</c> emits the member array and omits any
 /// keyword naming the JSON type for converter-backed enums (dotnet/aspnetcore#61303, closed as not
 /// planned), so an assertion about such a keyword would claim a shape the document does not have.</para>
+///
+/// <para>The tests that boot <c>Program.cs</c> only read its options, apart from one HTTP round-trip
+/// that resets the database first, so they share one host and database through <see cref="HostFixture"/>
+/// instead of starting one each.</para>
 /// </summary>
-public sealed class JsonEnumWireContractTests
+public sealed class JsonEnumWireContractTests(JsonEnumWireContractTests.HostFixture host)
+    : IClassFixture<JsonEnumWireContractTests.HostFixture>
 {
+    /// <summary>
+    /// One API host for the class. The server and its database start on first use, so the tests that
+    /// need no PostgreSQL server never start them.
+    /// </summary>
+    public sealed class HostFixture : IAsyncDisposable
+    {
+        public CoveWebApplicationFactory Factory { get; } = new();
+
+        public ValueTask DisposeAsync() => Factory.DisposeAsync();
+    }
+
     private static readonly string[] ExpectedAiRunStatusMembers =
         ["cancelled", "completed", "failed", "pending", "running"];
 
@@ -51,9 +68,10 @@ public sealed class JsonEnumWireContractTests
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
+    [RequiresPostgres]
     public void Program_registers_exactly_one_string_enum_converter_on_the_http_json_options()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
 
         var converters = HostHttpJsonOptions(factory).Converters.OfType<JsonStringEnumConverter>().ToArray();
 
@@ -63,9 +81,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void An_enum_member_serializes_as_its_camel_case_name_through_the_host_options()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var json = JsonSerializer.Serialize(new StatusPayload(AiRunStatus.Running), options);
@@ -75,12 +94,13 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Theory]
+    [RequiresPostgres]
     [InlineData(RelatedFilterMode.AtLeastOne, "atLeastOne")]
     [InlineData(RelatedFilterMode.Every, "every")]
     [InlineData(RelatedFilterMode.None, "none")]
     public void Related_filter_modes_round_trip_as_camel_case_strings(RelatedFilterMode mode, string wireValue)
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var json = JsonSerializer.Serialize(new RelatedModePayload(mode), options);
@@ -91,11 +111,12 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Theory]
+    [RequiresPostgres]
     [InlineData(RelatedFilterConditionOperator.And, "and")]
     [InlineData(RelatedFilterConditionOperator.Or, "or")]
     public void Related_condition_operators_round_trip_as_camel_case_strings(RelatedFilterConditionOperator conditionOperator, string wireValue)
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var json = JsonSerializer.Serialize(new RelatedConditionOperatorPayload(conditionOperator), options);
@@ -106,9 +127,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void Just_one_filter_expressions_round_trip_with_the_client_wire_name()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var json = JsonSerializer.Serialize(new FilterExpressionOperatorPayload(FilterExpressionOperator.JustOne), options);
@@ -119,9 +141,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void Legacy_numeric_not_filter_expression_operator_still_deserializes_as_not()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var payload = JsonSerializer.Deserialize<FilterExpressionOperatorPayload>("""{"operator":2}""", options);
@@ -130,13 +153,14 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Theory]
+    [RequiresPostgres]
     [InlineData("""{"status":1}""", AiRunStatus.Pending)]
     [InlineData("""{"status":5}""", AiRunStatus.Cancelled)]
     public void The_numeric_form_still_deserializes_after_the_change(string body, AiRunStatus expected)
     {
         // AiRunStatus members start at 1 (Pending = 1 .. Cancelled = 5), so the lowest and highest
         // defined members are 1 and 5. Sending the undefined 0 would prove nothing.
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var payload = JsonSerializer.Deserialize<StatusPayload>(body, options);
@@ -146,9 +170,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void An_integer_outside_the_defined_members_behaves_exactly_as_it_did_without_the_converter()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
 
         // The unconverted baseline is what the host's options were before the registration. Comparing
         // the two outcomes in one test is a real before/after comparison, and it asserts agreement
@@ -173,9 +198,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void A_null_nullable_enum_member_serializes_as_json_null_and_round_trips_back_to_null()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var json = JsonSerializer.Serialize(new NullableStatusPayload(null), options);
@@ -193,9 +219,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void Serializing_deserializing_and_serializing_again_yields_an_identical_string()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var options = HostHttpJsonOptions(factory);
 
         var first = JsonSerializer.Serialize(new StatusPayload(AiRunStatus.Cancelled), options);
@@ -206,9 +233,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void Mvc_still_carries_its_own_converter_on_its_own_options_instance()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
 
         var mvc = MvcJsonOptions(factory);
         var http = HostHttpJsonOptions(factory);
@@ -224,9 +252,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void SignalR_still_carries_its_own_converter_on_its_payload_options()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
 
         var payloadOptions = SignalRPayloadOptions(factory);
 
@@ -238,9 +267,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void All_three_pipelines_spell_the_same_enum_member_identically()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         var payload = new StatusPayload(AiRunStatus.Running);
 
         var throughMvc = JsonSerializer.Serialize(payload, MvcJsonOptions(factory));
@@ -274,9 +304,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public void The_exporter_the_openapi_generator_uses_names_the_camel_case_members()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
 
         // Proxy, stated as such: this is the identical API OpenApiSchemaService invokes, handed the
         // same options object, but it is not the generated document. The document itself is covered by
@@ -296,9 +327,10 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Fact]
+    [RequiresPostgres]
     public async Task An_mvc_controller_response_still_emits_camel_case_enum_members_over_http()
     {
-        using var factory = new CoveWebApplicationFactory();
+        var factory = host.Factory;
         await factory.ResetDatabaseAsync();
         using var client = factory.CreateAuthenticatedClient();
 
