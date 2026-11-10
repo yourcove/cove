@@ -20,6 +20,8 @@ public sealed class CoveOpenApiDocumentTransformer : IOpenApiDocumentTransformer
         document.Info.Title = "Cove";
         document.Info.Version = Cove.Core.Common.CoveVersion.Display;
 
+        OpenApiExtensionSections.Apply(document, context.ApplicationServices.GetService<Cove.Plugins.ExtensionManager>());
+
         // Swagger UI renders this Markdown under the title.
         document.Info.Description =
             "This is a development tool to make it easier to try the Cove REST API. Signing in to Cove is required "

@@ -268,6 +268,43 @@ public sealed class ApiDocumentationAccessTests
     }
 
     [Fact]
+    public async Task Extension_routes_get_their_own_section_after_coves_sections()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        factory.Services.GetRequiredService<CoveConfiguration>().Auth.Enabled = true;
+        var extensions = factory.Services.GetRequiredService<ExtensionManager>();
+        extensions.Register(new UploadEndpointExtension(), "integration-test");
+        Assert.True(await extensions.InitializeExtensionAsync(
+            "integration.upload",
+            factory.Services,
+            TestContext.Current.CancellationToken));
+        using var client = factory.CreateAuthenticatedClient();
+
+        using var response = await client.GetAsync(DocumentPath, TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        const string section = "Extension: Integration upload";
+        var upload = document.RootElement.GetProperty("paths").GetProperty(UploadEndpointExtension.Route).GetProperty("post");
+        Assert.Equal([section], upload.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).ToArray());
+        Assert.Equal("integration.upload", upload.GetProperty("x-cove-extension").GetString());
+
+        var tags = document.RootElement.GetProperty("tags").EnumerateArray().ToList();
+        var names = tags.Select(tag => tag.GetProperty("name").GetString()).ToList();
+        Assert.Equal(names.Count, names.Distinct().Count());
+        Assert.Equal(section, names[^1]);
+        Assert.Contains("1.0.0", tags[^1].GetProperty("description").GetString());
+        var core = names.TakeWhile(name => !name!.StartsWith("Extension: ", StringComparison.Ordinal) && name != "Cove").ToList();
+        Assert.Contains("Auth", core);
+        Assert.Contains("Videos", core);
+        Assert.Equal(core.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), core);
+        Assert.Contains("Health", core);
+        // Every host route has a section of its own, so no catch-all "Cove" section is left over.
+        Assert.DoesNotContain("Cove", names);
+    }
+
+    [Fact]
     public async Task Swashbuckle_document_route_is_not_served()
     {
         using var factory = new CoveWebApplicationFactory();
@@ -344,6 +381,8 @@ public sealed class ApiDocumentationAccessTests
         public void MapEndpoints(IEndpointRouteBuilder endpoints)
             => endpoints.MapPost(Route, (int id, [FromForm] IFormFile file) => Results.Ok(id))
                 .DisableAntiforgery()
+                // Claims a core section; the host must still list the route under the extension.
+                .WithTags("Videos")
                 .AllowWithoutCovePermission();
     }
 }

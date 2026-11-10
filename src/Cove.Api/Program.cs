@@ -564,7 +564,11 @@ try
         options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         Cove.Api.Http.CompactTagJson.Apply(options.SerializerOptions);
     });
-    builder.Services.AddOpenApi(options => options.AddDocumentTransformer<Cove.Api.Http.CoveOpenApiDocumentTransformer>());
+    builder.Services.AddOpenApi(options =>
+    {
+        options.AddOperationTransformer<Cove.Api.Http.OpenApiExtensionSections.OperationTransformer>();
+        options.AddDocumentTransformer<Cove.Api.Http.CoveOpenApiDocumentTransformer>();
+    });
     builder.Services.AddSingleton<Cove.Api.Http.OpenApiDocumentCache>();
 
     // Response compression â€” reduces 22KB video lists to ~2KB
@@ -752,7 +756,7 @@ try
         {
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
-    }).AllowAnonymous();
+    }).AllowAnonymous().WithTags("Health");
 
     if (isIntegrationStartupTest)
     {

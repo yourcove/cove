@@ -165,7 +165,7 @@ The global MVC permission filter does not wrap extension minimal-API delegates. 
 
 For compatibility with extensions built before these conventions existed, an endpoint without Cove authorization metadata remains anonymous and produces a registration warning. Do not rely on that fallback for new endpoints. See [Extension permissions](../../extensions/permissions/) for the full policy behavior and examples.
 
-An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
+Cove lists each extension's routes in their own section, named `Extension: <extension name>`, after Cove's own sections, and marks each operation with an `x-cove-extension` property holding the extension ID. Tags an extension sets on its routes are replaced, so an extension cannot place a route in a core section. An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
 
 ## Integration boundaries
 
