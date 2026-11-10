@@ -579,11 +579,16 @@ public sealed class CustomFieldService(
     /// Stages custom-field value removal without saving so a larger entity mutation can commit all of
     /// its relational changes atomically in one SaveChanges call.
     /// </summary>
-    public async Task<bool> StageDeleteValuesForEntityAsync(string entityType, int entityId, CancellationToken ct = default)
+    public Task<bool> StageDeleteValuesForEntityAsync(string entityType, int entityId, CancellationToken ct = default)
+        => StageDeleteValuesForEntitiesAsync(entityType, [entityId], ct);
+
+    /// <summary>Stages custom-field value removal for several entities of one type with a single query.</summary>
+    public async Task<bool> StageDeleteValuesForEntitiesAsync(string entityType, IReadOnlyCollection<int> entityIds, CancellationToken ct = default)
     {
         var normalizedEntityType = RequireEntityType(entityType);
+        var ids = entityIds.Distinct().ToArray();
         var values = await _db.CustomFieldValues
-            .Where(value => value.EntityType == normalizedEntityType && value.EntityId == entityId)
+            .Where(value => value.EntityType == normalizedEntityType && ids.Contains(value.EntityId))
             .ToListAsync(ct);
         if (values.Count == 0)
             return false;

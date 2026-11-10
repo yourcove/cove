@@ -60,7 +60,7 @@ public class CleanService(
 
             // Finish all filesystem/archive inspection before changing the destination. Deleting a
             // backing archive early would otherwise change decisions for later virtual entries.
-            // Orphans go through the same deletion path as a user delete so polymorphic rows (tag
+            // Orphans are deleted by the service behind a user's bulk delete so polymorphic rows (tag
             // applications, segments, group items, provenance), custom field values, cover blobs and
             // generated files go with them and extensions receive the Deleted events.
             var removal = new OrphanRemoval(videos + images + galleries + audios + texts);
@@ -189,6 +189,28 @@ public class CleanService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
             var deletion = scope.ServiceProvider.GetRequiredService<BulkEntityDeletionService>();
+            if (BulkEntityDeletionService.SupportsBatchDeletion(entityKind))
+            {
+                // One staged save for the whole page, so the queries and the transaction are paid per page
+                // instead of per orphan. Cancellation is still only observed between saves.
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var deleted = await deletion.DeleteBatchAsync(entityKind, ids, removal.Context, deleteFiles: false, deleteGenerated: true, CancellationToken.None);
+                    // An id left out of the result was removed concurrently since inspection.
+                    removal.Removed += deleted.Count;
+                    removal.Processed += ids.Length;
+                    progress.Report((double)removal.Processed / Math.Max(removal.Total, 1),
+                        $"Removing orphaned items ({removal.Processed}/{removal.Total})");
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    // Nothing in the page was deleted. Removing its orphans one at a time below isolates the
+                    // one that fails and resolves a race with a concurrent deletion.
+                    logger.LogInformation(ex, "Clean could not remove a page of {Count} orphaned {Kind} items together; removing them one at a time", ids.Length, kind);
+                }
+            }
             foreach (var id in ids)
             {
                 // Cancel only between entities: each deletion runs its post-commit cleanup to completion.

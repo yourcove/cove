@@ -367,6 +367,160 @@ public sealed class BulkEntityDeletionService(
         return deleted;
     }
 
+    /// <summary>Kinds whose deletion is one staged save, so several entities can share that save.</summary>
+    public static bool SupportsBatchDeletion(BulkDeletionEntityKind kind)
+        => kind is BulkDeletionEntityKind.Image
+            or BulkDeletionEntityKind.Audio
+            or BulkDeletionEntityKind.Text
+            or BulkDeletionEntityKind.Gallery;
+
+    /// <summary>
+    /// Deletes several entities of one kind with one staged save, so the queries and the transaction are paid
+    /// per batch instead of per entity. Every entity gets what <see cref="DeleteAsync"/> gives it: the same
+    /// dependent rows staged with it, the same durable outbox rows for its files, the same post-commit cleanup
+    /// and its own Deleted event. The deletes are all-or-nothing. When they fail nothing was deleted, the change
+    /// tracker is cleared and the exception propagates; the caller then deletes the entities one at a time,
+    /// which isolates a failing entity and resolves a deletion race the way a single deletion does.
+    /// </summary>
+    /// <returns>The ids that were deleted. An id that no longer exists is left out.</returns>
+    public async Task<IReadOnlyList<int>> DeleteBatchAsync(
+        BulkDeletionEntityKind kind,
+        IReadOnlyCollection<int> ids,
+        BulkDeletionExecutionContext executionContext,
+        bool deleteFiles,
+        bool deleteGenerated,
+        CancellationToken ct,
+        bool publishEvent = true)
+    {
+        var batchIds = ids.Where(id => id > 0).Distinct().ToArray();
+        if (batchIds.Length == 0)
+            return [];
+
+        StagedBatchDeletion staged;
+        try
+        {
+            staged = kind switch
+            {
+                BulkDeletionEntityKind.Image => await StageBatchAsync(
+                    db.Images.Include(item => item.Files), batchIds, item => item.Files,
+                    AffinityHostType.Image, CustomFieldEntityTypes.Image, _ => [], executionContext, deleteFiles, ct),
+                BulkDeletionEntityKind.Audio => await StageBatchAsync(
+                    db.Audios.Include(item => item.Files), batchIds, item => item.Files,
+                    AffinityHostType.Audio, CustomFieldEntityTypes.Audio, item => [item.ImageBlobId], executionContext, deleteFiles, ct),
+                BulkDeletionEntityKind.Text => await StageBatchAsync(
+                    db.TextDocuments.Include(item => item.Files), batchIds, item => item.Files,
+                    AffinityHostType.Text, CustomFieldEntityTypes.Text, item => [item.ImageBlobId], executionContext, deleteFiles, ct),
+                // A gallery's files are never deleted from disk with it, as in DeleteGalleryAsync.
+                BulkDeletionEntityKind.Gallery => await StageBatchAsync(
+                    db.Galleries.Include(item => item.Files), batchIds, item => item.Files,
+                    AffinityHostType.Gallery, CustomFieldEntityTypes.Gallery, item => [item.ImageBlobId, item.BackImageBlobId], executionContext, deleteFiles: false, ct),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "This kind cannot be deleted in a batch."),
+            };
+        }
+        catch
+        {
+            // Rows staged before the failure would otherwise be replayed by this context's next save.
+            db.ChangeTracker.Clear();
+            throw;
+        }
+        if (staged.EntityIds.Length == 0)
+            return [];
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (db.Entry(staged.Entities[0]).State != EntityState.Deleted)
+        {
+            // The deletes are one transaction, and a committed delete detaches its entity. So they all committed
+            // and it was CoveContext's follow-up work, such as the derived-count save, that failed. The deletion
+            // stands, as in DeletionRace.SaveAsync, and its cleanup and events must still run: rethrowing would
+            // send the caller to delete one at a time, find nothing, and drop them for the whole batch.
+            db.ChangeTracker.Clear();
+            logger?.LogWarning(ex, "Deleted {Count} {EntityKind} entities, but the follow-up work of the save failed; derived counts may be stale until they are next recomputed.", staged.EntityIds.Length, kind);
+        }
+        catch
+        {
+            // EF keeps the changes it could not apply and would replay them on this context's next save.
+            db.ChangeTracker.Clear();
+            throw;
+        }
+
+        foreach (var path in staged.PhysicalPaths)
+            executionContext.TrackPhysicalFile(path);
+        InvalidateSegmentCaches(staged.HostCleanup);
+        await CleanupDependencyBlobsBestEffortAsync(staged.HostCleanup.BlobIds, ct);
+
+        if (kind == BulkDeletionEntityKind.Image && deleteGenerated)
+        {
+            foreach (var imageId in staged.EntityIds)
+            {
+                try
+                {
+                    await thumbnailService.DeleteImageGeneratedFilesAsync(imageId, ct);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Image {ImageId} was deleted, but its generated files could not be fully removed.", imageId);
+                }
+            }
+        }
+        // A gallery's covers are always removed with their generated files, as in DeleteGalleryAsync.
+        foreach (var blobId in staged.OwnedBlobIds)
+            await CleanupBlobBestEffortAsync(blobId, deleteGenerated || kind == BulkDeletionEntityKind.Gallery, ct);
+        if (publishEvent)
+        {
+            foreach (var entityId in staged.EntityIds)
+                PublishDeleted(kind, entityId);
+        }
+        return staged.EntityIds;
+    }
+
+    private async Task<StagedBatchDeletion> StageBatchAsync<TEntity>(
+        IQueryable<TEntity> entitiesWithFiles,
+        int[] ids,
+        Func<TEntity, IEnumerable<BaseFileEntity>> files,
+        AffinityHostType hostType,
+        string customFieldEntityType,
+        Func<TEntity, IEnumerable<string?>> ownedBlobIds,
+        BulkDeletionExecutionContext context,
+        bool deleteFiles,
+        CancellationToken ct)
+        where TEntity : BaseEntity
+    {
+        var entities = await entitiesWithFiles.Where(item => ids.Contains(item.Id)).ToArrayAsync(ct);
+        if (entities.Length == 0)
+            return new StagedBatchDeletion([], [], [], [], new EntityHostDependencyCleanup([], []));
+
+        var entityIds = entities.Select(item => item.Id).ToArray();
+        var fileRows = entities.SelectMany(files).ToArray();
+        var physicalPaths = deleteFiles
+            ? fileRows.Select(file => file.Path).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(FilesystemPaths.PathComparer).ToArray()
+            : [];
+        db.RemoveRange(fileRows);
+        var hostCleanup = await _hostDependencies.StageDeleteAsync(hostType, entityIds, ct);
+        await customFields.StageDeleteValuesForEntitiesAsync(customFieldEntityType, entityIds, ct);
+        db.RemoveRange(entities);
+        context.StagePhysicalFiles(db, physicalPaths);
+        return new StagedBatchDeletion(
+            entities,
+            entityIds,
+            physicalPaths,
+            entities.SelectMany(ownedBlobIds)
+                .Where(blobId => !string.IsNullOrWhiteSpace(blobId))
+                .Cast<string>()
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+            hostCleanup);
+    }
+
+    private sealed record StagedBatchDeletion(
+        BaseEntity[] Entities,
+        int[] EntityIds,
+        string[] PhysicalPaths,
+        string[] OwnedBlobIds,
+        EntityHostDependencyCleanup HostCleanup);
+
     private async Task<bool> DeleteVideoAsync(
         int id,
         BulkDeletionExecutionContext context,
