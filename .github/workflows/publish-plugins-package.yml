@@ -13,6 +13,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # Lets the job ask GitHub for the OIDC token that NuGet.org exchanges for a short-lived API key.
+  id-token: write
 
 env:
   DOTNET_VERSION: '10.0.x'
@@ -71,9 +73,28 @@ jobs:
           -p:PackageVersion=${{ steps.version.outputs.version }}
           -o artifacts/nuget
 
+      # NuGet.org trusted publishing: no stored API key. A policy on the NuGet.org account that owns
+      # the Cove.* packages names this repository and this workflow file (publish-plugins-package.yml),
+      # and NuGet.org issues a key that is valid for one hour and can only come from a run of it.
+      # Renaming this file, or moving the push into another workflow, needs the policy updated to match.
+      # NUGET_USER is a repository variable holding that account's NuGet.org profile name.
+      - name: Check NuGet.org user is configured
+        if: ${{ vars.NUGET_USER == '' }}
+        run: |
+          echo "::error::Repository variable NUGET_USER is not set. Set it to the NuGet.org profile name that owns the trusted publishing policy."
+          exit 1
+
+      - name: NuGet login (OIDC to temporary API key)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push packages to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: >
           dotnet nuget push "artifacts/nuget/*.nupkg"
           --source "https://api.nuget.org/v3/index.json"
-          --api-key "${{ secrets.NUGET_ORG_API_KEY }}"
+          --api-key "$NUGET_API_KEY"
           --skip-duplicate
