@@ -58,7 +58,18 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
     /// </summary>
     public async Task SyncIdentitySequencesAsync(CancellationToken cancellationToken = default)
     {
-        await using var command = DataSource.CreateCommand("""
+        await using var command = DataSource.CreateCommand(SyncIdentitySequencesSql);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Does what <see cref="SyncIdentitySequencesAsync(CancellationToken)"/> does on <paramref name="context"/>'s connection, so it sees
+    /// rows that context's open transaction has not committed. Sequences are not transactional: the move survives a rollback.
+    /// </summary>
+    public static async Task SyncIdentitySequencesAsync(DbContext context, CancellationToken cancellationToken = default)
+        => await context.Database.ExecuteSqlRawAsync(SyncIdentitySequencesSql, cancellationToken);
+
+    private const string SyncIdentitySequencesSql = """
             DO $$
             DECLARE item record;
             BEGIN
@@ -75,9 +86,7 @@ public sealed class CovePostgresDatabase : IAsyncLifetime
                 END LOOP;
             END
             $$;
-            """);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
+            """;
 
     ValueTask IAsyncLifetime.InitializeAsync() => InitializeAsync(TestContext.Current.CancellationToken);
 

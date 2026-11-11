@@ -12,6 +12,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Text.Json;
 using CoveSortDirection = Cove.Core.Enums.SortDirection;
 
@@ -350,6 +351,48 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         Assert.Empty(missing);
     }
 
+    [Fact]
+    public async Task RolledBackFixturesLeaveNothingForTheNextTest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using (var first = await seeded.CreateRolledBackFixtureAsync())
+        {
+            first.Context.Videos.Add(new Video { Title = "Left by an earlier test" });
+            await first.Context.SaveChangesAsync(ct);
+        }
+
+        // The second seed reuses the first one's explicit ids, so it fails outright if any of those rows survived.
+        await using var second = await seeded.CreateRolledBackFixtureAsync();
+        Assert.Equal(second.Videos.Count, await second.Context.Videos.IgnoreQueryFilters().CountAsync(ct));
+    }
+
+    [Fact]
+    public async Task RolledBackFixturesCheckDeferredConstraintsOnEachSave()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
+
+        // Restoring the constraints after each check assumes every deferrable one starts deferred.
+        var deferrable = await fixture.Context.Database
+            .SqlQuery<bool>($"SELECT condeferred AS \"Value\" FROM pg_constraint WHERE condeferrable")
+            .ToListAsync(ct);
+        Assert.NotEmpty(deferrable);
+        Assert.All(deferrable, Assert.True);
+
+        // Cove validates names before it saves, so collide the studios' name keys directly: the database constraint is
+        // all that is left to catch it. A collision resolved before the next save passes, as it would before a commit,
+        // so the seed's saves left the constraints deferred again.
+        var (first, second, third) = (fixture.Studios[0].Id, fixture.Studios[1].Id, fixture.Studios[2].Id);
+        await fixture.Context.Database.ExecuteSqlAsync($"""UPDATE studios SET "NameKey" = (SELECT "NameKey" FROM studios WHERE "Id" = {first}) WHERE "Id" = {second}""", ct);
+        await fixture.Context.Database.ExecuteSqlAsync($"""UPDATE studios SET "NameKey" = 'a key no other studio has' WHERE "Id" = {first}""", ct);
+        await fixture.Context.SaveChangesAsync(ct);
+
+        // One left in place fails the next save, as the commit would have, and through the same translation.
+        await fixture.Context.Database.ExecuteSqlAsync($"""UPDATE studios SET "NameKey" = (SELECT "NameKey" FROM studios WHERE "Id" = {second}) WHERE "Id" = {third}""", ct);
+        var failure = await Assert.ThrowsAsync<EntityNameConflictException>(() => fixture.Context.SaveChangesAsync(ct));
+        Assert.Equal(PostgresErrorCodes.ExclusionViolation, Assert.IsType<PostgresException>(failure.InnerException).SqlState);
+    }
+
     [Theory]
     [MemberData(nameof(SortRows))]
     public async Task PublishedSortOrdersMatchSeededFixtureProjection(string entity, string sortKey, CoveSortDirection direction)
@@ -368,7 +411,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [InlineData("text_count")]
     public async Task PerformerRelationshipCountSortUsesStableIdTieBreakerAcrossPages(string sortKey)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         if (sortKey == "audio_count")
@@ -416,7 +459,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [InlineData("tags")]
     public async Task CompoundSortUsesSecondaryClauseAcrossSupportedEntityLists(string entity)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         var sharedUpdatedAt = DateTime.UtcNow.AddYears(-10);
@@ -473,7 +516,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [InlineData("tags")]
     public async Task CompoundRatingSortUsesSecondaryClauseAcrossSupportedEntityLists(string entity)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         var (hostType, entityIds) = entity switch
@@ -545,7 +588,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [InlineData("texts", "last_read_at")]
     public async Task CompoundEngagementSortUsesSecondaryClause(string entity, string sortKey)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         var (hostType, entityIds) = entity switch
@@ -611,7 +654,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [Fact]
     public async Task GalleryCompoundLikeSortUsesLikeCountBeforeSecondaryDate()
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         var galleriesByLikes = fixture.Galleries
@@ -651,7 +694,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [Fact]
     public async Task GalleryAggregateCompoundSortsHonorPrimarySecondaryAndNullOrdering()
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
         var now = fixture.Now;
         var images = Enumerable.Range(0, 4)
@@ -717,7 +760,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [Fact]
     public async Task BackendsAcceptEverySharedFrontendCompoundSortKey()
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
         var contractPath = FindRepositoryFile("ui", "src", "components", "entityMultiSortKeys.json");
         var contract = JsonSerializer.Deserialize<Dictionary<string, string[]>>(await File.ReadAllTextAsync(contractPath, TestContext.Current.CancellationToken))
@@ -765,7 +808,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [Fact]
     public async Task CustomFieldFiltersAndSortsExecuteForExtensionListContributions()
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
 
         var criterion = new CustomFieldCriterion
@@ -802,7 +845,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     [InlineData(CoveSortDirection.Desc)]
     public async Task EqualCustomFieldValuesUseRequestedIdDirectionAcrossPages(CoveSortDirection direction)
     {
-        await using var fixture = await SortHarnessFixture.CreateAsync();
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
         fixture.ActivatePrincipal();
         var values = await fixture.Context.CustomFieldValues
             .Where(value => value.EntityType == CustomFieldEntityTypes.Video && value.Definition!.Key == "extension_score")
@@ -1378,20 +1421,63 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
 
     /// <summary>
     /// One seeded fixture for the theories that only read it, so their hundreds of cases do not each seed
-    /// a database. Tests that change data create their own <see cref="SortHarnessFixture"/>.
+    /// a database. Tests that need a fixture of their own, mostly because they change its data, seed one with
+    /// <see cref="CreateRolledBackFixtureAsync"/>.
     /// </summary>
     public sealed class SeededHarness : IAsyncLifetime
     {
+        private readonly SemaphoreSlim _rolledBackDatabaseLock = new(1, 1);
+        private CovePostgresDatabase? _rolledBackDatabase;
         private SortHarnessFixture? _fixture;
 
         public SortHarnessFixture Fixture => _fixture ?? throw new InvalidOperationException("The seeded harness is used before it is initialized.");
 
-        public async ValueTask InitializeAsync() => _fixture = await SortHarnessFixture.CreateAsync();
+        public async ValueTask InitializeAsync()
+        {
+            _rolledBackDatabase = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+            _fixture = await SortHarnessFixture.CreateAsync();
+        }
+
+        /// <summary>
+        /// Seeds a fixture of the caller's own inside a transaction on a database that nothing ever commits to, and
+        /// rolls it back when the fixture is disposed. The tests that change data then pay for a seed but not for
+        /// creating and dropping a database. One fixture holds the database at a time.
+        /// </summary>
+        public async Task<SortHarnessFixture> CreateRolledBackFixtureAsync()
+        {
+            var database = _rolledBackDatabase ?? throw new InvalidOperationException("The seeded harness is used before it is initialized.");
+            await _rolledBackDatabaseLock.WaitAsync(TestContext.Current.CancellationToken);
+            // A fixture that fails to seed releases the database as it disposes itself, and this method's catch
+            // releases it too, so only the first release counts.
+            var released = 0;
+            void Release()
+            {
+                if (Interlocked.Exchange(ref released, 1) == 0)
+                    _rolledBackDatabaseLock.Release();
+            }
+            try
+            {
+                return await SortHarnessFixture.CreateInTransactionAsync(database, Release);
+            }
+            catch
+            {
+                Release();
+                throw;
+            }
+        }
 
         public async ValueTask DisposeAsync()
         {
-            if (_fixture != null)
-                await _fixture.DisposeAsync();
+            try
+            {
+                if (_fixture != null)
+                    await _fixture.DisposeAsync();
+            }
+            finally
+            {
+                if (_rolledBackDatabase != null)
+                    await _rolledBackDatabase.DisposeAsync();
+            }
         }
     }
 
@@ -1400,13 +1486,17 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         private readonly CovePostgresDatabase _database;
         private readonly CurrentPrincipalAccessor _principalAccessor;
         private readonly CovePrincipal _principal;
+        // Set for a fixture seeded inside a transaction on a shared database: it releases that database
+        // instead of dropping it.
+        private readonly Action? _releaseDatabase;
 
-        private SortHarnessFixture(CovePostgresDatabase database, CoveContext context, CurrentPrincipalAccessor principalAccessor, CovePrincipal principal)
+        private SortHarnessFixture(CovePostgresDatabase database, CoveContext context, CurrentPrincipalAccessor principalAccessor, CovePrincipal principal, Action? releaseDatabase)
         {
             _database = database;
             Context = context;
             _principalAccessor = principalAccessor;
             _principal = principal;
+            _releaseDatabase = releaseDatabase;
         }
 
         public CoveContext Context { get; }
@@ -1425,9 +1515,18 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         private Dictionary<(AffinityHostType HostType, int HostId), UserEntityAffinity> Affinities { get; } = [];
 
         public static async Task<SortHarnessFixture> CreateAsync()
+            => await CreateAsync(await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken), releaseDatabase: null);
+
+        /// <summary>
+        /// Seeds <paramref name="database"/> inside a transaction that the returned fixture rolls back when it is disposed,
+        /// then calls <paramref name="releaseDatabase"/>. Each save checks the deferred constraints a commit would check.
+        /// </summary>
+        public static Task<SortHarnessFixture> CreateInTransactionAsync(CovePostgresDatabase database, Action releaseDatabase)
+            => CreateAsync(database, releaseDatabase);
+
+        private static async Task<SortHarnessFixture> CreateAsync(CovePostgresDatabase database, Action? releaseDatabase)
         {
             var ct = TestContext.Current.CancellationToken;
-            var database = await CovePostgresDatabase.CreateAsync(ct);
             var principalAccessor = new CurrentPrincipalAccessor();
             var principal = new CovePrincipal
             {
@@ -1439,11 +1538,16 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
             };
             principalAccessor.Set(principal);
 
-            var fixture = new SortHarnessFixture(database, new HarnessCoveContext(database.CreateOptions(), principalAccessor), principalAccessor, principal);
+            var inTransaction = releaseDatabase != null;
+            var context = new HarnessCoveContext(database.CreateOptions(), principalAccessor) { ChecksDeferredConstraintsOnSave = inTransaction };
+            var fixture = new SortHarnessFixture(database, context, principalAccessor, principal, releaseDatabase);
             try
             {
+                if (inTransaction)
+                    await context.Database.BeginTransactionAsync(ct);
                 await fixture.SeedAsync();
-                await database.SyncIdentitySequencesAsync(ct);
+                // On the context's connection, which sees a seed its transaction has not committed yet.
+                await CovePostgresDatabase.SyncIdentitySequencesAsync(context, ct);
                 return fixture;
             }
             catch
@@ -1475,11 +1579,15 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         {
             try
             {
+                // Disposing the context rolls back a transaction it still has open.
                 await Context.DisposeAsync();
             }
             finally
             {
-                await _database.DisposeAsync();
+                if (_releaseDatabase != null)
+                    _releaseDatabase();
+                else
+                    await _database.DisposeAsync();
             }
         }
 
@@ -2090,6 +2198,35 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
 
     private sealed class HarnessCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
     {
+        /// <summary>
+        /// Makes each save check the deferred constraints (the unique performer, studio and tag names) that committing it
+        /// would check, for a context whose transaction is rolled back rather than committed. The constraints are deferred
+        /// again afterwards, which restores them only because every deferrable constraint in the schema is
+        /// <c>INITIALLY DEFERRED</c>; a test asserts that.
+        /// </summary>
+        public bool ChecksDeferredConstraintsOnSave { get; init; }
+
+        private const string CheckDeferredConstraintsSql = "SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;";
+
+        // CoveContext saves through these overloads once per commit it would make (the entity save, then each
+        // derived-count save), so the check runs where each commit did, and inside CoveContext's translation of
+        // name-constraint violations.
+        public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            if (ChecksDeferredConstraintsOnSave)
+                await Database.ExecuteSqlRawAsync(CheckDeferredConstraintsSql, cancellationToken);
+            return result;
+        }
+
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            var result = base.SaveChanges(acceptAllChangesOnSuccess);
+            if (ChecksDeferredConstraintsOnSave)
+                Database.ExecuteSqlRaw(CheckDeferredConstraintsSql);
+            return result;
+        }
+
         public async Task SaveWithoutDerivedCountsAsync(CancellationToken cancellationToken = default)
         {
             var field = typeof(CoveContext).GetField("_persistingDerivedCounts", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
