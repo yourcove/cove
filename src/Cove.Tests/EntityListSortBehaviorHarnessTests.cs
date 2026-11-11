@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using CoveSortDirection = Cove.Core.Enums.SortDirection;
 
@@ -364,6 +365,46 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         // The second seed reuses the first one's explicit ids, so it fails outright if any of those rows survived.
         await using var second = await seeded.CreateRolledBackFixtureAsync();
         Assert.Equal(second.Videos.Count, await second.Context.Videos.IgnoreQueryFilters().CountAsync(ct));
+    }
+
+    [Theory]
+    [InlineData("ended")]
+    [InlineData("replaced")]
+    [InlineData("ended in SQL")]
+    [InlineData("replaced in SQL")]
+    public async Task RolledBackFixtureFailsTheTestThatEndsItsTransaction(string how)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Disposing again is a no-op, so this only releases the database if the test fails before the explicit dispose.
+        await using var fixture = await seeded.CreateRolledBackFixtureAsync();
+
+        // Each ends the fixture's transaction without committing it, so the seed does not stay behind for later
+        // tests; a commit ends it the same way.
+        switch (how)
+        {
+            case "ended":
+                await fixture.Context.Database.RollbackTransactionAsync(ct);
+                break;
+            case "replaced":
+                await fixture.Context.Database.RollbackTransactionAsync(ct);
+                await fixture.Context.Database.BeginTransactionAsync(ct);
+                // EF sends BEGIN with the next statement, so run one for the server to start the new block.
+                await fixture.Context.Database.ExecuteSqlRawAsync("SELECT 1", ct);
+                break;
+            // EF never hears of these and still holds its transaction object, so only the server can tell.
+            case "ended in SQL":
+                await fixture.Context.Database.ExecuteSqlRawAsync("ROLLBACK;", ct);
+                break;
+            case "replaced in SQL":
+                await fixture.Context.Database.ExecuteSqlRawAsync("ROLLBACK; BEGIN;", ct);
+                break;
+        }
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.DisposeAsync().AsTask());
+        Assert.Contains("CreateRolledBackFixtureAsync", failure.Message);
+
+        // The database was released despite the failure, so the next fixture can take it.
+        await using var next = await seeded.CreateRolledBackFixtureAsync();
     }
 
     [Fact]
@@ -1427,6 +1468,7 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
     public sealed class SeededHarness : IAsyncLifetime
     {
         private readonly SemaphoreSlim _rolledBackDatabaseLock = new(1, 1);
+        private bool _rolledBackDatabaseLost;
         private CovePostgresDatabase? _rolledBackDatabase;
         private SortHarnessFixture? _fixture;
 
@@ -1443,10 +1485,25 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         /// rolls it back when the fixture is disposed. The tests that change data then pay for a seed but not for
         /// creating and dropping a database. One fixture holds the database at a time.
         /// </summary>
+        /// <remarks>
+        /// Use it only for tests that run list queries and plain saves on <see cref="SortHarnessFixture.Context"/>. Code
+        /// that opens its own transaction or connection, or whose effect depends on a commit (outbox rows, post-commit
+        /// cleanup, locks held between commits), is not tested inside a transaction that is rolled back. Saves here take
+        /// <c>CoveContext</c>'s transaction-scoped advisory locks rather than the session locks of a save that commits on
+        /// its own. Disposing the fixture fails the test if its transaction was committed, ended or replaced.
+        /// </remarks>
         public async Task<SortHarnessFixture> CreateRolledBackFixtureAsync()
         {
             var database = _rolledBackDatabase ?? throw new InvalidOperationException("The seeded harness is used before it is initialized.");
-            await _rolledBackDatabaseLock.WaitAsync(TestContext.Current.CancellationToken);
+            const string lost = "An earlier fixture from CreateRolledBackFixtureAsync was not disposed, so the database it holds never became free.";
+            // After one wait times out the database stays held, so later fixtures fail at once instead of waiting in turn.
+            if (Volatile.Read(ref _rolledBackDatabaseLost))
+                throw new TimeoutException(lost);
+            if (!await _rolledBackDatabaseLock.WaitAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken))
+            {
+                Volatile.Write(ref _rolledBackDatabaseLost, true);
+                throw new TimeoutException(lost);
+            }
             // A fixture that fails to seed releases the database as it disposes itself, and this method's catch
             // releases it too, so only the first release counts.
             var released = 0;
@@ -1489,6 +1546,10 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
         // Set for a fixture seeded inside a transaction on a shared database: it releases that database
         // instead of dropping it.
         private readonly Action? _releaseDatabase;
+        // The server process of the fixture's connection and the start time of the transaction it began, to ask the
+        // server at disposal whether that process is still in the same transaction block.
+        private (int ProcessId, DateTime TransactionStart)? _transaction;
+        private bool _disposed;
 
         private SortHarnessFixture(CovePostgresDatabase database, CoveContext context, CurrentPrincipalAccessor principalAccessor, CovePrincipal principal, Action? releaseDatabase)
         {
@@ -1544,7 +1605,12 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
             try
             {
                 if (inTransaction)
+                {
                     await context.Database.BeginTransactionAsync(ct);
+                    var processId = await context.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"").SingleAsync(ct);
+                    var (_, _, transactionStart) = await BackendTransactionAsync(database, processId, ct);
+                    fixture._transaction = (processId, transactionStart ?? throw new InvalidOperationException("The fixture's transaction has not started."));
+                }
                 await fixture.SeedAsync();
                 // On the context's connection, which sees a seed its transaction has not committed yet.
                 await CovePostgresDatabase.SyncIdentitySequencesAsync(context, ct);
@@ -1577,8 +1643,19 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
 
         public async ValueTask DisposeAsync()
         {
+            if (_disposed)
+                return;
+            _disposed = true;
+
+            InvalidOperationException? transactionEnded = null;
+            ExceptionDispatchInfo? checkFailed = null;
             try
             {
+                if (_transaction is { } transaction)
+                {
+                    try { transactionEnded = await CheckTransactionIsStillOpenAsync(transaction.ProcessId, transaction.TransactionStart); }
+                    catch (Exception exception) { checkFailed = ExceptionDispatchInfo.Capture(exception); }
+                }
                 // Disposing the context rolls back a transaction it still has open.
                 await Context.DisposeAsync();
             }
@@ -1589,6 +1666,36 @@ public class EntityListSortBehaviorHarnessTests(EntityListSortBehaviorHarnessTes
                 else
                     await _database.DisposeAsync();
             }
+            checkFailed?.Throw();
+            if (transactionEnded != null)
+                throw transactionEnded;
+        }
+
+        // A test that commits leaves rows in the database every later rolled-back fixture seeds, so their seeds fail
+        // too; failing the test that did it names the cause. The server is asked from another connection in autocommit,
+        // which sees a COMMIT or ROLLBACK sent as SQL that EF never hears of and reads the process's current state.
+        // The block's start time identifies it: it changes when another block begins and is cleared when a block ends
+        // or aborts. So the test is blamed when its process sits idle outside any block, or is in a block that started
+        // later. A process that is gone, aborted or exiting after a lost connection is not blamed, because none of them
+        // can commit. That also means a commit goes unnoticed when it is followed by a new block that aborts, or by
+        // losing the connection.
+        private async Task<InvalidOperationException?> CheckTransactionIsStillOpenAsync(int processId, DateTime transactionStart)
+        {
+            var (connected, state, current) = await BackendTransactionAsync(_database, processId, CancellationToken.None);
+            var ended = connected && (state == "idle" || (current is { } start && start != transactionStart));
+            return ended
+                ? new InvalidOperationException("The test committed, ended or replaced the transaction of its fixture from CreateRolledBackFixtureAsync. Anything it committed stays in the shared database, so later rolled-back tests in this class fail too. Give code that commits a fixture with a database of its own, from SortHarnessFixture.CreateAsync.")
+                : null;
+        }
+
+        private static async Task<(bool Connected, string? State, DateTime? TransactionStart)> BackendTransactionAsync(CovePostgresDatabase database, int processId, CancellationToken cancellationToken)
+        {
+            await using var command = database.DataSource.CreateCommand("SELECT state, xact_start FROM pg_stat_activity WHERE pid = $1");
+            command.Parameters.Add(new NpgsqlParameter { Value = processId });
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return (false, null, null);
+            return (true, reader.IsDBNull(0) ? null : reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTime>(1));
         }
 
         private async Task SeedAsync()
