@@ -164,8 +164,8 @@ RUN case "${TARGETARCH}" in \
 COPY --from=mcr.microsoft.com/dotnet/aspnet:10.0 /usr/share/dotnet /usr/share/dotnet
 RUN ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
 
-# Create cove user. Pin uid/gid 1000 so it matches the app-only image and what the docs and Cove's
-# startup error tell people to chown bind mounts to.
+# Create cove user with uid/gid 1000, the ids an unpinned useradd gave it in released images. It owns
+# the Python venv and the data directories; Cove itself runs as root here (see s6/cove-run.sh).
 RUN groupadd --gid 1000 cove     && useradd --uid 1000 --gid 1000 -m -s /bin/bash cove
 
 # Python for extensions that ship Python tooling (a pip-installed yt-dlp, gallery-dl, and similar).

@@ -30,14 +30,16 @@ Separate containers for the app and database. Easier to manage, upgrade, and bac
 
 ## File ownership
 
-Cove runs as the `cove` user, uid 1000 and gid 1000, in both images. Docker creates missing bind-mount directories as `root`, so make the Cove directories writable by that user before the first start:
+The `cove-app` image of the App + PostgreSQL setup runs Cove as the `cove` user, uid 1655 and gid 1655. Docker creates missing bind-mount directories as `root`, so make the Cove directories writable by that user before the first start:
 
 ```bash
 mkdir -p cove-data/config cove-data/data cove-data/generated cove-data/backups
-sudo chown -R 1000:1000 cove-data/config cove-data/data cove-data/generated cove-data/backups
+sudo chown -R 1655:1655 cove-data/config cove-data/data cove-data/generated cove-data/backups
 ```
 
-Leave `cove-data/pgdata` to the database container, which sets its own ownership.
+Leave `cove-data/pgdata` to the database container, which sets its own ownership. If Cove cannot write to `/config`, it stops at startup with an error that names the uid and gid it runs as.
+
+The all-in-one image runs Cove as `root`, so its directories need no ownership change.
 
 ```bash
 docker compose up --detach
