@@ -1,5 +1,10 @@
 name: Release
 
+# Every job up to `publish` builds and verifies without making anything public: Docker images go to
+# the registry untagged, by digest, where nobody pulls them. Only once all of them have succeeded
+# does `publish` run, and it publishes everything in one job, in order of how hard each step is to
+# undo. docs/contributing/releasing.md describes the process.
+
 on:
   push:
     tags: ['v*']
@@ -167,7 +172,7 @@ jobs:
           path: |
             ${{ matrix.artifact }}${{ matrix.ext }}
             ${{ matrix.artifact }}${{ matrix.ext }}.sha256
-          retention-days: 1
+          retention-days: 7
 
   # ── Verify and build standalone CLI executables ─────────────────
   verify-cli:
@@ -249,7 +254,58 @@ jobs:
           path: |
             cli/dist/${{ matrix.archive }}
             cli/dist/${{ matrix.archive }}.sha256
-          retention-days: 1
+          retention-days: 7
+
+  # ── Pack the extension SDK packages ─────────────────────────────
+  # Packed here and pushed by `publish`, so NuGet.org, which never takes the same version twice, only
+  # gets them once everything else has built.
+  pack-nuget:
+    needs: check-version
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore src/Cove.slnx
+
+      - name: Pack Cove.Core
+        run: >
+          dotnet pack src/Cove.Core/Cove.Core.csproj
+          -c Release
+          --no-restore
+          -p:PackageVersion=${{ env.VERSION }}
+          -o artifacts/nuget
+
+      - name: Pack Cove.Plugins
+        run: >
+          dotnet pack src/Cove.Plugins/Cove.Plugins.csproj
+          -c Release
+          --no-restore
+          -p:PackageVersion=${{ env.VERSION }}
+          -o artifacts/nuget
+
+      - name: Pack Cove.Sdk
+        run: >
+          dotnet pack src/Cove.Sdk/Cove.Sdk.csproj
+          -c Release
+          --no-restore
+          -p:Version=${{ env.VERSION }}
+          -p:PackageVersion=${{ env.VERSION }}
+          -o artifacts/nuget
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages
+          path: artifacts/nuget/*.nupkg
+          if-no-files-found: error
+          retention-days: 7
 
   # ── Determine release type ────────────────────────────────────────
   check-version:
@@ -331,8 +387,8 @@ jobs:
 
   # ── Build Docker images for stable and prerelease tags ───────────
   # Each platform builds natively on its own runner and pushes an untagged image by digest;
-  # merge-docker then tags the multi-platform image. Building arm64 under QEMU on an x64 runner was
-  # about 10x slower and intermittently hung until the job timeout.
+  # `publish` tags the multi-platform image once every build has succeeded. Building arm64 under
+  # QEMU on an x64 runner was about 10x slower and intermittently hung until the job timeout.
   build-docker:
     needs: [build-ui, check-version]
     runs-on: ${{ matrix.runner }}
@@ -418,89 +474,105 @@ jobs:
           name: docker-digests-${{ matrix.image }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
-  merge-docker:
-    needs: [check-version, build-docker]
+  # ── Publish, once everything has built ──────────────────────────
+  # Runs only once every build above has succeeded. It runs in the `release` environment, which the
+  # NuGet.org trusted publishing policy names; giving that environment required reviewers would make
+  # this job wait for approval, with no change here. It checks first and publishes after, stopping
+  # at the first failure:
+  #   1. checks: the build outputs are complete, this version is not already released, and NuGet.org
+  #      gives this run a key through trusted publishing;
+  #   2. the GitHub release as a draft, which only maintainers can see;
+  #   3. the NuGet packages, which can never be deleted or pushed again under the same version;
+  #   4. the Docker image tags, including `latest`;
+  #   5. the release itself, which makes it Latest and offers it to Cove's built-in updater.
+  # Every step can be repeated, so "Re-run failed jobs" continues a release that stopped part way.
+  publish:
+    needs: [check-version, build-native, build-cli, build-docker, pack-nuget]
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    environment: release
+    timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: all-in-one
-            suffix: ""
-          - image: app
-            suffix: "-app"
-
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: docker-digests-${{ matrix.image }}-*
-          merge-multiple: true
-          path: ${{ runner.temp }}/digests
-
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: docker/login-action@v4.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Image name
-        env:
-          SUFFIX: ${{ matrix.suffix }}
-        run: echo "IMAGE=${REGISTRY}/${IMAGE_NAME,,}${SUFFIX}" >> "$GITHUB_ENV"
-
-      - uses: docker/metadata-action@v6
-        id: meta
-        with:
-          images: ${{ env.IMAGE }}
-          flavor: latest=false
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.check-version.outputs.is_stable == 'true' }}
-            type=raw,value=latest,enable=${{ needs.check-version.outputs.is_latest == 'true' }}
-
-      - name: Create the multi-platform image
-        working-directory: ${{ runner.temp }}/digests
-        run: |
-          set -euo pipefail
-          # One digest per platform; anything else means a build is missing.
-          test "$(ls | wc -l)" -eq 2
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "$IMAGE@sha256:%s " *)
-
-      - name: Inspect the image
-        run: |
-          set -euo pipefail
-          tag="$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
-          docker buildx imagetools inspect "$tag"
-          platforms="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r '[.manifests[].platform | select(.os != "unknown") | .os + "/" + .architecture] | sort | join(",")')"
-          echo "Platforms: $platforms"
-          test "$platforms" = "linux/amd64,linux/arm64"
-
-  # ── Create GitHub Release ───────────────────────────────────────
-  release:
-    needs: [build-native, build-cli, merge-docker, check-version]
-    # Publish the release only after all native packages and container images succeed.
-    if: >-
-      always()
-      && needs.build-native.result == 'success'
-      && needs.build-cli.result == 'success'
-      && needs.merge-docker.result == 'success'
-    runs-on: ubuntu-26.04
+      # Lets the job ask GitHub for the OIDC token that NuGet.org exchanges for a short-lived API key.
+      id-token: write
+    env:
+      TAG: ${{ github.ref_name }}
+      IS_STABLE: ${{ needs.check-version.outputs.is_stable }}
+      IS_LATEST: ${{ needs.check-version.outputs.is_latest }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
 
       - uses: actions/download-artifact@v8
         with:
           path: artifacts/
+
+      - name: Extract version from tag
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      # ── 1. Checks ──
+
+      - name: Check the build outputs are complete
+        run: |
+          set -euo pipefail
+          for image in all-in-one app; do
+            # One digest per platform; anything else means a build is missing.
+            count="$(find artifacts -path "artifacts/docker-digests-$image-*/*" -type f | wc -l)"
+            test "$count" -eq 2 || { echo "Expected 2 $image image digests, found $count." >&2; exit 1; }
+          done
+          count="$(find artifacts/nuget-packages -name '*.nupkg' | wc -l)"
+          test "$count" -eq 3 || { echo "Expected 3 NuGet packages, found $count." >&2; exit 1; }
+
+      - name: Check this version is not already released
+        run: |
+          set -euo pipefail
+          published="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\" and (.draft | not)) | .html_url")"
+          if [[ -n "$published" ]]; then
+            echo "$TAG is already released: $published" >&2
+            exit 1
+          fi
+
+          # A first attempt must not find its packages on NuGet.org: they would be from another build,
+          # and pushing with --skip-duplicate would keep those. A re-run of this job pushes the same
+          # files as the attempt before it, so it may find them there.
+          if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+            for id in cove.core cove.plugins cove.sdk; do
+              if curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" \
+                | jq -e --arg v "${VERSION,,}" '.versions | index($v)' >/dev/null; then
+                echo "$id $VERSION is already on NuGet.org from another build, and NuGet.org never takes" >&2
+                echo "a version twice. Release a new version instead." >&2
+                exit 1
+              fi
+            done
+          fi
+
+      # NuGet.org trusted publishing: no stored API key. A policy on the NuGet.org account that owns
+      # the Cove.* packages names this repository, this workflow file (release.yml) and the `release`
+      # environment, and NuGet.org issues a key that is valid for one hour and can only come from a run
+      # of it. Logging in here, before anything is published, stops the job when the policy does not
+      # match. Renaming this file, or moving the push into another workflow, needs the policy updated
+      # to match. NUGET_USER is a repository variable holding that account's NuGet.org profile name.
+      - name: Check NuGet.org user is configured
+        if: ${{ vars.NUGET_USER == '' }}
+        run: |
+          echo "::error::Repository variable NUGET_USER is not set. Set it to the NuGet.org profile name that owns the trusted publishing policy."
+          exit 1
+
+      - name: NuGet login (OIDC to temporary API key)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      # ── 2. Draft release ──
 
       - name: Collect release files
         run: |
@@ -514,16 +586,9 @@ jobs:
           cp licenses/LGPL-3.0.txt release-files/LICENSE-LGPL-3.0.txt
           cp licenses/GPL-3.0.txt release-files/LICENSE-GPL-3.0.txt
 
-      - name: Extract release version from tag
-        id: version
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
-
       - name: Extract changelog entry for this version
         id: changelog
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
           {
             echo 'CHANGELOG<<EOF'
             awk -v ver="$VERSION" '
@@ -542,7 +607,6 @@ jobs:
       # The manifest Cove's built-in updater reads (releases/latest/download/cove-release.json).
       - name: Generate update manifest
         env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
           CHANNEL: ${{ needs.check-version.outputs.is_stable == 'true' && 'stable' || 'prerelease' }}
         run: >-
           node scripts/generate-release-manifest.mjs
@@ -554,11 +618,24 @@ jobs:
           --notes-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
           --output release-files/cove-release.json
 
+      # An earlier attempt that stopped after this point left a draft; replace it instead of adding a
+      # second one.
+      - name: Remove an earlier draft of this release
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\" and .draft) | .id" \
+          | while read -r id; do
+              echo "Deleting draft release $id"
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            done
+
       - uses: softprops/action-gh-release@v3
+        id: draft
         with:
+          draft: true
           generate_release_notes: true
           prerelease: ${{ needs.check-version.outputs.is_stable != 'true' }}
-          make_latest: ${{ needs.check-version.outputs.is_latest == 'true' }}
           files: release-files/*
           body: |
             ${{ steps.changelog.outputs.CHANGELOG }}
@@ -574,15 +651,74 @@ jobs:
 
             **All-in-one** (includes PostgreSQL + FFmpeg):
             ```
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
             ```
 
             **App only** (requires external PostgreSQL):
             ```
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-app:${{ steps.version.outputs.VERSION }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-app:${{ env.VERSION }}
             ```
 
             See [Docker setup docs](docker/README.md) for docker-compose examples.
+
+      # ── 3. NuGet packages ──
+
+      - name: Push packages to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: >
+          dotnet nuget push "artifacts/nuget-packages/*.nupkg"
+          --source "https://api.nuget.org/v3/index.json"
+          --api-key "$NUGET_API_KEY"
+          --skip-duplicate
+
+      # ── 4. Docker image tags ──
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the multi-platform images
+        run: |
+          set -euo pipefail
+          for image in all-in-one app; do
+            suffix=""
+            [[ "$image" == app ]] && suffix="-app"
+            # Registry names must be lowercase, and a fork's owner may not be.
+            name="${REGISTRY}/${IMAGE_NAME,,}${suffix}"
+
+            tags=(-t "$name:$VERSION")
+            [[ "$IS_STABLE" == true ]] && tags+=(-t "$name:${VERSION%.*}")
+            [[ "$IS_LATEST" == true ]] && tags+=(-t "$name:latest")
+
+            sources=()
+            for digest in artifacts/docker-digests-"$image"-*/*; do
+              sources+=("$name@sha256:$(basename "$digest")")
+            done
+
+            docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+
+            docker buildx imagetools inspect "$name:$VERSION"
+            platforms="$(docker buildx imagetools inspect "$name:$VERSION" --format '{{json .Manifest}}' \
+              | jq -r '[.manifests[].platform | select(.os != "unknown") | .os + "/" + .architecture] | sort | join(",")')"
+            echo "$image platforms: $platforms"
+            test "$platforms" = "linux/amd64,linux/arm64"
+          done
+
+      # ── 5. Publish the release ──
+
+      - name: Publish the draft release
+        env:
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: >
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          -F draft=false
+          -f make_latest="$IS_LATEST"
+          --jq .html_url
 
   # ── CI checks (runs on all pushes and PRs too) ──────────────────
   ci:

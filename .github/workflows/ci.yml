@@ -20,6 +20,7 @@ jobs:
       backend: ${{ steps.classify.outputs.backend || steps.all.outputs.backend }}
       frontend: ${{ steps.classify.outputs.frontend || steps.all.outputs.frontend }}
       cli: ${{ steps.classify.outputs.cli || steps.all.outputs.cli }}
+      docker: ${{ steps.classify.outputs.docker || steps.all.outputs.docker }}
     steps:
       - name: Run all checks outside pull requests
         id: all
@@ -28,6 +29,7 @@ jobs:
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
           echo "cli=true" >> "$GITHUB_OUTPUT"
+          echo "docker=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
@@ -44,13 +46,24 @@ jobs:
           backend=false
           frontend=false
           cli=false
+          docker=false
           changed_paths=$(mktemp)
           trap 'rm -f "$changed_paths"' EXIT
 
           git diff --name-only -z --no-renames "$BASE_SHA...$HEAD_SHA" > "$changed_paths"
 
           while IFS= read -r -d '' path; do
+            # The Docker images restore from a copy of every project file and run npm ci, so these also
+            # change what the image build does, besides the checks the case below picks.
             case "$path" in
+              docker/*|.dockerignore|ui/package.json|ui/package-lock.json|src/*.csproj|src/Cove.slnx|Directory.Build.props|Directory.Build.targets|global.json|NuGet.config)
+                docker=true
+                ;;
+            esac
+
+            case "$path" in
+              docker/*|.dockerignore)
+                ;;
               ui/src/test/fixtures/extension-guide-blocks.json|ui/src/components/featureGuideContent.ts)
                 # Cove.Tests checks the host's feature-guide rules against the same fixture.
                 backend=true
@@ -69,6 +82,7 @@ jobs:
                 backend=true
                 frontend=true
                 cli=true
+                docker=true
                 ;;
               docs/feature-guides/*)
                 frontend=true
@@ -90,6 +104,7 @@ jobs:
           echo "backend=$backend" >> "$GITHUB_OUTPUT"
           echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
           echo "cli=$cli" >> "$GITHUB_OUTPUT"
+          echo "docker=$docker" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
@@ -368,3 +383,50 @@ jobs:
       - name: Smoke test standalone executable
         working-directory: cli
         run: bun run test:compiled
+
+  # Releases and nightlies build these images, but nothing else did, so a broken Dockerfile was
+  # found only by the release that needed it. This builds both for amd64, without pushing; the
+  # nightly still covers arm64.
+  docker:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docker == 'true') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: all-in-one
+            dockerfile: docker/Dockerfile
+            uid: 1000
+          - image: app
+            dockerfile: docker/Dockerfile.app
+            uid: 1655
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          load: true
+          tags: cove-ci-${{ matrix.image }}
+          # Read the release builds' cache, and leave it as they wrote it.
+          cache-from: type=gha,scope=docker-${{ matrix.image }}-amd64
+          build-args: |
+            FFMPEG_MIRROR_BASE=https://github.com/${{ github.repository }}/releases/download/ffmpeg-payload
+
+      # Existing installs own their bind mounts and the cove-cache volume as these ids, and
+      # docker/README.md tells people to chown to them, so a change to them needs a migration.
+      - name: Check the cove user is uid and gid ${{ matrix.uid }}
+        env:
+          IMAGE: cove-ci-${{ matrix.image }}
+          EXPECTED_ID: ${{ matrix.uid }}
+        run: |
+          set -euo pipefail
+          ids="$(docker run --rm --entrypoint id "$IMAGE" cove)"
+          echo "$ids"
+          [[ "$ids" == "uid=$EXPECTED_ID(cove) gid=$EXPECTED_ID(cove) "* ]]

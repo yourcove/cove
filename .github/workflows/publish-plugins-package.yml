@@ -1,13 +1,14 @@
 name: Publish Cove Packages
 
+# Releases push these packages from release.yml, once every other build has succeeded. This
+# workflow is for pushing them by hand, for example to retry from a tag whose release has already
+# been published. Run it from the release's tag.
+
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Package version (semver). If omitted on tag runs, uses the tag without leading v.'
+        description: 'Package version (semver). If omitted, uses the tag the workflow runs from, without the leading v.'
         required: false
 
 permissions:
@@ -22,6 +23,7 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-26.04
+    environment: release
     steps:
       - uses: actions/checkout@v7
 
@@ -73,11 +75,13 @@ jobs:
           -p:PackageVersion=${{ steps.version.outputs.version }}
           -o artifacts/nuget
 
-      # NuGet.org trusted publishing: no stored API key. A policy on the NuGet.org account that owns
-      # the Cove.* packages names this repository and this workflow file (publish-plugins-package.yml),
-      # and NuGet.org issues a key that is valid for one hour and can only come from a run of it.
-      # Renaming this file, or moving the push into another workflow, needs the policy updated to match.
-      # NUGET_USER is a repository variable holding that account's NuGet.org profile name.
+      # NuGet.org trusted publishing: no stored API key. A trusted publishing policy names one workflow
+      # file, and the one release.yml pushes with does not cover this file, so pushing from here needs
+      # a second policy on the NuGet.org account that owns the Cove.* packages, naming this repository,
+      # this workflow file (publish-plugins-package.yml) and the `release` environment. Without it, the
+      # login below fails and nothing is pushed. NuGet.org issues a key that is valid for one hour and
+      # can only come from a run of the workflow its policy names. NUGET_USER is a repository variable
+      # holding that account's NuGet.org profile name.
       - name: Check NuGet.org user is configured
         if: ${{ vars.NUGET_USER == '' }}
         run: |
