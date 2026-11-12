@@ -30,7 +30,7 @@ public static class DataServiceExtensions
 
         services.AddSingleton(sp =>
         {
-            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            var dataSourceBuilder = CoveNpgsql.CreateDataSourceBuilder(connectionString);
             dataSourceBuilder.EnableDynamicJson();
             dataSourceBuilder.UseVector();
             return dataSourceBuilder.Build();

@@ -23,11 +23,14 @@ internal sealed class StashFileClaims : IStashFileClaims
 
     internal static async Task<IStashFileClaims> CreateAsync(CoveContext db, StringComparer comparer, CancellationToken ct)
     {
-        var source = (NpgsqlConnection)db.Database.GetDbConnection();
         // Claims must survive destination SaveChanges rollback/retry. A dedicated, unpooled
         // session also guarantees cleanup if creation, cancellation or disposal fails.
-        var settings = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Pooling = false, Enlist = false, Multiplexing = false };
-        var claims = new StashFileClaims(source.CloneWith(settings.ConnectionString), comparer);
+        var claims = new StashFileClaims(CoveNpgsql.CreateDedicatedConnection(db, settings =>
+        {
+            settings.Pooling = false;
+            settings.Enlist = false;
+            settings.Multiplexing = false;
+        }), comparer);
         try
         {
             await claims.connection.OpenAsync(ct);

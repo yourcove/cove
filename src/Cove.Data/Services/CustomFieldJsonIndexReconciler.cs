@@ -32,7 +32,7 @@ public sealed class CustomFieldJsonIndexReconciler(
             ApplicationName = "Cove JSON custom-field index reconciler",
         }.ConnectionString;
 
-        await using var connection = new NpgsqlConnection(connectionString);
+        await using var connection = CoveNpgsql.CreateDedicatedConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await AcquireLockAsync(connection, cancellationToken);
 

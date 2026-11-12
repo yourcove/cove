@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Cove.Core.Interfaces;
 using Cove.Core.DTOs;
 using Npgsql;
+using Cove.Data;
 
 namespace Cove.Api.Services;
 
@@ -432,7 +433,7 @@ public class BackupService(
             Pooling = false,
         };
 
-        await using var conn = new NpgsqlConnection(maintenanceBuilder.ConnectionString);
+        await using var conn = CoveNpgsql.CreateDedicatedConnection(maintenanceBuilder.ConnectionString);
         await conn.OpenAsync(ct);
 
         await using var cmd = conn.CreateCommand();

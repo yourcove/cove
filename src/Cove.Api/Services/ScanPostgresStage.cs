@@ -11,17 +11,16 @@ internal static class ScanPostgresStage
 {
     internal static NpgsqlConnection? TryOpen(CoveContext db)
     {
-        if (!db.Database.IsRelational() || db.Database.GetDbConnection() is not NpgsqlConnection source)
+        if (!db.Database.IsRelational() || db.Database.GetDbConnection() is not NpgsqlConnection)
             return null;
 
-        var settings = new NpgsqlConnectionStringBuilder(source.ConnectionString)
+        var connection = CoveNpgsql.CreateDedicatedConnection(db, settings =>
         {
-            Pooling = false,
-            Enlist = false,
-            Multiplexing = false,
-            CommandTimeout = 300,
-        };
-        var connection = source.CloneWith(settings.ConnectionString);
+            settings.Pooling = false;
+            settings.Enlist = false;
+            settings.Multiplexing = false;
+            settings.CommandTimeout = 300;
+        });
         connection.Open();
         return connection;
     }

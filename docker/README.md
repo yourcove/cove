@@ -130,6 +130,11 @@ All Cove configuration can be overridden via environment variables using the `CO
 | `COVE__CachePath` | `/cache` | Temporary cache path |
 | `COVE__FfmpegPath` | auto-detected | Custom FFmpeg binary path |
 | `COVE__Auth__Enabled` | `false` | Enable authentication |
+| `COVE__Telemetry__Logs__Enabled` | `false` | Export logs over OTLP |
+| `COVE__Telemetry__Traces__Enabled` | `false` | Export request traces over OTLP |
+| `COVE__Telemetry__Metrics__Enabled` | `false` | Export metrics over OTLP |
+| `COVE__Telemetry__Endpoint` | — | OTLP endpoint; overrides `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `COVE__Telemetry__ServiceName` | `cove` | Service name reported to the telemetry backend |
 | `COVE__TranscodeHardwareAcceleration` | `none` | Hardware accel: `none`, `nvenc`, `vaapi`, `qsv` |
 
 ## Database Migrations

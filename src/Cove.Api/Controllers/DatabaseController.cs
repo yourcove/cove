@@ -193,7 +193,7 @@ public class DatabaseController(
         var jobId = jobService.Enqueue(OptimizeJobType, "Optimizing database", async (progress, ct) =>
         {
             // VACUUM cannot run inside a transaction — use a raw connection
-            await using var conn = new NpgsqlConnection(connStr);
+            await using var conn = CoveNpgsql.CreateDedicatedConnection(connStr);
             await conn.OpenAsync(ct);
 
             var result = await OptimizeRelationsAsync(conn, ct, progress);
@@ -296,7 +296,7 @@ public class DatabaseController(
         var configBackup = await backupService.CreateConfigBackupAsync("pre_wipe", ct);
 
         var connStr = BuildMaintenanceConnectionString();
-        await using var conn = new NpgsqlConnection(connStr);
+        await using var conn = CoveNpgsql.CreateDedicatedConnection(connStr);
         await conn.OpenAsync(ct);
 
         await using var cmd = conn.CreateCommand();
