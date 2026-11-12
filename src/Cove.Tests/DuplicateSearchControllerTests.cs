@@ -419,19 +419,20 @@ public sealed class DuplicateSearchControllerTests
     }
 
     [Fact]
-    [RequiresPostgres]
     public async Task SummaryCountsAndSizesTheVideosAResolutionWouldRemove()
     {
         var principalAccessor = CreatePrincipalAccessor();
         var (database, db) = await CreateDatabaseAsync(principalAccessor);
         await using var _ = database;
         await using var __ = db;
-        // "shared" is kept by the second group, so the first cannot remove it; the last group keeps no one.
+        // "shared" is kept by the second group, so the first cannot remove it. "one-file" is unkept in two
+        // groups and must be counted and sized once. The last group keeps no one. A file is width x height bytes.
         var (search, _, videos) = await DuplicateSearchJobTests.AddSearchAsync(
             db,
             [
                 [(true, "kept"), (false, "shared"), (false, "two-files")],
                 [(true, "shared"), (false, "one-file"), (false, "no-file")],
+                [(true, "kept"), (false, "one-file")],
                 [(false, "undecided-a"), (false, "undecided-b")],
             ],
             ownerKey: "user:1");
@@ -462,7 +463,6 @@ public sealed class DuplicateSearchControllerTests
     }
 
     [Fact]
-    [RequiresPostgres]
     public async Task SummaryOfASearchWithNothingToRemoveReportsZero()
     {
         var principalAccessor = CreatePrincipalAccessor();
