@@ -418,6 +418,69 @@ public sealed class DuplicateSearchControllerTests
         Assert.Equal(videos.Where(video => video.Key.StartsWith("large", StringComparison.Ordinal)).Select(video => video.Value.Id).ToHashSet(), keepers);
     }
 
+    [Fact]
+    [RequiresPostgres]
+    public async Task SummaryCountsAndSizesTheVideosAResolutionWouldRemove()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        // "shared" is kept by the second group, so the first cannot remove it; the last group keeps no one.
+        var (search, _, videos) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            [
+                [(true, "kept"), (false, "shared"), (false, "two-files")],
+                [(true, "shared"), (false, "one-file"), (false, "no-file")],
+                [(false, "undecided-a"), (false, "undecided-b")],
+            ],
+            ownerKey: "user:1");
+        var folder = new Folder { Path = "/library" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var secondFile = VideoFile(folder, videos["two-files"], 30, 10);
+        secondFile.Basename = "two-files-copy.mp4";
+        secondFile.Path = "/library/two-files-copy.mp4";
+        db.VideoFiles.AddRange(
+            VideoFile(folder, videos["kept"], 1000, 1000),
+            VideoFile(folder, videos["shared"], 1000, 1000),
+            VideoFile(folder, videos["two-files"], 20, 10),
+            secondFile,
+            VideoFile(folder, videos["one-file"], 40, 10),
+            VideoFile(folder, videos["undecided-a"], 1000, 1000),
+            VideoFile(folder, videos["undecided-b"], 1000, 1000));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.GetDuplicateSearch(search.Id, CancellationToken.None);
+
+        var summary = Assert.IsType<DuplicateSearchSummary>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(3, summary.RemovableVideoCount);
+        Assert.Equal(200 + 300 + 400, summary.ReclaimableBytes);
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task SummaryOfASearchWithNothingToRemoveReportsZero()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        var (search, _, _) = await DuplicateSearchJobTests.AddSearchAsync(db, [[(false, "a"), (false, "b")]], ownerKey: "user:1");
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.GetDuplicateSearch(search.Id, CancellationToken.None);
+
+        var summary = Assert.IsType<DuplicateSearchSummary>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(0, summary.RemovableVideoCount);
+        Assert.Equal(0, summary.ReclaimableBytes);
+    }
+
     private static VideoFile VideoFile(Folder folder, Video video, int width, int height) => new()
     {
         ParentFolderId = folder.Id,

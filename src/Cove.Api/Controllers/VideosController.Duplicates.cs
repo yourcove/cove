@@ -135,10 +135,16 @@ public partial class VideosController
         else
         {
             var removable = DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, searchId, ReviewableDuplicateGroups(searchId));
-            removableCount = await removable.CountAsync(ct);
-            reclaimableBytes = await db.VideoFiles
-                .Where(file => file.VideoId.HasValue && removable.Contains(file.VideoId.Value))
-                .SumAsync(file => (long?)file.Size, ct) ?? 0;
+            // Counted and sized in one query that starts from the removable videos and looks up each one's
+            // files. Asking instead for "files whose video is in the removable set" lets PostgreSQL start from
+            // every video file and re-evaluate the removal rule per file, which is slower on a large search.
+            var totals = await removable
+                .Select(videoId => db.VideoFiles.Where(file => file.VideoId == videoId).Sum(file => (long?)file.Size))
+                .GroupBy(_ => 1)
+                .Select(sizes => new { Count = sizes.Count(), Bytes = sizes.Sum() })
+                .FirstOrDefaultAsync(ct);
+            removableCount = totals?.Count ?? 0;
+            reclaimableBytes = totals?.Bytes ?? 0;
         }
         var removed = await db.DuplicateSearchGroups
             .AsNoTracking()
