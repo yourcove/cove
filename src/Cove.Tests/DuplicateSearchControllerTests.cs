@@ -384,6 +384,40 @@ public sealed class DuplicateSearchControllerTests
         Assert.True(await db.DuplicateSearchItems.AnyAsync(item => item.VideoId == videos["d"].Id && item.Keep, cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task AutoSelectReachesEveryGroupOfASearchLargerThanOneBatch()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        // Each group keeps its smaller copy to begin with; the resolution rule must move every keeper.
+        const int groupCount = 1_201;
+        var (search, groups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            Enumerable.Range(0, groupCount).Select(index => new[] { (true, $"small-{index}"), (false, $"large-{index}") }).ToArray(),
+            ownerKey: "user:1");
+        var folder = new Folder { Path = "/library" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.VideoFiles.AddRange(videos.Select(video => video.Key.StartsWith("small", StringComparison.Ordinal)
+            ? VideoFile(folder, video.Value, 1280, 720)
+            : VideoFile(folder, video.Value, 1920, 1080)));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.AutoSelectDuplicateKeepers(search.Id, new DuplicateAutoSelectRequest([new("resolution")]), CancellationToken.None);
+
+        var counts = Assert.IsType<DuplicateAutoSelectResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(groups.Length, counts.UpdatedGroupCount);
+        Assert.Equal(groupCount, counts.ChangedGroupCount);
+        db.ChangeTracker.Clear();
+        var keepers = await db.DuplicateSearchItems.Where(item => item.Keep).Select(item => item.VideoId).ToHashSetAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(videos.Where(video => video.Key.StartsWith("large", StringComparison.Ordinal)).Select(video => video.Value.Id).ToHashSet(), keepers);
+    }
+
     private static VideoFile VideoFile(Folder folder, Video video, int width, int height) => new()
     {
         ParentFolderId = folder.Id,

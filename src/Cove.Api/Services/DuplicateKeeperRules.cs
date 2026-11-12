@@ -91,9 +91,9 @@ internal static class DuplicateKeeperRules
                 values = (rule!.Values ?? [])
                     .Select(value => value?.Trim() ?? string.Empty)
                     .Where(value => value.Length > 0)
-                    .Select(value => value.Length <= DuplicateSearchMemoryBudget.MaximumFieldCharacters
+                    .Select(value => value.Length <= DuplicateSearchLimits.MaximumFieldCharacters
                         ? value
-                        : throw new InvalidOperationException($"Duplicate search metadata exceeds the {DuplicateSearchMemoryBudget.MaximumFieldCharacters:N0}-character field limit. Shorten the affected metadata and try again."))
+                        : throw new InvalidOperationException($"Duplicate search metadata exceeds the {DuplicateSearchLimits.MaximumFieldCharacters:N0}-character field limit. Shorten the affected metadata and try again."))
                     .Select(value => type == "codec" ? NormalizeCodec(value) : value)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(MaximumRuleValues)
@@ -205,14 +205,6 @@ internal static class DuplicateKeeperRules
         IReadOnlyCollection<int> videoIds,
         IReadOnlyList<DuplicateKeeperRule> rules,
         CancellationToken ct)
-        => await LoadFactsAsync(db, videoIds, rules, new DuplicateSearchMemoryBudget(), ct);
-
-    internal static async Task<Dictionary<int, DuplicateKeeperFacts>> LoadFactsAsync(
-        CoveContext db,
-        IReadOnlyCollection<int> videoIds,
-        IReadOnlyList<DuplicateKeeperRule> rules,
-        DuplicateSearchMemoryBudget memoryBudget,
-        CancellationToken ct)
     {
         var result = new Dictionary<int, DuplicateKeeperFacts>();
         var needsMetadata = rules.Any(rule => rule.Type == "metadata");
@@ -244,11 +236,11 @@ internal static class DuplicateKeeperRules
                     VideoId = file.VideoId!.Value,
                     file.Width,
                     file.Height,
-                    VideoCodec = file.VideoCodec != null && file.VideoCodec.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
-                        ? file.VideoCodec.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                    VideoCodec = file.VideoCodec != null && file.VideoCodec.Length > DuplicateSearchLimits.MaximumFieldCharacters
+                        ? file.VideoCodec.Substring(0, DuplicateSearchLimits.MaximumFieldCharacters + 1)
                         : file.VideoCodec,
-                    Path = file.Path.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
-                        ? file.Path.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                    Path = file.Path.Length > DuplicateSearchLimits.MaximumFieldCharacters
+                        ? file.Path.Substring(0, DuplicateSearchLimits.MaximumFieldCharacters + 1)
                         : file.Path,
                     file.Size,
                 })
@@ -310,7 +302,7 @@ internal static class DuplicateKeeperRules
                 var files = filesByVideoId[row.Id];
                 var codec = NormalizeCodec(files.Codec);
                 var path = (files.Path ?? string.Empty).Replace('\\', '/');
-                memoryBudget.ReserveKeeperFact(codec.Length + path.Length, Math.Max(codec.Length, path.Length));
+                DuplicateSearchLimits.CheckFieldLength(Math.Max(codec.Length, path.Length));
                 result[row.Id] = new DuplicateKeeperFacts(
                     row.Id,
                     files.MaximumPixels,
@@ -338,7 +330,6 @@ internal static class DuplicateKeeperRules
     internal static async Task<Dictionary<int, DuplicateKeeperFacts>> LoadFileFactsAsync(
         CoveContext db,
         IReadOnlyCollection<int> fileIds,
-        DuplicateSearchMemoryBudget memoryBudget,
         CancellationToken ct)
     {
         var result = new Dictionary<int, DuplicateKeeperFacts>();
@@ -356,11 +347,11 @@ internal static class DuplicateKeeperRules
                     file.FrameRate,
                     file.Duration,
                     file.Size,
-                    VideoCodec = file.VideoCodec != null && file.VideoCodec.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
-                        ? file.VideoCodec.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                    VideoCodec = file.VideoCodec != null && file.VideoCodec.Length > DuplicateSearchLimits.MaximumFieldCharacters
+                        ? file.VideoCodec.Substring(0, DuplicateSearchLimits.MaximumFieldCharacters + 1)
                         : file.VideoCodec,
-                    Path = file.Path.Length > DuplicateSearchMemoryBudget.MaximumFieldCharacters
-                        ? file.Path.Substring(0, DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1)
+                    Path = file.Path.Length > DuplicateSearchLimits.MaximumFieldCharacters
+                        ? file.Path.Substring(0, DuplicateSearchLimits.MaximumFieldCharacters + 1)
                         : file.Path,
                     file.CreatedAt,
                 })
@@ -369,7 +360,7 @@ internal static class DuplicateKeeperRules
             {
                 var codec = NormalizeCodec(file.VideoCodec);
                 var path = (file.Path ?? string.Empty).Replace('\\', '/');
-                memoryBudget.ReserveKeeperFact(codec.Length + path.Length, Math.Max(codec.Length, path.Length));
+                DuplicateSearchLimits.CheckFieldLength(Math.Max(codec.Length, path.Length));
                 result[file.Id] = new DuplicateKeeperFacts(
                     file.Id,
                     (long)file.Width * file.Height,
