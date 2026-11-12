@@ -4,6 +4,7 @@ import type {
   DuplicateKeeperRule,
   DuplicateKeeperRuleType,
   DuplicateMatchType,
+  DuplicateFileHandling,
   DuplicateResolutionAction,
   DuplicateSearchGroup,
   EntityEngagement,
@@ -472,6 +473,11 @@ export function folderOf(path: string | undefined) {
 
 export interface ResolutionPreferences {
   action: DuplicateResolutionAction;
+  /**
+   * With the merge action: "attach" moves the copies' files onto the kept video and removes nothing;
+   * "remove" removes the copies with their files.
+   */
+  fileHandling: DuplicateFileHandling;
   deleteFiles: boolean;
   deleteGenerated: boolean;
   confirmEachGroup: boolean;
@@ -503,10 +509,33 @@ export const DEFAULT_SEARCH_PREFERENCES: SearchPreferences = {
 
 export const DEFAULT_RESOLUTION_PREFERENCES: ResolutionPreferences = {
   action: "merge",
+  // Removal stays the default, so preferences remembered before the choice existed keep their meaning.
+  fileHandling: "remove",
   deleteFiles: false,
   deleteGenerated: true,
   confirmEachGroup: true,
 };
+
+/**
+ * The remembered preferences as they will actually be applied: without the merge permission (or in a files
+ * search) a group is only ever removed, attaching only happens as part of a merge, and attached files are
+ * never deleted from disk. Every control that describes or sends a resolution reads this, so none of them
+ * can promise something the request will not do.
+ */
+export function effectiveResolution(
+  preferences: ResolutionPreferences,
+  { canMerge, canDeleteFiles }: { canMerge: boolean; canDeleteFiles: boolean },
+): ResolutionPreferences {
+  const action: DuplicateResolutionAction = canMerge ? preferences.action : "remove";
+  const fileHandling: DuplicateFileHandling =
+    action === "merge" && preferences.fileHandling === "attach" ? "attach" : "remove";
+  return {
+    ...preferences,
+    action,
+    fileHandling,
+    deleteFiles: canDeleteFiles && preferences.deleteFiles && fileHandling === "remove",
+  };
+}
 
 const SEARCH_PREFERENCES_KEY = "cove.duplicates.search.v2";
 const RESOLUTION_PREFERENCES_KEY = "cove.duplicates.resolution.v2";
@@ -535,3 +564,17 @@ export const writeSearchPreferences = (value: SearchPreferences) => writeStored(
 export const readResolutionPreferences = () => readStored(RESOLUTION_PREFERENCES_KEY, DEFAULT_RESOLUTION_PREFERENCES);
 export const writeResolutionPreferences = (value: ResolutionPreferences) =>
   writeStored(RESOLUTION_PREFERENCES_KEY, value);
+
+/**
+ * Remembers a files decision. Choosing "attach" also forgets a remembered delete-from-disk choice: while
+ * attaching, that choice is neither applied nor shown, so it must not come back unannounced when a later
+ * group is switched to removal.
+ */
+export function withFileHandling(
+  preferences: ResolutionPreferences,
+  fileHandling: DuplicateFileHandling,
+): ResolutionPreferences {
+  return fileHandling === "attach"
+    ? { ...preferences, fileHandling, deleteFiles: false }
+    : { ...preferences, fileHandling };
+}

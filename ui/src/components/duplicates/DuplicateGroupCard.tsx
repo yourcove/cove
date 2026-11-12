@@ -109,7 +109,12 @@ const ReviewGroup = forwardRef<HTMLElement, Props>(function ReviewGroup(
     minWidth: `calc(5.5rem + ${17 * videos.length}rem)`,
     maxWidth: `calc(8rem + ${26 * videos.length}rem)`,
   };
-  const resolveLabel = resolution.action === "merge" ? `Merge & remove ${removeCount}` : `Remove ${removeCount}`;
+  const attach = resolution.action === "merge" && resolution.fileHandling === "attach";
+  const resolveLabel = attach
+    ? `Merge & attach ${removeCount}`
+    : resolution.action === "merge"
+      ? `Merge & remove ${removeCount}`
+      : `Remove ${removeCount}`;
 
   return (
     <article
@@ -136,7 +141,9 @@ const ReviewGroup = forwardRef<HTMLElement, Props>(function ReviewGroup(
                 {group.status === "queued"
                   ? "Queued"
                   : group.resolutionAction === "merge"
-                    ? "Merging & removing…"
+                    ? group.fileHandling === "attach"
+                      ? "Merging & attaching files…"
+                      : "Merging & removing…"
                     : "Removing…"}
               </span>
             ) : null}
@@ -213,6 +220,7 @@ const ReviewGroup = forwardRef<HTMLElement, Props>(function ReviewGroup(
               video={video}
               keep={keepVideoIds.has(copyKey(video))}
               soleKeeper={keepVideoIds.has(copyKey(video)) && keepVideoIds.size === 1}
+              attach={attach}
               locked={locked}
               onKeepOnly={() => onKeepOnly(copyKey(video))}
               onToggleKeep={() => onToggleKeep(copyKey(video))}
@@ -278,6 +286,7 @@ function MemberHeader({
   video,
   keep,
   soleKeeper,
+  attach,
   locked,
   onKeepOnly,
   onToggleKeep,
@@ -288,6 +297,8 @@ function MemberHeader({
   video: DuplicateCopy;
   keep: boolean;
   soleKeeper: boolean;
+  /** Unkept copies are merged into the keeper with their files, not removed. */
+  attach: boolean;
   locked: boolean;
   onKeepOnly: () => void;
   onToggleKeep: () => void;
@@ -329,11 +340,17 @@ function MemberHeader({
           ) : null}
           <span
             className={`absolute right-2 top-2 z-[8] inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow ${
-              keep ? "bg-emerald-600" : "bg-red-600/90"
+              keep ? "bg-emerald-600" : attach ? "bg-sky-600/90" : "bg-red-600/90"
             }`}
           >
-            {keep ? <Crown className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
-            {keep ? "Keep" : "Remove"}
+            {keep ? (
+              <Crown className="h-3 w-3" />
+            ) : attach ? (
+              <GitMerge className="h-3 w-3" />
+            ) : (
+              <Trash2 className="h-3 w-3" />
+            )}
+            {keep ? "Keep" : attach ? "Merge" : "Remove"}
           </span>
         </VideoPreviewThumbnail>
       </button>
@@ -482,6 +499,8 @@ const ResolvedGroup = forwardRef<HTMLElement, Props>(function ResolvedGroup(
   ref,
 ) {
   const fileGroup = isFileGroup(group);
+  // Only a group this finder resolved: one that settled some other way after a failed attempt did not attach.
+  const attached = Boolean(group.resolvedAt) && group.resolutionAction === "merge" && group.fileHandling === "attach";
   const keeper =
     group.videos.find((video: DuplicateCopy) => group.keepVideoIds.includes(copyKey(video))) ?? group.videos[0];
   const removedNoun = fileGroup
@@ -524,9 +543,12 @@ const ResolvedGroup = forwardRef<HTMLElement, Props>(function ResolvedGroup(
           ) : (
             "No copies remain"
           )}
-          {group.removedVideoCount > 0 ? ` · removed ${group.removedVideoCount} ${removedNoun}` : ""}
+          {group.removedVideoCount > 0
+            ? ` · ${attached ? "merged" : "removed"} ${group.removedVideoCount} ${removedNoun}`
+            : ""}
           {group.removedBytes > 0 && group.deleteFiles ? ` · freed ${formatFileSize(group.removedBytes)}` : ""}
           {group.resolutionAction === "merge" ? " · metadata merged" : ""}
+          {attached ? " · files attached" : ""}
         </div>
         {group.error ? <div className="mt-0.5 text-xs text-amber-300">{group.error}</div> : null}
         {!group.resolvedAt ? (

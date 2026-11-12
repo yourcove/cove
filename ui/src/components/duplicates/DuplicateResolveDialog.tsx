@@ -3,7 +3,7 @@ import { AlertTriangle, GitMerge, Loader2, Trash2 } from "lucide-react";
 import { formatFileSize } from "../shared";
 import { MERGE_POLICY_SUMMARY } from "../VideoMergeReview";
 import { DuplicateDialog } from "./DuplicateDialog";
-import type { ResolutionPreferences } from "./duplicateModel";
+import { effectiveResolution, withFileHandling, type ResolutionPreferences } from "./duplicateModel";
 
 export interface ResolveSummary {
   groupCount: number;
@@ -50,9 +50,11 @@ export function DuplicateResolveDialog({
     if (open) setAcknowledged(false);
   }
   const update = (patch: Partial<ResolutionPreferences>) => onChange({ ...preferences, ...patch });
-  const deleteFiles = preferences.deleteFiles && canDeleteFiles;
+  const applied = effectiveResolution(preferences, { canMerge: canMerge && !files, canDeleteFiles });
+  const deleteFiles = applied.deleteFiles;
   const needsAcknowledgement = deleteFiles && scope === "all";
-  const merge = preferences.action === "merge" && canMerge && !files;
+  const merge = applied.action === "merge";
+  const attach = applied.fileHandling === "attach";
   const noun = files ? (summary.videoCount === 1 ? "file" : "files") : summary.videoCount === 1 ? "copy" : "copies";
   const copies = `${summary.videoCount.toLocaleString()} ${noun}`;
 
@@ -63,7 +65,11 @@ export function DuplicateResolveDialog({
       dismissible={!isPending}
       size="sm"
       title={scope === "all" ? `Resolve ${summary.groupCount.toLocaleString()} groups` : "Resolve this group"}
-      subtitle={`${copies} will be removed from ${files ? "their videos" : "Cove"}${deleteFiles ? " and deleted from disk" : ""}.`}
+      subtitle={
+        attach
+          ? `${copies} will be merged into ${scope === "all" ? "their kept videos" : "the kept video"}. Every file stays, attached to the kept video.`
+          : `${copies} will be removed from ${files ? "their videos" : "Cove"}${deleteFiles ? " and deleted from disk" : ""}.`
+      }
       footer={
         <>
           <button
@@ -90,7 +96,7 @@ export function DuplicateResolveDialog({
             ) : (
               <Trash2 className="h-4 w-4" />
             )}
-            {merge ? "Merge & remove" : "Remove"} {copies}
+            {attach ? "Merge & attach" : merge ? "Merge & remove" : "Remove"} {copies}
           </button>
         </>
       }
@@ -104,14 +110,21 @@ export function DuplicateResolveDialog({
           </p>
         ) : (
           <fieldset className="space-y-2">
-            <legend className="mb-1 font-medium text-foreground">Before removing</legend>
+            <legend className="mb-1 font-medium text-foreground">How to resolve</legend>
             <OptionCard
-              checked={merge}
+              checked={merge && !attach}
               disabled={!canMerge}
-              onSelect={() => update({ action: "merge" })}
-              title="Merge metadata into the kept copy"
+              onSelect={() => update({ action: "merge", fileHandling: "remove" })}
+              title="Merge metadata into the kept copy, then remove the others"
               description={`${MERGE_POLICY_SUMMARY} Markers and timed group items move only when the files are equivalent.`}
               recommended
+            />
+            <OptionCard
+              checked={attach}
+              disabled={!canMerge}
+              onSelect={() => onChange(withFileHandling({ ...preferences, action: "merge" }, "attach"))}
+              title="Merge into one video and keep every file"
+              description="The other copies' files are attached to the kept video, with their metadata, markers and watch history. No file leaves Cove or the disk, so no space is freed."
             />
             <OptionCard
               checked={!merge}
@@ -124,7 +137,11 @@ export function DuplicateResolveDialog({
 
         <fieldset className="space-y-2">
           <legend className="mb-1 font-medium text-foreground">Files</legend>
-          {canDeleteFiles ? (
+          {attach ? (
+            <p className="text-xs text-muted">
+              Every file stays in Cove. To drop the extra files later, search again with "Files on one video".
+            </p>
+          ) : canDeleteFiles ? (
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card/60 px-3 py-2.5">
               <input
                 type="checkbox"
@@ -144,7 +161,7 @@ export function DuplicateResolveDialog({
           ) : (
             <p className="text-xs text-muted">Files stay on disk. You don't have permission to delete video files.</p>
           )}
-          {files ? null : (
+          {files || attach ? null : (
             <label className="flex cursor-pointer items-center gap-2.5 px-1 text-secondary">
               <input
                 type="checkbox"

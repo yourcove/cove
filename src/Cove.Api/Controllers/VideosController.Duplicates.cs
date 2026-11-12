@@ -150,7 +150,12 @@ public partial class VideosController
             .AsNoTracking()
             .Where(group => group.SearchId == searchId && group.Status == DuplicateGroupStatus.Resolved)
             .GroupBy(_ => 1)
-            .Select(rows => new { Videos = rows.Sum(group => group.RemovedVideoCount), Bytes = rows.Sum(group => group.RemovedBytes) })
+            .Select(rows => new
+            {
+                Videos = rows.Sum(group => group.RemovedVideoCount),
+                Bytes = rows.Sum(group => group.RemovedBytes),
+                Attached = rows.Sum(group => group.AttachFiles ? group.RemovedVideoCount : 0),
+            })
             .FirstOrDefaultAsync(ct);
 
         return Ok(new DuplicateSearchSummary(
@@ -179,7 +184,10 @@ public partial class VideosController
             search.CreatedAt,
             search.StartedAt,
             search.CompletedAt,
-            search.ExpiresAt));
+            search.ExpiresAt)
+        {
+            AttachedVideoCount = removed?.Attached ?? 0,
+        });
     }
 
     [HttpDelete("duplicate-searches/{searchId:guid}")]
@@ -344,6 +352,9 @@ public partial class VideosController
                     .Where(item => !item.Keep && keptElsewhere[item.VideoId].Any(groupId => groupId != group.Id))
                     .Select(item => item.VideoId)
                     .ToList(),
+                FileHandling = group.ResolutionAction != DuplicateResolutionService.MergeAction
+                    ? null
+                    : group.AttachFiles ? Cove.Core.DTOs.VideoMergeFileHandlingDto.AttachMode : Cove.Core.DTOs.VideoMergeFileHandlingDto.RemoveMode,
             };
         }).ToList();
 
@@ -604,6 +615,20 @@ public partial class VideosController
             return BadRequest("Choose either \"remove\" or \"merge\".");
         if (action == DuplicateResolutionService.MergeAction && principal?.Has(Permissions.VideosWrite) != true)
             return Forbid();
+        // The same names and rules as POST /videos/merge, except that an absent mode keeps this endpoint's
+        // original behavior of removing the copies.
+        bool? attachMode = request.FileHandling?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or Cove.Core.DTOs.VideoMergeFileHandlingDto.RemoveMode => false,
+            Cove.Core.DTOs.VideoMergeFileHandlingDto.AttachMode => true,
+            _ => null,
+        };
+        if (attachMode is not { } attachFiles)
+            return BadRequest("File handling must be \"attach\" or \"remove\".");
+        if (attachFiles && action != DuplicateResolutionService.MergeAction)
+            return BadRequest("Files can only be attached with the merge action.");
+        if (attachFiles && request.DeleteFiles)
+            return BadRequest("Files can only be deleted from disk when the merged copy's files are removed.");
         if (request.Metadata is not null && action != DuplicateResolutionService.MergeAction)
             return BadRequest("Metadata choices apply to the merge action only.");
         if (request.Metadata is not null)
@@ -679,7 +704,11 @@ public partial class VideosController
         // Field-level choices come from reviewing one group; the merge reads the "source" side across its copies.
         if (request.Metadata is not null && eligibleGroupIds.Length != 1)
             return BadRequest("Metadata choices apply to a single group.");
-        var deletionScopeIds = await VideoHierarchyQueries.ExpandDeletionScopeAsync(db, removalIds, ct);
+        // A removal also deletes the copies' clips. An attaching merge re-parents them onto the kept video,
+        // so only the copies themselves go.
+        var deletionScopeIds = attachFiles
+            ? removalIds
+            : await VideoHierarchyQueries.ExpandDeletionScopeAsync(db, removalIds, ct);
         if (authorizationService is not null)
         {
             foreach (var chunk in deletionScopeIds.Chunk(4_000))
@@ -720,7 +749,8 @@ public partial class VideosController
             request.DeleteGenerated,
             principal,
             ct,
-            request.Metadata);
+            request.Metadata,
+            attachFiles);
         return Accepted(result);
     }
 

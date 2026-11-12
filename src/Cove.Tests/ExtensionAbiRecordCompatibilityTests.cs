@@ -154,10 +154,11 @@ public class ExtensionAbiRecordCompatibilityTests
             [typeof(IReadOnlyList<int>), typeof(string), typeof(bool), typeof(bool)]));
 
         var restored = JsonSerializer.Deserialize<Cove.Api.Services.DuplicateResolveRequest>(
-            """{"groupIds":[3],"action":"merge","metadata":{"tagIds":[9]}}""",
+            """{"groupIds":[3],"action":"merge","metadata":{"tagIds":[9]},"fileHandling":"attach"}""",
             Options);
 
         Assert.Equal("merge", restored?.Action);
         Assert.Equal([9], restored?.Metadata?.TagIds);
+        Assert.Equal("attach", restored?.FileHandling);
     }
 }

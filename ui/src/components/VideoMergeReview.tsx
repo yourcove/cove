@@ -60,7 +60,7 @@ export const KEPT_LABEL = "Kept video";
 export const MERGED_LABEL = "Merged video";
 const MERGED_LABEL_PLURAL = "Merged videos";
 
-/** The library merge attaches the copies' files; the duplicate finder removes them. */
+/** The library merge attaches the copies' files by default; the duplicate finder removes them by default. */
 export const ATTACH_FILES: VideoMergeFileHandling = { mode: "attach", deleteFiles: false, deleteGenerated: true };
 export const REMOVE_FILES: VideoMergeFileHandling = { mode: "remove", deleteFiles: false, deleteGenerated: true };
 
@@ -459,6 +459,7 @@ function FilesSection({
   fileHandling,
   canDeleteFiles,
   allowAttach,
+  allowPrimaryChoice,
   assessments,
   disabled,
   onChange,
@@ -470,6 +471,7 @@ function FilesSection({
   fileHandling: VideoMergeFileHandling;
   canDeleteFiles: boolean;
   allowAttach: boolean;
+  allowPrimaryChoice: boolean;
   assessments: VideoMergeAssessment[];
   disabled: boolean;
   onChange: (next: VideoMergeFileHandling) => void;
@@ -526,7 +528,7 @@ function FilesSection({
                 ))}
               </tr>
             ))}
-            {allowAttach && !remove ? (
+            {allowAttach && allowPrimaryChoice && !remove ? (
               <tr role="radiogroup" aria-label="Primary file after the merge">
                 <th scope="row" className="py-1.5 pr-3 text-left font-semibold text-secondary">
                   Primary file
@@ -679,6 +681,7 @@ export function VideoMergeReview({
   fileHandling: initialFileHandling = ATTACH_FILES,
   canDeleteFiles = false,
   allowAttach = true,
+  allowPrimaryChoice = true,
   footerExtra,
   onSwap,
   onClose,
@@ -691,8 +694,13 @@ export function VideoMergeReview({
   /** The entry point's default for the copies' files. */
   fileHandling?: VideoMergeFileHandling;
   canDeleteFiles?: boolean;
-  /** The duplicate finder always removes the copies' files, so it hides the attach option. */
+  /** Hides the attach option for an entry point that can only remove the copies' files. */
   allowAttach?: boolean;
+  /**
+   * Whether an attaching merge may also name one of the merged files as the new primary. The duplicate
+   * finder resolves in the background, where that follow-up step cannot run, so it leaves the choice out.
+   */
+  allowPrimaryChoice?: boolean;
   /** Extra controls in the footer, such as the duplicate finder's "Don't ask again". */
   footerExtra?: ReactNode;
   /** Offered when exactly one video is merged in: the kept and merged roles trade places. */
@@ -959,6 +967,7 @@ export function VideoMergeReview({
             fileHandling={fileHandling}
             canDeleteFiles={canDeleteFiles}
             allowAttach={allowAttach}
+            allowPrimaryChoice={allowPrimaryChoice}
             assessments={assessments}
             disabled={mutation.isPending}
             onChange={setFileHandling}
@@ -1010,7 +1019,11 @@ export function VideoMergeReview({
               }`}
             >
               <GitMerge className="h-3.5 w-3.5" />
-              {mutation.isPending ? "Merging…" : awaitingAssessment ? "Checking markers…" : `Merge & remove ${copies}`}
+              {mutation.isPending
+                ? "Merging…"
+                : awaitingAssessment
+                  ? "Checking markers…"
+                  : `Merge & ${remove ? "remove" : "attach"} ${copies}`}
             </button>
           </div>
         </div>

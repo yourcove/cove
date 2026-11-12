@@ -1512,6 +1512,9 @@ namespace Cove.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AttachFiles")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("DecisionRule")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");

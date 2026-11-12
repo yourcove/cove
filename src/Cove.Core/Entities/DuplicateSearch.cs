@@ -84,6 +84,11 @@ public sealed class DuplicateSearchGroup
     public string? ResolutionAction { get; set; }
     public bool DeleteFiles { get; set; }
     public bool DeleteGenerated { get; set; }
+    /// <summary>
+    /// A merge that moves the copies' files onto the kept video instead of removing them, so nothing leaves
+    /// the library or the disk. Only meaningful with the "merge" action.
+    /// </summary>
+    public bool AttachFiles { get; set; }
     public const int MergeMetadataJsonMaxLength = 16_000;
 
     /// <summary>The review's field-level merge choices as JSON, when the group was queued with any.</summary>
