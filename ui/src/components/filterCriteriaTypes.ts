@@ -59,6 +59,8 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   step?: number;
   hint?: string;
   options?: { value: string; label: string }[];
+  /** Names an option value that is not in options yet, such as a filter applied before its options load. */
+  formatOptionValue?: (value: string) => string;
   multiSelectOptions?: boolean;
   hierarchyToggleLabel?: string;
   auxiliaryToggleKey?: TFilterKey;

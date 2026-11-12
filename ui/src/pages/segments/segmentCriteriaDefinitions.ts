@@ -7,6 +7,7 @@ import type {
   StringCriterion,
   TimestampCriterion,
 } from "../../api/types";
+import { formatKindLabel, formatSourceLabel } from "./segmentDisplayUtils";
 import type { SegmentsPageContentView } from "./types";
 
 const SEGMENT_NUMBER_MODIFIERS: CriterionModifier[] = [
@@ -96,6 +97,7 @@ export function createSegmentCriteria(options: SegmentCriteriaOptions = {}): Cri
       filterKey: "rawKindCriterion",
       modifiers: ["EQUALS"],
       options: options.kindOptions ?? [],
+      formatOptionValue: formatKindLabel,
     },
     {
       id: "source",
@@ -104,6 +106,7 @@ export function createSegmentCriteria(options: SegmentCriteriaOptions = {}): Cri
       filterKey: "rawSourceCriterion",
       modifiers: ["EQUALS"],
       options: options.sourceOptions ?? [],
+      formatOptionValue: formatSourceLabel,
     },
     { id: "sourceRun", label: "Source Run", type: "string", filterKey: "rawSourceRunCriterion" },
     { id: "colorHint", label: "Color Hint", type: "string", filterKey: "rawColorHintCriterion" },
