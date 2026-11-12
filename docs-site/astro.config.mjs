@@ -196,6 +196,7 @@ export default defineConfig({
               label: 'Operations and backups',
               items: [
                 { link: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups, migrations, and upgrades' },
+                { link: '/docs/user/admin/opentelemetry/', label: 'OpenTelemetry export' },
               ],
             },
             { link: '/docs/user/troubleshooting/', label: 'Troubleshooting' },

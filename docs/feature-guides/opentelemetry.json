@@ -1,0 +1,159 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "opentelemetry",
+  "title": "OpenTelemetry export",
+  "description": "Send Cove's logs, request traces, and metrics to an OpenTelemetry collector or compatible backend over OTLP.",
+  "order": 115,
+  "pages": [
+    "settings"
+  ],
+  "contexts": [
+    "settings-tab:system-info/logs",
+    "route:/settings/system-info/logs"
+  ],
+  "sections": [
+    {
+      "id": "what-cove-exports",
+      "title": "What Cove exports",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove can export its logs, traces, and metrics over OTLP to an OpenTelemetry collector or to any backend that accepts OTLP for those signals, such as Grafana, Honeycomb, or SigNoz. Export is off by default, and each signal is enabled separately. Nothing is registered for a disabled signal."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Signal",
+            "What Cove sends"
+          ],
+          "rows": [
+            [
+              "Logs",
+              "The same log events as the console and log file, with structured properties. The server log level in Settings → System Info → Logs controls what is exported. Logs written while handling a request carry its trace ID."
+            ],
+            [
+              "Traces",
+              "One span for every HTTP request Cove serves, including images and streams, with child spans for each database query and outgoing HTTP call. Database queries made by background work outside a request are not traced. Outgoing HTTP calls made by background work, such as scraper requests, are exported as separate traces. Query string values are redacted. Health check requests are not traced."
+            ],
+            [
+              "Metrics",
+              "ASP.NET Core request metrics, outgoing HTTP client metrics, PostgreSQL client metrics, and .NET runtime metrics such as garbage collection and thread pool usage."
+            ]
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/logs-server-log-level.png",
+          "alt": "Logs settings controls with the Server log level selector set to Info",
+          "caption": "The Server log level in Settings → System Info → Logs also controls which log events are exported."
+        },
+        {
+          "type": "note",
+          "text": "Exported logs are not redacted and contain the same details as Cove's log file. Traces include SQL statement text and the host and path of outgoing requests. Send telemetry only to a backend you trust with that information."
+        }
+      ]
+    },
+    {
+      "id": "enable-export",
+      "title": "Enable export",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Configure export with environment variables. Nested keys are separated by double underscores. Cove reads them only at startup, and they are not available on the Settings page. An Enabled value other than true or false is ignored with a warning in the log, and that signal stays off."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Setting",
+            "Default",
+            "Purpose"
+          ],
+          "rows": [
+            [
+              "COVE__Telemetry__Logs__Enabled",
+              "false",
+              "Set to true to export logs."
+            ],
+            [
+              "COVE__Telemetry__Traces__Enabled",
+              "false",
+              "Set to true to export traces."
+            ],
+            [
+              "COVE__Telemetry__Metrics__Enabled",
+              "false",
+              "Set to true to export metrics."
+            ],
+            [
+              "COVE__Telemetry__Endpoint",
+              "None",
+              "OTLP endpoint. Overrides OTEL_EXPORTER_OTLP_ENDPOINT."
+            ],
+            [
+              "COVE__Telemetry__ServiceName",
+              "cove",
+              "Service name reported to the backend. Overrides OTEL_SERVICE_NAME."
+            ]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "With no endpoint configured, Cove sends to http://localhost:4317 over gRPC, or to http://localhost:4318 when OTEL_EXPORTER_OTLP_PROTOCOL is http/protobuf."
+        },
+        {
+          "type": "heading",
+          "text": "Docker Compose",
+          "level": 3
+        },
+        {
+          "type": "paragraph",
+          "text": "Add the settings to the cove service's environment block, point the endpoint at your collector, and recreate the container:"
+        },
+        {
+          "type": "code",
+          "language": "yaml",
+          "lines": [
+            "services:",
+            "  cove:",
+            "    environment:",
+            "      COVE__Telemetry__Logs__Enabled: \"true\"",
+            "      COVE__Telemetry__Traces__Enabled: \"true\"",
+            "      COVE__Telemetry__Metrics__Enabled: \"true\"",
+            "      OTEL_EXPORTER_OTLP_ENDPOINT: \"http://otel-collector:4317\""
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "Native installs",
+          "level": 3
+        },
+        {
+          "type": "paragraph",
+          "text": "Instances started from the Instance Manager inherit the Instance Manager's environment. Set the variables in the environment that launches the Instance Manager, then restart the Instance Manager itself. Restarting only an instance keeps the values it started with."
+        }
+      ]
+    },
+    {
+      "id": "standard-variables",
+      "title": "Standard OpenTelemetry variables",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove also honors standard OpenTelemetry environment variables, and a Cove setting takes precedence over the matching standard variable. Traces and metrics support the variables of the OpenTelemetry .NET SDK. Logs support only the general OTLP endpoint, protocol, headers, and timeout variables plus OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES, and OTEL_SDK_DISABLED; signal-specific variables such as OTEL_EXPORTER_OTLP_LOGS_ENDPOINT do not apply to logs. Commonly used variables:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "OTEL_EXPORTER_OTLP_ENDPOINT sets the collector address.",
+            "OTEL_EXPORTER_OTLP_PROTOCOL selects grpc (the default, usually port 4317) or http/protobuf (usually port 4318). Set it whenever the endpoint uses OTLP over HTTP.",
+            "OTEL_EXPORTER_OTLP_HEADERS adds request headers as comma-separated key=value pairs, such as the API key a hosted backend requires. Keep these values in environment variables or a secrets mechanism rather than in a committed file.",
+            "OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES label the data, for example with deployment.environment=home.",
+            "OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG reduce trace volume. For example, parentbased_traceidratio with 0.1 keeps about one request in ten.",
+            "OTEL_SDK_DISABLED=true turns off all export regardless of the Cove settings."
+          ]
+        }
+      ]
+    }
+  ]
+}

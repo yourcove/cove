@@ -247,6 +247,11 @@
               "topicId": "backups-migrations-upgrades"
             },
             {
+              "label": "OpenTelemetry export",
+              "href": "/docs/user/admin/opentelemetry/",
+              "topicId": "opentelemetry"
+            },
+            {
               "label": "Troubleshooting",
               "href": "/docs/user/troubleshooting/",
               "topicId": "troubleshooting"

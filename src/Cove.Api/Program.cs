@@ -292,6 +292,8 @@ try
             .WriteTo.Console(CoveTextLogFormatter.Instance)
             .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
             .CreateBootstrapLogger();
+        // After the bootstrap logger, so a rejected telemetry setting is reported.
+        var telemetry = CoveTelemetry.Configure(builder.Configuration, builder.Services);
 
         // Serilog
         builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -303,7 +305,8 @@ try
             .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
             .WriteTo.Console(CoveTextLogFormatter.Instance)
             .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
-            .WriteTo.Sink(new SignalRLogSink()));
+            .WriteTo.Sink(new SignalRLogSink())
+            .WriteToCoveTelemetry(telemetry, context.Configuration));
     }
 
     // Bind configuration
@@ -1183,6 +1186,7 @@ try
     Cove.Api.Updates.UpdateConsoleCapture.Stop();
     integrationStartupReady.TrySetResult();
     await app.WaitForShutdownAsync();
+    CoveTelemetry.Shutdown(app.Services);
     // An update under systemd exits with a dedicated code so Restart=on-failure starts the new binary.
     if (Cove.Api.Updates.UpdateRestart.RequestedExitCode is int updateExitCode)
         Environment.ExitCode = updateExitCode;
@@ -1200,6 +1204,7 @@ catch (Exception ex)
 }
 finally
 {
+    CoveTelemetry.BoundLogFlush();
     await Log.CloseAndFlushAsync();
 }
 
