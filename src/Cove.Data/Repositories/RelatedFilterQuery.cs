@@ -98,30 +98,38 @@ public static class RelatedFilterQuery
         CancellationToken ct = default)
     {
         if (criteria.Count < 2) return query;
-        var matchingIds = new List<IQueryable<int>>(criteria.Count);
+        var matches = new List<Expression<Func<AudioPerformer, bool>>>(criteria.Count);
         foreach (var criterion in criteria)
-            matchingIds.Add(await MatchingAudioIdsAsync(db, criterion, ct));
+        {
+            if (HasAudioAppearanceCondition(criterion))
+            {
+                var appearances = await BuildMatchingPerformerAudioAppearancesAsync(db, criterion, ct);
+                matches.Add(link => appearances.Any(match => match.AudioId == link.AudioId && match.PerformerId == link.PerformerId));
+            }
+            else
+            {
+                var matchingIds = await MatchingAudioIdsAsync(db, criterion, ct);
+                matches.Add(link => matchingIds.Contains(link.AudioId));
+            }
+        }
         var performer = Expression.Parameter(typeof(Performer), "performer");
-        var predicate = BuildDistinctPerformerAudioPredicate(performer, matchingIds, 0, []);
+        var predicate = BuildDistinctPerformerAudioPredicate(performer, matches, 0, []);
         return query.Where(Expression.Lambda<Func<Performer, bool>>(predicate, performer));
     }
 
     private static Expression BuildDistinctPerformerAudioPredicate(
         ParameterExpression performer,
-        IReadOnlyList<IQueryable<int>> matchingIds,
+        IReadOnlyList<Expression<Func<AudioPerformer, bool>>> matches,
         int index,
         IReadOnlyList<ParameterExpression> previousLinks)
     {
         var link = Expression.Parameter(typeof(AudioPerformer), $"link{index}");
-        Expression condition = Expression.Call(
-            typeof(Queryable), nameof(Queryable.Contains), [typeof(int)],
-            matchingIds[index].Expression,
-            Expression.Property(link, nameof(AudioPerformer.AudioId)));
+        var condition = new ParameterReplacer(matches[index].Parameters[0], link).Visit(matches[index].Body)!;
         foreach (var previous in previousLinks)
             condition = Expression.AndAlso(condition,
                 Expression.NotEqual(Expression.Property(link, nameof(AudioPerformer.AudioId)), Expression.Property(previous, nameof(AudioPerformer.AudioId))));
-        if (index + 1 < matchingIds.Count)
-            condition = Expression.AndAlso(condition, BuildDistinctPerformerAudioPredicate(performer, matchingIds, index + 1, [.. previousLinks, link]));
+        if (index + 1 < matches.Count)
+            condition = Expression.AndAlso(condition, BuildDistinctPerformerAudioPredicate(performer, matches, index + 1, [.. previousLinks, link]));
         return Expression.Call(typeof(Enumerable), nameof(Enumerable.Any), [typeof(AudioPerformer)],
             Expression.Property(performer, nameof(Performer.AudioPerformers)),
             Expression.Lambda<Func<AudioPerformer, bool>>(condition, link));
@@ -168,7 +176,7 @@ public static class RelatedFilterQuery
         CancellationToken ct)
     {
         var visibleLinks = db.Set<VideoPerformer>().Where(link => visiblePerformerIds.Contains(link.PerformerId));
-        var hasPerformerCondition = HasPerformerCondition(criterion);
+        var hasPerformerCondition = HasEntityCondition(criterion);
         var performerIds = hasPerformerCondition ? await MatchingPerformerIdsAsync(db, criterion, ct) : null;
         var occurrenceCriterion = criterion.PerformerOccurrenceTagsCriterion;
         ExpandedHierarchyCriterion? expandedOccurrenceTags = null;
@@ -433,7 +441,7 @@ public static class RelatedFilterQuery
         CancellationToken ct)
     {
         var visibleLinks = db.Set<AudioPerformer>().Where(link => visiblePerformerIds.Contains(link.PerformerId));
-        var hasPerformerCondition = HasPerformerCondition(criterion);
+        var hasPerformerCondition = HasEntityCondition(criterion);
         var performerIds = hasPerformerCondition ? await MatchingPerformerIdsAsync(db, criterion, ct) : null;
         var occurrenceCriterion = criterion.PerformerOccurrenceTagsCriterion;
         ExpandedHierarchyCriterion? expandedOccurrenceTags = null;
@@ -622,6 +630,22 @@ public static class RelatedFilterQuery
         CancellationToken ct = default)
     {
         if (criterion == null) return query;
+        if (HasVideoAppearanceCondition(criterion))
+        {
+            var appearances = VisibleVideoAppearances(db, await VisibleVideoIdsAsync(db, ct));
+            var matchingAppearances = await BuildMatchingPerformerVideoAppearancesAsync(db, criterion, appearances, ct);
+            return ApplyAppearanceMatch(
+                query,
+                appearances.Select(link => link.PerformerId).Distinct(),
+                matchingAppearances.Select(link => link.PerformerId).Distinct(),
+                appearances
+                    .Where(link => !matchingAppearances.Any(match => match.VideoId == link.VideoId && match.PerformerId == link.PerformerId))
+                    .Select(link => link.PerformerId)
+                    .Distinct(),
+                Mode(criterion),
+                UsesLegacyNone(criterion));
+        }
+
         // Project the authorized relationship sets before applying them to the performer query. The raw link
         // projection has no independent visibility semantics; video authorization is enforced by the video-ID
         // subquery and performer authorization remains on the caller's performer query.
@@ -655,13 +679,7 @@ public static class RelatedFilterQuery
         if (mode == RelatedFilterMode.None && UsesLegacyNone(criterion))
             return query.Where(performer => !matchingPerformerIds.Contains(performer.Id));
 
-        var visibleVideos = await new VideoRepository(db).BuildFilteredQueryAsync(
-            null,
-            null,
-            includeRelatedFilters: false,
-            allowReadScopeOptimization: false,
-            ct: ct);
-        var visibleVideoIds = visibleVideos.Select(video => video.Id);
+        var visibleVideoIds = await VisibleVideoIdsAsync(db, ct);
         var visibleLinks = links
             .Where(link => visibleVideoIds.Contains(link.VideoId));
         var performersWithVisibleVideos = visibleLinks
@@ -689,6 +707,22 @@ public static class RelatedFilterQuery
         CancellationToken ct = default)
     {
         if (criterion == null) return query;
+        if (HasAudioAppearanceCondition(criterion))
+        {
+            var appearances = await VisibleAudioAppearancesAsync(db, ct);
+            var matchingAppearances = await BuildMatchingPerformerAudioAppearancesAsync(db, criterion, appearances, ct);
+            return ApplyAppearanceMatch(
+                query,
+                appearances.Select(link => link.PerformerId).Distinct(),
+                matchingAppearances.Select(link => link.PerformerId).Distinct(),
+                appearances
+                    .Where(link => !matchingAppearances.Any(match => match.AudioId == link.AudioId && match.PerformerId == link.PerformerId))
+                    .Select(link => link.PerformerId)
+                    .Distinct(),
+                Mode(criterion),
+                UsesLegacyNone(criterion));
+        }
+
         var matchingAudioIds = await MatchingAudioIdsAsync(db, criterion, ct);
         var links = db.Set<AudioPerformer>().AsNoTracking();
         var matchingPerformerIds = links
@@ -719,6 +753,152 @@ public static class RelatedFilterQuery
             _ => query,
         };
     }
+
+    // An appearance is one performer's link to one related video or audio. Conditions on it, such as the tags on
+    // that performer's occurrence, must hold for the performer being listed rather than for anyone on the host, so
+    // the performer side matches appearances instead of host ids whenever a criterion carries such a condition.
+    private static bool HasVideoAppearanceCondition(RelatedFilterCriterion<VideoFilter> criterion)
+        => criterion.AgeAtHostDateCriterion != null || HasMultiIdCondition(criterion.PerformerOccurrenceTagsCriterion);
+
+    private static bool HasAudioAppearanceCondition(RelatedFilterCriterion<AudioFilter> criterion)
+        => HasMultiIdCondition(criterion.PerformerOccurrenceTagsCriterion);
+
+    private static async Task<IQueryable<int>> VisibleVideoIdsAsync(CoveContext db, CancellationToken ct)
+    {
+        var visibleVideos = await new VideoRepository(db).BuildFilteredQueryAsync(
+            null,
+            null,
+            includeRelatedFilters: false,
+            allowReadScopeOptimization: false,
+            ct: ct);
+        return visibleVideos.Select(video => video.Id);
+    }
+
+    private static IQueryable<VideoPerformer> VisibleVideoAppearances(CoveContext db, IQueryable<int> visibleVideoIds)
+        => db.Set<VideoPerformer>().AsNoTracking().Where(link => visibleVideoIds.Contains(link.VideoId));
+
+    private static async Task<IQueryable<AudioPerformer>> VisibleAudioAppearancesAsync(CoveContext db, CancellationToken ct)
+    {
+        var visibleAudios = await AudioFilterQuery.BuildAsync(db, null, null, includeRelatedFilters: false, ct);
+        var visibleAudioIds = visibleAudios.Select(audio => audio.Id);
+        return db.Set<AudioPerformer>().AsNoTracking().Where(link => visibleAudioIds.Contains(link.AudioId));
+    }
+
+    private static async Task<IQueryable<VideoPerformer>> BuildMatchingPerformerVideoAppearancesAsync(
+        CoveContext db,
+        RelatedFilterCriterion<VideoFilter> criterion,
+        IQueryable<VideoPerformer> appearances,
+        CancellationToken ct)
+    {
+        var matchingVideoIds = HasEntityCondition(criterion) ? await MatchingVideoIdsAsync(db, criterion, false, ct) : null;
+        var occurrenceCriterion = criterion.PerformerOccurrenceTagsCriterion;
+        var hasOccurrenceCondition = HasMultiIdCondition(occurrenceCriterion);
+        ExpandedHierarchyCriterion? expandedOccurrenceTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(occurrenceCriterion))
+        {
+            expandedOccurrenceTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, occurrenceCriterion!, ct);
+            occurrenceCriterion = expandedOccurrenceTags.Criterion;
+        }
+
+        if (criterion.ConditionOperator == RelatedFilterConditionOperator.Or)
+        {
+            IQueryable<VideoPerformer>? union = null;
+            if (matchingVideoIds != null)
+                union = appearances.Where(link => matchingVideoIds.Contains(link.VideoId));
+            if (criterion.AgeAtHostDateCriterion != null)
+                union = Union(union, ApplyVideoPerformerAgeCriterion(appearances, criterion.AgeAtHostDateCriterion));
+            if (hasOccurrenceCondition)
+                union = Union(union, ApplyVideoPerformerOccurrenceTagCriterion(
+                    db,
+                    appearances,
+                    occurrenceCriterion!,
+                    expandedOccurrenceTags?.ValueGroups,
+                    expandedOccurrenceTags?.RequiredIdGroups));
+            return union ?? appearances;
+        }
+
+        var matching = appearances;
+        if (criterion.AgeAtHostDateCriterion != null)
+            matching = ApplyVideoPerformerAgeCriterion(matching, criterion.AgeAtHostDateCriterion);
+        if (hasOccurrenceCondition)
+            matching = ApplyVideoPerformerOccurrenceTagCriterion(
+                db,
+                matching,
+                occurrenceCriterion!,
+                expandedOccurrenceTags?.ValueGroups,
+                expandedOccurrenceTags?.RequiredIdGroups);
+        return matchingVideoIds == null
+            ? matching
+            : IntersectAppearances(matching, appearances.Where(link => matchingVideoIds.Contains(link.VideoId)));
+    }
+
+    // Intersects the appearances meeting the appearance conditions with the appearances on matching hosts rather
+    // than testing both on one link. PostgreSQL estimates the occurrence-tag conditions at a row or two; planned
+    // together it then rescanned every matching video per appearance, taking 16 seconds for a video tag filter on a
+    // 32,000-video library, and resolving the video ids into an array first was no better. Each side of a set
+    // operation is planned on its own, where both are fast.
+    private static IQueryable<TLink> IntersectAppearances<TLink>(IQueryable<TLink> meetingAppearanceConditions, IQueryable<TLink> onMatchingHosts)
+        => meetingAppearanceConditions.Intersect(onMatchingHosts);
+
+    private static async Task<IQueryable<AudioPerformer>> BuildMatchingPerformerAudioAppearancesAsync(
+        CoveContext db,
+        RelatedFilterCriterion<AudioFilter> criterion,
+        CancellationToken ct)
+        => await BuildMatchingPerformerAudioAppearancesAsync(db, criterion, await VisibleAudioAppearancesAsync(db, ct), ct);
+
+    private static async Task<IQueryable<AudioPerformer>> BuildMatchingPerformerAudioAppearancesAsync(
+        CoveContext db,
+        RelatedFilterCriterion<AudioFilter> criterion,
+        IQueryable<AudioPerformer> appearances,
+        CancellationToken ct)
+    {
+        var matchingAudioIds = HasEntityCondition(criterion) ? await MatchingAudioIdsAsync(db, criterion, ct) : null;
+        var occurrenceCriterion = criterion.PerformerOccurrenceTagsCriterion;
+        var hasOccurrenceCondition = HasMultiIdCondition(occurrenceCriterion);
+        ExpandedHierarchyCriterion? expandedOccurrenceTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(occurrenceCriterion))
+        {
+            expandedOccurrenceTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, occurrenceCriterion!, ct);
+            occurrenceCriterion = expandedOccurrenceTags.Criterion;
+        }
+
+        var occurrenceMatches = hasOccurrenceCondition
+            ? ApplyAudioPerformerOccurrenceTagCriterion(
+                db,
+                appearances,
+                occurrenceCriterion!,
+                expandedOccurrenceTags?.ValueGroups,
+                expandedOccurrenceTags?.RequiredIdGroups)
+            : appearances;
+        if (matchingAudioIds == null)
+            return occurrenceMatches;
+
+        var audioMatches = appearances.Where(link => matchingAudioIds.Contains(link.AudioId));
+        return criterion.ConditionOperator == RelatedFilterConditionOperator.Or
+            ? audioMatches.Union(occurrenceMatches)
+            : IntersectAppearances(occurrenceMatches, audioMatches);
+    }
+
+    /// <summary>
+    /// Keeps performers by their appearances. Every and None require at least one visible appearance, as the
+    /// host-id modes do; the legacy None does not.
+    /// </summary>
+    private static IQueryable<Performer> ApplyAppearanceMatch(
+        IQueryable<Performer> query,
+        IQueryable<int> performersWithAppearances,
+        IQueryable<int> performersWithMatchingAppearances,
+        IQueryable<int> performersWithNonMatchingAppearances,
+        RelatedFilterMode mode,
+        bool legacyNone)
+        => mode switch
+        {
+            RelatedFilterMode.Every => query.Where(performer => performersWithAppearances.Contains(performer.Id)
+                && !performersWithNonMatchingAppearances.Contains(performer.Id)),
+            RelatedFilterMode.None when !legacyNone => query.Where(performer => performersWithAppearances.Contains(performer.Id)
+                && !performersWithMatchingAppearances.Contains(performer.Id)),
+            RelatedFilterMode.None => query.Where(performer => !performersWithMatchingAppearances.Contains(performer.Id)),
+            _ => query.Where(performer => performersWithMatchingAppearances.Contains(performer.Id)),
+        };
 
     private static async Task<IQueryable<int>> MatchingAudioIdsAsync(
         CoveContext db,
@@ -807,9 +987,9 @@ public static class RelatedFilterQuery
         return performers.Select(performer => performer.Id);
     }
 
-    private static bool HasPerformerCondition(RelatedFilterCriterion<PerformerFilter> criterion)
+    private static bool HasEntityCondition<TFilter>(RelatedFilterCriterion<TFilter> criterion) where TFilter : class
         => !string.IsNullOrWhiteSpace(criterion.FindFilter?.Q)
-            || criterion.ObjectFilter != null && typeof(PerformerFilter).GetProperties().Any(property => HasFilterValue(property.GetValue(criterion.ObjectFilter)));
+            || criterion.ObjectFilter != null && typeof(TFilter).GetProperties().Any(property => HasFilterValue(property.GetValue(criterion.ObjectFilter)));
 
     private static bool HasFilterValue(object? value)
         => value switch

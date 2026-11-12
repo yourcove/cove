@@ -181,6 +181,54 @@ describe("filter criteria definitions", () => {
     );
   });
 
+  it("lets performers filter related media by their own appearance in it", () => {
+    const relatedVideos = PERFORMER_CRITERIA.find((criterion) => criterion.id === "relatedVideos")!;
+    const relatedAudios = PERFORMER_CRITERIA.find((criterion) => criterion.id === "relatedAudios")!;
+
+    expect(relatedVideos.relatedContextCriteria?.map((criterion) => [criterion.label, criterion.filterKey])).toEqual([
+      ["Performer Age (own)", "ageAtHostDateCriterion"],
+      ["Performer Occurrence Tags (own)", "performerOccurrenceTagsCriterion"],
+    ]);
+    expect(relatedAudios.relatedContextCriteria?.map((criterion) => [criterion.label, criterion.filterKey])).toEqual([
+      ["Performer Occurrence Tags (own)", "performerOccurrenceTagsCriterion"],
+    ]);
+
+    // Appearance conditions share one editor list with the related media's own filters, which include
+    // "Performer Occurrence Tags" for any performer, so their ids and labels must stay distinct.
+    for (const related of [relatedVideos, relatedAudios]) {
+      const nested = [...related.relatedContextCriteria!, ...related.relatedCriteria!()];
+      expectUnique(nested, "id", related.label);
+      expectUnique(nested, "label", related.label);
+    }
+
+    const ownOccurrenceTags = { value: [7], modifier: "INCLUDES" };
+    const anyOccurrenceTags = { value: [8], modifier: "INCLUDES" };
+    expect(
+      sanitizeFilterCriteria(
+        {
+          videoFilterCriterion: {
+            performerOccurrenceTagsCriterion: ownOccurrenceTags,
+            ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+            performerIdsCriterion: { value: [3], modifier: "INCLUDES" },
+            objectFilter: { performerTagsCriterion: anyOccurrenceTags },
+          },
+          audioFilterCriterion: {
+            performerOccurrenceTagsCriterion: ownOccurrenceTags,
+            ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+          },
+        },
+        PERFORMER_CRITERIA,
+      ),
+    ).toEqual({
+      videoFilterCriterion: {
+        performerOccurrenceTagsCriterion: ownOccurrenceTags,
+        ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+        objectFilter: { performerTagsCriterion: anyOccurrenceTags },
+      },
+      audioFilterCriterion: { performerOccurrenceTagsCriterion: ownOccurrenceTags },
+    });
+  });
+
   it("does not expose unsupported performer path filtering", () => {
     expect(PERFORMER_CRITERIA.some((criterion) => criterion.id === "path")).toBe(false);
   });

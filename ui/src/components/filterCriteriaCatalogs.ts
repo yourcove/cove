@@ -223,6 +223,23 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
     filterKey: "videoFilterCriterion",
     category: "related",
     relatedCriteria: () => getRelatedCriteria("videos"),
+    // Conditions on the listed performer's own appearance in the related video. The video catalog's
+    // "Performer Occurrence Tags" and "Performer Age" match any performer in that video instead.
+    relatedContextCriteria: [
+      {
+        id: "ownAgeAtVideoDate",
+        label: "Performer Age (own)",
+        type: "number",
+        filterKey: "ageAtHostDateCriterion",
+      },
+      {
+        id: "ownOccurrenceTags",
+        label: "Performer Occurrence Tags (own)",
+        type: "multiId",
+        entityType: "tags",
+        filterKey: "performerOccurrenceTagsCriterion",
+      },
+    ],
   },
   {
     id: "relatedAudios",
@@ -233,6 +250,15 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
     category: "related",
     supportsDistinctSiblingMatches: true,
     relatedCriteria: () => getRelatedCriteria("audios"),
+    relatedContextCriteria: [
+      {
+        id: "ownOccurrenceTags",
+        label: "Performer Occurrence Tags (own)",
+        type: "multiId",
+        entityType: "tags",
+        filterKey: "performerOccurrenceTagsCriterion",
+      },
+    ],
   },
   { id: "age", label: "Age (now)", type: "number", filterKey: "ageCriterion" },
   {

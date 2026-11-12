@@ -136,6 +136,25 @@ Audio search exposes **Related Performers**, and performer search exposes **Rela
 
 When an **All** group contains repeated related-performer conditions in audio search, **Use a different performer for each** can require separate performers. Repeated **Related Audios** conditions in performer search can similarly use **Use a different audio for each**.
 
+## Find performers by their own appearances
+
+To find the performers who have a selected occurrence tag themselves, rather than everyone who shares a video with such a performer:
+
+1. Open **Performers**, then **Filters**.
+2. Select **Related Videos**.
+3. Select **Performer Occurrence Tags (own)** and choose **Hair Down**.
+4. Apply the filters.
+
+**Performer Occurrence Tags (own)** and **Performer Age (own)** describe the appearance of the performer being listed in the related video. Other conditions in the same **Related Videos** filter must match that same video, so adding **Studios** finds performers with **Hair Down** in a video from that studio. **Related Audios** offers **Performer Occurrence Tags (own)** in the same way.
+
+The relationship mode counts appearances:
+
+- **At least one matching video** finds performers who have had **Hair Down** at least once.
+- **No video matches** finds performers with videos who have never had it.
+- **Every video matches** needs the tag on every one of the performer's appearances, so appearances nobody has tagged yet rule a performer out.
+
+**Performer Occurrence Tags** and **Performer Age** in the same list are filters on the video itself. They match a video when any performer in it qualifies, so on their own they also return the other performers in that video. Combine both kinds to describe a pairing: **Performer Occurrence Tags (own)** for the performer being listed, plus **Performers** and **Performer Occurrence Tags** for a named partner.
+
 ## Choose the correct performer tags
 
 Video search exposes three related tag choices:
@@ -143,6 +162,8 @@ Video search exposes three related tag choices:
 - Top-level **Performer Occurrence Tags** finds a video when any performer appearance has the selected tags.
 - **Related Performers → Occurrence Tags** binds the selected occurrence tags to the same performer as the other conditions in that related-performer filter.
 - **Related Performers → Tags** are permanent tags attached to the performer record.
+
+Performer search has the matching choice under **Related Videos** and **Related Audios**: **Performer Occurrence Tags (own)** binds the tags to the performer being listed, while **Performer Occurrence Tags** matches any performer in the related item.
 
 Use occurrence tags for facts about a specific appearance. Put them inside **Related Performers** when identity, age, or another performer property must describe that same appearance. Use related-performer tags for stable performer metadata.
 
