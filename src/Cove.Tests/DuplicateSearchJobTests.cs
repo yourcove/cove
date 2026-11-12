@@ -380,6 +380,21 @@ public sealed class DuplicateSearchJobTests
 
     [Fact]
     [RequiresPostgres]
+    public async Task TheCrossGroupKeeperRuleIsAnExistenceCheckSoItsCostStaysLinearInALargeSearch()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
+
+        // "NOT IN (kept list)" is only fast while the list fits in PostgreSQL's working memory; beyond that
+        // it is rescanned for every row, and the summary of a search with a few hundred thousand groups times out.
+        var sql = DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, Guid.NewGuid()).ToQueryString();
+
+        Assert.Contains("NOT EXISTS", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NOT IN", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<> ALL", sql, StringComparison.OrdinalIgnoreCase);
+    }
+    [Fact]
+    [RequiresPostgres]
     public async Task KeeperReservationPreventsAnIndependentVideoDelete()
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);

@@ -101,9 +101,11 @@ public sealed class DuplicateSearchJobService(
         Guid searchId,
         IQueryable<DuplicateSearchGroup>? groups = null)
     {
-        var keptVideoIds = context.DuplicateSearchItems
-            .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
-            .Select(item => item.VideoId);
+        // The cross-group rule is written as "no kept item for this video exists", not as "this video is
+        // not in the kept list": PostgreSQL can only answer the second by hashing the whole list in working
+        // memory, and once the list no longer fits it rescans the list for every row.
+        var keptItems = context.DuplicateSearchItems
+            .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep);
         var groupIds = (groups ?? context.DuplicateSearchGroups.Where(group => group.SearchId == searchId))
             .Select(group => group.Id);
         return context.DuplicateSearchItems
@@ -112,7 +114,7 @@ public sealed class DuplicateSearchJobService(
                 && groupIds.Contains(item.GroupId)
                 && !item.Keep
                 && item.Group.Items.Any(keeper => keeper.Keep)
-                && !keptVideoIds.Contains(item.VideoId))
+                && !keptItems.Any(kept => kept.VideoId == item.VideoId))
             .Select(item => item.VideoId)
             .Distinct();
     }
