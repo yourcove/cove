@@ -306,11 +306,11 @@ public class RelatedFilterCriterion<TFilter> where TFilter : class
     public RelatedFilterConditionOperator ConditionOperator { get; set; } = RelatedFilterConditionOperator.And;
     /// <summary>Legacy negative mode retained for saved-filter compatibility. New filters use <see cref="Mode"/>.</summary>
     public bool Exclude { get; set; }
-    /// <summary>Optional age of the related performer on the host entity's date: a video's production date, or its release date when it has none. Currently supported by video performer relationships.</summary>
+    /// <summary>Optional age of the performer on the host entity's date: a video's production date, or its release date when it has none. Supported between videos and performers; on a performer list it applies to the listed performer's own appearance in the related video.</summary>
     public IntCriterion? AgeAtHostDateCriterion { get; set; }
-    /// <summary>Optional exact performer identities. Currently supported by video and audio performer relationships.</summary>
+    /// <summary>Optional exact performer identities. Supported on video and audio lists filtering by related performers.</summary>
     public MultiIdCriterion? PerformerIdsCriterion { get; set; }
-    /// <summary>Optional tags attached to the performer occurrence on the host. Currently supported by video and audio performer relationships.</summary>
+    /// <summary>Optional tags attached to the performer occurrence on the host. Supported between performers and videos or audios; on a performer list it applies to the listed performer's own appearance in the related video or audio.</summary>
     public MultiIdCriterion? PerformerOccurrenceTagsCriterion { get; set; }
 }
 

@@ -98,6 +98,52 @@ public sealed class VideoSearchQueryShapeTests
         Assert.Contains("TagId", sql, StringComparison.Ordinal);
     }
 
+    // Testing the video filter and the occurrence tags on one appearance let PostgreSQL, which estimates the
+    // occurrence tags at a row or two, rescan every matching video per appearance: 16 seconds on a 32,000-video
+    // library. Intersecting the two sets plans each on its own.
+    [Theory]
+    [InlineData(RelatedFilterMode.AtLeastOne)]
+    [InlineData(RelatedFilterMode.Every)]
+    [InlineData(RelatedFilterMode.None)]
+    public async Task PerformerAppearanceFilter_IntersectsAppearancesWithMatchingVideos(RelatedFilterMode mode)
+    {
+        await using var db = CreatePostgresContext();
+        var query = await RelatedFilterQuery.ApplyToPerformersAsync(
+            db,
+            db.Performers,
+            new RelatedFilterCriterion<VideoFilter>
+            {
+                Mode = mode,
+                ObjectFilter = new VideoFilter { TagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [11] } },
+                PerformerOccurrenceTagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [21] },
+            },
+            TestContext.Current.CancellationToken);
+
+        var sql = query.Select(performer => performer.Id).ToQueryString();
+
+        Assert.Contains("INTERSECT", sql, StringComparison.Ordinal);
+        Assert.Contains("\"ContextId\" = v", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PerformerAppearanceFilter_WithoutAVideoFilter_ReadsOnlyTheAppearances()
+    {
+        await using var db = CreatePostgresContext();
+        var query = await RelatedFilterQuery.ApplyToPerformersAsync(
+            db,
+            db.Performers,
+            new RelatedFilterCriterion<VideoFilter>
+            {
+                PerformerOccurrenceTagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [21] },
+            },
+            TestContext.Current.CancellationToken);
+
+        var sql = query.Select(performer => performer.Id).ToQueryString();
+
+        Assert.DoesNotContain("INTERSECT", sql, StringComparison.Ordinal);
+        Assert.Contains("tag_applications", sql, StringComparison.Ordinal);
+    }
+
     public static TheoryData<string, RelatedFilterCriterion<PerformerFilter>> ExcludesAllPerformerLinkCriteria => new()
     {
         {
