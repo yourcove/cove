@@ -86,7 +86,7 @@ public sealed class DuplicateSearchJobTests
     public void ScopePathNormalizationRejectsAnOversizedAggregate()
     {
         var paths = Enumerable.Range(0, 257)
-            .Select(index => $"/{index:D3}" + new string('x', DuplicateSearchMemoryBudget.MaximumFieldCharacters - 4))
+            .Select(index => $"/{index:D3}" + new string('x', DuplicateSearchLimits.MaximumFieldCharacters - 4))
             .ToArray();
 
         var error = Assert.Throws<InvalidOperationException>(() => DuplicateSearchJobService.NormalizeScopePaths(paths));
@@ -173,15 +173,82 @@ public sealed class DuplicateSearchJobTests
     }
 
     [Fact]
-    public void PersistedGroupLimitRejectsAHazardousResultGraph()
+    public void AResultWithMoreGroupsThanTheFormerLimitIsKept()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            DuplicateSearchExecutionService.SplitOversizedGroups(
-                [[1, 2], [3, 4], [5, 6], [7, 8]],
-                maximumGroupSize: 50,
-                maximumGroupCount: 3));
+        // Results are paged, so the number of groups a search may produce is not limited.
+        var groups = DuplicateSearchExecutionService.SplitOversizedGroups(
+            Enumerable.Range(0, 30_000).Select(index => new[] { 2 * index + 1, 2 * index + 2 }));
 
-        Assert.Contains("more than 3 duplicate groups", exception.Message);
+        Assert.Equal(30_000, groups.Count);
+    }
+
+    [Fact]
+    public void KeyBucketsMatchKeysExactlyOrIgnoringCase()
+    {
+        var exact = DuplicateKeyCandidate.TakeBuckets(
+        [
+            DuplicateKeyCandidate.Create(1, "md5\nabc"),
+            DuplicateKeyCandidate.Create(2, "md5\nABC"),
+            DuplicateKeyCandidate.Create(3, "md5\nabc"),
+            DuplicateKeyCandidate.Create(4, "oshash\nabc"),
+        ]);
+        Assert.Equal([1, 3], Assert.Single(exact));
+
+        var ignoringCase = DuplicateKeyCandidate.TakeBuckets(
+        [
+            DuplicateKeyCandidate.CreateIgnoringCase(1, "Été à Paris"),
+            DuplicateKeyCandidate.CreateIgnoringCase(2, "ÉTÉ À PARIS"),
+            DuplicateKeyCandidate.CreateIgnoringCase(3, "Ete a Paris"),
+            DuplicateKeyCandidate.CreateIgnoringCase(4, "été à paris"),
+        ]);
+        Assert.Equal([1, 2, 4], Assert.Single(ignoringCase));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(8)]
+    [InlineData(12)]
+    [InlineData(16)]
+    public void PhashGroupingFindsExactlyThePairsAnExhaustiveComparisonFinds(int maxDistance)
+    {
+        // Near-copies at every bit distance up to 18 and duration drifts on both sides of the tolerance.
+        var random = new Random(maxDistance + 1);
+        var candidates = new List<DuplicatePHashCandidate>();
+        for (var id = 1; id <= 400; id++)
+            candidates.Add(new DuplicatePHashCandidate(id, Math.Round(random.NextDouble() * 600, 3), (ulong)random.NextInt64(long.MinValue, long.MaxValue)));
+        for (var id = 401; id <= 800; id++)
+        {
+            var source = candidates[random.Next(400)];
+            var hash = source.Hash;
+            for (var flip = 0; flip < id % 19; flip++)
+                hash ^= 1UL << random.Next(64);
+            candidates.Add(new DuplicatePHashCandidate(id, source.Duration + Math.Round(random.NextDouble() * 16 - 8, 3), hash));
+        }
+        // Two files of one video never match each other.
+        candidates.Add(new DuplicatePHashCandidate(1, candidates[0].Duration, candidates[0].Hash));
+        const double tolerance = 5;
+
+        var expected = new DuplicateUnionFind();
+        long expectedComparisons = 0;
+        for (var left = 0; left < candidates.Count; left++)
+        {
+            for (var right = left + 1; right < candidates.Count; right++)
+            {
+                if (Math.Abs(candidates[left].Duration - candidates[right].Duration) > tolerance)
+                    continue;
+                expectedComparisons++;
+                if (candidates[left].VideoId != candidates[right].VideoId
+                    && System.Numerics.BitOperations.PopCount(candidates[left].Hash ^ candidates[right].Hash) <= maxDistance)
+                    expected.Union(candidates[left].VideoId, candidates[right].VideoId);
+            }
+        }
+
+        var result = DuplicateSearchExecutionService.FindPhashGroupsForTests(candidates, maxDistance, tolerance);
+
+        Assert.NotEmpty(result.Groups);
+        Assert.Equal(expected.ToGroups(), result.Groups);
+        Assert.Equal(expectedComparisons, result.ComparisonCount);
     }
 
     [Fact]
@@ -309,6 +376,21 @@ public sealed class DuplicateSearchJobTests
         Assert.Equal([videos["b"].Id], await DuplicateSearchJobService
             .EffectiveUnkeptVideoIds(db, search.Id, db.DuplicateSearchGroups.Where(group => group.Id == groups[0].Id))
             .ToArrayAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task TheCrossGroupKeeperRuleIsTranslatedToAnExistenceCheckNotAListExclusion()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = CreateContext(database);
+
+        // "NOT IN (kept list)" is only fast while the list fits in PostgreSQL's working memory; beyond that
+        // it is rescanned for every row, and the summary of a search with a few hundred thousand groups times out.
+        var sql = DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, Guid.NewGuid()).ToQueryString();
+
+        Assert.Contains("NOT EXISTS", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotMatch(@"NOT\s+IN\s*\(\s*SELECT", sql);
     }
 
     [Fact]
@@ -481,7 +563,7 @@ public sealed class DuplicateSearchJobTests
         var commands = new CandidateCommandCapture();
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var db = CreateContext(database, commands);
-        var value = new string('a', DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1000);
+        var value = new string('a', DuplicateSearchLimits.MaximumFieldCharacters + 1000);
         var video = new Video { Title = matchType == "title" ? value : "candidate" };
         if (matchType == "remoteId") video.RemoteIds.Add(new VideoRemoteId { Endpoint = "endpoint", RemoteId = value });
         if (matchType is "fingerprint" or "phash")
@@ -513,10 +595,10 @@ public sealed class DuplicateSearchJobTests
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
         await using var db = CreateContext(database);
         var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
-        var ids = Enumerable.Range(1, DuplicateSearchMemoryBudget.MaximumVideos + 1).ToArray();
+        var ids = Enumerable.Range(1, DuplicateSearchLimits.MaximumExplicitVideos + 1).ToArray();
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(null, null, new DuplicateSearchStartRequest("title", 0, 0), ids, TestContext.Current.CancellationToken));
         Assert.Empty(await db.DuplicateSearches.ToListAsync(TestContext.Current.CancellationToken));
-        Assert.Equal([1], DuplicateSearchMemoryBudget.NormalizeIds(Enumerable.Repeat(1, ids.Length)));
+        Assert.Equal([1], DuplicateSearchLimits.NormalizeIds(Enumerable.Repeat(1, ids.Length)));
     }
 
     [Fact]
@@ -613,7 +695,7 @@ public sealed class DuplicateSearchJobTests
         Assert.Equal("hevc", facts.Codec);
         Assert.EndsWith("candidate-000.mp4", facts.Path, StringComparison.Ordinal);
 
-        var oversizedFolder = new Folder { Path = "/" + new string('x', DuplicateSearchMemoryBudget.MaximumFieldCharacters + 1) };
+        var oversizedFolder = new Folder { Path = "/" + new string('x', DuplicateSearchLimits.MaximumFieldCharacters + 1) };
         db.Folders.Add(oversizedFolder);
         await db.SaveChangesAsync(ct);
         var oversized = new Video
@@ -630,33 +712,252 @@ public sealed class DuplicateSearchJobTests
         Assert.Contains("character field limit", error.Message);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void CandidateBudgetRejectsRowsBeforeAnUnboundedGroupingOrVisualIndex(bool visual)
+    [Fact]
+    [RequiresPostgres]
+    public async Task VisualSearchGroupsNearDuplicatesWithinTheToleranceAndScope()
     {
-        var budget = new DuplicateSearchMemoryBudget();
-        var admitted = 0;
-        var error = Assert.Throws<InvalidOperationException>((Action)(() =>
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = CreateContext(database);
+        var folder = new Folder { Path = "/visual" };
+        var siblingFolder = new Folder { Path = "/visual-other" };
+        db.Folders.AddRange(folder, siblingFolder);
+        await db.SaveChangesAsync(ct);
+        Video Visual(string name, Folder parent, double duration, string phash) => new()
         {
-            while (true) { budget.Reserve(32, 32, visual); admitted++; }
-        }));
-        Assert.Contains("candidate memory budget", error.Message);
-        Assert.InRange(admitted, 1, DuplicateSearchMemoryBudget.MaximumRows);
-        if (visual) Assert.True(admitted < DuplicateSearchMemoryBudget.MaximumRows);
+            Title = name,
+            MaxDuration = duration,
+            Files =
+            [
+                new VideoFile
+                {
+                    ParentFolderId = parent.Id,
+                    Basename = name + ".mp4",
+                    Duration = duration,
+                    Fingerprints = [new FileFingerprint { Type = "phash", Value = phash }],
+                },
+            ],
+        };
+        var original = Visual("original", folder, 100, "ff00ff00ff00ff00");
+        // Two bits away, written with a prefix and in upper case.
+        var reencode = Visual("reencode", folder, 102, "0xFF00FF00FF00FF03");
+        var outsideTolerance = Visual("longer", folder, 120, "ff00ff00ff00ff00");
+        var different = Visual("different", folder, 100, "00ff00ff00ff00ff");
+        var unparseable = Visual("unparseable", folder, 100, "not-a-hash");
+        // "/visual-other" shares a prefix with "/visual" without being below it.
+        var sibling = Visual("sibling", siblingFolder, 100, "ff00ff00ff00ff00");
+        db.Videos.AddRange(original, reencode, outsideTolerance, different, unparseable, sibling);
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+
+        async Task<(DuplicateSearch Search, int[][] Groups)> SearchAsync(string[] includePaths, string[] excludePaths)
+        {
+            var search = new DuplicateSearch
+            {
+                MatchType = "phash",
+                Distance = 4,
+                DurationDifference = 5,
+                IncludePaths = includePaths,
+                ExcludePaths = excludePaths,
+                ExpiresAt = DateTime.UtcNow.AddDays(1),
+            };
+            db.DuplicateSearches.Add(search);
+            await db.SaveChangesAsync(ct);
+            await new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration())
+                .ExecuteAsync(search.Id, null, new SilentProgress(), ct);
+            db.ChangeTracker.Clear();
+            var groups = await db.DuplicateSearchGroups
+                .Where(group => group.SearchId == search.Id)
+                .OrderBy(group => group.Position)
+                .Select(group => group.Items.Select(item => item.VideoId).OrderBy(id => id).ToArray())
+                .ToArrayAsync(ct);
+            return (await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id, ct), groups);
+        }
+
+        var wholeLibrary = await SearchAsync([], []);
+        Assert.Equal(6, wholeLibrary.Search.CandidateCount);
+        Assert.Equal([original.Id, reencode.Id, sibling.Id], Assert.Single(wholeLibrary.Groups));
+
+        var oneFolder = await SearchAsync(["/visual"], []);
+        Assert.Equal(5, oneFolder.Search.CandidateCount);
+        Assert.Equal([original.Id, reencode.Id], Assert.Single(oneFolder.Groups));
+
+        // A scope may name a single file, and an excluded folder removes its files from an included parent.
+        var fileAndFolder = await SearchAsync(["/visual/original.mp4", "/visual-other"], []);
+        Assert.Equal(2, fileAndFolder.Search.CandidateCount);
+        Assert.Equal([original.Id, sibling.Id], Assert.Single(fileAndFolder.Groups));
+        var excluded = await SearchAsync(["/visual", "/visual-other"], ["/visual-other"]);
+        Assert.Equal(5, excluded.Search.CandidateCount);
+        Assert.Equal([original.Id, reencode.Id], Assert.Single(excluded.Groups));
+
+        db.DuplicateIgnoredPairs.AddRange(
+            new DuplicateIgnoredPair { LowVideoId = Math.Min(original.Id, reencode.Id), HighVideoId = Math.Max(original.Id, reencode.Id) },
+            new DuplicateIgnoredPair { LowVideoId = Math.Min(original.Id, sibling.Id), HighVideoId = Math.Max(original.Id, sibling.Id) });
+        await db.SaveChangesAsync(ct);
+        Assert.Equal([reencode.Id, sibling.Id], Assert.Single((await SearchAsync([], [])).Groups));
     }
 
     [Fact]
-    public void CandidateBudgetAlsoChargesIgnoredPairsAndStreamedGroupingNodes()
+    [RequiresPostgres]
+    public async Task ScopeMatchesANamedFileWithTheCaseRuleOfThePlatform()
     {
-        var budget = new DuplicateSearchMemoryBudget();
-        var reservedPairs = (DuplicateSearchMemoryBudget.MaximumEstimatedBytes - 64) / 64;
-        for (long index = 0; index < reservedPairs; index++)
-            budget.ReserveIgnoredPair();
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = CreateContext(database);
+        var folder = new Folder { Path = "/Scope" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(ct);
+        var video = new Video { Title = "scoped", Files = [new VideoFile { ParentFolderId = folder.Id, Basename = "Master.mkv" }] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(ct);
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            DuplicateSearchExecutionService.GroupBuckets([[1, 2, 3, 4]], new HashSet<(int, int)>(), budget));
-        Assert.Contains("candidate memory budget", error.Message);
+        Task<int> CountAsync(string[] includes, string[] excludes, bool ignoreCase)
+            => DuplicateSearchExecutionService.WhereInScope(db.VideoFiles, includes, [], excludes, [], ignoreCase).CountAsync(ct);
+
+        Assert.Equal(1, await CountAsync(["/Scope/Master.mkv"], [], ignoreCase: false));
+        Assert.Equal(0, await CountAsync(["/scope/master.MKV"], [], ignoreCase: false));
+        Assert.Equal(1, await CountAsync(["/scope/master.MKV"], [], ignoreCase: true));
+        Assert.Equal(1, await CountAsync([], ["/scope/master.MKV"], ignoreCase: false));
+        Assert.Equal(0, await CountAsync([], ["/scope/master.MKV"], ignoreCase: true));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task VisualSearchComparesAcrossUnitsAndSavesGroupsAcrossBatches()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = CreateContext(database);
+        var folder = new Folder { Path = "/visual-scale" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(ct);
+        var random = new Random(7);
+        var videos = new List<Video>();
+        void Add(double duration, ulong hash) => videos.Add(new Video
+        {
+            Title = $"video {videos.Count}",
+            Files =
+            [
+                new VideoFile
+                {
+                    ParentFolderId = folder.Id,
+                    Basename = $"{videos.Count}.mp4",
+                    Duration = duration,
+                    Fingerprints = [new FileFingerprint { Type = "phash", Value = hash.ToString("x16") }],
+                },
+            ],
+        });
+        ulong NextHash() => (ulong)random.NextInt64(long.MinValue, long.MaxValue);
+        // Unmatched fingerprints first, so that once sorted by duration the 300 pairs that follow lie across
+        // the boundary between the first comparison unit and the second, with one pair split by it.
+        const int singles = 4_095;
+        const int pairs = 300;
+        const int oversized = 60;
+        for (var index = 0; index < singles; index++)
+            Add(10 * index, NextHash());
+        for (var index = 0; index < pairs; index++)
+        {
+            var hash = NextHash();
+            Add(100_000 + 10 * index, hash);
+            Add(100_001 + 10 * index, hash);
+        }
+        var sharedHash = NextHash();
+        for (var index = 0; index < oversized; index++)
+            Add(200_000 + 0.01 * index, sharedHash);
+        db.Videos.AddRange(videos);
+        var search = new DuplicateSearch { MatchType = "phash", Distance = 4, DurationDifference = 5, ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.DuplicateSearches.Add(search);
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        var progress = new UnitCountingProgress();
+
+        await new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration { MaxParallelTasks = 4 })
+            .ExecuteAsync(search.Id, null, progress, ct);
+
+        Assert.Equal(2, progress.DeclaredUnits);
+        db.ChangeTracker.Clear();
+        var saved = await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id, ct);
+        var groups = await db.DuplicateSearchGroups
+            .Where(group => group.SearchId == search.Id)
+            .OrderBy(group => group.Position)
+            .Select(group => new { group.Position, VideoIds = group.Items.Select(item => item.VideoId).OrderBy(id => id).ToArray() })
+            .ToArrayAsync(ct);
+        // The 60 copies are one logical group, saved as two chunks that share its keeper.
+        Assert.Equal(pairs + 2, saved.GroupCount);
+        Assert.Equal(2 * pairs + oversized, saved.VideoCount);
+        Assert.Equal(Enumerable.Range(0, pairs + 2), groups.Select(group => group.Position));
+        var expectedPairs = Enumerable.Range(0, pairs).Select(index => new[] { videos[singles + 2 * index].Id, videos[singles + 2 * index + 1].Id });
+        Assert.Equal(expectedPairs, groups.Take(pairs).Select(group => group.VideoIds));
+        var chunks = groups.Skip(pairs).ToArray();
+        Assert.Equal(videos.Skip(singles + 2 * pairs).Select(video => video.Id).Order(), chunks.SelectMany(chunk => chunk.VideoIds).Distinct().Order());
+        Assert.Single(chunks[0].VideoIds.Intersect(chunks[1].VideoIds));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task VisualSearchFailsBeforeComparingWhenTheWindowIsTooLargeAndSaysWhatToChange()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = CreateContext(database);
+        var folder = new Folder { Path = "/visual-limit" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(ct);
+        db.Videos.AddRange(Enumerable.Range(0, 3).Select(index => new Video
+        {
+            Title = $"video {index}",
+            Files =
+            [
+                new VideoFile
+                {
+                    ParentFolderId = folder.Id,
+                    Basename = $"{index}.mp4",
+                    Duration = 60 + index,
+                    Fingerprints = [new FileFingerprint { Type = "phash", Value = "ff00ff00ff00ff00" }],
+                },
+            ],
+        }));
+        var search = new DuplicateSearch { MatchType = "phash", Distance = 4, DurationDifference = 5, ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.DuplicateSearches.Add(search);
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        var progress = new UnitCountingProgress();
+        var service = new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration()) { PHashComparisonLimit = 2 };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExecuteAsync(search.Id, null, progress, ct));
+
+        Assert.Contains("would compare 3 pairs of fingerprints, more than the limit of 2", error.Message);
+        Assert.Contains("smaller duration tolerance", error.Message);
+        Assert.Null(progress.DeclaredUnits);
+        db.ChangeTracker.Clear();
+        var saved = await db.DuplicateSearches.AsNoTracking().SingleAsync(ct);
+        Assert.Equal(DuplicateSearchStatus.Failed, saved.Status);
+        Assert.Equal(error.Message, saved.Error);
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task TitleSearchMatchesIgnoringCaseAndWhitespaceIncludingNonAsciiLetters()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var db = CreateContext(database);
+        var first = new Video { Title = "Été  à Paris" };
+        var second = new Video { Title = " ÉTÉ à\tparis " };
+        var unaccented = new Video { Title = "Ete a Paris" };
+        var blank = new Video { Title = "   " };
+        var alsoBlank = new Video { Title = "\t" };
+        db.Videos.AddRange(first, second, unaccented, blank, alsoBlank);
+        var search = new DuplicateSearch { MatchType = "title", ExpiresAt = DateTime.UtcNow.AddDays(1) };
+        db.DuplicateSearches.Add(search);
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+
+        await new DuplicateSearchExecutionService(db, new CapturingJobService(), new CoveConfiguration())
+            .ExecuteAsync(search.Id, null, new SilentProgress(), ct);
+
+        var group = Assert.Single(await db.DuplicateSearchGroups.Where(item => item.SearchId == search.Id).Include(item => item.Items).ToArrayAsync(ct));
+        Assert.Equal(new[] { first.Id, second.Id }, group.Items.Select(item => item.VideoId).Order().ToArray());
     }
 
     [Theory]
@@ -673,9 +974,9 @@ public sealed class DuplicateSearchJobTests
         var folder = new Folder { Path = "/duplicate-pages" };
         db.Folders.Add(folder);
         await db.SaveChangesAsync(ct);
-        var videos = Enumerable.Range(0, 4002).Select(index =>
+        var videos = Enumerable.Range(0, DuplicateSearchLimits.PageSize + 2).Select(index =>
         {
-            var key = index is 0 or 4001 ? "shared" : $"unique-{index}";
+            var key = index == 0 || index == DuplicateSearchLimits.PageSize + 1 ? "shared" : $"unique-{index}";
             var video = new Video { Title = key };
             if (matchType == "remoteId") video.RemoteIds.Add(new VideoRemoteId { Endpoint = "endpoint", RemoteId = key });
             if (matchType == "fingerprint") video.Files.Add(new VideoFile { ParentFolderId = folder.Id, Basename = $"{index}.mp4", Fingerprints = [new FileFingerprint { Type = "md5", Value = key }] });
@@ -732,6 +1033,13 @@ public sealed class DuplicateSearchJobTests
             if (command.CommandText.Contains("LIMIT")) Commands.Add(command.CommandText);
             return ValueTask.FromResult(result);
         }
+    }
+
+    private sealed class UnitCountingProgress : IJobProgress
+    {
+        public int? DeclaredUnits { get; private set; }
+        public void Report(double progress, string? subTask = null) { }
+        public void DeclareUnitCount(int totalUnits) => DeclaredUnits = totalUnits;
     }
 
     private sealed class SilentProgress : IJobProgress

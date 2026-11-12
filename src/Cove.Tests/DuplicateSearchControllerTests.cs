@@ -384,6 +384,103 @@ public sealed class DuplicateSearchControllerTests
         Assert.True(await db.DuplicateSearchItems.AnyAsync(item => item.VideoId == videos["d"].Id && item.Keep, cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task AutoSelectReachesEveryGroupOfASearchLargerThanOneBatch()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        // Each group keeps its smaller copy to begin with; the resolution rule must move every keeper.
+        const int groupCount = 1_201;
+        var (search, groups, videos) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            Enumerable.Range(0, groupCount).Select(index => new[] { (true, $"small-{index}"), (false, $"large-{index}") }).ToArray(),
+            ownerKey: "user:1");
+        var folder = new Folder { Path = "/library" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.VideoFiles.AddRange(videos.Select(video => video.Key.StartsWith("small", StringComparison.Ordinal)
+            ? VideoFile(folder, video.Value, 1280, 720)
+            : VideoFile(folder, video.Value, 1920, 1080)));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.AutoSelectDuplicateKeepers(search.Id, new DuplicateAutoSelectRequest([new("resolution")]), CancellationToken.None);
+
+        var counts = Assert.IsType<DuplicateAutoSelectResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(groups.Length, counts.UpdatedGroupCount);
+        Assert.Equal(groupCount, counts.ChangedGroupCount);
+        db.ChangeTracker.Clear();
+        var keepers = await db.DuplicateSearchItems.Where(item => item.Keep).Select(item => item.VideoId).ToHashSetAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(videos.Where(video => video.Key.StartsWith("large", StringComparison.Ordinal)).Select(video => video.Value.Id).ToHashSet(), keepers);
+    }
+
+    [Fact]
+    public async Task SummaryCountsAndSizesTheVideosAResolutionWouldRemove()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        // "shared" is kept by the second group, so the first cannot remove it. "one-file" is unkept in two
+        // groups and must be counted and sized once. The last group keeps no one. A file is width x height bytes.
+        var (search, _, videos) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            [
+                [(true, "kept"), (false, "shared"), (false, "two-files")],
+                [(true, "shared"), (false, "one-file"), (false, "no-file")],
+                [(true, "kept"), (false, "one-file")],
+                [(false, "undecided-a"), (false, "undecided-b")],
+            ],
+            ownerKey: "user:1");
+        var folder = new Folder { Path = "/library" };
+        db.Folders.Add(folder);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var secondFile = VideoFile(folder, videos["two-files"], 30, 10);
+        secondFile.Basename = "two-files-copy.mp4";
+        secondFile.Path = "/library/two-files-copy.mp4";
+        db.VideoFiles.AddRange(
+            VideoFile(folder, videos["kept"], 1000, 1000),
+            VideoFile(folder, videos["shared"], 1000, 1000),
+            VideoFile(folder, videos["two-files"], 20, 10),
+            secondFile,
+            VideoFile(folder, videos["one-file"], 40, 10),
+            VideoFile(folder, videos["undecided-a"], 1000, 1000),
+            VideoFile(folder, videos["undecided-b"], 1000, 1000));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.GetDuplicateSearch(search.Id, CancellationToken.None);
+
+        var summary = Assert.IsType<DuplicateSearchSummary>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(3, summary.RemovableVideoCount);
+        Assert.Equal(200 + 300 + 400, summary.ReclaimableBytes);
+    }
+
+    [Fact]
+    public async Task SummaryOfASearchWithNothingToRemoveReportsZero()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        var (search, _, _) = await DuplicateSearchJobTests.AddSearchAsync(db, [[(false, "a"), (false, "b")]], ownerKey: "user:1");
+        db.ChangeTracker.Clear();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, new DuplicateSearchJobTests.CapturingJobService());
+
+        var result = await controller.GetDuplicateSearch(search.Id, CancellationToken.None);
+
+        var summary = Assert.IsType<DuplicateSearchSummary>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(0, summary.RemovableVideoCount);
+        Assert.Equal(0, summary.ReclaimableBytes);
+    }
+
     private static VideoFile VideoFile(Folder folder, Video video, int width, int height) => new()
     {
         ParentFolderId = folder.Id,

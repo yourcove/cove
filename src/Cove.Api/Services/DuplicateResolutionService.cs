@@ -576,7 +576,7 @@ public sealed class DuplicateResolutionService(
                 .Where(search => search.Id == searchId)
                 .Select(search => search.KeeperRulesJson)
                 .SingleOrDefaultAsync(ct);
-            var facts = await DuplicateKeeperRules.LoadFileFactsAsync(scopedDb, keeperIds, new DuplicateSearchMemoryBudget(), ct);
+            var facts = await DuplicateKeeperRules.LoadFileFactsAsync(scopedDb, keeperIds, ct);
             var nextPrimary = DuplicateKeeperRules.Choose(keeperIds, facts, DuplicateKeeperRules.Deserialize(rulesJson)).KeeperId;
             var swap = await maintenance.MakePrimaryWhenSameContentAsync(videoId, nextPrimary, ct);
             if (!swap.Applied)
