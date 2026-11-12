@@ -114,10 +114,11 @@ import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
 import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
 import {
   buildRawSegmentTitle,
+  buildSpanDisplayTitle,
   buildSpanTileSegment,
-  buildSpanTitle,
   formatSegmentCardEyebrow,
 } from "./segments/segmentDisplayUtils";
+import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
 import type { DerivedSpanItem, RawSegmentItem } from "./segments/types";
 import {
   buildAppliedDerivedQuery,
@@ -3204,8 +3205,13 @@ function EntityCard({
   }
 }
 
+const NO_OPERANDS: never[] = [];
+
+// A saved derived filter's cards are named after its query, as on the Segments page; other spans after their face,
+// performer or tag.
 function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNavigate: (r: any) => void }) {
-  const title = buildSpanTitle(item.span, item.videoTitle, item.reference);
+  const nameMaps = useDerivedOperandNameMaps(item.derivedQueryDescriptor?.operands ?? NO_OPERANDS);
+  const { title } = buildSpanDisplayTitle(item, nameMaps);
   const route = {
     page: "video-span",
     id: item.videoId,
