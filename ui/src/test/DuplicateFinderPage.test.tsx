@@ -484,6 +484,68 @@ describe("DuplicateFinderPage", () => {
     }
   });
 
+  it("aims the scroll again when the resolved group collapses, until the person scrolls", async () => {
+    mocks.getDuplicateSearchGroups.mockResolvedValue({
+      items: [group, nextGroup],
+      totalCount: 2,
+      page: 1,
+      perPage: 10,
+    });
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(200);
+    const layoutChanged: Array<() => void> = [];
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          layoutChanged.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect = disconnect;
+      },
+    );
+
+    try {
+      window.history.replaceState({}, "", "/duplicates?search=saved-search");
+      renderPage();
+
+      const firstArticle = (await screen.findByText("Group 1")).closest("article")!;
+      const nextArticle = screen.getByText("Group 2").closest("article")!;
+      const nextTop = vi.spyOn(nextArticle, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+
+      fireEvent.click(within(firstArticle).getByRole("button", { name: /Merge & remove 1/ }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(await within(dialog).findByRole("button", { name: /Merge & remove 1 copy/ }));
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 684, behavior: "smooth" }));
+      await waitFor(() => expect(layoutChanged).toHaveLength(1));
+
+      // The page has scrolled, and then the resolved card above collapses by 400px.
+      scrollTo.mockClear();
+      scrollY.mockReturnValue(684);
+      nextTop.mockReturnValue({ top: -384 } as DOMRect);
+      layoutChanged[0]();
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 284, behavior: "smooth" }));
+
+      // A layout change that leaves the group in place does not scroll.
+      scrollTo.mockClear();
+      scrollY.mockReturnValue(284);
+      nextTop.mockReturnValue({ top: 16 } as DOMRect);
+      layoutChanged[0]();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      // Once the person scrolls, the page stops correcting itself.
+      fireEvent.wheel(window);
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      scrollY.mockRestore();
+      scrollTo.mockRestore();
+    }
+  });
+
   it("offsets keyboard navigation only for the navbar when the duplicate controls are not sticky", async () => {
     mocks.getDuplicateSearchGroups.mockResolvedValue({
       items: [group, nextGroup],

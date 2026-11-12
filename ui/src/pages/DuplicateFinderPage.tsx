@@ -524,15 +524,49 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     },
   });
 
-  const scrollToGroup = (groupId: number) => {
+  const scrollToGroup = (groupId: number, onlyIfMoved = false) => {
     const group = groupRefs.current.get(groupId);
     if (!group) return;
     const navbarHeight = document.querySelector<HTMLElement>(".cove-navbar")?.getBoundingClientRect().height ?? 0;
     const controls = reviewControlsRef.current;
     const controlsHeight =
       controls && window.getComputedStyle(controls).position === "sticky" ? controls.getBoundingClientRect().height : 0;
-    const top = window.scrollY + group.getBoundingClientRect().top - navbarHeight - controlsHeight - 16;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    const offset = group.getBoundingClientRect().top - navbarHeight - controlsHeight - 16;
+    // Re-aligning after a layout change is skipped when the group already sits where it should.
+    if (onlyIfMoved && Math.abs(offset) < 2) return;
+    window.scrollTo({ top: Math.max(0, window.scrollY + offset), behavior: "smooth" });
+  };
+
+  /**
+   * Scrolls to a group and keeps it in place while the page settles. A resolved group collapses into a
+   * one-line card only when its background job finishes, which can be well after the scroll to the next
+   * group was aimed, and would leave that group hundreds of pixels off (usually above the viewport). So the
+   * scroll is aimed again whenever the layout changes, until the person scrolls, clicks or types.
+   */
+  const stopFollowingRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopFollowingRef.current?.(), []);
+  const followGroup = (groupId: number) => {
+    stopFollowingRef.current?.();
+    scrollToGroup(groupId);
+    const list = groupRefs.current.get(groupId)?.parentElement;
+    if (typeof ResizeObserver === "undefined" || !list) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => scrollToGroup(groupId, true));
+    });
+    // The list changes height when a card collapses; the body, when something above the list does.
+    observer.observe(list);
+    observer.observe(document.body);
+    const userEvents = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const stop = () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      for (const type of userEvents) window.removeEventListener(type, stop, true);
+      if (stopFollowingRef.current === stop) stopFollowingRef.current = null;
+    };
+    for (const type of userEvents) window.addEventListener(type, stop, { capture: true, passive: true });
+    stopFollowingRef.current = stop;
   };
 
   const advanceFocusFrom = (groupId: number) => {
@@ -542,7 +576,8 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     );
     if (next >= 0) {
       setFocusedIndex(next);
-      window.setTimeout(() => scrollToGroup(displayedGroups[next].id), 50);
+      // Deferred past the key press or click that resolved the group, which would otherwise end the follow.
+      window.setTimeout(() => followGroup(displayedGroups[next].id), 50);
     }
   };
 
