@@ -256,6 +256,68 @@ public sealed class VideoDiscoveryReconciliationApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/videos/duplicate-searches/{searchid:guid}/resolve")]
+    public async Task GivenDuplicateGroup_WhenResolvedByAttaching_ThenTheKeeperOwnsEveryFileAndNothingIsReclaimed()
+    {
+        // Arrange
+        var owner = AsUser();
+        var title = $"Attached duplicate {Guid.NewGuid():N}";
+        var merged = await owner.CreateVideoFromFileAsync(
+            AsTestFileSystem().CreateTextFile("The copy whose file is attached to the keeper."), TestContext.Current.CancellationToken);
+        var keeper = await owner.CreateVideoFromFileAsync(
+            AsTestFileSystem().CreateTextFile("The kept video's own file, which stays primary."), TestContext.Current.CancellationToken);
+        foreach (var video in new[] { merged, keeper })
+            await owner.UpdateVideoAsync(video.Id, new { title }, TestContext.Current.CancellationToken);
+        var mergedFileId = merged.Files.Should().ContainSingle().Which.Id;
+        var keeperFileId = keeper.Files.Should().ContainSingle().Which.Id;
+
+        var started = await owner.StartDuplicateSearchAsync(
+            new DuplicateSearchStartRequest("title", Distance: 0),
+            TestContext.Current.CancellationToken);
+        (await owner.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var page = await owner.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var group = page.Items.Should().ContainSingle(candidate =>
+            candidate.Videos.Select(video => video.Id).ToHashSet().IsSupersetOf(new[] { merged.Id, keeper.Id })).Which;
+        await owner.UpdateDuplicateSearchGroupDecisionAsync(
+            started.SearchId,
+            group.Id,
+            new DuplicateKeeperDecisionRequest([keeper.Id]),
+            TestContext.Current.CancellationToken);
+
+        // Act: attaching cannot delete from disk or ride on a plain removal; then it resolves the group.
+        var resolveUri = $"/api/videos/duplicate-searches/{started.SearchId}/resolve";
+        await owner.AssertResponseAsync(HttpMethod.Post, resolveUri, global::System.Net.HttpStatusCode.BadRequest,
+            new DuplicateResolveRequest([group.Id], DuplicateResolutionService.MergeAction, DeleteFiles: true) { FileHandling = "attach" },
+            TestContext.Current.CancellationToken);
+        await owner.AssertResponseAsync(HttpMethod.Post, resolveUri, global::System.Net.HttpStatusCode.BadRequest,
+            new DuplicateResolveRequest([group.Id], DuplicateResolutionService.RemoveAction) { FileHandling = "attach" },
+            TestContext.Current.CancellationToken);
+        var resolution = await owner.ResolveDuplicateGroupsAsync(
+            started.SearchId,
+            new DuplicateResolveRequest([group.Id], DuplicateResolutionService.MergeAction) { FileHandling = "attach" },
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        resolution.QueuedGroupCount.Should().Be(1);
+        (await owner.WaitForTerminalJobAsync(resolution.JobId!, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var resolvedPage = await owner.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, status: "resolved", cancellationToken: TestContext.Current.CancellationToken);
+        var resolvedGroup = resolvedPage.Items.Should().ContainSingle(candidate => candidate.Id == group.Id).Which;
+        resolvedGroup.FileHandling.Should().Be("attach");
+        resolvedGroup.RemovedVideoCount.Should().Be(1);
+        resolvedGroup.RemovedBytes.Should().Be(0, "attached files stay in the library, so no space was reclaimed");
+        resolvedGroup.Error.Should().BeNull();
+        var summary = await owner.GetDuplicateSearchAsync(started.SearchId, TestContext.Current.CancellationToken);
+        summary.AttachedVideoCount.Should().Be(1);
+        summary.RemovedBytes.Should().Be(0);
+
+        var mergedRead = () => owner.GetVideoByIdAsync(merged.Id);
+        await mergedRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
+        var keeperAfter = await owner.GetVideoByIdAsync(keeper.Id, TestContext.Current.CancellationToken);
+        keeperAfter.Files.Select(file => file.Id).Should().BeEquivalentTo([keeperFileId, mergedFileId]);
+        keeperAfter.PrimaryFileId.Should().Be(keeperFileId, "attaching never changes which file the kept video plays");
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/from-file")]
     [CoversEndpoint("POST", "/api/videos/{id:int}/assign-file")]
     public async Task GivenSecondaryFile_WhenAssignedToAnotherVideo_ThenTheNewOwnerPersistsTheFile()

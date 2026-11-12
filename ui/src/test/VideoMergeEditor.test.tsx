@@ -129,7 +129,7 @@ describe("VideoMergeEditor", () => {
     await user.type(screen.getByLabelText("Add a URL to the result"), "https://merge.example/new");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("button", { name: "Remove URLs: https://merge.example/new" })).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() => expect(onMerged).toHaveBeenCalledWith(2));
     expect(api.merge).toHaveBeenCalledWith(
       2,
@@ -160,7 +160,7 @@ describe("VideoMergeEditor", () => {
     fireEvent.error(screen.getAllByAltText("Video cover").find((image) => image.getAttribute("src") === "/cover/2")!);
     expect(screen.getByRole("group", { name: /Cover/ })).toBeInTheDocument();
     expect(screen.getAllByText("No cover available").length).toBeGreaterThan(0);
-    fireEvent.click(await screen.findByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() =>
       expect(api.merge).toHaveBeenCalledWith(
         2,
@@ -178,7 +178,7 @@ describe("VideoMergeEditor", () => {
     setup();
     await screen.findByLabelText("Title from target");
     expect(screen.getByLabelText("Derived tags from source")).toBeDisabled();
-    fireEvent.click(await screen.findByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() =>
       expect(api.merge).toHaveBeenCalledWith(2, [1], expect.objectContaining({ tagIds: [] }), attach),
     );
@@ -187,7 +187,7 @@ describe("VideoMergeEditor", () => {
     api.merge.mockRejectedValue(new Error("Merge failed"));
     setup();
     fireEvent.click(await screen.findByLabelText("Title from source"));
-    fireEvent.click(await screen.findByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge & attach 1 copy" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByLabelText("Title from source")).toBeChecked();
   });
@@ -249,7 +249,7 @@ describe("VideoMergeEditor", () => {
     expect(screen.getByLabelText("Director from source")).toBeChecked();
     expect(screen.getByRole("button", { name: "Remove Tag 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Tag 3" })).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Merge & remove 2 copies" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge & attach 2 copies" }));
     await waitFor(() =>
       expect(api.merge).toHaveBeenCalledWith(
         2,
@@ -350,7 +350,7 @@ describe("VideoMergeEditor primary file", () => {
     expect(await screen.findByLabelText("Keep video-2.mp4 as the primary file")).toBeChecked();
     fireEvent.click(screen.getByLabelText("Make video-1.mp4 the primary file"));
     expect(screen.getAllByText(/becomes the primary file after the merge/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() => expect(onMerged).toHaveBeenCalledWith(2));
     expect(api.merge).toHaveBeenCalledWith(2, [1], expect.anything(), attach);
     expect(api.assess).toHaveBeenCalledWith(2, 1);
@@ -372,7 +372,7 @@ describe("VideoMergeEditor primary file", () => {
     });
     const { onMerged, onClose } = setup();
     fireEvent.click(await screen.findByLabelText("Make video-1.mp4 the primary file"));
-    fireEvent.click(screen.getByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
     expect(await screen.findByRole("heading", { name: "Set primary video file" })).toBeInTheDocument();
     expect(api.merge).toHaveBeenCalledTimes(1);
     expect(api.apply).not.toHaveBeenCalled();
@@ -391,7 +391,7 @@ describe("VideoMergeEditor primary file", () => {
     expect(screen.queryByLabelText("Make video-1.mp4 the primary file")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText(/Attach 1 file to the kept video/));
     expect(screen.getByLabelText("Keep video-2.mp4 as the primary file")).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() => expect(api.merge).toHaveBeenCalled());
     expect(api.assess).not.toHaveBeenCalled();
   });
@@ -417,7 +417,7 @@ describe("VideoMergeEditor primary file", () => {
       api.get.mockImplementation(async (id: number) => ({ ...video(id), files: [file(1), file(2)], primaryFileId: 1 }));
       return video(2);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
     await waitFor(() => expect(onMerged).toHaveBeenCalledWith(2));
     expect(api.assess).not.toHaveBeenCalled();
     expect(api.apply).not.toHaveBeenCalled();
@@ -428,10 +428,10 @@ describe("VideoMergeEditor primary file", () => {
     api.apply.mockRejectedValue(new Error("The primary file changed while this dialog was open."));
     const { onMerged } = setup();
     fireEvent.click(await screen.findByLabelText("Make video-1.mp4 the primary file"));
-    fireEvent.click(screen.getByRole("button", { name: "Merge & remove 1 copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
     expect(await screen.findByRole("heading", { name: "Set primary video file" })).toBeInTheDocument();
     // The review is gone with the merged copies: nothing can merge them a second time.
-    expect(screen.queryByRole("button", { name: "Merge & remove 1 copy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge & attach 1 copy" })).not.toBeInTheDocument();
     expect(api.merge).toHaveBeenCalledTimes(1);
     expect(onMerged).not.toHaveBeenCalled();
   });

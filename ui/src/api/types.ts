@@ -903,6 +903,8 @@ export type DuplicateGroupStatus = "unresolved" | "queued" | "processing" | "res
 export type DuplicateGroupFilter = "unresolved" | "queued" | "resolved" | "ignored" | "failed" | "all";
 export type DuplicateGroupSort = "position" | "reclaimable" | "largest" | "members" | "recent";
 export type DuplicateResolutionAction = "remove" | "merge";
+/** What a merging resolution does with the copies' files; the names match a video merge's file handling. */
+export type DuplicateFileHandling = "attach" | "remove";
 
 export type DuplicateKeeperRuleType =
   | "resolution"
@@ -968,6 +970,8 @@ export interface DuplicateSearchInfo {
   removableVideoCount: number;
   removedBytes: number;
   removedVideoCount: number;
+  /** The part of `removedVideoCount` that was merged into a kept video with its files attached. */
+  attachedVideoCount?: number;
   resolutionJobId?: string | null;
   createdAt: string;
   startedAt?: string | null;
@@ -999,6 +1003,8 @@ export interface DuplicateSearchGroup {
   decisionSource?: "auto" | "manual" | null;
   decisionRule?: DuplicateKeeperRuleType | "tiebreak" | null;
   resolutionAction?: DuplicateResolutionAction | null;
+  /** Set once the group was queued with the merge action. */
+  fileHandling?: DuplicateFileHandling | null;
   deleteFiles: boolean;
   error?: string | null;
   resolvedAt?: string | null;
@@ -1031,6 +1037,8 @@ export interface DuplicateResolveRequest {
   action: DuplicateResolutionAction;
   deleteFiles: boolean;
   deleteGenerated: boolean;
+  /** Merge action only. Omitted means "remove"; "attach" cannot be combined with `deleteFiles`. */
+  fileHandling?: DuplicateFileHandling;
   /** Review choices; honoured only when a single group is resolved with the merge action. */
   metadata?: VideoMergeMetadata;
 }

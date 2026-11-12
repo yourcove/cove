@@ -91,6 +91,93 @@ public sealed class DuplicateResolutionWorkerTests
     }
 
     [Fact]
+    public async Task AttachResolutionMovesTheDuplicatesFilesOntoTheKeeperAndReclaimsNothing()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (search, group, keeper, duplicate) = await harness.SeedAsync();
+        await using (var seed = harness.CreateContext())
+        {
+            await seed.VideoFiles
+                .Where(file => file.VideoId == duplicate.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(file => file.Size, 4_096L), TestContext.Current.CancellationToken);
+            seed.Segments.Add(new Segment { HostType = SegmentHostType.Video, HostId = duplicate.Id, SourceKey = "user", Title = "Duplicate marker", StartSec = 3 });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var queued = await harness.QueueAsync(search.Id, group.Id, DuplicateResolutionService.MergeAction, attachFiles: true);
+        Assert.Equal(1, queued.QueuedGroupCount);
+        await harness.RunWorkerAsync();
+
+        await using var db = harness.CreateContext();
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var kept = await db.Videos
+            .Include(video => video.Files)
+            .Include(video => video.VideoTags)
+            .SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken);
+        // Both files now belong to the kept video, whose own file stays primary.
+        Assert.Equal(["duplicate.mp4", "keeper.mp4"], kept.Files.Select(file => file.Basename).Order());
+        Assert.Equal(keeper.PrimaryFileId, kept.PrimaryFileId);
+        Assert.Equal("Details only the duplicate had", kept.Details);
+        Assert.Equal([harness.KeeperTagId, harness.DuplicateTagId], kept.VideoTags.Select(link => link.TagId).Order());
+        // The files came along, so the copy's marker did too; a removing merge would need equivalent files.
+        var marker = Assert.Single(await db.Segments.Where(segment => segment.HostType == SegmentHostType.Video).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(keeper.Id, marker.HostId);
+
+        var resolved = await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(DuplicateGroupStatus.Resolved, resolved.Status);
+        Assert.True(resolved.AttachFiles);
+        Assert.Equal(1, resolved.RemovedVideoCount);
+        Assert.Equal(0, resolved.RemovedBytes);
+        Assert.Null(resolved.Error);
+        Assert.Null((await db.DuplicateSearches.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DeletionJobId);
+        Assert.Empty(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AttachResolutionFailsTheGroupWhenTheReviewerMayNotDeleteACopy()
+    {
+        // An attaching merge deletes the copies' records itself, so the worker must make the check the
+        // deletion pipeline makes for a removal.
+        await using var harness = await Harness.CreateAsync(new DenyVideoDeletion());
+        var (search, group, keeper, duplicate) = await harness.SeedAsync();
+        var reviewer = new CovePrincipal
+        {
+            UserId = 1,
+            Username = "duplicate-reviewer",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { "*" },
+            Roles = new HashSet<string>(),
+        };
+
+        await harness.QueueAsync(search.Id, group.Id, DuplicateResolutionService.MergeAction, attachFiles: true, principal: reviewer);
+        await harness.RunWorkerAsync();
+
+        await using var db = harness.CreateContext();
+        var failed = await db.DuplicateSearchGroups.SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(DuplicateGroupStatus.Failed, failed.Status);
+        Assert.Contains("permission", failed.Error, StringComparison.OrdinalIgnoreCase);
+        // Nothing moved: the copy still exists with its own file and its own metadata.
+        var copy = await db.Videos.Include(video => video.Files).SingleAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(["duplicate.mp4"], copy.Files.Select(file => file.Basename));
+        Assert.Null((await db.Videos.SingleAsync(video => video.Id == keeper.Id, cancellationToken: TestContext.Current.CancellationToken)).Details);
+    }
+
+    [Fact]
+    public async Task AttachIsIgnoredForAPlainRemoval()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var (search, group, keeper, duplicate) = await harness.SeedAsync();
+
+        await harness.QueueAsync(search.Id, group.Id, DuplicateResolutionService.RemoveAction, attachFiles: true);
+        await harness.RunWorkerAsync();
+
+        await using var db = harness.CreateContext();
+        Assert.False(await db.Videos.AnyAsync(video => video.Id == duplicate.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(["keeper.mp4"], await db.VideoFiles.IgnoreQueryFilters().Select(file => file.Basename).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False((await db.DuplicateSearchGroups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).AttachFiles);
+    }
+
+    [Fact]
     public async Task RemoveResolutionDiscardsTheDuplicatesMetadata()
     {
         await using var harness = await Harness.CreateAsync();
@@ -170,7 +257,7 @@ public sealed class DuplicateResolutionWorkerTests
         public int KeeperTagId { get; private set; }
         public int DuplicateTagId { get; private set; }
 
-        public static async Task<Harness> CreateAsync()
+        public static async Task<Harness> CreateAsync(IAuthorizationService? authorization = null)
         {
             var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
             var options = database.CreateOptions();
@@ -199,6 +286,8 @@ public sealed class DuplicateResolutionWorkerTests
                 provider.GetRequiredService<IBlobService>(),
                 provider.GetRequiredService<IStreamService>(),
                 provider.GetRequiredService<IEventBus>()));
+            if (authorization is not null)
+                services.AddSingleton(authorization);
             var provider = services.BuildServiceProvider();
             return new Harness(database, provider, options);
         }
@@ -274,7 +363,7 @@ public sealed class DuplicateResolutionWorkerTests
             return (group, duplicate);
         }
 
-        public async Task<DuplicateResolveResult> QueueAsync(Guid searchId, int groupId, string action, VideoMergeMetadataDto? metadata = null)
+        public async Task<DuplicateResolveResult> QueueAsync(Guid searchId, int groupId, string action, VideoMergeMetadataDto? metadata = null, bool attachFiles = false, CovePrincipal? principal = null)
         {
             await using var db = CreateContext();
             var service = new DuplicateResolutionService(
@@ -282,7 +371,7 @@ public sealed class DuplicateResolutionWorkerTests
                 Jobs,
                 _provider.GetRequiredService<IServiceScopeFactory>(),
                 new CoveConfiguration { MaxParallelTasks = 1 });
-            return await service.QueueAsync(searchId, [groupId], action, deleteFiles: false, deleteGenerated: false, principal: null, CancellationToken.None, metadata);
+            return await service.QueueAsync(searchId, [groupId], action, deleteFiles: false, deleteGenerated: false, principal, CancellationToken.None, metadata, attachFiles);
         }
 
         public Task RunWorkerAsync() => Jobs.Work!(new NullProgress(), CancellationToken.None);
@@ -292,6 +381,24 @@ public sealed class DuplicateResolutionWorkerTests
             await _provider.DisposeAsync();
             await _database.DisposeAsync();
         }
+    }
+
+    /// <summary>Allows everything except deleting a particular video.</summary>
+    private sealed class DenyVideoDeletion : IAuthorizationService
+    {
+        public AuthorizationResult Authorize(CovePrincipal? principal, string permission, EntityRef? entity = null)
+            => permission == Permissions.VideosDelete && entity is not null
+                ? AuthorizationResult.Deny("Deleting this video is not allowed.")
+                : AuthorizationResult.Allow();
+
+        public Task<AuthorizationResult> AuthorizeAsync(CovePrincipal? principal, string permission, EntityRef? entity, CancellationToken ct)
+            => Task.FromResult(Authorize(principal, permission, entity));
+
+        public void Require(CovePrincipal? principal, string permission, EntityRef? entity = null)
+        {
+        }
+
+        public bool Has(CovePrincipal? principal, string permission) => true;
     }
 
     private sealed class NullProgress : IJobProgress

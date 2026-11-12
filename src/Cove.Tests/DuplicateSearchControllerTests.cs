@@ -220,6 +220,72 @@ public sealed class DuplicateSearchControllerTests
     }
 
     [Fact]
+    public async Task ResolveStoresTheAttachChoiceAndRejectsItsInvalidCombinations()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        var (search, groups, _) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            [[(true, "a"), (false, "b")], [(true, "c"), (false, "d")], [(true, "e"), (false, "f")]],
+            ownerKey: "user:1");
+        var jobs = new DuplicateSearchJobTests.CapturingJobService();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, jobs);
+
+        // Attaching is a merge that removes nothing: it needs the merge action and cannot delete from disk.
+        Assert.IsType<BadRequestObjectResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest(null, "remove") { FileHandling = "attach" }, CancellationToken.None)).Result);
+        Assert.IsType<BadRequestObjectResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest(null, "merge", DeleteFiles: true) { FileHandling = "attach" }, CancellationToken.None)).Result);
+        Assert.IsType<BadRequestObjectResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest(null, "merge") { FileHandling = "shred" }, CancellationToken.None)).Result);
+        Assert.Equal(0, jobs.EnqueueCount);
+
+        Assert.IsType<AcceptedResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest([groups[0].Id], "merge") { FileHandling = " Attach " }, CancellationToken.None)).Result);
+        Assert.IsType<AcceptedResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest([groups[1].Id], "merge") { FileHandling = "remove" }, CancellationToken.None)).Result);
+        // No mode: the copies are removed, as before the choice existed.
+        Assert.IsType<AcceptedResult>((await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest([groups[2].Id], "merge"), CancellationToken.None)).Result);
+
+        db.ChangeTracker.Clear();
+        var stored = await db.DuplicateSearchGroups.OrderBy(group => group.Position).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal([true, false, false], stored.Select(group => group.AttachFiles));
+
+        var page = Assert.IsType<DuplicateGroupPage>(Assert.IsType<OkObjectResult>(
+            (await controller.GetDuplicateSearchGroups(search.Id, status: "all", ct: CancellationToken.None)).Result).Value);
+        Assert.Equal(["attach", "remove", "remove"], page.Items.OrderBy(item => item.Position).Select(item => item.FileHandling));
+    }
+
+    [Fact]
+    public async Task ResolveAllCanAttachEveryGroup()
+    {
+        var principalAccessor = CreatePrincipalAccessor();
+        var (database, db) = await CreateDatabaseAsync(principalAccessor);
+        await using var _ = database;
+        await using var __ = db;
+        var (search, _, _) = await DuplicateSearchJobTests.AddSearchAsync(
+            db,
+            [[(true, "a"), (false, "b")], [(true, "c"), (false, "d")]],
+            ownerKey: "user:1");
+        var jobs = new DuplicateSearchJobTests.CapturingJobService();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateController(db, principalAccessor, memoryCache, jobs);
+
+        var result = await controller.ResolveDuplicateGroups(search.Id,
+            new DuplicateResolveRequest(null, "merge") { FileHandling = "attach" }, CancellationToken.None);
+
+        Assert.Equal(2, Assert.IsType<DuplicateResolveResult>(Assert.IsType<AcceptedResult>(result.Result).Value).QueuedGroupCount);
+        db.ChangeTracker.Clear();
+        Assert.All(
+            await db.DuplicateSearchGroups.ToListAsync(cancellationToken: TestContext.Current.CancellationToken),
+            group => Assert.True(group.AttachFiles));
+    }
+
+    [Fact]
     public async Task ResolveRejectsUnknownActionsAndFileDeletionWithoutPermission()
     {
         var (database, db) = await CreateDatabaseAsync(new CurrentPrincipalAccessor());

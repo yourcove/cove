@@ -287,7 +287,10 @@ describe("DuplicateFinderPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "Merge videos" });
     expect(within(dialog).getByText("Keep")).toBeInTheDocument();
     expect(within(dialog).getByRole("region", { name: "Files" })).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText(/Attach/)).not.toBeInTheDocument();
+    // Removal stays the default files decision; attaching is offered, without a primary-file choice.
+    expect(within(dialog).getByLabelText(/Remove the merged video's 1 file/)).toBeChecked();
+    expect(within(dialog).getByLabelText(/Attach 1 file to the kept video/)).not.toBeChecked();
+    expect(within(dialog).queryByRole("radiogroup", { name: "Primary file after the merge" })).not.toBeInTheDocument();
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "2 timeline items on Candidate 2 will not be carried over",
     );
@@ -300,12 +303,77 @@ describe("DuplicateFinderPage", () => {
       expect(mocks.resolveDuplicateGroups).toHaveBeenCalledWith("saved-search", {
         groupIds: [7],
         action: "merge",
+        fileHandling: "remove",
         deleteFiles: false,
         deleteGenerated: true,
         metadata: expect.objectContaining({ fields: expect.objectContaining({ title: "source" }) }),
       }),
     );
     expect(JSON.parse(window.localStorage.getItem("cove.duplicates.resolution.v2")!).confirmEachGroup).toBe(false);
+  });
+
+  it("merges a group into one video with its files attached, never deleting from disk, and remembers that", async () => {
+    window.history.replaceState({}, "", "/duplicates?search=saved-search");
+    // Deleting from disk was the remembered choice; attaching must not carry it along.
+    window.localStorage.setItem(
+      "cove.duplicates.resolution.v2",
+      JSON.stringify({ action: "merge", deleteFiles: true, deleteGenerated: true, confirmEachGroup: true }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Merge & remove 1/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge videos" });
+    fireEvent.click(within(dialog).getByLabelText(/Attach 1 file to the kept video/));
+    expect(within(dialog).queryByLabelText(/Delete the files from disk/)).not.toBeInTheDocument();
+    fireEvent.click(await within(dialog).findByRole("button", { name: /Merge & attach 1 copy/ }));
+
+    await waitFor(() =>
+      expect(mocks.resolveDuplicateGroups).toHaveBeenCalledWith(
+        "saved-search",
+        expect.objectContaining({ groupIds: [7], action: "merge", fileHandling: "attach", deleteFiles: false }),
+      ),
+    );
+    // Attaching is remembered, and the delete-from-disk choice it hides is forgotten rather than left armed.
+    await waitFor(() =>
+      expect(JSON.parse(window.localStorage.getItem("cove.duplicates.resolution.v2")!)).toMatchObject({
+        fileHandling: "attach",
+        deleteFiles: false,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: /Merge metadata · attach files/ })).toBeInTheDocument();
+  });
+
+  it("resolves every group by attaching when that is the remembered choice", async () => {
+    window.history.replaceState({}, "", "/duplicates?search=saved-search");
+    window.localStorage.setItem(
+      "cove.duplicates.resolution.v2",
+      JSON.stringify({
+        action: "merge",
+        fileHandling: "attach",
+        deleteFiles: true,
+        deleteGenerated: true,
+        confirmEachGroup: true,
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /Merge & attach 1/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Resolve all/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Every file stays, attached to the kept video/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Delete the files from disk/)).not.toBeInTheDocument();
+    // No "I understand files will be deleted" acknowledgement stands in the way: nothing is deleted.
+    fireEvent.click(within(dialog).getByRole("button", { name: /Merge & attach/ }));
+
+    await waitFor(() =>
+      expect(mocks.resolveDuplicateGroups).toHaveBeenCalledWith("saved-search", {
+        groupIds: null,
+        action: "merge",
+        fileHandling: "attach",
+        deleteFiles: false,
+        deleteGenerated: true,
+      }),
+    );
   });
 
   it("shows a failed reviewed merge in the review and leaves the group reviewable", async () => {
@@ -413,6 +481,68 @@ describe("DuplicateFinderPage", () => {
       scrollY.mockRestore();
       scrollTo.mockRestore();
       navbar.remove();
+    }
+  });
+
+  it("aims the scroll again when the resolved group collapses, until the person scrolls", async () => {
+    mocks.getDuplicateSearchGroups.mockResolvedValue({
+      items: [group, nextGroup],
+      totalCount: 2,
+      page: 1,
+      perPage: 10,
+    });
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(200);
+    const layoutChanged: Array<() => void> = [];
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          layoutChanged.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect = disconnect;
+      },
+    );
+
+    try {
+      window.history.replaceState({}, "", "/duplicates?search=saved-search");
+      renderPage();
+
+      const firstArticle = (await screen.findByText("Group 1")).closest("article")!;
+      const nextArticle = screen.getByText("Group 2").closest("article")!;
+      const nextTop = vi.spyOn(nextArticle, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+
+      fireEvent.click(within(firstArticle).getByRole("button", { name: /Merge & remove 1/ }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(await within(dialog).findByRole("button", { name: /Merge & remove 1 copy/ }));
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 684, behavior: "smooth" }));
+      await waitFor(() => expect(layoutChanged).toHaveLength(1));
+
+      // The page has scrolled, and then the resolved card above collapses by 400px.
+      scrollTo.mockClear();
+      scrollY.mockReturnValue(684);
+      nextTop.mockReturnValue({ top: -384 } as DOMRect);
+      layoutChanged[0]();
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 284, behavior: "smooth" }));
+
+      // A layout change that leaves the group in place does not scroll.
+      scrollTo.mockClear();
+      scrollY.mockReturnValue(284);
+      nextTop.mockReturnValue({ top: 16 } as DOMRect);
+      layoutChanged[0]();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      // Once the person scrolls, the page stops correcting itself.
+      fireEvent.wheel(window);
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      scrollY.mockRestore();
+      scrollTo.mockRestore();
     }
   });
 

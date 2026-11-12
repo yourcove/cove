@@ -46,6 +46,8 @@ import {
   GROUP_SORTS,
   PAGE_SIZES,
   describeSearch,
+  effectiveResolution,
+  withFileHandling,
   readResolutionPreferences,
   readSearchPreferences,
   totalSize,
@@ -232,6 +234,9 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
   });
 
   const filesSearch = search?.matchType === "files";
+  // Files on one video share their metadata, so a files search only ever removes.
+  const canMerge = canWrite && !filesSearch;
+  const applied = effectiveResolution(resolution, { canMerge, canDeleteFiles });
   // File groups are turned into one copy per file here, once, so every view below can treat them like videos.
   const serverGroups = useMemo(() => (groupsQuery.data?.items ?? []).map(toReviewGroup), [groupsQuery.data]);
   // Groups handled in this view stay where they were, so the list does not jump while reviewing. Once one
@@ -387,16 +392,18 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
           ? {
               groupIds,
               action: "merge",
-              deleteFiles: canDeleteFiles && choices.fileHandling.deleteFiles,
+              fileHandling: choices.fileHandling.mode,
+              // Attached files stay in the library, so there is nothing to delete from disk.
+              deleteFiles: choices.fileHandling.mode === "remove" && canDeleteFiles && choices.fileHandling.deleteFiles,
               deleteGenerated: choices.fileHandling.deleteGenerated,
               metadata: choices.metadata,
             }
           : {
               groupIds,
-              // Files on one video share their metadata, so a files search only ever removes.
-              action: canWrite && !filesSearch ? resolution.action : "remove",
-              deleteFiles: canDeleteFiles && resolution.deleteFiles,
-              deleteGenerated: resolution.deleteGenerated,
+              action: applied.action,
+              fileHandling: applied.action === "merge" ? applied.fileHandling : undefined,
+              deleteFiles: applied.deleteFiles,
+              deleteGenerated: applied.deleteGenerated,
             },
       ),
     onMutate: ({ groupIds }) => {
@@ -517,15 +524,49 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     },
   });
 
-  const scrollToGroup = (groupId: number) => {
+  const scrollToGroup = (groupId: number, onlyIfMoved = false) => {
     const group = groupRefs.current.get(groupId);
     if (!group) return;
     const navbarHeight = document.querySelector<HTMLElement>(".cove-navbar")?.getBoundingClientRect().height ?? 0;
     const controls = reviewControlsRef.current;
     const controlsHeight =
       controls && window.getComputedStyle(controls).position === "sticky" ? controls.getBoundingClientRect().height : 0;
-    const top = window.scrollY + group.getBoundingClientRect().top - navbarHeight - controlsHeight - 16;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    const offset = group.getBoundingClientRect().top - navbarHeight - controlsHeight - 16;
+    // Re-aligning after a layout change is skipped when the group already sits where it should.
+    if (onlyIfMoved && Math.abs(offset) < 2) return;
+    window.scrollTo({ top: Math.max(0, window.scrollY + offset), behavior: "smooth" });
+  };
+
+  /**
+   * Scrolls to a group and keeps it in place while the page settles. A resolved group collapses into a
+   * one-line card only when its background job finishes, which can be well after the scroll to the next
+   * group was aimed, and would leave that group hundreds of pixels off (usually above the viewport). So the
+   * scroll is aimed again whenever the layout changes, until the person scrolls, clicks or types.
+   */
+  const stopFollowingRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopFollowingRef.current?.(), []);
+  const followGroup = (groupId: number) => {
+    stopFollowingRef.current?.();
+    scrollToGroup(groupId);
+    const list = groupRefs.current.get(groupId)?.parentElement;
+    if (typeof ResizeObserver === "undefined" || !list) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => scrollToGroup(groupId, true));
+    });
+    // The list changes height when a card collapses; the body, when something above the list does.
+    observer.observe(list);
+    observer.observe(document.body);
+    const userEvents = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const stop = () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      for (const type of userEvents) window.removeEventListener(type, stop, true);
+      if (stopFollowingRef.current === stop) stopFollowingRef.current = null;
+    };
+    for (const type of userEvents) window.addEventListener(type, stop, { capture: true, passive: true });
+    stopFollowingRef.current = stop;
   };
 
   const advanceFocusFrom = (groupId: number) => {
@@ -535,7 +576,8 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     );
     if (next >= 0) {
       setFocusedIndex(next);
-      window.setTimeout(() => scrollToGroup(displayedGroups[next].id), 50);
+      // Deferred past the key press or click that resolved the group, which would otherwise end the follow.
+      window.setTimeout(() => followGroup(displayedGroups[next].id), 50);
     }
   };
 
@@ -547,7 +589,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
       // A merge is confirmed in the review shell, where each field and the files decision can be changed;
       // a plain removal, a files search (which never merges), or a group with nothing marked to keep,
       // keeps the policy dialog.
-      if (canWrite && !filesSearch && resolution.action === "merge" && keepers.size > 0) setReviewGroupId(group.id);
+      if (applied.action === "merge" && keepers.size > 0) setReviewGroupId(group.id);
       else setResolveTarget({ scope: "group", groupId: group.id });
       return;
     }
@@ -567,6 +609,10 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     ) ?? [];
   const confirmReviewedMerge = async (group: DuplicateSearchGroup, choices: VideoMergeChoices) => {
     pin(group, "resolve");
+    // The files decision made here is the one "resolve straight away" and "resolve all" then repeat. It is
+    // saved before the request, while these preferences are still the ones on screen.
+    if (choices.fileHandling.mode !== resolution.fileHandling)
+      setResolution(withFileHandling(resolution, choices.fileHandling.mode));
     await resolveMutation.mutateAsync({ groupIds: [group.id], choices });
     advanceFocusFrom(group.id);
   };
@@ -765,7 +811,11 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
 
       {search && completed ? (
         <>
-          <StatTiles search={search} deleteFiles={canDeleteFiles && resolution.deleteFiles} />
+          <StatTiles
+            search={search}
+            deleteFiles={applied.deleteFiles}
+            attachFiles={applied.fileHandling === "attach"}
+          />
 
           {search.groupCount === 0 ? (
             <EmptyResults search={search} onAdjust={() => setSetupOpen(true)} />
@@ -830,12 +880,10 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                           onClick={() => setResolveTarget({ scope: "all" })}
                           disabled={search.removableVideoCount === 0}
                           className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 ${
-                            canDeleteFiles && resolution.deleteFiles
-                              ? "bg-red-600 hover:bg-red-500"
-                              : "bg-accent hover:bg-accent-hover"
+                            applied.deleteFiles ? "bg-red-600 hover:bg-red-500" : "bg-accent hover:bg-accent-hover"
                           }`}
                         >
-                          {canWrite && resolution.action === "merge" ? (
+                          {applied.action === "merge" ? (
                             <GitMerge className="h-4 w-4" />
                           ) : (
                             <Trash2 className="h-4 w-4" />
@@ -906,7 +954,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                     <ResolutionOptionsSummary
                       resolution={resolution}
                       canDeleteFiles={canDeleteFiles}
-                      canMerge={canWrite && !filesSearch}
+                      canMerge={canMerge}
                       onChange={setResolution}
                     />
                   ) : null}
@@ -948,11 +996,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                       group={group}
                       keepVideoIds={keepersFor(group)}
                       engagement={engagementById}
-                      resolution={{
-                        ...resolution,
-                        action: canWrite && !filesSearch ? resolution.action : "remove",
-                        deleteFiles: canDeleteFiles && resolution.deleteFiles,
-                      }}
+                      resolution={applied}
                       focused={index === focusedIndex}
                       busy={decisionMutation.isPending && decisionMutation.variables?.groupId === group.id}
                       showIdenticalRows={preferences.showIdenticalRows}
@@ -1027,11 +1071,13 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
               kept={reviewKept}
               removed={reviewRemoved}
               fileHandling={{
-                mode: "remove",
+                mode: applied.fileHandling,
+                // Not the applied value: switching the review to "remove" shows the remembered choice again.
                 deleteFiles: canDeleteFiles && resolution.deleteFiles,
                 deleteGenerated: resolution.deleteGenerated,
               }}
-              allowAttach={false}
+              // Resolution runs in the background, so choosing a new primary file stays a separate step.
+              allowPrimaryChoice={false}
               canDeleteFiles={canDeleteFiles}
               footerExtra={
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-secondary">
@@ -1058,7 +1104,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
         summary={resolveSummary}
         preferences={resolution}
         canDeleteFiles={canDeleteFiles}
-        canMerge={canWrite && !filesSearch}
+        canMerge={canMerge}
         isPending={resolveMutation.isPending}
         error={resolveMutation.error && resolveTarget ? errorMessage(resolveMutation.error) : null}
         onChange={setResolution}
@@ -1206,7 +1252,29 @@ function SearchProgress({
   );
 }
 
-function StatTiles({ search, deleteFiles }: { search: DuplicateSearchInfo; deleteFiles: boolean }) {
+/** "3 copies removed · 1.2 GB", "2 copies merged", or both when a search was resolved in both ways. */
+function resolvedDetail(search: DuplicateSearchInfo, copyNoun: (count: number) => string) {
+  const attached = Math.min(search.attachedVideoCount ?? 0, search.removedVideoCount);
+  const removed = search.removedVideoCount - attached;
+  const parts: string[] = [];
+  if (removed > 0) {
+    const freed = search.removedBytes > 0 ? ` · ${formatFileSize(search.removedBytes)}` : "";
+    parts.push(`${removed.toLocaleString()} ${copyNoun(removed)} removed${freed}`);
+  }
+  if (attached > 0) parts.push(`${attached.toLocaleString()} ${copyNoun(attached)} merged, files kept`);
+  return parts.join(" · ");
+}
+
+function StatTiles({
+  search,
+  deleteFiles,
+  attachFiles,
+}: {
+  search: DuplicateSearchInfo;
+  deleteFiles: boolean;
+  /** Groups are resolved by attaching the copies' files to the kept video, which frees no space. */
+  attachFiles: boolean;
+}) {
   // A files search counts files, and every group is one video.
   const files = search.matchType === "files";
   const copyNoun = (count: number) => (files ? (count === 1 ? "file" : "files") : count === 1 ? "copy" : "copies");
@@ -1219,7 +1287,7 @@ function StatTiles({ search, deleteFiles }: { search: DuplicateSearchInfo; delet
         : `${search.groupCount.toLocaleString()} found · ${search.videoCount.toLocaleString()} videos`,
     },
     {
-      label: "Marked for removal",
+      label: attachFiles ? "Marked to merge" : "Marked for removal",
       value: search.removableVideoCount.toLocaleString(),
       detail:
         search.counts.failed > 0
@@ -1232,14 +1300,18 @@ function StatTiles({ search, deleteFiles }: { search: DuplicateSearchInfo; delet
     {
       label: deleteFiles ? "Space you can free" : files ? "Space in extra files" : "Space in duplicate copies",
       value: formatFileSize(search.reclaimableBytes),
-      detail: deleteFiles ? "with files deleted from disk" : "turn on file deletion to reclaim it",
+      detail: deleteFiles
+        ? "with files deleted from disk"
+        : attachFiles
+          ? "stays in use: files are attached to the kept video"
+          : "turn on file deletion to reclaim it",
     },
     {
       label: "Resolved so far",
       value: search.counts.resolved.toLocaleString(),
       detail:
         search.removedVideoCount > 0
-          ? `${search.removedVideoCount.toLocaleString()} ${copyNoun(search.removedVideoCount)} removed${search.removedBytes > 0 ? ` · ${formatFileSize(search.removedBytes)}` : ""}`
+          ? resolvedDetail(search, copyNoun)
           : search.counts.ignored > 0
             ? `${search.counts.ignored} ${files ? "keeping all files" : "marked not duplicates"}`
             : "nothing removed yet",
@@ -1279,8 +1351,10 @@ function ResolutionOptionsSummary({
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
-  const merge = canMerge && resolution.action === "merge";
-  const deleteFiles = canDeleteFiles && resolution.deleteFiles;
+  const applied = effectiveResolution(resolution, { canMerge, canDeleteFiles });
+  const merge = applied.action === "merge";
+  const attach = applied.fileHandling === "attach";
+  const deleteFiles = applied.deleteFiles;
   return (
     <div className="ml-auto">
       <button
@@ -1295,7 +1369,8 @@ function ResolutionOptionsSummary({
         }`}
       >
         {merge ? <GitMerge className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-        {merge ? "Merge metadata" : "Remove only"} · {deleteFiles ? "delete files" : "keep files on disk"}
+        {merge ? "Merge metadata" : "Remove only"} ·{" "}
+        {attach ? "attach files" : deleteFiles ? "delete files" : "keep files on disk"}
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
       <AnchoredPopover anchorRef={anchorRef} open={open} onClose={close}>
@@ -1305,13 +1380,28 @@ function ResolutionOptionsSummary({
             <input
               type="radio"
               disabled={!canMerge}
-              checked={merge}
-              onChange={() => onChange({ ...resolution, action: "merge" })}
+              checked={merge && !attach}
+              onChange={() => onChange({ ...resolution, action: "merge", fileHandling: "remove" })}
               className="mt-1 accent-accent"
             />
             <span>
-              <span className="block text-foreground">Merge metadata into the keeper</span>
+              <span className="block text-foreground">Merge metadata into the keeper, then remove the copies</span>
               <span className="block text-xs text-muted">{MERGE_POLICY_SUMMARY}</span>
+            </span>
+          </label>
+          <label className={`flex items-start gap-2 ${canMerge ? "cursor-pointer" : "opacity-50"}`}>
+            <input
+              type="radio"
+              disabled={!canMerge}
+              checked={attach}
+              onChange={() => onChange(withFileHandling({ ...resolution, action: "merge" }, "attach"))}
+              className="mt-1 accent-accent"
+            />
+            <span>
+              <span className="block text-foreground">Merge into one video and keep every file</span>
+              <span className="block text-xs text-muted">
+                The copies' files are attached to the keeper. No file leaves Cove or the disk.
+              </span>
             </span>
           </label>
           <label className="flex cursor-pointer items-start gap-2">
@@ -1326,20 +1416,24 @@ function ResolutionOptionsSummary({
             </span>
           </label>
           <div className="border-t border-border pt-2">
-            <label className={`flex items-center gap-2 ${canDeleteFiles ? "cursor-pointer" : "opacity-50"}`}>
+            <label
+              className={`flex items-center gap-2 ${canDeleteFiles && !attach ? "cursor-pointer" : "opacity-50"}`}
+              title={attach ? "Attached files stay in Cove, so there is nothing to delete" : undefined}
+            >
               <input
                 type="checkbox"
-                disabled={!canDeleteFiles}
+                disabled={!canDeleteFiles || attach}
                 checked={deleteFiles}
                 onChange={(event) => onChange({ ...resolution, deleteFiles: event.target.checked })}
                 className="accent-red-500"
               />
               <span className={deleteFiles ? "text-red-200" : "text-foreground"}>Delete files from disk</span>
             </label>
-            <label className="mt-1.5 flex cursor-pointer items-center gap-2">
+            <label className={`mt-1.5 flex items-center gap-2 ${attach ? "opacity-50" : "cursor-pointer"}`}>
               <input
                 type="checkbox"
-                checked={resolution.deleteGenerated}
+                disabled={attach}
+                checked={resolution.deleteGenerated && !attach}
                 onChange={(event) => onChange({ ...resolution, deleteGenerated: event.target.checked })}
                 className="accent-accent"
               />

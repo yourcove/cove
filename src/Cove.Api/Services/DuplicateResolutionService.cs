@@ -42,11 +42,16 @@ public sealed class DuplicateResolutionService(
         bool deleteGenerated,
         CovePrincipal? principal,
         CancellationToken ct,
-        VideoMergeMetadataDto? mergeMetadata = null)
+        VideoMergeMetadataDto? mergeMetadata = null,
+        bool attachFiles = false)
     {
         var ids = groupIds.Distinct().ToArray();
         if (ids.Length == 0)
             return new DuplicateResolveResult(0, null);
+        // Attaching is a way of merging, and it removes no file, so deleting from disk cannot ride along.
+        attachFiles = attachFiles && action == MergeAction;
+        if (attachFiles)
+            deleteFiles = false;
         var mergeMetadataJson = mergeMetadata is null || action != MergeAction
             ? null
             : SerializeMergeMetadata(mergeMetadata);
@@ -77,6 +82,7 @@ public sealed class DuplicateResolutionService(
                     .SetProperty(group => group.ResolutionAction, action)
                     .SetProperty(group => group.DeleteFiles, deleteFiles)
                     .SetProperty(group => group.DeleteGenerated, deleteGenerated)
+                    .SetProperty(group => group.AttachFiles, attachFiles)
                     .SetProperty(group => group.MergeMetadataJson, mergeMetadataJson)
                     .SetProperty(group => group.QueuedAt, queuedAt)
                     .SetProperty(group => group.Error, (string?)null), ct);
@@ -209,6 +215,7 @@ public sealed class DuplicateResolutionService(
             var resolved = 0;
             var failed = 0;
             var removedVideos = 0;
+            var attachedVideos = 0;
             var removedFiles = 0;
             long removedBytes = 0;
             try
@@ -223,7 +230,7 @@ public sealed class DuplicateResolutionService(
                         .Where(group => group.SearchId == searchId && group.Status == DuplicateGroupStatus.Queued)
                         .OrderBy(group => group.QueuedAt)
                         .ThenBy(group => group.Position)
-                        .Select(group => new { group.Id, group.Position, group.ResolutionAction, group.DeleteFiles, group.DeleteGenerated, group.MergeMetadataJson })
+                        .Select(group => new { group.Id, group.Position, group.ResolutionAction, group.DeleteFiles, group.DeleteGenerated, group.AttachFiles, group.MergeMetadataJson })
                         .FirstOrDefaultAsync(ct);
                     if (next is null)
                     {
@@ -256,6 +263,7 @@ public sealed class DuplicateResolutionService(
                             next.ResolutionAction == MergeAction,
                             next.DeleteFiles,
                             next.DeleteGenerated,
+                            next.ResolutionAction == MergeAction && next.AttachFiles,
                             ParseMergeMetadata(next.MergeMetadataJson),
                             principal,
                             ct);
@@ -270,6 +278,8 @@ public sealed class DuplicateResolutionService(
                         resolved++;
                         if (result.FileGroup)
                             removedFiles += result.RemovedVideos;
+                        else if (result.Attached)
+                            attachedVideos += result.RemovedVideos;
                         else
                             removedVideos += result.RemovedVideos;
                         removedBytes += result.RemovedBytes;
@@ -330,11 +340,15 @@ public sealed class DuplicateResolutionService(
             }
 
             var removedParts = new List<string>();
-            if (removedVideos > 0 || removedFiles == 0)
+            if (removedVideos > 0 || (removedFiles == 0 && attachedVideos == 0))
                 removedParts.Add($"{removedVideos.ToString(CultureInfo.InvariantCulture)} videos");
             if (removedFiles > 0)
                 removedParts.Add($"{removedFiles.ToString(CultureInfo.InvariantCulture)} files");
-            var summary = $"Resolved {resolved.ToString(CultureInfo.InvariantCulture)} duplicate groups, removed {string.Join(" and ", removedParts)} ({FormatBytes(removedBytes)})";
+            var summary = $"Resolved {resolved.ToString(CultureInfo.InvariantCulture)} duplicate groups";
+            if (removedParts.Count > 0)
+                summary += $", removed {string.Join(" and ", removedParts)} ({FormatBytes(removedBytes)})";
+            if (attachedVideos > 0)
+                summary += $", merged {attachedVideos.ToString(CultureInfo.InvariantCulture)} videos into their kept copies with their files";
             if (failed > 0)
                 summary += $"; {failed.ToString(CultureInfo.InvariantCulture)} groups failed";
             progress.SetSummary(summary);
@@ -378,6 +392,7 @@ public sealed class DuplicateResolutionService(
         bool merge,
         bool deleteFiles,
         bool deleteGenerated,
+        bool attachFiles,
         VideoMergeMetadataDto? mergeMetadata,
         CovePrincipal? principal,
         CancellationToken ct)
@@ -435,14 +450,43 @@ public sealed class DuplicateResolutionService(
                 var decision = await authorization.AuthorizeAsync(principal, Permissions.VideosWrite, EntityRef.Of(EntityKinds.Video, keeperIds[0]), ct);
                 if (!decision.Allowed)
                     throw new UnauthorizedAccessException("You do not have permission to change the video being kept.");
+                if (attachFiles)
+                {
+                    // An attaching merge deletes the copies' records itself, so the per-video authorization
+                    // that the deletion pipeline does for a removal has to happen here, before anything moves.
+                    var decisions = await authorization.AuthorizeManyAsync(
+                        principal,
+                        Permissions.VideosDelete,
+                        removeIds.Select(id => EntityRef.Of(EntityKinds.Video, id)).ToArray(),
+                        ct);
+                    if (decisions.Any(item => !item.Allowed))
+                        throw new UnauthorizedAccessException("You do not have permission to merge away one of the copies.");
+                }
             }
-            // The duplicates' files leave with them, so the shared merge only carries metadata, engagement
-            // and whatever timeline-bound items fit the kept file. The deletion below removes the copies.
+            // With "remove" the duplicates' files leave with them, so the shared merge only carries metadata,
+            // engagement and whatever timeline-bound items fit the kept file, and the deletion below removes
+            // the copies. With "attach" the merge moves the files onto the kept video and deletes the emptied
+            // records in the same transaction, exactly as a merge from the video list does.
             using var mergeScope = CreatePrincipalScope(scopeFactory, principal);
             var result = await mergeScope.ServiceProvider.GetRequiredService<VideoMergeService>()
-                .MergeAsync(new VideoMergePlan(keeperIds[0], removeIds, VideoMergeFileHandling.Remove, mergeMetadata), ct);
+                .MergeAsync(
+                    new VideoMergePlan(
+                        keeperIds[0],
+                        removeIds,
+                        attachFiles ? VideoMergeFileHandling.Attach : VideoMergeFileHandling.Remove,
+                        mergeMetadata),
+                    ct);
             if (result.Outcome != VideoMergeOutcome.Merged)
-                throw new InvalidOperationException(result.Error ?? "The video to keep no longer exists.");
+            {
+                throw new InvalidOperationException(result.Error ?? (result.Outcome == VideoMergeOutcome.InvalidHierarchy
+                    ? "The video to keep is a clip of one of its copies, so they cannot be merged into it."
+                    : "The video to keep no longer exists."));
+            }
+            if (attachFiles)
+            {
+                // Nothing left the library or the disk, so no space was reclaimed.
+                return new GroupResolution(result.MergedVideoIds.Count, 0, null, Attached: true);
+            }
             if (result.TimelineKeptVideoIds.Count > 0)
                 warning = TimelineKeptWarning(result.TimelineKeptVideoIds.Count);
         }
@@ -685,5 +729,5 @@ public sealed class DuplicateResolutionService(
     }
 
     /// <summary><paramref name="RemovedVideos"/> counts removed files when <paramref name="FileGroup"/> is set.</summary>
-    private sealed record GroupResolution(int RemovedVideos, long RemovedBytes, string? Warning, bool FileGroup = false);
+    private sealed record GroupResolution(int RemovedVideos, long RemovedBytes, string? Warning, bool FileGroup = false, bool Attached = false);
 }
