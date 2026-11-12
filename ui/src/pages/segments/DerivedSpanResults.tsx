@@ -1,9 +1,7 @@
 import { useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
-import { ExternalLink, FolderOpen } from "lucide-react";
-import { faces, performers, tags } from "../../api/client";
+import { ExternalLink, Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
-import { SegmentTile } from "../../components/EntityCards";
+import { SegmentTile, SuggestedNameMarker } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -12,23 +10,29 @@ import {
   type MultiSelectToggleHandler,
 } from "../../hooks/useMultiSelect";
 import {
-  buildSpanTitle,
+  buildSpanDisplayTitle,
+  buildSpanTileSegment,
   type DerivedOperandNameMaps,
   formatDate,
-  formatDerivedOperandSummary,
+  formatShownTitle,
   formatSegmentCardEyebrow,
   formatSegmentDuration,
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,
+  spanFaceRoute,
+  spanUnnamedFaceId,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { DerivedSpanItem } from "./types";
+import { useDerivedOperandNameMaps } from "./useDerivedOperandNameMaps";
+import { useListedFaceNames, type ListedFaceName } from "./useListedFaceNames";
 
 interface Props {
   displayMode: DisplayMode;
   items: DerivedSpanItem[];
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selectedIds: Set<string | number>;
@@ -44,6 +48,7 @@ export function DerivedSpanResults({
   displayMode,
   items,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   onViewRawSegments,
   selectedIds,
@@ -54,58 +59,13 @@ export function DerivedSpanResults({
   isFetchingNextPage,
   loadMore,
 }: Props) {
-  const { tagIds, performerIds, faceIds } = useMemo(() => {
-    const tagSet = new Set<number>();
-    const performerSet = new Set<number>();
-    const faceSet = new Set<number>();
-    for (const item of items) {
-      const descriptor = item.derivedQueryDescriptor;
-      if (!descriptor) continue;
-      for (const operand of descriptor.operands) {
-        operand.tagIds?.forEach((id) => tagSet.add(id));
-        operand.performerIds?.forEach((id) => performerSet.add(id));
-        operand.faceIds?.forEach((id) => faceSet.add(id));
-      }
-    }
-    return {
-      tagIds: Array.from(tagSet),
-      performerIds: Array.from(performerSet),
-      faceIds: Array.from(faceSet),
-    };
-  }, [items]);
-
-  const tagQueries = useQueries({
-    queries: tagIds.map((id) => ({ queryKey: ["tag", id], queryFn: () => tags.get(id), staleTime: 60_000 })),
-  });
-  const performerQueries = useQueries({
-    queries: performerIds.map((id) => ({
-      queryKey: ["performer", id],
-      queryFn: () => performers.get(id),
-      staleTime: 60_000,
-    })),
-  });
-  const faceQueries = useQueries({
-    queries: faceIds.map((id) => ({ queryKey: ["face", id], queryFn: () => faces.get(id), staleTime: 60_000 })),
-  });
-
-  const nameMaps = useMemo<DerivedOperandNameMaps>(() => {
-    const tagNamesById = new Map<number, string>();
-    tagIds.forEach((id, index) => {
-      const tag = tagQueries[index]?.data;
-      if (tag) tagNamesById.set(id, tag.name);
-    });
-    const performerNamesById = new Map<number, string>();
-    performerIds.forEach((id, index) => {
-      const performer = performerQueries[index]?.data;
-      if (performer) performerNamesById.set(id, performer.name);
-    });
-    const faceLabelsById = new Map<number, string>();
-    faceIds.forEach((id, index) => {
-      const face = faceQueries[index]?.data;
-      if (face) faceLabelsById.set(id, face.label?.trim() || face.performerName?.trim() || `Face #${id}`);
-    });
-    return { tagNamesById, performerNamesById, faceLabelsById };
-  }, [faceIds, faceQueries, performerIds, performerQueries, tagIds, tagQueries]);
+  const operands = useMemo(() => items.flatMap((item) => item.derivedQueryDescriptor?.operands ?? []), [items]);
+  const nameMaps = useDerivedOperandNameMaps(operands);
+  const unnamedFaceIds = useMemo(
+    () => items.flatMap((item) => (item.kind === "derivedQuery" ? [] : (spanUnnamedFaceId(item.reference) ?? []))),
+    [items],
+  );
+  const faceNames = useListedFaceNames(unnamedFaceIds, canReadFaces);
   const listDensity = useSegmentListDensity();
 
   if (displayMode === "grid") {
@@ -120,7 +80,7 @@ export function DerivedSpanResults({
         isFetchingNextPage={isFetchingNextPage}
         loadMore={loadMore}
         renderItem={(item) => {
-          const title = buildSpanTitle(item.span, item.videoTitle);
+          const { title, titleIsSuggestion } = buildSpanDisplayTitle(item, nameMaps, faceNames);
           const route = {
             page: "video-span",
             id: item.videoId,
@@ -128,55 +88,23 @@ export function DerivedSpanResults({
             profileId: item.profileId,
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           };
-          const operandSummary = formatDerivedOperandSummary(item, nameMaps);
-          const coverSegmentId = item.coverSegmentId ?? item.span.segmentIds[0];
+          const videoRoute = { page: "video", id: item.videoId, seekTo: item.span.startSec } as const;
+          const faceRoute = canReadFaces ? spanFaceRoute(item) : undefined;
 
           return (
             <SegmentTile
-              segment={{
-                id: coverSegmentId ?? item.id,
-                hostType: "video",
-                hostId: item.videoId,
-                startSec: item.span.startSec,
-                endSec: item.span.endSec,
-                tagName: item.span.tagName,
-                kind: item.span.kind,
-                sourceKey: item.span.sourceKey,
-                title,
-                updatedAt: item.coverVersion ?? item.videoUpdatedAt,
-                hostTitle: item.videoTitle,
-              }}
+              segment={{ ...buildSpanTileSegment(item, title), titleIsSuggestion }}
               route={route}
-              label={`Open segment ${title}`}
+              label={`Open segment ${formatShownTitle(title, titleIsSuggestion)}`}
               eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}
               onClick={(toggleOptions) => (selecting ? onToggle(item.id, toggleOptions) : onNavigate(route))}
               selected={selectedIds.has(item.id)}
               onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
               selecting={selecting}
-              footer={
-                <div className="space-y-1.5">
-                  {operandSummary ? <div className="line-clamp-2 text-foreground">{operandSummary}</div> : null}
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Updated {formatDate(item.videoUpdatedAt)}</span>
-                    <div className="flex items-center gap-2">
-                      {canReadVideos ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onNavigate({ page: "video", id: item.videoId, seekTo: item.span.startSec });
-                          }}
-                          className="inline-flex items-center gap-1 text-accent hover:underline"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                          Open video
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              }
+              hostRoute={canReadVideos ? videoRoute : undefined}
+              onOpenHost={() => onNavigate(videoRoute)}
+              faceRoute={faceRoute}
+              onOpenFace={() => faceRoute && onNavigate(faceRoute)}
             />
           );
         }}
@@ -199,12 +127,14 @@ export function DerivedSpanResults({
             key={item.key}
             item={item}
             canReadVideos={canReadVideos}
+            canReadFaces={canReadFaces}
             onNavigate={onNavigate}
             onViewRawSegments={onViewRawSegments}
             selected={selectedIds.has(item.id)}
             onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
             nameMaps={nameMaps}
+            faceNames={faceNames}
             density={listDensity}
           />
         ))}
@@ -216,28 +146,32 @@ export function DerivedSpanResults({
 function DerivedSpanListRow({
   item,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   onViewRawSegments,
   selected,
   onToggle,
   selecting,
   nameMaps,
+  faceNames,
   density,
 }: {
   item: DerivedSpanItem;
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selected: boolean;
   onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   nameMaps?: DerivedOperandNameMaps;
+  faceNames: ReadonlyMap<number, ListedFaceName>;
   density: SegmentListDensity;
 }) {
-  const title = buildSpanTitle(item.span, item.videoTitle);
+  const { title, derivedName, titleIsSuggestion } = buildSpanDisplayTitle(item, nameMaps, faceNames);
   const primaryRawSegmentId = item.span.segmentIds[0];
   const coverSegmentId = item.coverSegmentId ?? primaryRawSegmentId;
-  const operandSummary = formatDerivedOperandSummary(item, nameMaps);
+  const faceRoute = canReadFaces ? spanFaceRoute(item) : undefined;
 
   return (
     <div
@@ -261,7 +195,7 @@ function DerivedSpanListRow({
             derivedQueryDescriptor: item.derivedQueryDescriptor,
           })
         }
-        label={`Open span ${title}`}
+        label={`Open span ${formatShownTitle(title, titleIsSuggestion)}`}
         disabled={selecting}
         selectionSafeZone
       />
@@ -280,24 +214,25 @@ function DerivedSpanListRow({
                   updatedAt={item.coverVersion ?? item.videoUpdatedAt}
                   startSec={item.span.startSec}
                   endSec={item.span.endSec}
-                  title={title}
+                  title={formatShownTitle(title, titleIsSuggestion)}
                   imgClassName="h-full w-full object-cover"
                 />
               </div>
             ) : null}
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">{title}</div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                {titleIsSuggestion ? <SuggestedNameMarker /> : null}
+              </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
-                {item.span.tagName ? <Pill>{item.span.tagName}</Pill> : null}
-                {item.span.kind ? <Pill>{item.span.kind}</Pill> : null}
+                {item.span.kind && !derivedName ? <Pill>{item.span.kind}</Pill> : null}
+                {item.reference?.faceSourceKey ? <Pill>{item.reference.faceSourceKey}</Pill> : null}
                 <Pill>{formatSegmentDuration(item.span.startSec, item.span.endSec)}</Pill>
+                {item.confidence != null ? <Pill>{Math.round(item.confidence * 100)}% confidence</Pill> : null}
                 <span>
                   {item.span.segmentIds.length} raw segment{item.span.segmentIds.length === 1 ? "" : "s"}
                 </span>
               </div>
-              {density.showSecondaryDetails && operandSummary ? (
-                <div className="mt-1 line-clamp-2 text-xs text-secondary">{operandSummary}</div>
-              ) : null}
             </div>
           </div>
         </div>
@@ -344,6 +279,20 @@ function DerivedSpanListRow({
               >
                 <FolderOpen className="h-3.5 w-3.5" />
                 Open video
+              </button>
+            ) : null}
+            {faceRoute ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onNavigate(faceRoute);
+                }}
+                className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                <Fingerprint className="h-3.5 w-3.5" />
+                Open face
               </button>
             ) : null}
           </div>

@@ -5,6 +5,7 @@ import type {
   SegmentSpanDerivedQuery,
   SegmentSpanOperand,
   SegmentSpanOperator,
+  SegmentSpanReference,
 } from "../../api/types";
 
 export interface DerivedSpanItem {
@@ -17,6 +18,8 @@ export interface DerivedSpanItem {
   coverSegmentId?: number;
   coverVersion?: string;
   span: ResolvedSpan;
+  reference?: SegmentSpanReference;
+  confidence?: number;
   profileId?: number;
   derivedQuery?: SegmentSpanDerivedQuery;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;

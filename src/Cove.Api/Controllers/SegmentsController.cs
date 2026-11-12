@@ -474,7 +474,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             // If we never crossed the page boundary we resolved the whole scope, so the count is exact and
             // free; otherwise it's unknown here and the spans/count endpoint supplies it.
             var exactTotal = earlyTerminated ? -1 : collected;
-            return Ok(new SegmentSpanSearchResponseDto(await WithCoverVersionsAsync(pageItems, ct), exactTotal, page, perPage, HasMore: earlyTerminated));
+            return Ok(new SegmentSpanSearchResponseDto(await AttachSpanDetailsAsync(pageItems, derivedQueryRequest != null, ct), exactTotal, page, perPage, HasMore: earlyTerminated));
         }
 
         // 3. Full path (segment-row filters or span-level sort): resolve all in-scope spans, filter, sort,
@@ -488,7 +488,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var finalOffset = (page - 1) * perPage;
         var finalPageItems = allItems.Skip(finalOffset).Take(perPage).ToList();
 
-        return Ok(new SegmentSpanSearchResponseDto(await WithCoverVersionsAsync(finalPageItems, ct), totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
+        return Ok(new SegmentSpanSearchResponseDto(await AttachSpanDetailsAsync(finalPageItems, derivedQueryRequest != null, ct), totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
     }
 
     /// <summary>
@@ -519,6 +519,106 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
                     CoverVersion = segmentsById[coverSegmentId].UpdatedAt.ToString("o"),
                 }
                 : item)
+            .ToList();
+    }
+
+    private async Task<List<SegmentSpanSearchResultItemDto>> AttachSpanDetailsAsync(List<SegmentSpanSearchResultItemDto> items, bool derived, CancellationToken ct)
+    {
+        items = await AttachSpanReferencesAsync(await WithCoverVersionsAsync(items, ct), ct);
+        return derived ? items : await AttachSpanConfidenceAsync(items, ct);
+    }
+
+    // Cards show a span's confidence the way the confidence sort reads it: the highest of its segments'. A
+    // derived span gets none, since its segments come from operands that score different things, the
+    // excluded operands of a difference included.
+    private async Task<List<SegmentSpanSearchResultItemDto>> AttachSpanConfidenceAsync(List<SegmentSpanSearchResultItemDto> items, CancellationToken ct)
+    {
+        var segmentIds = items.SelectMany(item => item.Span.SegmentIds).Where(id => id > 0).Distinct().ToList();
+        if (segmentIds.Count == 0)
+            return items;
+
+        var confidences = await db.Segments.AsNoTracking()
+            .Where(segment => segmentIds.Contains(segment.Id) && segment.Confidence != null)
+            .Select(segment => new { segment.Id, segment.Confidence })
+            .ToDictionaryAsync(segment => segment.Id, segment => segment.Confidence!.Value, ct);
+        if (confidences.Count == 0)
+            return items;
+
+        return items
+            .Select(item => item with
+            {
+                Confidence = item.Span.SegmentIds.Select(id => confidences.TryGetValue(id, out var value) ? value : (float?)null).Max(),
+            })
+            .ToList();
+    }
+
+    // Face and performer spans carry only their segments' stored title, which goes stale when a face is
+    // renamed or linked, so the returned page reads the current face and performer from each span's first
+    // segment. A profile span's kind is its segments' kind; derived-query spans (kind = the operator) mix
+    // several references and get none.
+    private async Task<List<SegmentSpanSearchResultItemDto>> AttachSpanReferencesAsync(List<SegmentSpanSearchResultItemDto> items, CancellationToken ct)
+    {
+        static bool IsFace(string? kind) => string.Equals(kind, "face", StringComparison.OrdinalIgnoreCase);
+        static bool IsPerformer(string? kind) => string.Equals(kind, "performer", StringComparison.OrdinalIgnoreCase);
+        static bool HasReference(ResolvedSpan span) =>
+            span.TagId is null && span.SegmentIds.Count > 0 && (IsFace(span.Kind) || IsPerformer(span.Kind));
+
+        var segmentIds = items.Where(item => HasReference(item.Span)).Select(item => item.Span.SegmentIds[0]).Distinct().ToList();
+        if (segmentIds.Count == 0)
+            return items;
+
+        var segmentRefs = (await db.Segments.AsNoTracking()
+                .Where(segment => segmentIds.Contains(segment.Id) && segment.RefId != null && segment.RefId <= int.MaxValue)
+                .Select(segment => new { segment.Id, segment.Kind, segment.RefId })
+                .ToListAsync(ct))
+            .Select(segment => (segment.Id, segment.Kind, RefId: (int)segment.RefId!.Value))
+            .ToList();
+
+        var faceIds = segmentRefs.Where(segment => IsFace(segment.Kind)).Select(segment => segment.RefId).Distinct().ToList();
+        var faces = faceIds.Count == 0
+            ? []
+            : (await db.Faces.AsNoTracking()
+                .Where(face => faceIds.Contains(face.Id))
+                .Select(face => new { face.Id, face.Label, face.PrimarySourceKey, face.PerformerId })
+                .ToListAsync(ct))
+            .ToDictionary(face => face.Id, face => (face.Id, face.Label, face.PrimarySourceKey, face.PerformerId));
+
+        var performerIds = faces.Values.Where(face => face.PerformerId != null).Select(face => face.PerformerId!.Value)
+            .Concat(segmentRefs.Where(segment => IsPerformer(segment.Kind)).Select(segment => segment.RefId))
+            .Distinct()
+            .ToList();
+        Dictionary<int, string> performerNames = performerIds.Count == 0
+            ? []
+            : await db.Performers.AsNoTracking()
+                .Where(performer => performerIds.Contains(performer.Id))
+                .Select(performer => new { performer.Id, performer.Name })
+                .ToDictionaryAsync(performer => performer.Id, performer => performer.Name, ct);
+
+        var references = new Dictionary<int, SegmentSpanReferenceDto>();
+        foreach (var segment in segmentRefs)
+        {
+            var refId = segment.RefId;
+            if (IsFace(segment.Kind) && faces.TryGetValue(refId, out var face))
+            {
+                references[segment.Id] = new SegmentSpanReferenceDto
+                {
+                    FaceId = face.Id,
+                    FaceLabel = face.Label,
+                    FaceSourceKey = face.PrimarySourceKey,
+                    PerformerId = face.PerformerId,
+                    PerformerName = face.PerformerId is { } linkedId ? performerNames.GetValueOrDefault(linkedId) : null,
+                };
+            }
+            else if (IsPerformer(segment.Kind) && performerNames.TryGetValue(refId, out var performerName))
+            {
+                references[segment.Id] = new SegmentSpanReferenceDto { PerformerId = refId, PerformerName = performerName };
+            }
+        }
+
+        return items
+            .Select(item => HasReference(item.Span) && references.TryGetValue(item.Span.SegmentIds[0], out var reference)
+                    ? item with { Reference = reference }
+                    : item)
             .ToList();
     }
 
@@ -772,7 +872,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     {
         return sort switch
         {
-            "random" => OrderSpanBy(items, item => SeededRandomKey(item.Span.SegmentIds.FirstOrDefault(), seed), descending),
+            "random" => OrderSpanBy(items, item => SeededRandomSpanKey(item, seed), descending),
             "start_sec" or "span_start" => OrderSpanBy(items, item => item.Span.StartSec, descending),
             "end_sec" or "span_end" => OrderSpanBy(items, item => item.Span.EndSec, descending),
             "duration" or "span_duration" => OrderSpanBy(items, item => item.Span.EndSec - item.Span.StartSec, descending),
@@ -791,6 +891,19 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             "host_id" => OrderSpanBy(items, item => item.Span.HostId, descending),
             _ => OrderSpanBy(items, item => item.VideoUpdatedAt ?? string.Empty, descending),
         };
+    }
+
+    // Derived spans cut from one long segment all share their first segment id, so the key folds in every segment
+    // id and the span's own position; it stays stable for a seed so pages of one shuffle line up.
+    private static long SeededRandomSpanKey(SegmentSpanSearchResultItemDto item, int? seed)
+    {
+        var key = SeededRandomKey(item.VideoId, seed);
+        foreach (var segmentId in item.Span.SegmentIds)
+        {
+            key = SeededRandomKey(segmentId, unchecked((int)key));
+        }
+
+        return SeededRandomKey(unchecked((int)Math.Round(item.Span.StartSec * 1000)), unchecked((int)key));
     }
 
     private static long SeededRandomKey(int id, int? seed)

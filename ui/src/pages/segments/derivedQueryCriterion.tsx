@@ -6,8 +6,13 @@ import type { FilterDialogCustomSection } from "../../components/filterCriteriaT
 import type { SegmentDerivedQueryDescriptor, SegmentSpanOperand, SegmentSpanOperator } from "../../api/types";
 import type { AppliedDerivedQuery, DerivedSpanOperandFilterValue, DerivedSpanQueryFilterValue } from "./types";
 import { compareNatural } from "../../utils/naturalCompare";
+import { formatKindLabel, formatSourceLabel } from "./segmentDisplayUtils";
 
-export function createDerivedSpanCustomFilterSection(scopeVideoIds: number[]): FilterDialogCustomSection {
+export function createDerivedSpanCustomFilterSection(
+  scopeVideoIds: number[],
+  // Names the active query in words for the filter chip; without it the chip counts operands.
+  describeQuery?: (filter: DerivedSpanQueryFilterValue) => string | undefined,
+): FilterDialogCustomSection {
   return {
     id: "derivedSpanQuery",
     label: "Derived Segments",
@@ -15,7 +20,14 @@ export function createDerivedSpanCustomFilterSection(scopeVideoIds: number[]): F
     defaultValue: createDefaultDerivedSpanQueryFilter(),
     isActive: isDerivedSpanQueryFilterActive,
     shouldKeepDraft: () => true,
-    summarize: summarizeDerivedSpanQuery,
+    summarize: (value) => {
+      const filter = readDerivedSpanQueryFilter(value);
+      const activeOperands = filter.operands.filter(isDerivedSpanOperandFilterActive);
+      return (
+        (activeOperands.length > 0 ? describeQuery?.({ ...filter, operands: activeOperands }) : undefined) ??
+        summarizeDerivedSpanQuery(value)
+      );
+    },
     renderEditor: (value, onChange) => (
       <DerivedSpanQueryEditor
         value={readDerivedSpanQueryFilter(value)}
@@ -159,17 +171,32 @@ function readDerivedSpanOperandFilter(value: unknown): DerivedSpanOperandFilterV
     minConfidence?: unknown;
   };
 
+  const tagIds = normalizeIdArray(operand.tagIds);
+  const performerIds = normalizeIdArray(operand.performerIds);
+  const faceIds = normalizeIdArray(operand.faceIds);
+  const kind = typeof operand.kind === "string" && operand.kind.trim().length > 0 ? operand.kind.trim() : undefined;
   return {
     sourceKey:
       typeof operand.sourceKey === "string" && operand.sourceKey.trim().length > 0
         ? operand.sourceKey.trim()
         : undefined,
-    kind: typeof operand.kind === "string" && operand.kind.trim().length > 0 ? operand.kind.trim() : undefined,
-    tagIds: normalizeIdArray(operand.tagIds),
-    performerIds: normalizeIdArray(operand.performerIds),
-    faceIds: normalizeIdArray(operand.faceIds),
+    kind: kind ?? inferOperandKind(tagIds, performerIds, faceIds),
+    tagIds,
+    performerIds,
+    faceIds,
     minConfidence: normalizeFiniteNumber(operand.minConfidence),
   };
+}
+
+// The editor only shows an operand's tag, performer or face picker for that kind, so a stored operand that names
+// one kind of entity without saying so (an older or hand-written link) is read as that kind.
+function inferOperandKind(tagIds: number[], performerIds: number[], faceIds: number[]) {
+  const kinds = [
+    tagIds.length > 0 ? "tag" : null,
+    performerIds.length > 0 ? "performer" : null,
+    faceIds.length > 0 ? "face" : null,
+  ].filter((kind): kind is string => kind != null);
+  return kinds.length === 1 ? kinds[0] : undefined;
 }
 
 function isDerivedSpanOperandFilterActive(operand: DerivedSpanOperandFilterValue) {
@@ -208,7 +235,12 @@ function buildAppliedDerivedOperand(
 
   return {
     sourceKey: operand.sourceKey,
-    kind: operand.kind,
+    // Picked performers are matched through the face detections linked to them, which are stored as face
+    // segments; a performer operand with none picked still matches performer segments.
+    kind:
+      normalizeOperandSelectorKind(operand.kind) === "performer" && operand.performerIds.length > 0
+        ? "face"
+        : operand.kind,
     tagIds: operand.tagIds.length > 0 ? operand.tagIds : undefined,
     refIds: refIds.length > 0 ? refIds : undefined,
     minConfidence: operand.minConfidence,
@@ -342,26 +374,6 @@ function DerivedSpanQueryEditor({
 
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               <label className="space-y-1.5 text-sm font-medium text-secondary">
-                <span>Source</span>
-                <select
-                  value={operand.sourceKey ?? ""}
-                  onChange={(event) => updateOperand(index, { sourceKey: event.target.value || undefined })}
-                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
-                >
-                  <option value="">Any source</option>
-                  {optionsLoading && sourceOptions.length === 0 ? (
-                    <option value="" disabled>
-                      Loading sources...
-                    </option>
-                  ) : null}
-                  {sourceOptions.map((sourceKey) => (
-                    <option key={sourceKey} value={sourceKey}>
-                      {sourceKey}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1.5 text-sm font-medium text-secondary">
                 <span>Kind</span>
                 <select
                   value={operand.kind ?? ""}
@@ -385,7 +397,27 @@ function DerivedSpanQueryEditor({
                   ) : null}
                   {kindOptions.map((kind) => (
                     <option key={kind} value={kind}>
-                      {kind}
+                      {formatKindLabel(kind)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5 text-sm font-medium text-secondary">
+                <span>Source</span>
+                <select
+                  value={operand.sourceKey ?? ""}
+                  onChange={(event) => updateOperand(index, { sourceKey: event.target.value || undefined })}
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
+                >
+                  <option value="">Any source</option>
+                  {optionsLoading && sourceOptions.length === 0 ? (
+                    <option value="" disabled>
+                      Loading sources...
+                    </option>
+                  ) : null}
+                  {sourceOptions.map((sourceKey) => (
+                    <option key={sourceKey} value={sourceKey}>
+                      {formatSourceLabel(sourceKey)}
                     </option>
                   ))}
                 </select>

@@ -112,7 +112,13 @@ import { emitLocationChange, historyStateForNewEntry, registerNavigationBlocker,
 import { buildSpanSearchRequest } from "./segments/useDerivedSpansQuery";
 import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
 import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
-import { buildSpanTitle, buildRawSegmentTitle, formatSegmentCardEyebrow } from "./segments/segmentDisplayUtils";
+import {
+  buildRawSegmentTitle,
+  buildSpanDisplayTitle,
+  buildSpanTileSegment,
+  formatSegmentCardEyebrow,
+} from "./segments/segmentDisplayUtils";
+import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
 import type { DerivedSpanItem, RawSegmentItem } from "./segments/types";
 import {
   buildAppliedDerivedQuery,
@@ -2555,6 +2561,8 @@ function SavedFilterRecommendationRow({
             coverSegmentId: item.coverSegmentId,
             coverVersion: item.coverVersion,
             span: item.span,
+            reference: item.reference,
+            confidence: item.confidence,
             profileId: item.profileId,
             derivedQuery: appliedQuery ?? undefined,
             derivedQueryDescriptor,
@@ -3197,8 +3205,13 @@ function EntityCard({
   }
 }
 
+const NO_OPERANDS: never[] = [];
+
+// A saved derived filter's cards are named after its query, as on the Segments page; other spans after their face,
+// performer or tag.
 function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNavigate: (r: any) => void }) {
-  const title = buildSpanTitle(item.span, item.videoTitle);
+  const nameMaps = useDerivedOperandNameMaps(item.derivedQueryDescriptor?.operands ?? NO_OPERANDS);
+  const { title } = buildSpanDisplayTitle(item, nameMaps);
   const route = {
     page: "video-span",
     id: item.videoId,
@@ -3208,19 +3221,7 @@ function DerivedSegmentCard({ item, onNavigate }: { item: DerivedSpanItem; onNav
   };
   return (
     <SegmentTile
-      segment={{
-        id: item.coverSegmentId ?? item.span.segmentIds[0] ?? item.id,
-        hostType: "video",
-        hostId: item.videoId,
-        startSec: item.span.startSec,
-        endSec: item.span.endSec,
-        tagName: item.span.tagName,
-        kind: item.span.kind,
-        sourceKey: item.span.sourceKey,
-        title,
-        updatedAt: item.coverVersion ?? item.videoUpdatedAt,
-        hostTitle: item.videoTitle,
-      }}
+      segment={buildSpanTileSegment(item, title)}
       route={route}
       label={`Open segment ${title}`}
       eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}

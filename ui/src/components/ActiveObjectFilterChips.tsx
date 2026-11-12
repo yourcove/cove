@@ -134,7 +134,9 @@ function formatRatingChipScalar(value: unknown, options?: RatingSystemOptions): 
 
 function formatOptionLabel(def: CriterionDefinition | undefined, value: unknown): string {
   const option = def?.options?.find((candidate) => candidate.value === String(value ?? ""));
-  return option?.label ?? formatChipScalar(value);
+  if (option) return option.label;
+  if (def?.formatOptionValue && value != null && value !== "") return def.formatOptionValue(String(value));
+  return formatChipScalar(value);
 }
 
 function getMultiEnumOptionValues(

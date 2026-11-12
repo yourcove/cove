@@ -1,6 +1,7 @@
-import { FolderOpen } from "lucide-react";
+import { useMemo } from "react";
+import { Fingerprint, FolderOpen } from "lucide-react";
 import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts";
-import { SegmentTile } from "../../components/EntityCards";
+import { SegmentTile, SuggestedNameMarker } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
 import {
@@ -10,20 +11,26 @@ import {
 } from "../../hooks/useMultiSelect";
 import {
   buildRawSegmentTitle,
+  formatShownTitle,
   formatDate,
   formatSegmentCardEyebrow,
   formatSourceLabel,
   formatSegmentRange,
   Pill,
   SegmentVideoPreview,
+  rawSegmentFaceRoute,
+  rawSegmentFaceName,
+  rawSegmentPlaceholderFaceId,
 } from "./segmentDisplayUtils";
 import { useSegmentListDensity, type SegmentListDensity } from "./segmentListDensity";
 import type { RawSegmentItem } from "./types";
+import { useListedFaceNames, type ListedFaceName } from "./useListedFaceNames";
 
 interface Props {
   displayMode: DisplayMode;
   items: RawSegmentItem[];
   canReadVideos: boolean;
+  canReadFaces: boolean;
   onNavigate: (route: any) => void;
   selectedIds: Set<string | number>;
   onToggle: MultiSelectToggleHandler<string | number>;
@@ -38,6 +45,7 @@ export function RawSegmentResults({
   displayMode,
   items,
   canReadVideos,
+  canReadFaces,
   onNavigate,
   selectedIds,
   onToggle,
@@ -48,6 +56,8 @@ export function RawSegmentResults({
   loadMore,
 }: Props) {
   const listDensity = useSegmentListDensity();
+  const placeholderFaceIds = useMemo(() => items.flatMap((item) => rawSegmentPlaceholderFaceId(item) ?? []), [items]);
+  const faceNames = useListedFaceNames(placeholderFaceIds, canReadFaces);
 
   if (displayMode === "grid") {
     return (
@@ -60,38 +70,29 @@ export function RawSegmentResults({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         loadMore={loadMore}
-        renderItem={(item) => (
-          <SegmentTile
-            segment={item}
-            label={`Open raw segment ${buildRawSegmentTitle(item)}`}
-            eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
-            onClick={(toggleOptions) =>
-              selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
-            }
-            selected={selectedIds.has(item.id)}
-            onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
-            selecting={selecting}
-            footer={
-              <div className="flex items-center justify-between gap-2">
-                <span>Updated {formatDate(item.updatedAt)}</span>
-                {canReadVideos ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
-                    }}
-                    className="inline-flex items-center gap-1 text-accent hover:underline"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    Open video
-                  </button>
-                ) : null}
-              </div>
-            }
-          />
-        )}
+        renderItem={(item) => {
+          const videoRoute = { page: "video", id: item.hostId, seekTo: item.startSec } as const;
+          const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
+          const faceName = rawSegmentFaceName(item, faceNames);
+          const title = faceName?.name ?? buildRawSegmentTitle(item);
+          return (
+            <SegmentTile
+              segment={faceName ? { ...item, title, titleIsSuggestion: faceName.suggested } : item}
+              label={`Open raw segment ${formatShownTitle(title, faceName?.suggested)}`}
+              eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
+              onClick={(toggleOptions) =>
+                selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
+              }
+              selected={selectedIds.has(item.id)}
+              onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
+              selecting={selecting}
+              hostRoute={canReadVideos ? videoRoute : undefined}
+              onOpenHost={() => onNavigate(videoRoute)}
+              faceRoute={faceRoute}
+              onOpenFace={() => faceRoute && onNavigate(faceRoute)}
+            />
+          );
+        }}
       />
     );
   }
@@ -105,6 +106,8 @@ export function RawSegmentResults({
             key={item.key}
             item={item}
             canReadVideos={canReadVideos}
+            canReadFaces={canReadFaces}
+            faceNames={faceNames}
             onNavigate={onNavigate}
             selected={selectedIds.has(item.id)}
             onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
@@ -133,6 +136,8 @@ export function RawSegmentListHeader() {
 export function RawSegmentListRow({
   item,
   canReadVideos,
+  canReadFaces,
+  faceNames,
   onNavigate,
   selected,
   onToggle,
@@ -141,13 +146,17 @@ export function RawSegmentListRow({
 }: {
   item: RawSegmentItem;
   canReadVideos: boolean;
+  canReadFaces: boolean;
+  faceNames?: ReadonlyMap<number, ListedFaceName>;
   onNavigate: (route: any) => void;
   selected: boolean;
   onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   density: SegmentListDensity;
 }) {
-  const title = buildRawSegmentTitle(item);
+  const faceRoute = canReadFaces ? rawSegmentFaceRoute(item) : undefined;
+  const faceName = faceNames ? rawSegmentFaceName(item, faceNames) : undefined;
+  const title = faceName?.name ?? buildRawSegmentTitle(item);
 
   return (
     <div
@@ -157,7 +166,7 @@ export function RawSegmentListRow({
       <RouteCardLinkOverlay
         route={{ page: "segment", id: item.id }}
         onClick={() => onNavigate({ page: "segment", id: item.id })}
-        label={`Open raw segment ${title}`}
+        label={`Open raw segment ${formatShownTitle(title, faceName?.suggested)}`}
         disabled={selecting}
         selectionSafeZone
       />
@@ -176,13 +185,16 @@ export function RawSegmentListRow({
                   updatedAt={item.updatedAt}
                   startSec={item.startSec}
                   endSec={item.endSec}
-                  title={title}
+                  title={formatShownTitle(title, faceName?.suggested)}
                   imgClassName="h-full w-full object-cover"
                 />
               </div>
             ) : null}
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">{title}</div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                {faceName?.suggested ? <SuggestedNameMarker /> : null}
+              </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
                 {item.tagName ? <Pill>{item.tagName}</Pill> : null}
                 {item.kind ? <Pill>{item.kind}</Pill> : null}
@@ -195,20 +207,36 @@ export function RawSegmentListRow({
         <div className="hidden text-xs text-secondary lg:block">{formatSegmentRange(item.startSec, item.endSec)}</div>
         <div className="min-w-0 text-xs text-secondary lg:text-sm">
           <div className="truncate text-foreground">{item.videoTitle}</div>
-          {canReadVideos ? (
+          {canReadVideos || faceRoute ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
-                }}
-                className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                Open video
-              </button>
+              {canReadVideos ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onNavigate({ page: "video", id: item.hostId, seekTo: item.startSec });
+                  }}
+                  className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Open video
+                </button>
+              ) : null}
+              {faceRoute ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onNavigate(faceRoute);
+                  }}
+                  className="relative z-10 inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  <Fingerprint className="h-3.5 w-3.5" />
+                  Open face
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

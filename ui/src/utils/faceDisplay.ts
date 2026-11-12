@@ -52,3 +52,14 @@ function suggestedName(face: FaceNameFields): string | undefined {
 export function faceDisplayName(face: FaceNameFields): string {
   return faceStoredName(face) ?? suggestedName(face) ?? `Face #${face.id}`;
 }
+
+/**
+ * The name a face shows: its own name, else its top suggested performer flagged as a suggestion. Undefined when
+ * it has neither.
+ */
+export function faceShownName(face: FaceNameFields): { name: string; suggested: boolean } | undefined {
+  const stored = faceStoredName(face);
+  if (stored) return { name: stored, suggested: false };
+  const suggested = suggestedName(face);
+  return suggested ? { name: suggested, suggested: true } : undefined;
+}

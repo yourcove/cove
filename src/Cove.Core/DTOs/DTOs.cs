@@ -832,6 +832,23 @@ public record SegmentSpanSearchResultItemDto(
     /// touches the segment, not its video.
     /// </summary>
     public string? CoverVersion { get; init; }
+
+    // The face or performer a face or performer span refers to, read from its first segment. Null for every
+    // other span, derived-query spans included.
+    public SegmentSpanReferenceDto? Reference { get; init; }
+
+    // The highest confidence among the span's segments, the value the segment_confidence sort orders by.
+    // Null when none of them has one, and for every derived-query span.
+    public float? Confidence { get; init; }
+}
+
+public sealed record SegmentSpanReferenceDto
+{
+    public int? FaceId { get; init; }
+    public string? FaceLabel { get; init; }
+    public string? FaceSourceKey { get; init; }
+    public int? PerformerId { get; init; }
+    public string? PerformerName { get; init; }
 }
 
 public record SegmentSpanSearchResponseDto(

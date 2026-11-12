@@ -116,6 +116,7 @@ import {
   useRelatedDetailListUrlState,
 } from "../hooks/useDetailListUrlState";
 import { createSegmentCriteria } from "./segments/segmentCriteriaDefinitions";
+import { formatKindLabel, formatSourceLabel } from "./segments/segmentDisplayUtils";
 import { readRawSegmentListFilter } from "./segments/rawSegmentFilter";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
@@ -1537,11 +1538,11 @@ function TagSegmentsPanel({
       createSegmentCriteria({
         sourceOptions: (sourceOptionsQuery.data ?? []).map((option) => ({
           value: option.value,
-          label: `${option.value} (${option.count})`,
+          label: formatSourceLabel(option.value),
         })),
         kindOptions: (kindOptionsQuery.data ?? []).map((option) => ({
           value: option.value,
-          label: `${option.value} (${option.count})`,
+          label: formatKindLabel(option.value),
         })),
       }),
     [kindOptionsQuery.data, sourceOptionsQuery.data],

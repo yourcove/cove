@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Face } from "../api/types";
-import { faceDisplayName, faceStoredName } from "../utils/faceDisplay";
+import { faceDisplayName, faceShownName, faceStoredName } from "../utils/faceDisplay";
 
 function makeFace(overrides: Partial<Face> = {}): Face {
   return {
@@ -53,5 +53,20 @@ describe("faceDisplayName", () => {
     expect(
       faceDisplayName(makeFace({ label: "face-1", primarySourceKey: "face-37008", topSuggestion: suggestion })),
     ).toBe("face-1");
+  });
+});
+
+describe("faceShownName", () => {
+  it("shows a face's own name, else its suggestion flagged as one", () => {
+    expect(
+      faceShownName(makeFace({ label: "face-37008", primarySourceKey: "face-37008", topSuggestion: suggestion })),
+    ).toEqual({ name: "Nasia Jansen", suggested: true });
+    expect(
+      faceShownName(makeFace({ label: "Amber Moore", primarySourceKey: "face-2076", topSuggestion: suggestion })),
+    ).toEqual({ name: "Amber Moore", suggested: false });
+    expect(
+      faceShownName(makeFace({ performerId: 4, performerName: "Harley Dean", topSuggestion: suggestion })),
+    ).toEqual({ name: "Harley Dean", suggested: false });
+    expect(faceShownName(makeFace({ label: "face-37008", primarySourceKey: "face-37008" }))).toBeUndefined();
   });
 });

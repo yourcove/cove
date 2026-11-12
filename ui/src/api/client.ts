@@ -962,6 +962,8 @@ type FaceListOptions = {
 export const faces: {
   list: (opts?: FaceListOptions) => Promise<PaginatedResponse<Face>>;
   get: (id: number) => Promise<Face>;
+  /** The given faces, as the faces list shows them; merged-away and missing ids are left out. */
+  findByIds: (ids: number[]) => Promise<PaginatedResponse<Face>>;
   appearances: (
     id: number,
     opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number },
@@ -1069,6 +1071,11 @@ export const faces: {
       )}`,
     ),
   get: (id: number) => request<Face>(`/faces/${id}`),
+  findByIds: (ids: number[]) =>
+    request<PaginatedResponse<Face>>("/faces/find", {
+      method: "POST",
+      body: JSON.stringify({ findFilter: { page: 1, perPage: ids.length }, objectFilter: { ids } }),
+    }),
   appearances: (
     id: number,
     opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number },

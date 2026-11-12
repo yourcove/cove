@@ -34,6 +34,7 @@ const { mockHomePageContent, mocks } = vi.hoisted(() => {
       studiosFindFiltered: vi.fn(async () => emptyPage),
       tagsFind: vi.fn(async () => emptyPage),
       tagsFindFiltered: vi.fn(async () => emptyPage),
+      tagGet: vi.fn(async (id: number): Promise<any> => ({ id, name: `Tag #${id}` })),
       galleriesFind: vi.fn(async () => emptyPage),
       galleriesFindFiltered: vi.fn(async () => emptyPage),
       groupsFind: vi.fn(async () => emptyPage),
@@ -74,7 +75,7 @@ vi.mock("../api/client", () => ({
   entityImages: { segmentCoverUrl: (id: number) => `/api/segments/${id}/cover` },
   performers: { find: mocks.performersFind, findFiltered: mocks.performersFindFiltered },
   studios: { find: mocks.studiosFind, findFiltered: mocks.studiosFindFiltered },
-  tags: { find: mocks.tagsFind, findFiltered: mocks.tagsFindFiltered },
+  tags: { find: mocks.tagsFind, findFiltered: mocks.tagsFindFiltered, get: mocks.tagGet },
   galleries: { find: mocks.galleriesFind, findFiltered: mocks.galleriesFindFiltered },
   groups: {
     find: mocks.groupsFind,
@@ -516,7 +517,7 @@ describe("HomePage random rows", () => {
     renderHomePage(onNavigate);
 
     expect(await screen.findByText("Saved Spans")).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: /Span result/ })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /Tag #9/ })).toHaveAttribute(
       "href",
       expect.stringContaining("/video/21/span/span-1"),
     );
@@ -539,6 +540,45 @@ describe("HomePage random rows", () => {
     expect(onNavigate).toHaveBeenCalledWith(
       expect.objectContaining({ page: "segments", profileId: 7, listView: "list" }),
     );
+  });
+
+  it("names a saved derived query's cards after the query instead of its operator", async () => {
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 12 }]);
+    mocks.tagGet.mockImplementation(async (id: number) => ({ id, name: id === 9 ? "Dancing" : "Singing" }));
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 12,
+      mode: "segments",
+      name: "Saved Query",
+      findFilter: JSON.stringify({ sort: "updated_at", direction: "desc" }),
+      objectFilter: JSON.stringify({
+        derivedSpanQuery: {
+          operator: "intersection",
+          operands: [
+            { kind: "tag", tagIds: [9], performerIds: [], faceIds: [] },
+            { kind: "tag", tagIds: [10], performerIds: [], faceIds: [] },
+          ],
+        },
+      }),
+      uiOptions: JSON.stringify({ profileId: 7 }),
+    });
+    mocks.segmentSpansSearch.mockResolvedValueOnce({
+      items: [
+        {
+          videoId: 21,
+          videoTitle: "Video result",
+          span: { spanKey: "span-1", startSec: 2, endSec: 8, segmentIds: [31, 32], kind: "intersection" },
+        },
+      ],
+      totalCount: 1,
+      hasMore: false,
+      page: 1,
+      perPage: 25,
+    });
+
+    renderHomePage(vi.fn());
+
+    expect(await screen.findByRole("link", { name: /Dancing with Singing/ })).toBeInTheDocument();
+    expect(screen.queryByText("intersection")).not.toBeInTheDocument();
   });
 
   it("loads raw segments and opens View All in raw mode", async () => {
