@@ -114,6 +114,51 @@ describe("useMediaRecoveryController", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("ignores a stalled download while paused with playable data", () => {
+    const media = createMedia();
+    media.currentTime = 24;
+    const mediaRef = { current: media };
+    const setBuffering = vi.fn();
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering,
+      }),
+    );
+
+    act(() => result.current.stalled(media, "pause"));
+    act(() => vi.advanceTimersByTime(8_000));
+    expect(result.current.phase).toBe("healthy");
+    expect(setBuffering).not.toHaveBeenCalled();
+    expect(media.load).not.toHaveBeenCalled();
+
+    act(() => result.current.stalled(media, "play"));
+    expect(result.current.phase).toBe("stalled");
+    expect(setBuffering).toHaveBeenLastCalledWith(true);
+  });
+
+  it("treats a stalled download as a stall while paused without playable data", () => {
+    const media = { ...createMedia(), readyState: HTMLMediaElement.HAVE_METADATA } as unknown as HTMLVideoElement;
+    const mediaRef = { current: media };
+    const setBuffering = vi.fn();
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering,
+      }),
+    );
+
+    act(() => result.current.stalled(media, "pause"));
+    expect(result.current.phase).toBe("stalled");
+    expect(setBuffering).toHaveBeenLastCalledWith(true);
+  });
+
   it("finishes a stall only after playback makes meaningful progress", () => {
     const media = createMedia();
     media.currentTime = 24;

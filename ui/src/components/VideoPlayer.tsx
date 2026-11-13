@@ -1034,6 +1034,7 @@ export function VideoPlayer({
   const {
     phase: mediaRecoveryPhase,
     waiting: recordMediaWaiting,
+    stalled: recordMediaStalled,
     networkError: recordMediaNetworkError,
     metadataLoaded: recordMediaMetadataLoaded,
     canPlay: recordMediaCanPlay,
@@ -2193,7 +2194,7 @@ export function VideoPlayer({
           recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
         }}
         onStalled={(event) => {
-          recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
+          recordMediaStalled(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
         }}
         onCanPlay={(event) => {
           recordMediaCanPlay(event.currentTarget);
