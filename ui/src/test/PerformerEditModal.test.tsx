@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformerEditModal } from "../pages/PerformerEditModal";
@@ -345,7 +345,7 @@ describe("PerformerEditModal", () => {
     const input = screen.getByPlaceholderText("Search tags...");
     fireEvent.change(input, { target: { value: "Novel" } });
     const createOption = await screen.findByRole("option", { name: "Create “Novel”" });
-    input.focus();
+    act(() => input.focus());
     await user.keyboard("{ArrowDown}");
     expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
 

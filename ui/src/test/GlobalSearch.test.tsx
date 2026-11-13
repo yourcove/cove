@@ -88,7 +88,7 @@ describe("GlobalSearch", () => {
     });
     const { navigate } = renderSearch();
     const input = screen.getByRole("combobox", { name: "Search all..." });
-    input.focus();
+    act(() => input.focus());
 
     fireEvent.change(input, { target: { value: "test" } });
     await act(async () => {
@@ -124,7 +124,7 @@ describe("GlobalSearch", () => {
   it("clears, closes, and blurs global search on Escape", () => {
     renderSearch();
     const input = screen.getByRole("combobox", { name: "Search all..." });
-    input.focus();
+    act(() => input.focus());
     fireEvent.change(input, { target: { value: "test" } });
 
     fireEvent.keyDown(input, { key: "Escape" });
