@@ -112,7 +112,7 @@ export const KEEPER_RULES: KeeperRuleDefinition[] = [
     type: "engagement",
     label: "Most watched",
     short: "watch history",
-    description: "Plays, favorites, O-counts and ratings.",
+    description: "Plays, favorites, likes and ratings.",
   },
   { type: "organized", label: "Organized first", short: "organized", description: "Videos marked organized win." },
   {
