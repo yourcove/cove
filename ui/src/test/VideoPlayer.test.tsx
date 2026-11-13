@@ -815,6 +815,37 @@ describe("VideoPlayer source lifecycle", () => {
     );
   });
 
+  it("shows no spinner and starts no recovery for a stalled download after pausing", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_ENOUGH_DATA });
+    fireEvent.play(video);
+    fireEvent.pause(video);
+    loadMock.mockClear();
+
+    fireEvent.stalled(video);
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector('[data-testid="video-player-paused-affordance"]')).not.toBeNull();
+    act(() => vi.advanceTimersByTime(8_000));
+    expect(loadMock).not.toHaveBeenCalled();
+
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    fireEvent.stalled(video);
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    act(() => vi.advanceTimersByTime(8_000));
+    expect(loadMock).toHaveBeenCalledOnce();
+  });
+
   it("cancels the stall watchdog when playback becomes ready again", () => {
     vi.useFakeTimers();
     const { container } = render(

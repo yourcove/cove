@@ -36,6 +36,7 @@ interface UseMediaRecoveryControllerOptions {
 export interface MediaRecoveryController {
   phase: MediaRecoveryPhase;
   waiting: (media: HTMLVideoElement, playIntent: MediaPlayIntent) => void;
+  stalled: (media: HTMLVideoElement, playIntent: MediaPlayIntent) => void;
   networkError: (media: HTMLVideoElement, playIntent: MediaPlayIntent, probeServer: boolean) => void;
   metadataLoaded: () => void;
   canPlay: (media: HTMLVideoElement) => void;
@@ -201,6 +202,17 @@ export function useMediaRecoveryController({
     [dispatch],
   );
 
+  const stalled = useCallback(
+    (media: HTMLVideoElement, playIntent: MediaPlayIntent) => {
+      // `stalled` only says the browser stopped receiving data. Safari on iOS stops fetching a paused
+      // video and reports that as a stall, and a paused video that can already play emits no later
+      // `canplay` or `playing` to clear the spinner — so it is not a playback stall worth recovering.
+      if (playIntent === "pause" && media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      waiting(media, playIntent);
+    },
+    [waiting],
+  );
+
   const networkError = useCallback(
     (media: HTMLVideoElement, playIntent: MediaPlayIntent, probeServer: boolean) => {
       if (probeServer) reportServerConnectionFailure();
@@ -257,6 +269,7 @@ export function useMediaRecoveryController({
     () => ({
       phase,
       waiting,
+      stalled,
       networkError,
       metadataLoaded,
       canPlay,
@@ -277,6 +290,7 @@ export function useMediaRecoveryController({
       phase,
       playing,
       retry,
+      stalled,
       userPause,
       userPlay,
       userSeek,
