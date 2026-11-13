@@ -23,7 +23,7 @@ vi.mock("../api/client", () => ({
   performers: {},
   groups: {},
   studios: {},
-  tags: {},
+  tags: { lookup: vi.fn().mockResolvedValue([]) },
   entityImages: {},
   customFields: { list: vi.fn().mockResolvedValue([]) },
 }));
