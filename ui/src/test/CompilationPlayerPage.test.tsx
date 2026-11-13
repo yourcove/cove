@@ -27,6 +27,16 @@ class ResizeObserverMock {
 
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+  // Keep the player's transcode ladder lookup in flight rather than letting it fail against the
+  // network after a synchronous test ends, which would update the player outside act.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>((input) =>
+      String(input).includes("/resolutions")
+        ? new Promise<Response>(() => {})
+        : Promise.resolve(new Response(null, { status: 200 })),
+    ),
+  );
   vi.stubGlobal("localStorage", localStorageMock);
 
   Object.defineProperty(HTMLMediaElement.prototype, "play", {

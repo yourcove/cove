@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Lightbox } from "../components/Lightbox";
 
 vi.mock("../api/client", () => ({
-  entityEngagement: { get: vi.fn().mockResolvedValue(undefined) },
+  // The API answers null for an image nobody has engaged with yet.
+  entityEngagement: { get: vi.fn().mockResolvedValue(null) },
   images: { incrementLike: vi.fn() },
   playback: { recordIntervals: vi.fn().mockResolvedValue(undefined) },
 }));

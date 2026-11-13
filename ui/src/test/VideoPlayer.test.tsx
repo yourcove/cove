@@ -34,7 +34,14 @@ vi.mock("../state/AppConfigContext", () => ({
 const playMock = vi.fn(() => Promise.resolve());
 const pauseMock = vi.fn();
 const loadMock = vi.fn();
-const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(new Response(null, { status: 200 })));
+// The player looks up its transcode ladder on mount. Unless a test supplies a ladder, keep that
+// lookup in flight: a lookup that settles after a synchronous test ends updates the player
+// outside act.
+const defaultFetch: typeof fetch = (input) =>
+  String(input).includes("/resolutions")
+    ? new Promise<Response>(() => {})
+    : Promise.resolve(new Response(null, { status: 200 }));
+const fetchMock = vi.fn<typeof fetch>(defaultFetch);
 const localStorageMock = {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
@@ -83,8 +90,8 @@ describe("VideoPlayer source lifecycle", () => {
     playMock.mockResolvedValue(undefined);
     pauseMock.mockClear();
     loadMock.mockClear();
+    // Resetting restores defaultFetch, the implementation the mock was created with.
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
     mockPlaybackTracker.setTarget.mockClear();
     mockPlaybackTracker.recordInterval.mockClear();
     mockPlaybackTracker.flush.mockClear();
@@ -2255,6 +2262,11 @@ describe("VideoPlayer source lifecycle", () => {
 });
 
 describe("VideoPlayer seek-bar preview", () => {
+  beforeEach(() => {
+    // Resetting restores defaultFetch, the implementation the mock was created with.
+    fetchMock.mockReset();
+  });
+
   // Twelve 10-second tiles laid out four per row on a 640x270 sheet.
   const sprites = {
     entries: Array.from({ length: 12 }, (_, i) => ({

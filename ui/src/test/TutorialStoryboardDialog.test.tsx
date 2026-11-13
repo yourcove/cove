@@ -1,14 +1,24 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TutorialStoryboardDialog, builtinTutorialTopics } from "../components/TutorialStoryboardDialog";
 import { createManualOpenRequest } from "../components/ManualContext";
+import { LazyMarkdown } from "../components/LazyMarkdown";
 import type { ExtensionTutorialTopic } from "../api/types";
 
 const sharedFeatureGuideModules = import.meta.glob("../../../docs/feature-guides/*.json", {
   eager: true,
   import: "default",
 }) as Record<string, { schemaVersion?: number; id?: string }>;
+
+// Manual articles render through a Markdown renderer that loads on first use. Load it before any
+// test, so each test sees rendered Markdown whatever order the tests run in, and so a load started
+// by one test cannot finish while a later test runs.
+beforeAll(async () => {
+  render(<LazyMarkdown>{"**ready**"}</LazyMarkdown>);
+  await screen.findByText("ready", { selector: "strong" });
+  cleanup();
+});
 
 describe("TutorialStoryboardDialog", () => {
   it("locks background page scrolling while the manual is open", () => {

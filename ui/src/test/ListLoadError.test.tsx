@@ -1,10 +1,14 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ListLoadError } from "../components/ListLoadError";
 import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
 
 describe("ListLoadError", () => {
-  afterEach(() => resetServerAvailabilityForTests());
+  afterEach(() => {
+    // Unmount first, so the reset does not update a still-mounted component outside act.
+    cleanup();
+    resetServerAvailabilityForTests();
+  });
 
   it("explains a confirmed outage without exposing the raw API error", () => {
     render(<ListLoadError error={new Error("API Error 502:")} title="Could not load video" />);

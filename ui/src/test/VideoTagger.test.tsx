@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, focusManager, onlineManager } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoTagger } from "../components/VideoTagger";
@@ -2575,8 +2575,10 @@ describe("VideoTagger", () => {
 
         const summary = await findApplyAllSummary();
         expect(summary).toHaveTextContent("Cancelled. Applied 0, not attempted 1.");
-        lookup.answer(noMatches);
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await act(async () => {
+          lookup.answer(noMatches);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
         expect(mocks.importFromMetadataServer).not.toHaveBeenCalled();
       });
 

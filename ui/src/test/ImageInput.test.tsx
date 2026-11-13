@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageInput } from "../components/ImageInput";
 
@@ -61,7 +61,7 @@ describe("ImageInput", () => {
     await waitFor(() => expect(onUpload).toHaveBeenCalledOnce());
     fireEvent.drop(dropTarget, { dataTransfer: { files: [file] } });
     expect(onUpload).toHaveBeenCalledOnce();
-    finishUpload?.();
+    await act(async () => finishUpload?.());
   });
 
   it("disables other inputs while loading an image URL", async () => {

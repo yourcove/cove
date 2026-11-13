@@ -512,7 +512,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     expect(screen.getByTestId("unrelated-handler")).toHaveTextContent("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh extensions" }));
-    await ownedLoadStarted;
+    await act(() => ownedLoadStarted);
     fireEvent.click(screen.getByRole("button", { name: "Recheck ownership" }));
 
     expect(screen.getByTestId("owned-component")).toHaveTextContent("true");
@@ -710,7 +710,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     await waitFor(() => expect(screen.getByText("Alpha component slot")).toBeInTheDocument());
 
     view.rerender(tree("beta"));
-    await alphaUnloadStarted;
+    await act(() => alphaUnloadStarted);
     await waitFor(() => expect(screen.getByText("Beta component slot")).toBeInTheDocument());
     expect(document.querySelector('link[data-extension-id="ext.beta"]')).toHaveAttribute("href", "/beta.css?v=2");
 

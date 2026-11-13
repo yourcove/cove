@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -381,7 +381,7 @@ describe("EntityReferenceMultiSelector", () => {
     const input = screen.getByPlaceholderText("Search tags...");
     fireEvent.change(input, { target: { value: "Novel" } });
     const createOption = await screen.findByRole("option", { name: "Create “Novel”" });
-    input.focus();
+    act(() => input.focus());
     await user.keyboard("{ArrowDown}");
     expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
 
@@ -439,7 +439,7 @@ describe("EntityReferenceMultiSelector", () => {
     const input = screen.getByPlaceholderText("Search tags...");
     fireEvent.change(input, { target: { value: "Exist" } });
     const createOption = await screen.findByRole("option", { name: "Create “Exist”" });
-    input.focus();
+    act(() => input.focus());
     await user.keyboard("{ArrowDown}{ArrowDown}");
     expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
 
@@ -496,7 +496,7 @@ describe("EntityReferenceSelector", () => {
 
     const input = screen.getByRole("combobox");
     const clear = screen.getByRole("button", { name: "Clear selected tag" });
-    clear.focus();
+    act(() => clear.focus());
     await user.keyboard("{Enter}");
 
     expect(onChange).toHaveBeenCalledWith(undefined);

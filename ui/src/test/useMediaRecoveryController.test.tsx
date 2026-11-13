@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMediaRecoveryController } from "../components/useMediaRecoveryController";
 import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
@@ -23,6 +23,8 @@ describe("useMediaRecoveryController", () => {
   });
 
   afterEach(() => {
+    // Unmount first, so the reset does not update a still-mounted hook outside act.
+    cleanup();
     vi.useRealTimers();
     resetServerAvailabilityForTests();
     vi.unstubAllGlobals();

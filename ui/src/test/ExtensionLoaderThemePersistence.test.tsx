@@ -195,7 +195,9 @@ describe("ExtensionLoaderProvider theme persistence", () => {
       resolveInitialLoad = resolve;
     });
     mocks.getManifest.mockReturnValueOnce(initialLoad);
-    mocks.getManifest.mockRejectedValueOnce(new Error("API Error 500: manifest unavailable"));
+    const refreshFailure = new Error("API Error 500: manifest unavailable");
+    mocks.getManifest.mockRejectedValueOnce(refreshFailure);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     renderLoader();
     expect(screen.getByTestId("loaded")).toHaveTextContent("false");
@@ -214,6 +216,7 @@ describe("ExtensionLoaderProvider theme persistence", () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(SELECTED_THEME_ID);
     expect(mocks.updateUiPreferences).not.toHaveBeenCalled();
     expect(screen.getByTestId("active-theme")).toHaveTextContent(SELECTED_THEME_ID);
+    expect(warn).toHaveBeenCalledWith("[ExtensionLoader] Failed to refresh manifest:", refreshFailure);
   });
 
   // Themes are declarative, so the app need not sit behind every extension module import to know its
