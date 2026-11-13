@@ -425,7 +425,9 @@ describe("VideoMergeEditor primary file", () => {
 
   it("falls back to the dialog when the direct switch is refused, without merging again", async () => {
     withFiles();
-    api.apply.mockRejectedValue(new Error("The primary file changed while this dialog was open."));
+    const refusal = new Error("The primary file changed while this dialog was open.");
+    api.apply.mockRejectedValue(refusal);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { onMerged } = setup();
     fireEvent.click(await screen.findByLabelText("Make video-1.mp4 the primary file"));
     fireEvent.click(screen.getByRole("button", { name: "Merge & attach 1 copy" }));
@@ -434,5 +436,7 @@ describe("VideoMergeEditor primary file", () => {
     expect(screen.queryByRole("button", { name: "Merge & attach 1 copy" })).not.toBeInTheDocument();
     expect(api.merge).toHaveBeenCalledTimes(1);
     expect(onMerged).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("Setting the primary file after the merge did not go through directly.", refusal);
+    warn.mockRestore();
   });
 });
