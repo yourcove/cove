@@ -1,5 +1,5 @@
 import { QueryClientProvider, useMutation } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MutationFailureNotice } from "../components/MutationFailureNotice";
 import { createAppQueryClient } from "../queryClient";
@@ -36,6 +36,8 @@ function renderAction(options: { rollsBack?: boolean; suppressNotice?: boolean }
 
 describe("MutationFailureNotice", () => {
   afterEach(() => {
+    // Unmount first, so the resets do not update a still-mounted component outside act.
+    cleanup();
     resetMutationFailureForTests();
     resetServerAvailabilityForTests();
   });

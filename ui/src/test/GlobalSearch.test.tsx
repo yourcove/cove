@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearch } from "../components/GlobalSearch";
 import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
@@ -29,7 +29,11 @@ function renderSearch(navigate = vi.fn()) {
   return { navigate, queryClient };
 }
 
-afterEach(() => resetServerAvailabilityForTests());
+afterEach(() => {
+  // Unmount first, so the reset does not update a still-mounted component outside act.
+  cleanup();
+  resetServerAvailabilityForTests();
+});
 
 describe("GlobalSearch", () => {
   beforeEach(() => {
