@@ -92,7 +92,12 @@ const { state, mocks } = vi.hoisted(() => ({
     })),
     segmentSpansCount: vi.fn(async (_request?: any): Promise<any> => ({ totalCount: 0, duration: 0 })),
     groupsFind: vi.fn(async (): Promise<any> => ({ items: [], totalCount: 0 })),
-    groupItemsPage: vi.fn(async (): Promise<any> => ({ items: [], totalCount: 0, page: 1, perPage: 12 })),
+    groupItemsPage: vi.fn(async (_groupId?: number, _filter?: { page?: number }): Promise<any> => ({
+      items: [],
+      totalCount: 0,
+      page: 1,
+      perPage: 12,
+    })),
     groupGet: vi.fn(),
     groupsFindFiltered: vi.fn(),
     savedFilterGet: vi.fn(),
@@ -884,23 +889,27 @@ describe("HomePage dashboards", () => {
   });
 
   it("shows a group row's total items rather than the page it shows", async () => {
-    mocks.groupItemsPage.mockResolvedValue({
-      items: [
-        {
-          id: 1,
-          groupId: 9,
-          orderIndex: 0,
-          kind: "video",
-          videoId: 501,
-          hostType: "video",
-          hostId: 501,
-          videoTitle: "Grouped video",
-        },
-      ],
+    // Only the first page holds an item; repeating it on later pages would duplicate it in the row.
+    mocks.groupItemsPage.mockImplementation(async (_groupId, filter) => ({
+      items:
+        (filter?.page ?? 1) === 1
+          ? [
+              {
+                id: 1,
+                groupId: 9,
+                orderIndex: 0,
+                kind: "video",
+                videoId: 501,
+                hostType: "video",
+                hostId: 501,
+                videoTitle: "Grouped video",
+              },
+            ]
+          : [],
       totalCount: 40,
-      page: 1,
+      page: filter?.page ?? 1,
       perPage: 25,
-    });
+    }));
     state.active = dashboard(1, "Home", true, [
       {
         instanceId: "group",
@@ -928,27 +937,34 @@ describe("HomePage dashboards", () => {
     };
     mocks.viewSavedFilters = [savedFilter];
     mocks.savedFilterGet.mockImplementation(async () => savedFilter);
-    mocks.segmentSpansSearch.mockResolvedValue({
-      items: [
-        {
-          videoId: 601,
-          videoTitle: "Spanned video",
-          profileId: 2,
-          span: {
-            spanKey: "s1",
-            hostType: "video",
-            hostId: 601,
-            startSec: 10,
-            endSec: 20,
-            collapsedToInstant: false,
-            segmentIds: [9],
-          },
-        },
-      ],
-      totalCount: -1,
-      hasMore: true,
-      page: 1,
-      perPage: 25,
+    // Only the first page holds a span; repeating it on later pages would duplicate it in the row.
+    mocks.segmentSpansSearch.mockImplementation(async (request) => {
+      const page = request?.page ?? 1;
+      return {
+        items:
+          page === 1
+            ? [
+                {
+                  videoId: 601,
+                  videoTitle: "Spanned video",
+                  profileId: 2,
+                  span: {
+                    spanKey: "s1",
+                    hostType: "video",
+                    hostId: 601,
+                    startSec: 10,
+                    endSec: 20,
+                    collapsedToInstant: false,
+                    segmentIds: [9],
+                  },
+                },
+              ]
+            : [],
+        totalCount: -1,
+        hasMore: page === 1,
+        page,
+        perPage: 25,
+      };
     });
     state.active = dashboard(1, "Home", true, [
       {
