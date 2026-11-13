@@ -23,6 +23,7 @@ import {
 } from "./ActiveObjectFilterChips";
 import { pushOverlay } from "../utils/overlayState";
 import { useOptionalAuth } from "../auth/optionalAuth";
+import { useSfwMode } from "../state/AppConfigContext";
 import {
   FILTER_EXPRESSION_STATE_KEY,
   countFilterExpressionConditions,
@@ -151,6 +152,7 @@ export function FilterDialog({
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const auth = useOptionalAuth();
+  const sfwMode = useSfwMode();
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
   const [relatedWorkspaceSelection, setRelatedWorkspaceSelection] = useState<{
     facet: RelatedFilterChipFacet;
@@ -224,12 +226,12 @@ export function FilterDialog({
         .filter(
           (criterion) => !conditionDraft || (criterion.supported !== false && criterion.expressionSupported !== false),
         )
-        // A criterion the user may not use stays listed only while active, so a loaded filter can still be removed.
+        // A criterion the user may not use, or that SFW mode hides, stays listed only while active, so a loaded filter
+        // can still be seen and removed.
         .filter(
           (criterion) =>
-            !criterion.requiredPermission ||
-            !auth ||
-            auth.hasPermission(criterion.requiredPermission) ||
+            ((!criterion.requiredPermission || !auth || auth.hasPermission(criterion.requiredPermission)) &&
+              !(sfwMode && criterion.hiddenInSfwMode)) ||
             isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion) ||
             expressionHasActiveCriterion(
               editFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined,
@@ -244,7 +246,7 @@ export function FilterDialog({
           return a.label.localeCompare(b.label);
         })
     );
-  }, [auth, conditionDraft, criteria, editFilter, search]);
+  }, [auth, conditionDraft, criteria, editFilter, search, sfwMode]);
 
   const activeCriterionCount = useMemo(() => {
     const criteriaCount = criteria.filter((criterion) =>

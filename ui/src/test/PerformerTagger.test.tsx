@@ -6,6 +6,7 @@ import { PerformerTagger } from "../components/PerformerTagger";
 import type { Performer } from "../api/types";
 
 const mocks = vi.hoisted(() => ({
+  sfwMode: { current: false },
   listScrapers: vi.fn(),
   tagsFind: vi.fn(),
   previewScrape: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => mocks.sfwMode.current,
   useAppConfig: () => ({
     config: {
       scraping: { metadataServers: mocks.metadataServers },
@@ -57,6 +59,7 @@ function renderTagger(performers: Performer[], mode: "bulk" | "detail" = "bulk")
 describe("PerformerTagger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.sfwMode.current = false;
     mocks.metadataServers.splice(0);
     mocks.listScrapers.mockResolvedValue([
       {
@@ -181,6 +184,50 @@ describe("PerformerTagger", () => {
       ),
     );
   });
+
+  it.each([
+    [true, { measurements: "ignore", fakeTits: "ignore", tattoos: "ignore", piercings: "ignore" }],
+    [false, {}],
+  ])(
+    "with SFW mode %s, a metadata server import leaves the adult-oriented fields alone only in SFW mode",
+    async (sfwMode, hiddenFieldStrategies) => {
+      const user = userEvent.setup();
+      mocks.sfwMode.current = sfwMode;
+      mocks.metadataServers.push({ endpoint: "https://first.example/graphql", name: "First" });
+      mocks.findMetadataServerByIds.mockResolvedValue([
+        {
+          endpoint: "https://first.example/graphql",
+          id: "first-remote",
+          name: "Same Name",
+          aliases: [],
+          urls: [],
+          deleted: false,
+        },
+      ]);
+      const performer = {
+        id: 1,
+        name: "Same Name",
+        favorite: false,
+        urls: [],
+        aliases: [],
+        tags: [],
+        remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-remote" }],
+      } as unknown as Performer;
+
+      renderTagger([performer], "detail");
+      await user.click(await screen.findByRole("button", { name: "Refresh from First" }));
+      await user.click(await screen.findByRole("button", { name: /^Apply/ }));
+
+      await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledTimes(1));
+      const strategies = mocks.importFromMetadataServer.mock.calls[0][1].fieldStrategies;
+      const hidden = Object.fromEntries(
+        Object.entries(strategies).filter(([key]) =>
+          ["measurements", "fakeTits", "tattoos", "piercings"].includes(key),
+        ),
+      );
+      expect(hidden).toEqual(hiddenFieldStrategies);
+    },
+  );
 
   describe("which scraped tags are in the library", () => {
     const performer: Performer = {

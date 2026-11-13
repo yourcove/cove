@@ -632,6 +632,7 @@ public class ConfigService
             FaviconPath = ui.FaviconPath,
             LogoPath = ui.LogoPath,
             TroubleshootingModeEnabled = ui.TroubleshootingModeEnabled,
+            SfwMode = ui.SfwMode,
             AbbreviateCounters = ui.AbbreviateCounters,
             RatingSystemOptions = new RatingSystemOptionsDto
             {
@@ -684,6 +685,7 @@ public class ConfigService
         ui.FaviconPath = string.IsNullOrWhiteSpace(dto.FaviconPath) ? null : dto.FaviconPath.Trim();
         ui.LogoPath = string.IsNullOrWhiteSpace(dto.LogoPath) ? null : dto.LogoPath.Trim();
         ui.TroubleshootingModeEnabled = dto.TroubleshootingModeEnabled;
+        ui.SfwMode = dto.SfwMode;
         ui.AbbreviateCounters = dto.AbbreviateCounters;
         ui.RatingSystemOptions = new RatingSystemOptions
         {

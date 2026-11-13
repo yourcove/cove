@@ -104,7 +104,7 @@ import {
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { splitFilterExpression } from "../utils/filterExpressionTree";
 import { faceDisplayName } from "../utils/faceDisplay";
-import { useAppConfig } from "../state/AppConfigContext";
+import { useAppConfig, useSfwMode } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { CountryLabel } from "../components/Country";
@@ -140,6 +140,7 @@ const TEXT_SORT = TEXT_SORT_OPTIONS;
 
 export function PerformerDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
+  const sfwMode = useSfwMode();
   const { hasPermission, user } = useAuth();
   const {
     data: performer,
@@ -496,7 +497,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="weight"
                 />
               )}
-              {performer.measurements && (
+              {!sfwMode && performer.measurements && (
                 <InfoItem
                   label="Measurements"
                   value={performer.measurements}
@@ -520,7 +521,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="hair_color"
                 />
               )}
-              {performer.fakeTits && (
+              {!sfwMode && performer.fakeTits && (
                 <InfoItem
                   label="Fake Tits"
                   value={performer.fakeTits}
@@ -528,7 +529,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="fake_tits"
                 />
               )}
-              {performer.penisLength != null && (
+              {!sfwMode && performer.penisLength != null && (
                 <InfoItem
                   label="Penis Length"
                   value={`${performer.penisLength} cm`}
@@ -536,7 +537,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="penis_length"
                 />
               )}
-              {performer.circumcised && (
+              {!sfwMode && performer.circumcised && (
                 <InfoItem
                   label="Circumcised"
                   value={performer.circumcised}
@@ -544,7 +545,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="circumcised"
                 />
               )}
-              {performer.tattoos && (
+              {!sfwMode && performer.tattoos && (
                 <InfoItem
                   label="Tattoos"
                   value={performer.tattoos}
@@ -552,7 +553,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   fieldKey="tattoos"
                 />
               )}
-              {performer.piercings && (
+              {!sfwMode && performer.piercings && (
                 <InfoItem
                   label="Piercings"
                   value={performer.piercings}
@@ -794,7 +795,8 @@ function PerformerAttributeSimilarityPanel({
   performer: PerformerModel;
   onNavigate: (r: any) => void;
 }) {
-  const attributeQueries = useMemo(() => buildPerformerAttributeQueries(performer), [performer]);
+  const sfwMode = useSfwMode();
+  const attributeQueries = useMemo(() => buildPerformerAttributeQueries(performer, sfwMode), [performer, sfwMode]);
   const queryResults = useQueries({
     queries: attributeQueries.map((query) => ({
       queryKey: ["performer", performer.id, "similar-attribute", query.key, query.value],
@@ -850,7 +852,8 @@ function PerformerAttributeSimilarityPanel({
       <div>
         <h2 className="text-base font-semibold text-foreground">Similar Performers by Attributes</h2>
         <p className="mt-1 text-sm text-secondary">
-          Matches are grouped from shared ethnicity, hair color, measurements, height, country, and eye color.
+          Matches are grouped from shared ethnicity, hair color, {sfwMode ? "" : "measurements, "}height, country, and
+          eye color.
         </p>
       </div>
 
@@ -915,7 +918,7 @@ function SimilarPerformerAttributeCard({
   );
 }
 
-function buildPerformerAttributeQueries(performer: PerformerModel) {
+function buildPerformerAttributeQueries(performer: PerformerModel, sfwMode: boolean) {
   const queries: { key: string; label: string; value: string | number; objectFilter: PerformerFilterCriteria }[] = [];
   const addString = (
     key: string,
@@ -935,7 +938,7 @@ function buildPerformerAttributeQueries(performer: PerformerModel) {
 
   addString("ethnicity", "Ethnicity", performer.ethnicity, "ethnicityCriterion");
   addString("hairColor", "Hair", performer.hairColor, "hairColorCriterion");
-  addString("measurements", "Measurements", performer.measurements, "measurementsCriterion");
+  if (!sfwMode) addString("measurements", "Measurements", performer.measurements, "measurementsCriterion");
   addString("country", "Country", performer.country, "countryCriterion");
   addString("eyeColor", "Eyes", performer.eyeColor, "eyeColorCriterion");
 

@@ -5,6 +5,7 @@ import { savedFilters as savedFiltersApi } from "../api/client";
 import type { RelatedFilterCriterion } from "../api/types";
 import type { RelatedFilterChipFacet } from "./ActiveObjectFilterChips";
 import { getRelatedCriteria } from "./filterCriteriaCatalogs";
+import { useSfwMode } from "../state/AppConfigContext";
 import {
   getCriterionFilterValue,
   isCriterionValueValid,
@@ -45,6 +46,7 @@ export function RelatedFilterWorkspace({
   const resultPlural = criterion.relatedResultLabel ?? (entityType === "performers" ? "videos" : "performers");
   const relativePronoun = entityType === "performers" ? "who" : "that";
   const EntityIcon = entityType === "performers" ? Users : entityType === "audios" ? Headphones : Film;
+  const sfwMode = useSfwMode();
   const nestedCriteria = useMemo(
     () => [
       ...(criterion.relatedContextCriteria ?? []),
@@ -180,7 +182,10 @@ export function RelatedFilterWorkspace({
   const activeCriteria = filteredCriteria.filter((candidate) =>
     isCriterionValueValid(getNestedValue(candidate), candidate),
   );
-  const inactiveCriteria = filteredCriteria.filter((candidate) => !activeCriteria.includes(candidate));
+  // SFW mode stops offering adult-oriented criteria; an already active one stays listed above.
+  const inactiveCriteria = filteredCriteria.filter(
+    (candidate) => !activeCriteria.includes(candidate) && !(sfwMode && candidate.hiddenInSfwMode),
+  );
   const activeConditionCount =
     nestedCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate)).length +
     (related.findFilter?.q?.trim() ? 1 : 0);
@@ -369,7 +374,7 @@ export function RelatedFilterWorkspace({
                 <div className="space-y-1">{inactiveCriteria.map(renderCriterionRow)}</div>
               </section>
             ) : null}
-            {!showTextSearch && filteredCriteria.length === 0 ? (
+            {!showTextSearch && activeCriteria.length + inactiveCriteria.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-muted">No filters match “{criteriaSearch}”.</div>
             ) : null}
           </div>

@@ -73,6 +73,7 @@ vi.mock("../hooks/useDetailListQuery", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => false,
   useAppConfig: () => ({ config: {} }),
   useOptionalAppConfig: () => null,
 }));

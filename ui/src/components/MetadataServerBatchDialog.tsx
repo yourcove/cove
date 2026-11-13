@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload, Loader2, RefreshCw, X } from "lucide-react";
 import { performers, studios, tags } from "../api/client";
 import type { MetadataServer } from "../api/types";
-import { useAppConfig } from "../state/AppConfigContext";
+import { useAppConfig, useSfwMode } from "../state/AppConfigContext";
+import { SFW_HIDDEN_METADATA_BATCH_FIELDS } from "./sfwPerformerFields";
 
 type MetadataBatchEntity = "performer" | "studio" | "tag";
 
@@ -58,11 +59,14 @@ const EXCLUDE_FIELD_OPTIONS: Record<MetadataBatchEntity, Array<{ id: string; lab
 
 // Stable fallback, so the reset below only sees a new list when the configured servers change.
 const NO_METADATA_SERVERS: MetadataServer[] = [];
+const NO_FIELDS: readonly string[] = [];
 
 export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClose, onQueued }: Props) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const metadataServers = config?.scraping.metadataServers ?? NO_METADATA_SERVERS;
+  // SFW mode hides the adult-oriented performer fields here and always keeps their current values.
+  const sfwHiddenFields = useSfwMode() && entityType === "performer" ? SFW_HIDDEN_METADATA_BATCH_FIELDS : NO_FIELDS;
   const batchDefaults = config?.scraping.metadataBatchDefaults;
 
   const [endpoint, setEndpoint] = useState("");
@@ -98,7 +102,10 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
   }
 
   const entityCopy = ENTITY_COPY[entityType];
-  const fieldOptions = useMemo(() => EXCLUDE_FIELD_OPTIONS[entityType], [entityType]);
+  const fieldOptions = useMemo(
+    () => EXCLUDE_FIELD_OPTIONS[entityType].filter((option) => !sfwHiddenFields.includes(option.id)),
+    [entityType, sfwHiddenFields],
+  );
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -111,11 +118,12 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
         throw new Error(`Select at least one ${entityCopy.singular}.`);
       }
 
+      const keptFields = [...new Set([...excludeFields, ...sfwHiddenFields])];
       const request = {
         endpoint,
         ids: selectedIds,
         refreshAlreadyTagged,
-        excludeFields: excludeFields.length > 0 ? excludeFields : undefined,
+        excludeFields: keptFields.length > 0 ? keptFields : undefined,
       };
 
       switch (entityType) {

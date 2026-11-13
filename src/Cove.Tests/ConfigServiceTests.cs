@@ -91,6 +91,38 @@ public sealed class ConfigServiceTests
     }
 
     [Fact]
+    public async Task UiUpdate_PersistsSfwMode()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "cove-config.json");
+        var configuration = new CoveConfiguration();
+        var service = new ConfigService(
+            configuration,
+            NullLogger<ConfigService>.Instance,
+            configPath);
+
+        try
+        {
+            Assert.False(configuration.Ui.SfwMode);
+
+            var updated = await service.UpdateUiConfigAsync(ui => ui with { SfwMode = true });
+
+            var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
+                JsonOptions);
+            Assert.True(updated.SfwMode);
+            Assert.True(configuration.Ui.SfwMode);
+            Assert.NotNull(persisted);
+            Assert.True(persisted.Ui.SfwMode);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task AddMenuItems_AppendsOnlyMissingPagesAndPersists()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-config-service-{Guid.NewGuid():N}");

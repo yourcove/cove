@@ -8,7 +8,6 @@ import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { Users, User } from "lucide-react";
@@ -20,7 +19,10 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
-import { PERFORMER_MULTI_SORT_KEYS, PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
+import { PERFORMER_MULTI_SORT_KEYS } from "../components/performerSortOptions";
+import { usePerformerSortOptions } from "../components/sfwPerformerFields";
+import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
+import { useSfwMode } from "../state/AppConfigContext";
 import { CustomFieldsEditor } from "../components/shared";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { WallMediaCard } from "../components/WallMediaCard";
@@ -29,8 +31,6 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
 import { CountrySelect } from "../components/Country";
-
-const SORT_OPTIONS = PERFORMER_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -57,6 +57,7 @@ export function PerformersPage({ onNavigate }: Props) {
     allowedDisplayModes: ["grid", "list", "wall", "tagger"] as const,
     allowInfinitePageSize: true,
   });
+  const sortOptions = usePerformerSortOptions(filter.sort);
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const [showCreate, setShowCreate] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
@@ -131,7 +132,7 @@ export function PerformersPage({ onNavigate }: Props) {
         onRetry={() => {
           void listData.refetch();
         }}
-        sortOptions={SORT_OPTIONS}
+        sortOptions={sortOptions}
         multiSortKeys={PERFORMER_MULTI_SORT_KEYS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
@@ -304,6 +305,7 @@ export function PerformerCreateModal({
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
+  const sfwMode = useSfwMode();
   const qc = useQueryClient();
   const [name, setName] = useState(open ? initialName.trim() : "");
   const [disambiguation, setDisambiguation] = useState("");
@@ -433,14 +435,16 @@ export function PerformerCreateModal({
           </Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Tattoos">
-            <TextInput value={tattoos} onChange={setTattoos} />
-          </Field>
-          <Field label="Piercings">
-            <TextInput value={piercings} onChange={setPiercings} />
-          </Field>
-        </div>
+        {!sfwMode && (
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Tattoos">
+              <TextInput value={tattoos} onChange={setTattoos} />
+            </Field>
+            <Field label="Piercings">
+              <TextInput value={piercings} onChange={setPiercings} />
+            </Field>
+          </div>
+        )}
 
         <Field label="Details">
           <TextArea value={details} onChange={setDetails} placeholder="Bio / notes" rows={2} />

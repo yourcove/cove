@@ -15,6 +15,7 @@ import { SelectedTagChips, type SelectableTag } from "../components/TagSelector"
 import { TagChipHover } from "../components/TagProvenanceHover";
 import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 import { CountrySelect } from "../components/Country";
+import { useSfwMode } from "../state/AppConfigContext";
 import { changedUpdateFields, hasUpdateChanges } from "../utils/changedUpdateFields";
 import { applyFormFields, untouchedFieldUpdates, type FormFieldSetters } from "../utils/rebaseEditForm";
 
@@ -132,6 +133,7 @@ function performerUpdatePayload(values: PerformerFormValues): PerformerUpdate {
 }
 
 export function PerformerEditModal({ performer, open, onClose }: Props) {
+  const sfwMode = useSfwMode();
   const queryClient = useQueryClient();
 
   const [name, setName] = useState(performer.name);
@@ -447,42 +449,48 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
           <Field label="Weight (kg)" fieldProvenance={performer.fieldProvenance} fieldKey="weight">
             <NumberInput value={weight} onChange={setWeight} min={20} max={300} />
           </Field>
-          <Field label="Measurements" fieldProvenance={performer.fieldProvenance} fieldKey="measurements">
-            <TextInput value={measurements} onChange={setMeasurements} placeholder="34D-24-34" />
-          </Field>
+          {!sfwMode && (
+            <Field label="Measurements" fieldProvenance={performer.fieldProvenance} fieldKey="measurements">
+              <TextInput value={measurements} onChange={setMeasurements} placeholder="34D-24-34" />
+            </Field>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Tattoos" fieldProvenance={performer.fieldProvenance} fieldKey="tattoos">
-            <TextInput value={tattoos} onChange={setTattoos} />
-          </Field>
-          <Field label="Piercings" fieldProvenance={performer.fieldProvenance} fieldKey="piercings">
-            <TextInput value={piercings} onChange={setPiercings} />
-          </Field>
-        </div>
+        {!sfwMode && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Tattoos" fieldProvenance={performer.fieldProvenance} fieldKey="tattoos">
+                <TextInput value={tattoos} onChange={setTattoos} />
+              </Field>
+              <Field label="Piercings" fieldProvenance={performer.fieldProvenance} fieldKey="piercings">
+                <TextInput value={piercings} onChange={setPiercings} />
+              </Field>
+            </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <Field label="Fake Tits" fieldProvenance={performer.fieldProvenance} fieldKey="fakeTits">
-            <TextInput value={fakeTits} onChange={setFakeTits} placeholder="e.g. Augmented" />
-          </Field>
-          <Field label="Penis Length (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="penisLength">
-            <NumberInput value={penisLength} onChange={setPenisLength} min={0} max={50} />
-          </Field>
-          <Field label="Circumcised" fieldProvenance={performer.fieldProvenance} fieldKey="circumcised">
-            <select
-              value={circumcised}
-              onChange={(e) => setCircumcised(e.target.value)}
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-            >
-              <option value="">—</option>
-              {CIRCUMCISED_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Fake Tits" fieldProvenance={performer.fieldProvenance} fieldKey="fakeTits">
+                <TextInput value={fakeTits} onChange={setFakeTits} placeholder="e.g. Augmented" />
+              </Field>
+              <Field label="Penis Length (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="penisLength">
+                <NumberInput value={penisLength} onChange={setPenisLength} min={0} max={50} />
+              </Field>
+              <Field label="Circumcised" fieldProvenance={performer.fieldProvenance} fieldKey="circumcised">
+                <select
+                  value={circumcised}
+                  onChange={(e) => setCircumcised(e.target.value)}
+                  className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="">—</option>
+                  {CIRCUMCISED_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Career Start" fieldProvenance={performer.fieldProvenance} fieldKey="careerStart">

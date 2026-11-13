@@ -250,6 +250,11 @@ public class UiConfig
     /// <summary>Path or uploaded asset used as the app logo in the top-left of the navbar. Null = built-in Cove logo.</summary>
     public string? LogoPath { get; set; }
     public bool TroubleshootingModeEnabled { get; set; }
+    /// <summary>
+    /// Hides adult-oriented fields and features in the interface, for libraries that hold no adult content.
+    /// It only changes what the interface shows: stored data and the API are unaffected.
+    /// </summary>
+    public bool SfwMode { get; set; }
     public bool AbbreviateCounters { get; set; }
     public RatingSystemOptions RatingSystemOptions { get; set; } = new();
     public bool ShowStudioAsText { get; set; }

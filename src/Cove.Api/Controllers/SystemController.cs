@@ -110,6 +110,7 @@ public class SystemController(
         )
         {
             MigrationInProgress = migrations?.Phase,
+            SfwMode = coveConfiguration.Ui.SfwMode,
         });
     }
 

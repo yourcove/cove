@@ -1495,6 +1495,12 @@ public record SystemStatusDto(
     /// none is. Lets a page opened during the migration show its progress instead of offering to start it.
     /// </summary>
     public string? MigrationInProgress { get; init; }
+
+    /// <summary>
+    /// Whether the interface hides adult-oriented fields and features. Reported here, not only in the
+    /// config, so it reaches users who cannot read the system configuration.
+    /// </summary>
+    public bool SfwMode { get; init; }
 }
 
 public record CoveConfigDto
@@ -1684,6 +1690,7 @@ public record UiConfigDto
     public string? FaviconPath { get; init; }
     public string? LogoPath { get; init; }
     public bool TroubleshootingModeEnabled { get; init; }
+    public bool SfwMode { get; init; }
     public bool AbbreviateCounters { get; init; }
     public RatingSystemOptionsDto RatingSystemOptions { get; init; } = new();
     public bool ShowStudioAsText { get; init; }

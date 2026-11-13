@@ -1115,14 +1115,14 @@ public sealed partial class UserEngagementService(
 
         // Wipe ONLY system-collected (implicit) engagement: playback sessions/intervals, user-global
         // sessions, behavioral interactions, derived likes, watch time, view/complete counts, dwell, and
-        // page visits. Explicit signals the user set deliberately — ratings, likes ("orgasm count"),
+        // page visits. Explicit signals the user set deliberately — ratings, likes,
         // favorites, and bookmarks/save-for-later — are PRESERVED. Used to clear data poisoned by a bug.
         await db.Set<PlaybackInterval>().Where(i => i.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.PlaybackSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.UserSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.Set<VideoPlayHistory>().IgnoreQueryFilters().Where(h => h.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
 
-        // Delete every behavioral interaction except the explicit LikeCount ("orgasm count") events.
+        // Delete every behavioral interaction except the explicit LikeCount events.
         await db.Interactions
             .Where(i => i.UserId == userId.Value && i.Kind != InteractionKind.LikeCount)
             .ExecuteDeleteAsync(cancellationToken);

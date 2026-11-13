@@ -134,6 +134,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       : [{ path: "", excludeVideo: false, excludeImage: false, excludeAudio: false, excludeText: false }],
   );
   const [error, setError] = useState<string | null>(null);
+  const [sfwMode, setSfwMode] = useState(config.ui?.sfwMode ?? false);
   const [stashDbPath, setStashDbPath] = useState("");
   const [stashPreview, setStashPreview] = useState<StashPreviewResult | null>(null);
   const [stashResult, setStashResult] = useState<StashImportResult | null>(null);
@@ -320,6 +321,8 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     mutationFn: (cfg: CoveConfig) => system.saveConfig(cfg),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      // The status carries SFW mode to every user, so the choice made here has to reach it too.
+      queryClient.invalidateQueries({ queryKey: ["system-status"] });
       goToPostContentSetup();
     },
     onError: (err: Error) => setError(err.message),
@@ -371,6 +374,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     const updatedConfig: CoveConfig = {
       ...config,
       covePaths: validPaths,
+      ui: { ...config.ui, sfwMode },
     };
     saveMut.mutate(updatedConfig);
   };
@@ -1002,6 +1006,22 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   ))}
                 </div>
               </div>
+
+              <label className="mb-6 flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+                <input
+                  type="checkbox"
+                  checked={sfwMode}
+                  onChange={(e) => setSfwMode(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-foreground">SFW mode</span>
+                  <span className="mt-1 block text-xs text-secondary">
+                    Hides adult-oriented performer fields, such as measurements and tattoos, for everyone using this
+                    Cove. Leave it off for an adult library. You can change this later in Settings.
+                  </span>
+                </span>
+              </label>
 
               {error && (
                 <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 mb-4 text-sm text-red-300">
