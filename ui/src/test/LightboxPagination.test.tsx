@@ -9,7 +9,8 @@ import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 
 vi.mock("../api/client", () => ({
-  entityEngagement: { get: vi.fn().mockResolvedValue(undefined) },
+  // The API answers null for an image nobody has engaged with yet.
+  entityEngagement: { get: vi.fn().mockResolvedValue(null) },
   images: { incrementLike: vi.fn().mockResolvedValue(0) },
   playback: { recordIntervals: vi.fn().mockResolvedValue(undefined) },
 }));

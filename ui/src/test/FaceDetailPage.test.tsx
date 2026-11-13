@@ -3,7 +3,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FaceDetailPage } from "../pages/FaceDetailPage";
 
-const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth } = vi.hoisted(() => ({
+const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, noDeleteImpact } = vi.hoisted(() => ({
+  noDeleteImpact: {
+    detectionCount: 0,
+    embeddingCount: 0,
+    segmentCount: 0,
+    hasCoverImage: false,
+    releasedMergedFaceCount: 0,
+  },
   mockFaces: {
     get: vi.fn(),
     similar: vi.fn(),
@@ -233,7 +240,7 @@ describe("FaceDetailPage", () => {
     mockAuth.canWrite = true;
     mockFaces.get.mockResolvedValue(linkedFace);
     mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
-    mockFaces.deleteImpact.mockResolvedValue(undefined);
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
     mockFaces.similar.mockResolvedValue({
       items: [
         similarFace({ id: 17, label: "Dracuina" }),
@@ -266,7 +273,7 @@ describe("FaceDetailPage", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     mockFaces.get.mockResolvedValue(linkedFace);
     mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: true, canSuggest: false });
-    mockFaces.deleteImpact.mockResolvedValue(undefined);
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
     mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
     mockFaces.detections.mockResolvedValue([]);
     mockFaces.appearances.mockResolvedValue({
