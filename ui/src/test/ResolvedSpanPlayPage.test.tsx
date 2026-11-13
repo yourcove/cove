@@ -251,6 +251,7 @@ describe("ResolvedSpanPlayPage", () => {
     mockVideos.segments.spanDetail.mockResolvedValue(detail);
     mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });
     mockVideos.get.mockResolvedValue(buildVideo());
+    mockSegmentDisplayProfiles.get.mockResolvedValue({ id: 3, name: "Default Profile" });
 
     renderPage({
       spanKey: detail.span.spanKey,
