@@ -339,6 +339,11 @@ describe("VideoCard navigation", () => {
   }
 
   it("shows the hovered absolute timestamp above the video scrub preview bar", () => {
+    // Hovering starts the sprite load. Keep it in flight so it cannot settle after this synchronous test.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
     const { container } = render(<VideoCard video={clipVideo} onClick={vi.fn()} />);
     const scrubZone = getScrubZone(container);
 

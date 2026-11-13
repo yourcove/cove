@@ -74,7 +74,7 @@ describe("ThemeGate", () => {
       await renderGate();
       expect(screen.queryByTestId("app")).toBeNull();
 
-      await vi.advanceTimersByTimeAsync(2000);
+      await act(() => vi.advanceTimersByTimeAsync(2000));
     } finally {
       vi.useRealTimers();
     }

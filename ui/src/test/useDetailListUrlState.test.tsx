@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -295,7 +295,7 @@ describe("detail list URL state", () => {
     expect(screen.getByTestId("tab")).toHaveTextContent("galleries");
 
     window.history.replaceState(null, "", "/performer/477?tab=videos");
-    window.dispatchEvent(new Event("popstate"));
+    act(() => window.dispatchEvent(new Event("popstate")));
 
     await waitFor(() => expect(screen.getByTestId("tab")).toHaveTextContent("videos"));
   });
