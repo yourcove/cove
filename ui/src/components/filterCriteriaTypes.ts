@@ -74,6 +74,8 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   aiTargetType?: "video" | "image";
   /** Permission needed to add this criterion; without it the criterion is hidden unless already active. */
   requiredPermission?: string;
+  /** Adult-oriented criterion: SFW mode hides it from the criteria on offer unless it is already active. */
+  hiddenInSfwMode?: boolean;
 }
 
 export type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];

@@ -93,6 +93,7 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => false,
   useAppConfig: () => ({ config: mockConfig }),
   useOptionalAppConfig: () => ({ config: { ui: {} } }),
 }));

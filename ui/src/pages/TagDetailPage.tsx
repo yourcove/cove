@@ -100,7 +100,7 @@ import {
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
-import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
+import { usePerformerSortOptions } from "../components/sfwPerformerFields";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
@@ -128,7 +128,6 @@ import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
 
-const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const STUDIO_SORT = STUDIO_SORT_OPTIONS;
@@ -851,6 +850,7 @@ function TagPerformersPanel({
       builtInFilter: { page: 1, perPage: 18, direction: "asc" },
       defaultFilterKey: "performers",
     });
+  const performerSortOptions = usePerformerSortOptions(filter.sort);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const {
     data,
@@ -894,7 +894,7 @@ function TagPerformersPanel({
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
-      sortOptions={PERFORMER_SORT}
+      sortOptions={performerSortOptions}
       zoomLevel={zoomLevel}
       onZoomChange={setZoomLevel}
       showSearch

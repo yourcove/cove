@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { videos, images, galleries, audios, texts } from "../api/client";
 import { PerformerDetailPage } from "../pages/PerformerDetailPage";
 
-const { mockConfig, mockPerformers, mockPageState } = vi.hoisted(() => ({
+const { mockConfig, mockSfwMode, mockPerformers, mockPageState } = vi.hoisted(() => ({
   mockConfig: { current: { ui: {} } as Record<string, unknown> },
+  mockSfwMode: { current: false },
   mockPerformers: {
     get: vi.fn(),
   },
@@ -41,6 +42,7 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => mockSfwMode.current,
   useAppConfig: () => ({ config: mockConfig.current }),
   useOptionalAppConfig: () => ({ config: { ui: {} } }),
 }));
@@ -150,7 +152,39 @@ describe("PerformerDetailPage load state", () => {
     vi.clearAllMocks();
     mockPerformers.get.mockReset();
     mockConfig.current = { ui: {} };
+    mockSfwMode.current = false;
     mockPageState.activeTab = undefined;
+  });
+
+  it.each([
+    [false, true],
+    [true, false],
+  ])("with SFW mode %s, shows the adult-oriented fields: %s", async (sfwMode, shown) => {
+    mockSfwMode.current = sfwMode;
+    mockPerformers.get.mockResolvedValue({
+      ...buildPerformer(),
+      ethnicity: "sample ethnicity",
+      measurements: "sample measurements",
+      fakeTits: "sample augmentation",
+      penisLength: 7,
+      circumcised: "Cut",
+      tattoos: "sample tattoo",
+      piercings: "sample piercing",
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("sample ethnicity")).toBeInTheDocument();
+    for (const value of [
+      "sample measurements",
+      "sample augmentation",
+      "7 cm",
+      "Cut",
+      "sample tattoo",
+      "sample piercing",
+    ]) {
+      expect(screen.queryAllByText(value).length > 0).toBe(shown);
+    }
   });
 
   it.each([

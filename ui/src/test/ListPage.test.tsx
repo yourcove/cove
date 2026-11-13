@@ -13,6 +13,7 @@ import { RouteRegistryProvider } from "../router/RouteRegistry";
 const appConfigMock = vi.hoisted(() => ({ optional: undefined as any }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => false,
   useAppConfig: () => ({ config: { ui: { keybindingOverrides: {} } } }),
   useOptionalAppConfig: () => appConfigMock.optional,
 }));

@@ -110,6 +110,7 @@ function normalizeConfig(config: CoveConfig, userKeybindingOverrides?: Record<st
     ui: {
       ...uiConfig,
       troubleshootingModeEnabled: uiConfig.troubleshootingModeEnabled ?? false,
+      sfwMode: uiConfig.sfwMode ?? false,
       autoplayOnListClick: uiConfig.autoplayOnListClick ?? false,
       maxLoopDuration: uiConfig.maxLoopDuration ?? 0,
       alwaysResumeOnPlayback: uiConfig.alwaysResumeOnPlayback ?? true,
@@ -312,4 +313,12 @@ export function useAppConfig() {
 
 export function useOptionalAppConfig() {
   return useContext(AppConfigContext);
+}
+
+/**
+ * Whether the interface hides adult-oriented fields and features. Read from the system status, which
+ * every user receives, so it also applies to users who cannot read the system configuration.
+ */
+export function useSfwMode() {
+  return useContext(AppConfigContext)?.status?.sfwMode === true;
 }

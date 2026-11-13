@@ -11,7 +11,8 @@ import type {
   ScrapedPerformer,
   ScraperSummary,
 } from "../api/types";
-import { useAppConfig } from "../state/AppConfigContext";
+import { useAppConfig, useSfwMode } from "../state/AppConfigContext";
+import { SFW_IGNORED_METADATA_IMPORT_STRATEGIES, withoutSfwHiddenScrapedFields } from "./sfwPerformerFields";
 import { createRelationLookupBatcher } from "../utils/relationLookupBatcher";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { DEFAULT_COLLECTION_MODES, pickBestSourceUrl, type CollectionMode } from "./videoScrapeUtils";
@@ -421,6 +422,7 @@ export function PerformerTagger({
 }: PerformerTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
+  const sfwMode = useSfwMode();
   const { data: scraperList = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers });
   // Whether a scraped tag is in the library is the server's answer, from the matcher the apply uses (names
   // and aliases, the whole library). The rows share their lookups, so a page asks the server once.
@@ -549,6 +551,7 @@ export function PerformerTagger({
             sourceKind: "metadata-server" as const,
           }));
         }
+        results = results.map((match) => withoutSfwHiddenScrapedFields(match, sfwMode));
         updateSearchState(performer.id, {
           loading: false,
           results,
@@ -561,7 +564,7 @@ export function PerformerTagger({
         });
       }
     },
-    [getQuery, getScraperInputKind, selectedSource, updateSearchState],
+    [getQuery, getScraperInputKind, selectedSource, sfwMode, updateSearchState],
   );
 
   const [batchSearching, setBatchSearching] = useState(false);
@@ -717,6 +720,7 @@ function PerformerTaggerRow({
   resolveRelations: (request: ResolveScrapeRelationsRequest) => Promise<ResolveScrapeRelationsResult>;
   detailMode?: boolean;
 }) {
+  const sfwMode = useSfwMode();
   const imageUrl = performer.imagePath;
   const queryClient = useQueryClient();
   // Every scraper result's tag names, asked about together; metadata-server results bring no tags.
@@ -782,7 +786,9 @@ function PerformerTaggerRow({
         const matches = await performers.findMetadataServerByIds({ endpoint, ids: [remoteId] });
         onUpdateState({
           loading: false,
-          results: matches.map((match) => ({ ...match, sourceKind: "metadata-server" as const })),
+          results: matches.map((match) =>
+            withoutSfwHiddenScrapedFields<UnifiedPerformerMatch>({ ...match, sourceKind: "metadata-server" }, sfwMode),
+          ),
           selectedIndex: matches.length > 0 ? 0 : undefined,
           error: matches.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
         });
@@ -792,7 +798,7 @@ function PerformerTaggerRow({
         setRefreshBusyEndpoint(null);
       }
     },
-    [onUpdateState],
+    [onUpdateState, sfwMode],
   );
   const performerLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>(
     { page: "performer", id: performer.id },
@@ -843,7 +849,10 @@ function PerformerTaggerRow({
       const importReq: MetadataServerPerformerImportRequest = {
         endpoint: selectedResult.endpoint,
         performerId: selectedResult.id,
-        fieldStrategies: buildPerformerFieldStrategies(performer, selectedResult, state),
+        fieldStrategies: {
+          ...buildPerformerFieldStrategies(performer, selectedResult, state),
+          ...(sfwMode ? SFW_IGNORED_METADATA_IMPORT_STRATEGIES : {}),
+        },
         // The image on screen in the review, so the import stores that one instead of the source's first.
         imageUrl: getChosenPerformerImage(selectedResult, state),
       };

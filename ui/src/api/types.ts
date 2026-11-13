@@ -2154,6 +2154,8 @@ export interface SystemStatus {
   migrationStatusError?: string | null;
   /** The step of a database migration now running, or absent when none is. */
   migrationInProgress?: "prepare" | "backup" | "migrate" | null;
+  /** Whether the interface hides adult-oriented fields and features. */
+  sfwMode?: boolean;
 }
 
 export type UpdateChannel = "auto" | "stable" | "prerelease" | "nightly";
@@ -2421,6 +2423,8 @@ export interface UiConfig {
   faviconPath?: string;
   logoPath?: string;
   troubleshootingModeEnabled: boolean;
+  /** Hides adult-oriented fields and features in the interface. */
+  sfwMode?: boolean;
   abbreviateCounters: boolean;
   ratingSystemOptions: RatingSystemOptions;
   showStudioAsText: boolean;

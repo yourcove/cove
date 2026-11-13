@@ -93,6 +93,7 @@ import { useExtensions } from "../extensions/ExtensionLoader";
 import { ExtensionLoadFailureDetails } from "../extensions/ExtensionLoadStatus";
 import { DOWNLOADER_METADATA_PREFERENCE_ID, getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
+import { SFW_HIDDEN_METADATA_BATCH_FIELDS } from "../components/sfwPerformerFields";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 import { DisplayProfilesSettingsPanel } from "./settings/DisplayProfilesSettingsPanel";
 import { AiDataSettingsPanel } from "./settings/AiDataSettingsPanel";
@@ -1368,6 +1369,7 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
 
 export function SettingsPage() {
   const { config, status, configLoading, statusLoading } = useAppConfig();
+  const sfwMode = status?.sfwMode === true;
   const { authEnabled, user, hasPermission } = useAuth();
   const {
     getSettingsPanelsForTab,
@@ -1699,6 +1701,8 @@ export function SettingsPage() {
       savingRef.current = true;
       queryClient.setQueriesData({ queryKey: ["system-config"] }, savedConfig);
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      // The status carries SFW mode to every user, so a saved change has to reach it too.
+      queryClient.invalidateQueries({ queryKey: ["system-status"] });
       queryClient.invalidateQueries({ queryKey: ["scrapers"] });
       setError(null);
     },
@@ -3171,6 +3175,14 @@ export function SettingsPage() {
                       ) : null}
                     </div>
                     <CheckboxLabel
+                      label="SFW mode"
+                      description="Hides adult-oriented performer fields, such as measurements and tattoos, for everyone using this Cove. Nothing is deleted: turning it off shows them again."
+                      checked={draft.ui.sfwMode ?? false}
+                      onChange={(checked) =>
+                        updateDraft((current) => ({ ...current, ui: { ...current.ui, sfwMode: checked } }))
+                      }
+                    />
+                    <CheckboxLabel
                       label="Troubleshooting mode"
                       description="Temporarily enables more verbose diagnostics and disables custom CSS/JS injection."
                       checked={draft.ui.troubleshootingModeEnabled}
@@ -4345,7 +4357,9 @@ export function SettingsPage() {
                         </p>
                       </div>
                       <div className="grid gap-2 rounded-xl border border-border bg-card p-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {METADATA_BATCH_EXCLUDE_OPTIONS.map((option) => (
+                        {METADATA_BATCH_EXCLUDE_OPTIONS.filter(
+                          (option) => !sfwMode || !SFW_HIDDEN_METADATA_BATCH_FIELDS.includes(option.id),
+                        ).map((option) => (
                           <CheckboxLabel
                             key={option.id}
                             label={option.label}

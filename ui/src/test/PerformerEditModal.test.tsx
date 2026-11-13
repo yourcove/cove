@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   performerImageUrl: vi.fn(),
   uploadPerformerImage: vi.fn(),
   deletePerformerImage: vi.fn(),
+  sfwMode: false,
 }));
 
 vi.mock("../api/client", () => ({
@@ -38,6 +39,7 @@ vi.mock("../components/shared", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
+  useSfwMode: () => mocks.sfwMode,
   useAppConfig: () => ({
     config: {
       ui: {
@@ -79,9 +81,44 @@ describe("PerformerEditModal", () => {
     mocks.performerImageUrl.mockReturnValue("/performers/1/image");
     mocks.uploadPerformerImage.mockResolvedValue(undefined);
     mocks.deletePerformerImage.mockResolvedValue(undefined);
+    mocks.sfwMode = false;
   });
 
   afterEach(() => resetMutationFailureForTests());
+
+  it("hides the adult-oriented fields in SFW mode and leaves their stored values alone when saving", async () => {
+    const performer = {
+      id: 1,
+      name: "Sample Performer",
+      measurements: "sample measurements",
+      fakeTits: "sample",
+      penisLength: 1,
+      circumcised: "Cut",
+      tattoos: "sample tattoo",
+      piercings: "sample piercing",
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+    } as unknown as Performer;
+
+    mocks.sfwMode = true;
+    const sfw = renderModal(performer);
+    for (const label of ["Measurements", "Tattoos", "Piercings", "Fake Tits", "Penis Length (cm)", "Circumcised"]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText("Ethnicity")).toBeInTheDocument();
+    expect(screen.getByText("Career Start")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenLastCalledWith(1, {}));
+    sfw.unmount();
+
+    mocks.sfwMode = false;
+    renderModal(performer);
+    for (const label of ["Measurements", "Tattoos", "Piercings", "Fake Tits", "Penis Length (cm)", "Circumcised"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
 
   it.each(["TransgenderMale", "TransgenderFemale"])(
     "preserves the API gender %s without clearing it",
