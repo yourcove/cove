@@ -255,6 +255,30 @@ public sealed class VideoSearchQueryShapeTests
         Assert.Contains("FROM tag_applications AS", sql, StringComparison.Ordinal);
     }
 
+    // An EXISTS over the union of manual and derived tags was materialized and rescanned for every candidate
+    // video beneath a sorted page: with an AI analysis "never run" filter it took 23 seconds on a 27,500-video
+    // library. One EXISTS per source lets PostgreSQL probe each source by video id.
+    [Theory]
+    [InlineData(CriterionModifier.Includes, 2)]
+    [InlineData(CriterionModifier.IncludesAll, 4)]
+    public async Task IncludedVideoTags_CheckManualAndDerivedTagsSeparately(CriterionModifier modifier, int expectedExists)
+    {
+        await using var db = CreatePostgresContext();
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion { Modifier = modifier, Value = [7, 8] },
+        };
+
+        var query = await new VideoRepository(db).BuildFilteredQueryAsync(
+            filter, null, allowReadScopeOptimization: false, ct: TestContext.Current.CancellationToken);
+        var sql = query.Select(video => video.Id).ToQueryString();
+
+        Assert.DoesNotContain("UNION", sql, StringComparison.Ordinal);
+        Assert.Equal(expectedExists, sql.Split("EXISTS (").Length - 1);
+        Assert.Contains("FROM video_tags AS", sql, StringComparison.Ordinal);
+        Assert.Contains("FROM tag_applications AS", sql, StringComparison.Ordinal);
+    }
+
     private static CoveContext CreatePostgresContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

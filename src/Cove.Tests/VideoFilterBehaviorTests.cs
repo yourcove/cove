@@ -2352,6 +2352,63 @@ public class VideoFilterBehaviorTests
         Assert.Equal(["below-threshold-derived", "performer-context", "untagged"], items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.Includes, "both", "derived", "manual", "split")]
+    [InlineData(CriterionModifier.IncludesAll, "split")]
+    [InlineData(CriterionModifier.Excludes, "below-threshold-derived", "untagged")]
+    [RequiresPostgres]
+    public async Task TagsCriterion_WithAiAnalysisCriterion_MatchesManualAndEffectiveDerivedTags(CriterionModifier modifier, params string[] expectedTitles)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
+        var action = new Tag { Name = "Action", MinOccurrencePercent = 80 };
+        var outdoor = new Tag { Name = "Outdoor" };
+        var manualVideo = CreateVideoWithFile("manual");
+        manualVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var derivedVideo = CreateVideoWithFile("derived");
+        var belowThresholdVideo = CreateVideoWithFile("below-threshold-derived");
+        var bothVideo = CreateVideoWithFile("both");
+        bothVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var splitVideo = CreateVideoWithFile("split");
+        splitVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var analysedVideo = CreateVideoWithFile("analysed");
+        var untaggedVideo = CreateVideoWithFile("untagged");
+
+        context.Tags.AddRange(action, outdoor);
+        context.Videos.AddRange(manualVideo, derivedVideo, belowThresholdVideo, bothVideo, splitVideo, analysedVideo, untaggedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            CreateDurationApplication(derivedVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(belowThresholdVideo.Id, action.Id, totalDurationSec: 72, hostDurationSec: 100),
+            CreateDurationApplication(bothVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(splitVideo.Id, outdoor.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(analysedVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100));
+        context.AiRuns.Add(new AiRun
+        {
+            SourceKey = "ext:ai.core",
+            TargetType = AiRunTargetType.Video,
+            TargetId = analysedVideo.Id,
+            Status = AiRunStatus.Completed,
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion { Value = [action.Id, outdoor.Id], Modifier = modifier },
+            AiAnalysisCriterion = new AiAnalysisCriterion
+            {
+                SourceKey = "ext:ai.core",
+                States = [AiAnalysisState.NeverRun, AiAnalysisState.InProgress, AiAnalysisState.Cancelled],
+            },
+        };
+
+        var (items, totalCount) = await new VideoRepository(context).FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedTitles.Length, totalCount);
+        Assert.Equal(expectedTitles, items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
     [Fact]
     [RequiresPostgres]
     public async Task VideosController_GetById_MapsOnlyEffectiveDerivedTagsAsNonRemovable()
