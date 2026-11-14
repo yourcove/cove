@@ -12,7 +12,7 @@ COPY docs/feature-guides/ /build/docs/feature-guides/
 RUN npm run build
 
 # ── Stage 2: Restore backend projects ─────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS project-files
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS project-files
 WORKDIR /build/src
 COPY src/Cove.slnx ./
 COPY src/Cove.Api/Cove.Api.csproj Cove.Api/
