@@ -274,7 +274,7 @@ public sealed class VideoSearchQueryShapeTests
         var sql = query.Select(video => video.Id).ToQueryString();
 
         Assert.DoesNotContain("UNION", sql, StringComparison.Ordinal);
-        Assert.Equal(expectedExists, sql.Split("EXISTS (").Length - 1);
+        Assert.Equal(expectedExists, System.Text.RegularExpressions.Regex.Count(sql, @"(?<!NOT )EXISTS \("));
         Assert.Contains("FROM video_tags AS", sql, StringComparison.Ordinal);
         Assert.Contains("FROM tag_applications AS", sql, StringComparison.Ordinal);
     }
