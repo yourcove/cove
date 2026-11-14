@@ -4,6 +4,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using System.Diagnostics;
@@ -160,7 +161,8 @@ public partial class StashMigrationService
     private async Task<int> GetRequiredImportEngagementUserIdAsync(CancellationToken ct)
     {
         var userId = await _db.Users.AsNoTracking()
-            .Where(user => user.IsSystem && user.IsActive && !user.IsLocked)
+            .Where(user => user.IsSystem && user.IsActive)
+            .Where(UserService.IsNotLockedOut(DateTime.UtcNow))
             .OrderBy(user => user.Id)
             .Select(user => (int?)user.Id)
             .FirstOrDefaultAsync(ct);

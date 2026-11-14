@@ -2,6 +2,7 @@ using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Linq.Expressions;
 using System.Text.Json;
 
 namespace Cove.Data.Auth;
@@ -30,6 +31,17 @@ public sealed class UserService : IUserService
         _audit = audit;
         _log = log;
     }
+
+    /// <summary>
+    /// Whether the account is locked out at <paramref name="utcNow"/>. The failed-login lockout ends at
+    /// <see cref="User.LockedUntil"/>; a lock without an end time lasts until an admin unlocks it.
+    /// </summary>
+    public static bool IsLockedOut(User user, DateTime utcNow)
+        => user.IsLocked && (user.LockedUntil == null || user.LockedUntil > utcNow);
+
+    /// <summary>The negation of <see cref="IsLockedOut"/> as a query predicate that translates to SQL.</summary>
+    public static Expression<Func<User, bool>> IsNotLockedOut(DateTime utcNow)
+        => user => !(user.IsLocked && (user.LockedUntil == null || user.LockedUntil > utcNow));
 
     public Task<bool> OwnerExistsAsync(CancellationToken ct = default)
         => _db.Users.AnyAsync(user => user.IsSystem || user.Roles.Any(role => role.Role!.Name == BuiltinRoles.Owner), ct);
@@ -532,13 +544,21 @@ public sealed class UserService : IUserService
 
     public async Task RecordLoginFailureAsync(int userId, CancellationToken ct = default)
     {
+        var now = DateTime.UtcNow;
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return;
+        if (user.IsLocked && !IsLockedOut(user, now))
+        {
+            // The previous lockout has run out, so this failure starts a new window.
+            user.IsLocked = false;
+            user.LockedUntil = null;
+            user.FailedLoginCount = 0;
+        }
         user.FailedLoginCount++;
         if (user.FailedLoginCount >= MaxFailedLogins)
         {
             user.IsLocked = true;
-            user.LockedUntil = DateTime.UtcNow.Add(LockoutDuration);
+            user.LockedUntil = now.Add(LockoutDuration);
         }
         await _db.SaveChangesAsync(ct);
     }
@@ -555,7 +575,7 @@ public sealed class UserService : IUserService
 
     private UserDto Map(User u) => new(
         u.Id, u.Username, u.DisplayName, u.Email,
-        u.IsActive, u.IsLocked, u.IsSystem, u.MustChangePassword,
+        u.IsActive, IsLockedOut(u, DateTime.UtcNow), u.IsSystem, u.MustChangePassword,
         !string.IsNullOrWhiteSpace(u.PasswordHash),
         u.LastLoginAt, u.LastLoginIp, u.CreatedAt,
         u.Roles.Select(r => r.Role!.Name).ToList(),
