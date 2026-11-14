@@ -545,22 +545,24 @@ public sealed class UserService : IUserService
     public async Task RecordLoginFailureAsync(int userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
-        if (user is null) return;
-        if (user.IsLocked && !IsLockedOut(user, now))
-        {
-            // The previous lockout has run out, so this failure starts a new window.
-            user.IsLocked = false;
-            user.LockedUntil = null;
-            user.FailedLoginCount = 0;
-        }
-        user.FailedLoginCount++;
-        if (user.FailedLoginCount >= MaxFailedLogins)
-        {
-            user.IsLocked = true;
-            user.LockedUntil = now.Add(LockoutDuration);
-        }
-        await _db.SaveChangesAsync(ct);
+        var lockedUntil = now.Add(LockoutDuration);
+        // One UPDATE rather than read, change and save, so failed logins arriving together cannot
+        // overwrite each other's count: PostgreSQL applies a concurrent update to the row it left
+        // behind. Every expression reads the row as it was before this statement. A lockout that
+        // has run out starts a new window, in which this failure is the first.
+        await _db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(s => s
+            .SetProperty(
+                u => u.FailedLoginCount,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1)
+            .SetProperty(
+                u => u.IsLocked,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1 >= MaxFailedLogins
+                    || (u.IsLocked && !(u.LockedUntil != null && u.LockedUntil <= now)))
+            .SetProperty(
+                u => u.LockedUntil,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1 >= MaxFailedLogins
+                    ? lockedUntil
+                    : u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? null : u.LockedUntil), ct);
     }
 
     public async Task UnlockAsync(int userId, CovePrincipal? actor, CancellationToken ct = default)
