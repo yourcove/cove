@@ -3,8 +3,11 @@ using System.Net;
 using System.Net.Sockets;
 using Cove.Api.Middleware;
 using Cove.Api.Services;
+using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace Cove.Tests.Integration;
 
@@ -28,6 +31,39 @@ public sealed class DatabaseUnavailableMiddlewareTests
         context.Response.Body.Position = 0;
         var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.Contains("DATABASE_UNAVAILABLE", body);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_MapsCommandTimeout_ToGatewayTimeoutWithoutRetryAfter()
+    {
+        // What EF's retrying execution strategy throws once every attempt hit the command timeout.
+        var failure = new RetryLimitExceededException("The maximum number of retries (3) was exceeded.", NpgsqlCommandTimeout());
+        var middleware = new DatabaseUnavailableMiddleware(_ => Task.FromException(failure));
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(context, new MaintenanceState(), NullLogger<DatabaseUnavailableMiddleware>.Instance);
+
+        Assert.Equal((int)HttpStatusCode.GatewayTimeout, context.Response.StatusCode);
+        Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("QUERY_TIMEOUT", body);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LetsQueryCancellationPropagate()
+    {
+        var failure = new OperationCanceledException("Query was cancelled", new TimeoutException("Timeout during reading attempt"));
+        var middleware = new DatabaseUnavailableMiddleware(_ => Task.FromException(failure));
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        var thrown = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => middleware.InvokeAsync(context, new MaintenanceState(), NullLogger<DatabaseUnavailableMiddleware>.Instance));
+
+        Assert.Same(failure, thrown);
     }
 
     [Fact]
@@ -120,6 +156,70 @@ public sealed class DatabaseUnavailableMiddlewareTests
 
         Assert.False(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
     }
+
+    [Fact]
+    public void Classifier_TreatsCommandTimeoutAsTimeoutRatherThanUnavailable()
+    {
+        var exception = NpgsqlCommandTimeout();
+
+        Assert.True(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(exception));
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
+    }
+
+    public static TheoryData<Exception> ConnectionFailures() => new()
+    {
+        new NpgsqlException("Failed to connect to 127.0.0.1:5432", new SocketException((int)SocketError.ConnectionRefused)),
+        new NpgsqlException("Failed to connect to 127.0.0.1:5432", new TimeoutException("Timeout during connection attempt")),
+        // A server that accepts the TCP connection but never answers the startup handshake.
+        new NpgsqlException("The operation has timed out", new TimeoutException("The operation has timed out.")),
+        new NpgsqlException("The connection pool has been exhausted, either raise 'Max Pool Size' (currently 100) or 'Timeout' (currently 15 seconds) in your connection string.", new TimeoutException()),
+        new RetryLimitExceededException("The maximum number of retries (3) was exceeded.",
+            new NpgsqlException("Failed to connect to 127.0.0.1:5432", new SocketException((int)SocketError.ConnectionRefused))),
+    };
+
+    [Theory]
+    [MemberData(nameof(ConnectionFailures))]
+    public void Classifier_KeepsConnectionFailuresUnavailable(Exception exception)
+    {
+        Assert.True(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(exception));
+    }
+
+    public static TheoryData<Exception> QueryCancellations() => new()
+    {
+        new OperationCanceledException("Query was cancelled",
+            new PostgresException("canceling statement due to user request", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)),
+        new OperationCanceledException("Query was cancelled", new TimeoutException("Timeout during reading attempt")),
+    };
+
+    [Theory]
+    [MemberData(nameof(QueryCancellations))]
+    public void Classifier_LeavesQueryCancellationUnclassified(Exception exception)
+    {
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(exception));
+    }
+
+    // Pins the classification to what the referenced Npgsql actually throws, since it keys off a message.
+    [Fact]
+    [RequiresPostgres]
+    public async Task Classifier_RecognizesARealNpgsqlCommandTimeout()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        var connectionString = new NpgsqlConnectionStringBuilder(database.ConnectionString) { CommandTimeout = 1 }.ConnectionString;
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(ct);
+        await using var command = new NpgsqlCommand("SELECT pg_sleep(10)", connection);
+
+        var exception = await Assert.ThrowsAnyAsync<NpgsqlException>(() => command.ExecuteNonQueryAsync(ct));
+
+        Assert.True(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(exception));
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
+    }
+
+    private static NpgsqlException NpgsqlCommandTimeout()
+        => new("Exception while reading from stream", new TimeoutException("Timeout during reading attempt"));
 
     private sealed class ConnectionRefusedDbException : DbException
     {

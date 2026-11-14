@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics;
 using System.Net.Sockets;
 using Cove.Api.Services;
 using Npgsql;
@@ -37,9 +38,28 @@ public sealed class DatabaseUnavailableMiddleware
             }
         }
 
+        var startedAt = Stopwatch.GetTimestamp();
         try
         {
             await _next(context);
+        }
+        catch (Exception ex) when (DatabaseUnavailableExceptionClassifier.IsCommandTimeout(ex))
+        {
+            if (context.Response.HasStarted)
+                throw;
+
+            // Not rate limited like the warning below: each of these took a full command timeout, and the
+            // point of the line is to name the slow endpoint.
+            logger.LogWarning("Database query timed out while handling {Method} {Path} after {ElapsedSeconds:0.0} seconds: {Reason}.",
+                context.Request.Method,
+                context.Request.Path.Value,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                ex.GetBaseException().Message);
+            logger.LogDebug(ex, "Database command timeout handled at request boundary.");
+
+            context.Response.Clear();
+            context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
+            await context.Response.WriteAsJsonAsync(CreateQueryTimeoutResponse(), context.RequestAborted);
         }
         catch (Exception ex) when (DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(ex))
         {
@@ -95,6 +115,12 @@ public sealed class DatabaseUnavailableMiddleware
         message = "The database is temporarily unavailable. Try again in a few seconds.",
     };
 
+    public static object CreateQueryTimeoutResponse() => new
+    {
+        code = "QUERY_TIMEOUT",
+        message = "The database took too long to complete this request, so it was stopped.",
+    };
+
     public static object CreateRestoreInProgressResponse() => new
     {
         code = "DATABASE_RESTORE_IN_PROGRESS",
@@ -110,8 +136,17 @@ public sealed class DatabaseUnavailableMiddleware
 
 public static class DatabaseUnavailableExceptionClassifier
 {
+    // Npgsql has no exception type for a command that outlives its CommandTimeout. It throws an
+    // NpgsqlException wrapping a TimeoutException with this message, and marks it transient although the
+    // connection is fine. Timeouts while opening a connection or waiting for a pooled one carry
+    // "Timeout during connection attempt" or "The operation has timed out" instead.
+    private const string NpgsqlCommandTimeoutMessage = "Timeout during reading attempt";
+
     public static bool IsTransientDatabaseConnectionFailure(Exception exception)
     {
+        if (IsCommandTimeout(exception))
+            return false;
+
         var sawDatabaseException = false;
 
         for (var current = exception; current is not null; current = current.InnerException)
@@ -135,6 +170,17 @@ public static class DatabaseUnavailableExceptionClassifier
                 return true;
 
             if (sawDatabaseException && current is EndOfStreamException)
+                return true;
+        }
+
+        return false;
+    }
+
+    public static bool IsCommandTimeout(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is NpgsqlException { InnerException: TimeoutException { Message: NpgsqlCommandTimeoutMessage } })
                 return true;
         }
 
