@@ -3,9 +3,15 @@ using System.Net;
 using System.Net.Sockets;
 using Cove.Api.Middleware;
 using Cove.Api.Services;
+using Cove.Data.Services;
 using Cove.Tests.Postgres;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
@@ -46,10 +52,78 @@ public sealed class DatabaseUnavailableMiddlewareTests
 
         Assert.Equal((int)HttpStatusCode.GatewayTimeout, context.Response.StatusCode);
         Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
+        Assert.Equal("QUERY_TIMEOUT", context.Response.Headers[DatabaseUnavailableMiddleware.ErrorCodeHeader]);
 
         context.Response.Body.Position = 0;
         var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.Contains("QUERY_TIMEOUT", body);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_MapsATimeoutThatBrokeTheConnection_ToServiceUnavailable()
+    {
+        // A server that stops answering mid-command gives the same exception as a slow query, but breaks the
+        // connection, which DatabaseConnectionFailureInterceptor records on the exception.
+        var timeout = NpgsqlCommandTimeout();
+        DatabaseConnectionFailure.MarkConnectionBroken(timeout);
+        var failure = new RetryLimitExceededException("The maximum number of retries (3) was exceeded.", timeout);
+        var middleware = new DatabaseUnavailableMiddleware(_ => Task.FromException(failure));
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(context, new MaintenanceState(), NullLogger<DatabaseUnavailableMiddleware>.Instance);
+
+        Assert.Equal((int)HttpStatusCode.ServiceUnavailable, context.Response.StatusCode);
+        Assert.Equal("5", context.Response.Headers.RetryAfter);
+        Assert.False(context.Response.Headers.ContainsKey(DatabaseUnavailableMiddleware.ErrorCodeHeader));
+    }
+
+    [Fact]
+    public async Task InvokeAsync_CommandTimeoutAfterTheResponseStarted_RethrowsAndLeavesTheResponseAlone()
+    {
+        var failure = NpgsqlCommandTimeout();
+        var middleware = new DatabaseUnavailableMiddleware(_ => Task.FromException(failure));
+        var context = new DefaultHttpContext();
+        context.Features.Set<IHttpResponseFeature>(new StartedResponseFeature());
+        context.Response.StatusCode = StatusCodes.Status200OK;
+
+        var thrown = await Assert.ThrowsAnyAsync<Exception>(
+            () => middleware.InvokeAsync(context, new MaintenanceState(), NullLogger<DatabaseUnavailableMiddleware>.Instance));
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.False(context.Response.Headers.ContainsKey(DatabaseUnavailableMiddleware.ErrorCodeHeader));
+    }
+
+    [Fact]
+    public async Task InvokeAsync_CommandTimeout_LogsTheRouteTemplateRatherThanTheRequestPath()
+    {
+        var logger = new RecordingLogger();
+        var middleware = new DatabaseUnavailableMiddleware(_ => Task.FromException(NpgsqlCommandTimeout()));
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        context.Request.Method = "POST";
+        context.Request.Path = "/api/videos/42\r\nforged line";
+        context.SetEndpoint(new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse("api/videos/{id}"), 0, EndpointMetadataCollection.Empty, "videos"));
+
+        await middleware.InvokeAsync(context, new MaintenanceState(), logger);
+
+        var message = Assert.Single(logger.Messages, entry => entry.Level == LogLevel.Warning).Message;
+        Assert.Contains("POST api/videos/{id}", message);
+        Assert.DoesNotContain("forged", message);
+    }
+
+    [Fact]
+    public void DescribeEndpoint_WithoutARoute_EscapesThePath()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/unknown\r\nforged line";
+
+        var described = DatabaseUnavailableMiddleware.DescribeEndpoint(context);
+
+        Assert.DoesNotContain('\r', described);
+        Assert.DoesNotContain('\n', described);
+        Assert.StartsWith("/api/unknown%0D%0A", described);
     }
 
     [Fact]
@@ -218,8 +292,58 @@ public sealed class DatabaseUnavailableMiddlewareTests
         Assert.False(DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(exception));
     }
 
+    [Fact]
+    [RequiresPostgres]
+    public async Task ConnectionFailureInterceptor_RecordsABrokenConnectionButNotACommandTimeout()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+
+        await using (var slow = new Cove.Data.CoveContext(database.CreateOptions(options => options.AddInterceptors(DatabaseConnectionFailureInterceptor.Instance))))
+        {
+            slow.Database.SetCommandTimeout(1);
+            var timeout = await Assert.ThrowsAnyAsync<Exception>(() => slow.Database.ExecuteSqlRawAsync("SELECT pg_sleep(10)", ct));
+
+            Assert.False(DatabaseConnectionFailure.ConnectionBroke(timeout));
+            Assert.True(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(timeout));
+        }
+
+        await using var broken = new Cove.Data.CoveContext(database.CreateOptions(options => options.AddInterceptors(DatabaseConnectionFailureInterceptor.Instance)));
+        await broken.Database.OpenConnectionAsync(ct);
+        var backendPid = ((NpgsqlConnection)broken.Database.GetDbConnection()).ProcessID;
+        await using (var admin = new NpgsqlConnection(database.ConnectionString))
+        {
+            await admin.OpenAsync(ct);
+            await using var terminate = new NpgsqlCommand("SELECT pg_terminate_backend(@pid)", admin);
+            terminate.Parameters.AddWithValue("pid", backendPid);
+            await terminate.ExecuteScalarAsync(ct);
+        }
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => broken.Database.ExecuteSqlRawAsync("SELECT 1", ct));
+
+        Assert.True(DatabaseConnectionFailure.ConnectionBroke(failure));
+        Assert.False(DatabaseUnavailableExceptionClassifier.IsCommandTimeout(failure));
+    }
+
     private static NpgsqlException NpgsqlCommandTimeout()
         => new("Exception while reading from stream", new TimeoutException("Timeout during reading attempt"));
+
+    private sealed class StartedResponseFeature : HttpResponseFeature
+    {
+        public override bool HasStarted => true;
+    }
+
+    private sealed class RecordingLogger : ILogger<DatabaseUnavailableMiddleware>
+    {
+        public List<(LogLevel Level, string Message)> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Add((logLevel, formatter(state, exception)));
+    }
 
     private sealed class ConnectionRefusedDbException : DbException
     {

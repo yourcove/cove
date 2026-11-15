@@ -2,6 +2,8 @@ using System.Data.Common;
 using System.Diagnostics;
 using System.Net.Sockets;
 using Cove.Api.Services;
+using Cove.Data.Services;
+using Microsoft.AspNetCore.Routing;
 using Npgsql;
 
 namespace Cove.Api.Middleware;
@@ -9,6 +11,13 @@ namespace Cove.Api.Middleware;
 public sealed class DatabaseUnavailableMiddleware
 {
     public const int RetryAfterSeconds = 5;
+
+    /// <summary>
+    /// Set on Cove's own 504 for a query timeout, so the UI can tell it from a proxy's 504 without reading
+    /// the body: the server answered, so it is reachable.
+    /// </summary>
+    public const string ErrorCodeHeader = "X-Cove-Error-Code";
+    public const string QueryTimeoutCode = "QUERY_TIMEOUT";
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(15);
     private readonly RequestDelegate _next;
     private readonly object _warningLock = new();
@@ -48,17 +57,18 @@ public sealed class DatabaseUnavailableMiddleware
             if (context.Response.HasStarted)
                 throw;
 
-            // Not rate limited like the warning below: each of these took a full command timeout, and the
-            // point of the line is to name the slow endpoint.
-            logger.LogWarning("Database query timed out while handling {Method} {Path} after {ElapsedSeconds:0.0} seconds: {Reason}.",
+            // Not rate limited like the warning below: the point of the line is to name the slow endpoint, and
+            // each one costs a full command timeout per attempt (EF retries a timed-out command, see #1026).
+            // A server that stopped answering breaks the connection instead and takes the rate-limited path.
+            logger.LogWarning("Database query timed out while handling {Method} {Endpoint} after {ElapsedSeconds:0.0} seconds.",
                 context.Request.Method,
-                context.Request.Path.Value,
-                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
-                ex.GetBaseException().Message);
+                DescribeEndpoint(context),
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds);
             logger.LogDebug(ex, "Database command timeout handled at request boundary.");
 
             context.Response.Clear();
             context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
+            context.Response.Headers[ErrorCodeHeader] = QueryTimeoutCode;
             await context.Response.WriteAsJsonAsync(CreateQueryTimeoutResponse(), context.RequestAborted);
         }
         catch (Exception ex) when (DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(ex))
@@ -70,9 +80,9 @@ public sealed class DatabaseUnavailableMiddleware
             var (shouldLogWarning, suppressedWarnings) = ShouldLogWarning();
             if (shouldLogWarning)
             {
-                logger.LogWarning("Database temporarily unavailable while handling {Method} {Path}: {Reason}. Suppressed {SuppressedCount} similar warning(s) in the last {IntervalSeconds} seconds.",
+                logger.LogWarning("Database temporarily unavailable while handling {Method} {Endpoint}: {Reason}. Suppressed {SuppressedCount} similar warning(s) in the last {IntervalSeconds} seconds.",
                     context.Request.Method,
-                    context.Request.Path.Value,
+                    DescribeEndpoint(context),
                     reason,
                     suppressedWarnings,
                     (int)WarningLogInterval.TotalSeconds);
@@ -82,6 +92,15 @@ public sealed class DatabaseUnavailableMiddleware
             await WriteUnavailableAsync(context, CreateResponse());
         }
     }
+
+    /// <summary>
+    /// The matched route template, such as <c>api/videos/{id}</c>, which names the endpoint and carries no
+    /// request text. Without one, the escaped path: the decoded path could carry line breaks into the log.
+    /// </summary>
+    internal static string DescribeEndpoint(HttpContext context)
+        => (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText is { Length: > 0 } pattern
+            ? pattern
+            : context.Request.Path.ToUriComponent();
 
     private static async Task WriteUnavailableAsync(HttpContext context, object payload)
     {
@@ -117,7 +136,7 @@ public sealed class DatabaseUnavailableMiddleware
 
     public static object CreateQueryTimeoutResponse() => new
     {
-        code = "QUERY_TIMEOUT",
+        code = QueryTimeoutCode,
         message = "The database took too long to complete this request, so it was stopped.",
     };
 
@@ -137,9 +156,11 @@ public sealed class DatabaseUnavailableMiddleware
 public static class DatabaseUnavailableExceptionClassifier
 {
     // Npgsql has no exception type for a command that outlives its CommandTimeout. It throws an
-    // NpgsqlException wrapping a TimeoutException with this message, and marks it transient although the
-    // connection is fine. Timeouts while opening a connection or waiting for a pooled one carry
-    // "Timeout during connection attempt" or "The operation has timed out" instead.
+    // NpgsqlException wrapping a TimeoutException with this message, and marks it transient. On a healthy
+    // server it cancels the query and the connection stays usable; when the server stops answering it throws
+    // the same exception but breaks the connection, which DatabaseConnectionFailure records. Timeouts while
+    // opening a connection or waiting for a pooled one carry "Timeout during connection attempt" or
+    // "The operation has timed out" instead.
     private const string NpgsqlCommandTimeoutMessage = "Timeout during reading attempt";
 
     public static bool IsTransientDatabaseConnectionFailure(Exception exception)
@@ -178,6 +199,9 @@ public static class DatabaseUnavailableExceptionClassifier
 
     public static bool IsCommandTimeout(Exception exception)
     {
+        if (DatabaseConnectionFailure.ConnectionBroke(exception))
+            return false;
+
         for (var current = exception; current is not null; current = current.InnerException)
         {
             if (current is NpgsqlException { InnerException: TimeoutException { Message: NpgsqlCommandTimeoutMessage } })
