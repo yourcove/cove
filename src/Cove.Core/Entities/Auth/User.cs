@@ -18,7 +18,10 @@ public class User : BaseEntity
     /// <summary>If false, user cannot log in (admin-disabled). Distinct from IsLocked.</summary>
     public bool IsActive { get; set; } = true;
 
-    /// <summary>If true, user is temporarily locked out (e.g. by failed-login policy).</summary>
+    /// <summary>
+    /// If true, user is temporarily locked out (e.g. by failed-login policy) until <see cref="LockedUntil"/>.
+    /// The flag stays set after that time passes, so check both together.
+    /// </summary>
     public bool IsLocked { get; set; }
 
     public int FailedLoginCount { get; set; }

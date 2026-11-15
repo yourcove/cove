@@ -1,6 +1,7 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
+using Cove.Data.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -43,7 +44,8 @@ public sealed class AuthBypassPrincipalProvider
                 // the Owner role (e.g. one created from Security settings when owner setup was skipped),
                 // so auth-disabled mode runs as a real owner instead of the permission-less fallback.
                 var owner = await db.Users.AsNoTracking()
-                    .Where(user => user.IsActive && !user.IsLocked
+                    .Where(UserService.IsNotLockedOut(DateTime.UtcNow))
+                    .Where(user => user.IsActive
                         && (user.IsSystem || user.Roles.Any(assignment => assignment.Role!.Name == BuiltinRoles.Owner)))
                     .OrderByDescending(user => user.IsSystem)
                     .ThenBy(user => user.Id)

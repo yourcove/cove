@@ -157,6 +157,9 @@ public class AuthController : ControllerBase
         }
         if (user.IsLocked)
         {
+            // Hash anyway so a locked account answers as slowly as a wrong password, and the
+            // response time doesn't show when the lockout ends.
+            PasswordHasher.VerifyDummy(request.Password);
             await _audit.LogAsync(AuditActions.LoginFail, AuditOutcomes.Fail,
                 CovePrincipal.Anonymous(ip, ua), "user", user.Id.ToString(), new { reason = "locked" }, ct);
             return invalid;
