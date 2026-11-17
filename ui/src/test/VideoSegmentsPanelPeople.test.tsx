@@ -197,6 +197,36 @@ describe("VideoSegmentsPanel groups by person", () => {
     expect(screen.queryByRole("region", { name: /Other/ })).not.toBeInTheDocument();
   });
 
+  it("lists tags in the order they first appear, as the timeline reads", () => {
+    const tag = (id: number, tagId: number, name: string, startSec: number, endSec: number) => {
+      const segment = {
+        ...raw(id, 0, startSec),
+        endSec,
+        kind: "tag",
+        refId: undefined,
+        tagId,
+        tagName: name,
+        title: name,
+      } as Segment;
+      return { segment, span: { ...span(segment), kind: "tag", tagId, tagName: name } as ResolvedSpan };
+    };
+    // The longest tag starts last, and the shortest first.
+    const late = tag(10, 1, "Late Long", 500, 900);
+    const early = tag(11, 2, "Early Short", 5, 10);
+    const middle = tag(12, 3, "Middle", 100, 200);
+    renderPanel({
+      spans: [late.span, early.span, middle.span],
+      rawSegments: [late.segment, early.segment, middle.segment],
+    });
+
+    const tags = screen.getByRole("region", { name: /Tags/ });
+    expect(
+      within(tags)
+        .getAllByRole("button", { expanded: true })
+        .map((button) => button.textContent),
+    ).toEqual(["Early Short", "Middle", "Late Long"]);
+  });
+
   it("offers no decisions without permission to change faces", () => {
     renderPanel({ canDecideFaces: false });
     fireEvent.click(screen.getByRole("button", { name: "Show the 1 face of Suggested Person" }));

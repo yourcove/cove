@@ -817,7 +817,7 @@ function GroupedList({
           (left, right) => right.totalSec - left.totalSec || left.faceId - right.faceId,
         ),
       }))
-      .sort((left, right) => right.totalSec - left.totalSec || compareNatural(left.name, right.name));
+      .sort(compareGroups);
     return { groups, faceIdBySpanKey };
   }, [spans, rawSegmentsById, facesById]);
 
@@ -996,6 +996,21 @@ function ShownNameText({ name, suggested, className = "" }: { name: string; sugg
       <span className="sr-only">{`${name} (suggested)`}</span>
     </>
   );
+}
+
+// People lead with whoever is on screen longest. Tags and anything else follow the order they first appear in, as the
+// segment lanes on the timeline read from left to right.
+function compareGroups(left: PersonGroup, right: PersonGroup) {
+  if (left.section === "people" && right.section === "people") {
+    return right.totalSec - left.totalSec || compareNatural(left.name, right.name);
+  }
+  return (
+    firstStart(left) - firstStart(right) || right.totalSec - left.totalSec || compareNatural(left.name, right.name)
+  );
+}
+
+function firstStart(group: PersonGroup) {
+  return group.items.reduce((earliest, span) => Math.min(earliest, span.startSec), Number.POSITIVE_INFINITY);
 }
 
 const SEGMENT_SECTIONS: Array<{ key: SegmentSection; title: string }> = [
