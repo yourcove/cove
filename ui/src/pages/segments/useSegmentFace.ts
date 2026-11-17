@@ -7,7 +7,7 @@ import type { FaceOverlayInfo } from "../../components/VideoPlayer";
 import { faceShownName, faceStoredName } from "../../utils/faceDisplay";
 import { formatShownTitle, rawSegmentFaceId, rawSegmentPlaceholderFaceId } from "./segmentDisplayUtils";
 
-export type SuggestionDecision = "accept" | "reject";
+type SuggestionDecision = "accept" | "reject";
 
 /**
  * The face a raw face segment names, how to name the segment after it, and its suggested performers with a way to

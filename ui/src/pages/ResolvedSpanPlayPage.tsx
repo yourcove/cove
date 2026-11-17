@@ -35,6 +35,7 @@ import {
   EntityLink,
   formatConfidencePercent,
   type NearbyItem,
+  LoadingNextMarker,
   NearbySection,
   SegmentHeaderLinks,
   SuggestedName,
@@ -69,6 +70,7 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
   const {
     data: detail,
     isLoading,
+    isPlaceholderData: loadingNext,
     error: detailError,
     refetch: retryDetail,
   } = useQuery({
@@ -112,6 +114,7 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
   return (
     <ResolvedSpanPlayerCard
       detail={detail}
+      loadingNext={loadingNext}
       derivedQueryDescriptor={derivedQueryDescriptor}
       onNavigate={onNavigate}
       backLabel={backLabel}
@@ -123,6 +126,7 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
 
 function ResolvedSpanPlayerCard({
   detail,
+  loadingNext = false,
   derivedQueryDescriptor,
   backLabel,
   onGoBack,
@@ -130,6 +134,8 @@ function ResolvedSpanPlayerCard({
   onNavigate,
 }: {
   detail: ResolvedSpanDetail;
+  /** The page still shows the previous segment while this one loads. */
+  loadingNext?: boolean;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
   backLabel: string;
   onGoBack: () => void;
@@ -183,6 +189,9 @@ function ResolvedSpanPlayerCard({
     staleTime: 60_000,
   });
 
+  // A derived segment, or one without raw segments, never loads a list, so it must not keep the previous one either:
+  // placeholder data is served even to a query that is turned off.
+  const rawSegmentsEnabled = !isDerivedQuery && detail.span.segmentIds.length > 0;
   const rawSegmentsQuery = useQuery({
     queryKey: ["segments", "ids", detail.span.segmentIds.join(",")],
     queryFn: async () => {
@@ -195,11 +204,20 @@ function ResolvedSpanPlayerCard({
       });
       return response.items;
     },
-    enabled: !isDerivedQuery && detail.span.segmentIds.length > 0,
-    // The previous segment's list stays until the next one's arrives, so the page does not jump while it loads.
-    placeholderData: keepPreviousData,
+    enabled: rawSegmentsEnabled,
+    // The previous segment's list stays until the next one's arrives, so the page does not jump while it loads. A
+    // derived segment never loads a list, so it must not keep one either.
+    placeholderData: rawSegmentsEnabled ? keepPreviousData : undefined,
     staleTime: 60_000,
   });
+  // Only the raw segments of this segment: a list kept from the previous one shows nothing that is not part of it,
+  // so its face, markers or name never stand in for this segment's.
+  const rawSegments = useMemo(() => {
+    const ids = new Set(detail.span.segmentIds);
+    return isDerivedQuery ? [] : (rawSegmentsQuery.data ?? []).filter((segment) => ids.has(segment.id));
+  }, [detail.span.segmentIds, isDerivedQuery, rawSegmentsQuery.data]);
+  // The previous segment's list is still showing and none of this segment's raw segments have arrived yet.
+  const loadingOwnRawSegments = rawSegmentsQuery.isPlaceholderData && rawSegments.length === 0;
 
   const tagQueries = useQueries({
     queries: tagIds.map((tagId) => ({
@@ -301,6 +319,7 @@ function ResolvedSpanPlayerCard({
     setResumeTime(detail.span.startSec);
     setAutostart(autoplayOnOpen);
     setActiveIntervalIndex(0);
+    setShowOpsMenu(false);
   }
 
   const seekAbsolute = useCallback(
@@ -322,27 +341,27 @@ function ResolvedSpanPlayerCard({
       if (nextIndex !== activeIntervalIndex) {
         setActiveIntervalIndex(nextIndex);
       }
-      const playing = (rawSegmentsQuery.data ?? []).find(
+      const playing = rawSegments.find(
         (segment) => nextTime >= segment.startSec && nextTime < (segment.endSec ?? segment.startSec),
       );
       setPlayingRawSegmentId(playing?.id);
     },
-    [activeIntervalIndex, intervals, rawSegmentsQuery.data],
+    [activeIntervalIndex, intervals, rawSegments],
   );
 
   // A face span is named the way its cards and raw segments are: after the face's current name or suggested
   // performer rather than the placeholder key its segments were stored with.
   // Cards name a span after its first raw segment, so the page does too, falling back to any face segment in it.
   const spanFirstSegment = useMemo(
-    () => (rawSegmentsQuery.data ?? []).find((segment) => segment.id === detail.span.segmentIds[0]),
-    [detail.span.segmentIds, rawSegmentsQuery.data],
+    () => rawSegments.find((segment) => segment.id === detail.span.segmentIds[0]),
+    [detail.span.segmentIds, rawSegments],
   );
   const faceSegment = useMemo(
     () =>
       spanFirstSegment && rawSegmentFaceId(spanFirstSegment) != null
         ? spanFirstSegment
-        : (rawSegmentsQuery.data ?? []).find((segment) => rawSegmentFaceId(segment) != null),
-    [rawSegmentsQuery.data, spanFirstSegment],
+        : rawSegments.find((segment) => rawSegmentFaceId(segment) != null),
+    [rawSegments, spanFirstSegment],
   );
   const canReadFaces = canReadEntity("face", hasPermission);
   // Nearby spans without a tag carry their segments' stored title, e.g. a face's placeholder key; their first raw
@@ -393,7 +412,7 @@ function ResolvedSpanPlayerCard({
         { concise: true },
       )
     : undefined;
-  const firstRawSegment = faceSegment ?? spanFirstSegment ?? rawSegmentsQuery.data?.[0];
+  const firstRawSegment = faceSegment ?? spanFirstSegment ?? rawSegments[0];
   // Only a span of a tag is named by it; any other span carries its segments' stored title in tagName.
   const hasTag = !isDerivedQuery && detail.span.tagId != null;
   const storedSpanName = detail.span.tagName || detail.span.kind || detail.videoTitle || "Segment";
@@ -458,7 +477,7 @@ function ResolvedSpanPlayerCard({
             resumeTime={resumeTime}
             videoId={detail.videoId}
             detections={[]}
-            segments={rawSegmentsQuery.data ?? []}
+            segments={rawSegments}
             faces={segmentFace.playerFaces.length > 0 ? segmentFace.playerFaces : spanFaces}
             // A face span is about where its face is, so its box shows unless the viewer turned X-ray off.
             faceOverlayDefault={isFaceSpan}
@@ -506,7 +525,6 @@ function ResolvedSpanPlayerCard({
     [hasVisualSimilarity],
   );
 
-  const rawSegments = rawSegmentsQuery.data ?? [];
   const orderedVideoSpans = useMemo(
     () =>
       [...(videoSpansQuery.data?.spans ?? [])].sort(
@@ -605,7 +623,7 @@ function ResolvedSpanPlayerCard({
       />
       {!isDerivedQuery ? (
         <DetailSection title="Raw segments">
-          {rawSegmentsQuery.isLoading ? (
+          {rawSegmentsQuery.isLoading || loadingOwnRawSegments ? (
             <p className="text-sm text-secondary">Loading raw segments...</p>
           ) : rawSegmentsQuery.error ? (
             <ListLoadError
@@ -675,6 +693,7 @@ function ResolvedSpanPlayerCard({
           {!isDerivedQuery && detail.span.segmentIds.length > 1
             ? `Segment · ${detail.span.segmentIds.length} raw segments`
             : "Segment"}
+          <LoadingNextMarker loading={loadingNext || loadingOwnRawSegments} />
         </span>
       }
       title={

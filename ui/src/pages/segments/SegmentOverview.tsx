@@ -31,7 +31,7 @@ export type SegmentMembership =
   | { state: "hidden" }
   | { state: "shown"; span: ResolvedSpan; profileId: number };
 
-export interface SegmentFaceProps {
+interface SegmentFaceProps {
   face?: Face;
   faceLoading: boolean;
   /** The face's suggested performers, best first; empty unless the face still needs a match. */

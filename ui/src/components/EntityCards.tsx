@@ -3702,7 +3702,7 @@ export function SuggestedNameMarker({ className = "" }: { className?: string }) 
   );
 }
 
-export type SegmentKindIconKind = "tag" | "face" | "performer";
+type SegmentKindIconKind = "tag" | "face" | "performer";
 
 // The icon that marks what a segment names: its tag (only when the name shown is that tag), face or performer.
 export function segmentKindIconKind(kind: string | undefined, titleIsTag: boolean): SegmentKindIconKind | null {

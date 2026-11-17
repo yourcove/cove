@@ -129,22 +129,14 @@ function usePersistedFlag(
   key: string,
   defaultValue: boolean,
 ): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [value, setValue] = useState<boolean>(() => {
-    if (typeof window === "undefined") return defaultValue;
-    try {
-      const raw = window.localStorage.getItem(key);
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-    } catch {
-      // Ignore storage access failures.
-    }
-    return defaultValue;
-  });
+  const [stored, setStored] = useState<boolean | undefined>(() => readPersistedFlag(key));
+  const value = stored ?? defaultValue;
 
   const setPersistedValue = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
-      setValue((previous) => {
-        const resolved = typeof next === "function" ? (next as (prev: boolean) => boolean)(previous) : next;
+      setStored((previous) => {
+        const resolved =
+          typeof next === "function" ? (next as (prev: boolean) => boolean)(previous ?? defaultValue) : next;
         try {
           window.localStorage.setItem(key, resolved ? "true" : "false");
         } catch {
@@ -153,10 +145,24 @@ function usePersistedFlag(
         return resolved;
       });
     },
-    [key],
+    [defaultValue, key],
   );
 
   return [value, setPersistedValue];
+}
+
+// The viewer's own choice, or undefined while they have never made one, so the caller's default keeps applying
+// even as it changes on a player that stays mounted (such as moving from a tag segment to a face segment).
+function readPersistedFlag(key: string): boolean | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    // Ignore storage access failures.
+  }
+  return undefined;
 }
 
 function roundPlaybackTime(value: number) {

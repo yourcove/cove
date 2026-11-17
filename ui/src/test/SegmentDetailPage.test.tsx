@@ -296,7 +296,7 @@ describe("SegmentDetailPage", () => {
     await screen.findByRole("heading", { name: "Episode Intro" });
 
     fireEvent.keyDown(window, { key: "e" });
-    expect(await screen.findByRole("heading", { name: "Edit Segment" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Edit Raw Segment" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "]" });
@@ -317,7 +317,7 @@ describe("SegmentDetailPage", () => {
 
     await screen.findByRole("heading", { name: "Episode Intro" });
     fireEvent.keyDown(window, { key: "e" });
-    await screen.findByRole("heading", { name: "Edit Segment" });
+    await screen.findByRole("heading", { name: "Edit Raw Segment" });
 
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).not.toHaveClass("bg-accent");
@@ -340,7 +340,7 @@ describe("SegmentDetailPage", () => {
 
     await screen.findByRole("heading", { name: "Episode Intro" });
     fireEvent.keyDown(window, { key: "e" });
-    await screen.findByRole("heading", { name: "Edit Segment" });
+    await screen.findByRole("heading", { name: "Edit Raw Segment" });
 
     expect(screen.getByLabelText(/^Start/)).toHaveValue("28:54.03");
     expect(screen.getByLabelText(/^End/)).toHaveValue("29:14.46");
@@ -372,7 +372,7 @@ describe("SegmentDetailPage", () => {
 
     await screen.findByRole("heading", { name: "Episode Intro" });
     fireEvent.keyDown(window, { key: "e" });
-    await screen.findByRole("heading", { name: "Edit Segment" });
+    await screen.findByRole("heading", { name: "Edit Raw Segment" });
 
     fireEvent.change(screen.getByLabelText(/^Start/), { target: { value: "1:02:03.5" } });
     fireEvent.blur(screen.getByLabelText(/^Start/));
@@ -689,6 +689,63 @@ describe("SegmentDetailPage", () => {
       releaseNext(buildSegment({ id: 8, title: "Closing", kind: "tag", tagName: "Closing", startSec: 30, endSec: 40 }));
       expect(await screen.findByRole("heading", { name: "Closing" })).toBeInTheDocument();
       expect(screen.getByTestId("segment-video-player")).toBe(player);
+    });
+
+    it("marks a move as loading and closes the previous segment's dialogs", async () => {
+      mockVideoContext(buildSegment({ title: "Opening", kind: "tag", tagName: "Opening" }));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const page = (segmentId: number) => (
+        <QueryClientProvider client={queryClient}>
+          <SegmentDetailPage id={segmentId} onNavigate={vi.fn()} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(page(7));
+      await screen.findByRole("heading", { name: "Opening" });
+      expect(screen.getByRole("status")).toHaveTextContent("");
+
+      fireEvent.click(screen.getByTitle("Operations"));
+      fireEvent.click(await screen.findByRole("button", { name: /Delete/ }));
+      expect(await screen.findByText(/Delete raw segment #7\?/)).toBeInTheDocument();
+
+      let releaseNext: (value: unknown) => void = () => {};
+      mockSegmentLibrary.get.mockReturnValue(new Promise((resolve) => (releaseNext = resolve)));
+      rerender(page(8));
+      expect(screen.getByRole("status")).toHaveTextContent("Loading");
+
+      releaseNext(buildSegment({ id: 8, title: "Closing", kind: "tag", tagName: "Closing", startSec: 30, endSec: 40 }));
+      expect(await screen.findByRole("heading", { name: "Closing" })).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("");
+      expect(screen.queryByText(/Delete raw segment/)).not.toBeInTheDocument();
+    });
+
+    it("refreshes the edited segment when its save finishes after moving to another one", async () => {
+      const edited = buildSegment({ title: "Opening", kind: "tag", tagName: "Opening" });
+      mockVideoContext(edited);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+      const page = (segmentId: number) => (
+        <QueryClientProvider client={queryClient}>
+          <SegmentDetailPage id={segmentId} onNavigate={vi.fn()} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(page(7));
+      await screen.findByRole("heading", { name: "Opening" });
+      fireEvent.keyDown(window, { key: "e" });
+      fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Renamed" } });
+      let finishSave: (value: unknown) => void = () => {};
+      mockVideos.segments.update.mockReturnValue(new Promise((resolve) => (finishSave = resolve)));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      mockSegmentLibrary.get.mockResolvedValue(
+        buildSegment({ id: 8, title: "Closing", kind: "tag", tagName: "Closing" }),
+      );
+      rerender(page(8));
+      await screen.findByRole("heading", { name: "Closing" });
+      invalidate.mockClear();
+
+      finishSave(edited);
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["segment", 7] }));
+      expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["segment", 8] });
     });
 
     it("shows a tag segment's tag once, with its icon", async () => {

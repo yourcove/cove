@@ -225,6 +225,21 @@ export function SuggestedName({
 const headerLinkClassName =
   "inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground";
 
+/** Shown beside a page label while the next segment loads and the previous one is still on screen. */
+export function LoadingNextMarker({ loading }: { loading: boolean }) {
+  // The status region stays in the page and only its text changes, which screen readers announce reliably.
+  return (
+    <span role="status" className="inline-flex items-center gap-1 normal-case tracking-normal text-muted">
+      {loading ? (
+        <>
+          <span aria-hidden className="h-2.5 w-2.5 animate-spin rounded-full border-b-2 border-accent" />
+          Loading
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 /** Header buttons that leave the segment for its video, at the segment's start, and for its tag. */
 export function SegmentHeaderLinks({
   videoTitle,

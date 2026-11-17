@@ -418,7 +418,7 @@ describe("ResolvedSpanPlayPage", () => {
 
       renderPage({ spanKey: "face-14" });
 
-      // The player mounts while the raw segments are still loading, and reads its X-ray default only then.
+      // The player mounts while the raw segments are still loading, and already knows the segment is about a face.
       await waitFor(() =>
         expect(playerProps).toHaveBeenCalledWith(expect.objectContaining({ faceOverlayDefault: true })),
       );
@@ -526,6 +526,108 @@ describe("ResolvedSpanPlayPage", () => {
       releaseNext(next);
       await waitFor(() => expect(screen.getByTestId("resolved-span-player")).toHaveTextContent("Clip 40-60 @ 40"));
       expect(screen.getByTestId("resolved-span-player")).toBe(player);
+    });
+
+    function renderNavigable(initial: { videoId?: number; spanKey: string; derivedQueryDescriptor?: unknown }) {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const page = (props: { videoId?: number; spanKey: string; derivedQueryDescriptor?: unknown }) => (
+        <QueryClientProvider client={queryClient}>
+          <ResolvedSpanPlayPage
+            videoId={props.videoId ?? 14}
+            spanKey={props.spanKey}
+            derivedQueryDescriptor={props.derivedQueryDescriptor as never}
+            onNavigate={vi.fn()}
+          />
+        </QueryClientProvider>
+      );
+      const view = render(page(initial));
+      return { moveTo: (next: typeof initial) => view.rerender(page(next)) };
+    }
+
+    it("never shows the previous segment's face on a segment with a different face while it loads", async () => {
+      mockFaceSpan();
+      mockSegmentLibrary.list.mockImplementation(async ({ ids }: { ids: string }) => ({
+        items: ids === "71,72" ? [rawFaceSegment(71, 5, 10), rawFaceSegment(72, 20, 25)] : [],
+      }));
+      const { moveTo } = renderNavigable({ spanKey: "face-14" });
+      expect(await screen.findByRole("heading", { name: "Suggested Person (suggested)" })).toBeInTheDocument();
+
+      const next = buildFaceDetail();
+      next.span = {
+        ...next.span,
+        spanKey: "face-15",
+        startSec: 40,
+        endSec: 50,
+        tagName: "face-0032",
+        segmentIds: [73],
+      };
+      mockVideos.segments.spanDetail.mockResolvedValue(next);
+      let releaseSegments: (value: unknown) => void = () => {};
+      mockSegmentLibrary.list.mockReturnValue(new Promise((resolve) => (releaseSegments = resolve)));
+      moveTo({ spanKey: "face-15" });
+
+      // The new segment's time range is shown, and the previous face is not offered for it.
+      expect(await screen.findByText(/0:40 - 0:50/)).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Suggested Person (suggested)" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+      expect(screen.getByText("Loading raw segments...")).toBeInTheDocument();
+      expect(playerProps).toHaveBeenLastCalledWith(expect.objectContaining({ segments: [] }));
+
+      mockFaces.get.mockResolvedValue({ id: 32, label: "Named Face", primarySourceKey: "face-0032", ignored: false });
+      releaseSegments({
+        items: [{ ...rawFaceSegment(73, 40, 50), refId: 32, refLabel: "face-0032", title: "face-0032" }],
+      });
+      expect(await screen.findByRole("heading", { name: "Named Face" })).toBeInTheDocument();
+    });
+
+    it("shows no face or raw segments on a derived segment reached from a face segment", async () => {
+      mockFaceSpan();
+      mockSegmentLibrary.list.mockResolvedValue({ items: [rawFaceSegment(71, 5, 10), rawFaceSegment(72, 20, 25)] });
+      const { moveTo } = renderNavigable({ spanKey: "face-14" });
+      expect(await screen.findByRole("button", { name: "Accept" })).toBeInTheDocument();
+
+      const derived = buildFaceDetail();
+      derived.span = {
+        ...derived.span,
+        spanKey: "dq-intersection-5000-25000",
+        kind: "intersection",
+        tagName: "Intersection",
+      };
+      mockVideos.segments.spanDetail.mockResolvedValue(derived);
+      moveTo({ spanKey: derived.span.spanKey, derivedQueryDescriptor: { operator: "intersection", operands: [] } });
+
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: /^Open face/ })).not.toBeInTheDocument();
+      expect(playerProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ segments: [], faceOverlayDefault: false }),
+      );
+    });
+
+    it("says when the segment moved to no longer exists", async () => {
+      mockFaceSpan();
+      mockSegmentLibrary.list.mockResolvedValue({ items: [rawFaceSegment(71, 5, 10)] });
+      const { moveTo } = renderNavigable({ spanKey: "face-14" });
+      await screen.findByTestId("resolved-span-player");
+
+      mockVideos.segments.spanDetail.mockRejectedValue(new Error("API Error 404: Not Found"));
+      moveTo({ spanKey: "gone" });
+
+      expect(await screen.findByText("Segment not found")).toBeInTheDocument();
+    });
+
+    it("starts over when moving to a segment of another video, and marks a same-video move as loading", async () => {
+      mockFaceSpan();
+      mockSegmentLibrary.list.mockResolvedValue({ items: [rawFaceSegment(71, 5, 10)] });
+      const { moveTo } = renderNavigable({ spanKey: "face-14" });
+      const player = await screen.findByTestId("resolved-span-player");
+
+      mockVideos.segments.spanDetail.mockReturnValue(new Promise(() => {}));
+      moveTo({ spanKey: "face-15" });
+      expect(screen.getByRole("status")).toHaveTextContent("Loading");
+      expect(screen.getByTestId("resolved-span-player")).toBe(player);
+
+      moveTo({ videoId: 15, spanKey: "face-16" });
+      expect(screen.queryByTestId("resolved-span-player")).not.toBeInTheDocument();
     });
 
     it("highlights the raw segment under the playhead", async () => {

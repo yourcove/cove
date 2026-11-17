@@ -88,7 +88,12 @@ export const COVE_KEYBOARD_ACTIONS: KeyboardActionDefinition[] = [
   { id: "detail.image.likes", group: "Image Detail", label: "Add like", defaultBindings: ["l"] },
   { id: "detail.image.lightbox", group: "Image Detail", label: "Toggle lightbox", defaultBindings: ["f"] },
   { id: "detail.image.detections", group: "Image Detail", label: "Open detections", defaultBindings: ["d"] },
-  { id: "detail.segment.parent", group: "Segment Detail", label: "Open parent video", defaultBindings: ["s"] },
+  {
+    id: "detail.segment.parent",
+    group: "Raw Segment Detail",
+    label: "Open video at this segment",
+    defaultBindings: ["s"],
+  },
   {
     id: "duplicates.group.next",
     group: "Duplicate Finder",

@@ -46,6 +46,7 @@ import {
   formatConfidencePercent,
   type NearbyGroup,
   type NearbyItem,
+  LoadingNextMarker,
   SegmentHeaderLinks,
   SuggestedName,
 } from "./segments/SegmentDetailSections";
@@ -200,6 +201,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const {
     data: segment,
     isLoading,
+    isPlaceholderData: loadingNextSegment,
     error: segmentError,
     refetch: retrySegment,
   } = useQuery({
@@ -247,6 +249,12 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
   const [prevSegment, setPrevSegment] = useState<typeof segment>(undefined);
   if (segment !== prevSegment) {
+    // Dialogs opened for one segment close when another one is shown.
+    if (segment?.id !== prevSegment?.id) {
+      setConfirmDelete(false);
+      setCoverOpen(false);
+      setShowOpsMenu(false);
+    }
     setPrevSegment(segment);
     resetEditState();
   }
@@ -342,7 +350,8 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
   const invalidateSegmentQueries = (current?: SegmentRecord | null, nextTagId?: number | null) => {
     queryClient.invalidateQueries({ queryKey: ["segments"] });
-    queryClient.invalidateQueries({ queryKey: ["segment", id] });
+    // The edited segment, which can differ from the route while the next one is loading.
+    queryClient.invalidateQueries({ queryKey: ["segment", current?.id ?? id] });
     // Span cards on the Segments page and dashboard rows version their image by the segment.
     queryClient.invalidateQueries({ queryKey: ["segments-page"] });
     queryClient.invalidateQueries({ queryKey: ["front-page-saved"] });
@@ -362,12 +371,10 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     }
   };
 
+  // Each mutation is handed the segment it acts on, so its success refreshes that segment even when another one is
+  // on screen by the time it finishes.
   const updateMutation = useMutation({
-    mutationFn: async () => {
-      if (!segment) {
-        throw new Error("Segment not loaded");
-      }
-
+    mutationFn: async ({ segment }: { segment: SegmentRecord; nextTagId: number | null }) => {
       if (parsedStart == null) {
         throw new Error("Segment start is invalid");
       }
@@ -394,36 +401,25 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         colorHint: normalizedColorHint,
       });
     },
-    onSuccess: () => {
-      invalidateSegmentQueries(segment, selectedTagId);
+    onSuccess: (_updated, edited) => {
+      invalidateSegmentQueries(edited.segment, edited.nextTagId);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async () => {
-      if (!segment) {
-        throw new Error("Segment not loaded");
-      }
-
-      return videos.segments.delete(segment.hostId, segment.id);
-    },
-    onSuccess: () => {
-      invalidateSegmentQueries(segment);
+    mutationFn: async (deleted: SegmentRecord) => videos.segments.delete(deleted.hostId, deleted.id),
+    onSuccess: (_result, deleted) => {
+      invalidateSegmentQueries(deleted);
       setConfirmDelete(false);
       goToOrigin();
     },
   });
 
   const setSegmentCoverMutation = useMutation({
-    mutationFn: async (atSeconds?: number) => {
-      if (!segment) {
-        throw new Error("Segment not loaded");
-      }
-
-      return entityImages.setSegmentCoverFromFrame(segment.id, atSeconds);
-    },
-    onSuccess: () => {
-      invalidateSegmentQueries(segment);
+    mutationFn: async ({ target, atSeconds }: { target: SegmentRecord; atSeconds?: number }) =>
+      entityImages.setSegmentCoverFromFrame(target.id, atSeconds),
+    onSuccess: (_result, { target }) => {
+      invalidateSegmentQueries(target);
       setCoverOpen(false);
     },
   });
@@ -559,7 +555,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       {
         id: "detail.edit",
         key: "e",
-        description: canWriteSegments ? "Edit segment" : "Open segment details",
+        description: canWriteSegments ? "Edit raw segment" : "Open raw segment details",
         handler: () => {
           setActiveTab("metadata");
           if (canWriteSegments) {
@@ -570,7 +566,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       {
         id: "detail.segment.parent",
         key: "s",
-        description: "Open parent video",
+        description: "Open video at this segment",
         handler: () => {
           if (segment.hostType === "video" && canReadVideos) {
             onNavigate(buildVideoRouteForSegment(segment));
@@ -674,7 +670,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-            {canWriteSegments ? "Edit Segment" : "Segment Details"}
+            {canWriteSegments ? "Edit Raw Segment" : "Raw Segment Details"}
           </h2>
           <p className="mt-1 text-sm text-secondary">
             {canWriteSegments
@@ -870,7 +866,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
             </button>
             <button
               type="button"
-              onClick={() => updateMutation.mutate()}
+              onClick={() => updateMutation.mutate({ segment, nextTagId: selectedTagId })}
               disabled={!canSave || updateMutation.isPending}
               className={`rounded-lg ${saveButtonTone(hasChanges)} px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50`}
             >
@@ -987,7 +983,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     <>
       <CoverImageDialog
         open={coverOpen}
-        title="Set Segment Cover"
+        title="Set Raw Segment Cover"
         entityType="segment"
         entityId={segment.id}
         currentImageUrl={entityImages.segmentCoverUrl(segment.id, segment.updatedAt)}
@@ -1003,7 +999,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                 <>
                   <button
                     type="button"
-                    onClick={() => setSegmentCoverMutation.mutate(segmentVideoTime)}
+                    onClick={() => setSegmentCoverMutation.mutate({ target: segment, atSeconds: segmentVideoTime })}
                     disabled={coverActionPending || imageOperationPending}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
                   >
@@ -1033,6 +1029,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
           >
             <RawSegmentIcon className="h-3.5 w-3.5" />
             Raw segment
+            <LoadingNextMarker loading={loadingNextSegment} />
           </span>
         }
         subtitle={subtitleWithProvenance}
@@ -1172,10 +1169,10 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       >
         <ConfirmDialog
           open={confirmDelete}
-          title="Delete Segment"
-          message={`Delete segment #${segment.id}? This cannot be undone.`}
+          title="Delete Raw Segment"
+          message={`Delete raw segment #${segment.id}? This cannot be undone.`}
           confirmLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
-          onConfirm={() => deleteMutation.mutate()}
+          onConfirm={() => deleteMutation.mutate(segment)}
           onCancel={() => setConfirmDelete(false)}
           isPending={deleteMutation.isPending}
         />
