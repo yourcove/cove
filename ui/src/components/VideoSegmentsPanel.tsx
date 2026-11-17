@@ -1073,7 +1073,7 @@ function SegmentRow({
       />
       <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={() => onSeek?.(span.startSec)}>
         {leading}
-        <span className="w-24 shrink-0 font-mono text-xs text-accent">
+        <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap font-mono text-xs text-accent">
           {formatTime(span.startSec)}
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
