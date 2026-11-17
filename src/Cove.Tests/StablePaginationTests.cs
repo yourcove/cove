@@ -332,7 +332,7 @@ public class StablePaginationTests(StablePaginationTests.SeededDatabases seeded)
     private static async Task<(int[], int)> QuerySegmentIdsAsync(CoveContext context, FindFilter filter)
     {
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var controller = new SegmentsController(context, new SegmentRepository(context), null!, cache);
+        var controller = new SegmentsController(context, new SegmentRepository(context), null!, cache, null!, null!);
         var response = await controller.List(
             q: null,
             ids: null,

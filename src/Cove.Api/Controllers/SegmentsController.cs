@@ -1,7 +1,9 @@
+using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Text.RegularExpressions;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -12,14 +14,26 @@ using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SegmentsRead)]
-public class SegmentsController(CoveContext db, ISegmentRepository segments, SegmentSpanResolver spanResolver, IMemoryCache memoryCache, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class SegmentsController(CoveContext db, ISegmentRepository segments, SegmentSpanResolver spanResolver, IMemoryCache memoryCache, SegmentSpanIndexService spanIndex, SegmentSpanIndexSearch spanIndexSearch, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
+    // How long a span request may spend bringing stale videos up to date before it answers from what
+    // is stored and reports the rest as pending.
+    private static readonly TimeSpan SpanIndexRefreshBudget = TimeSpan.FromSeconds(2);
+    private const int SpanIndexPendingCountLimit = 1_000_000;
+
+    // A page from the middle of a library-wide sort, or a filter that reads many spans' segments, can
+    // outlast the default 30-second command timeout on the largest libraries. The client waits two
+    // minutes for span searches and counts, so the database gets the same.
+    private static readonly TimeSpan SpanIndexCommandTimeout = TimeSpan.FromMinutes(2);
+
     [HttpGet]
     public async Task<ActionResult<PaginatedResponse<SegmentRecordDto>>> List(
         [FromQuery] string? q,
@@ -431,9 +445,24 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Gather the in-scope videos (ordered for the active sort) plus the profile/derived query.
-        var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
         var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
+
+        // A profile's spans are stored, so the database filters, sorts and pages them. Only a derived
+        // query, whose spans exist for that query alone, is still resolved video by video below.
+        if (request.DerivedQuery is null)
+        {
+            db.Database.SetCommandTimeout(SpanIndexCommandTimeout);
+            var pendingVideoCount = await RefreshSpanIndexAsync(profileId, ct);
+            var stored = await spanIndexSearch.SearchAsync(request, profileId, page, perPage, sort, descending, ct);
+            return Ok(new SegmentSpanSearchResponseDto(
+                await AttachSpanDetailsAsync(stored.Items, derived: false, ct), stored.TotalCount, page, perPage, stored.HasMore)
+            {
+                PendingVideoCount = pendingVideoCount,
+            });
+        }
+
+        // 1. Gather the in-scope videos (ordered for the active sort) plus the derived query.
+        var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
         var derivedQueryRequest = BuildDerivedQueryRequest(request, profileId);
         var videoMap = videoList.ToDictionary(v => v.Id);
 
@@ -622,6 +651,27 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             .ToList();
     }
 
+    /// <summary>
+    /// Brings the profile's stored spans up to date before they are read, and returns how many videos
+    /// are still pending. A failure here must not take the list down with it: the stored rows are still
+    /// the best available answer, so the request serves them and the failure is logged.
+    /// </summary>
+    private async Task<int> RefreshSpanIndexAsync(int profileId, CancellationToken ct)
+    {
+        try
+        {
+            return await spanIndex.EnsureFreshAsync(profileId, SpanIndexRefreshBudget, SpanIndexPendingCountLimit, ct);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            HttpContext?.RequestServices.GetService<ILogger<SegmentsController>>()
+                ?.LogError(exception, "Refreshing the stored spans of profile {ProfileId} failed; serving the stored rows.", profileId);
+            // Not reported as pending: the client polls while something is pending, and a refresh that
+            // cannot run would have it polling for good.
+            return 0;
+        }
+    }
+
     private const int SpanResolveBatchSize = 400;
 
     /// <summary>
@@ -644,6 +694,14 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
+        if (request.DerivedQuery is null)
+        {
+            var storedProfileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
+            db.Database.SetCommandTimeout(SpanIndexCommandTimeout);
+            var pendingVideoCount = await RefreshSpanIndexAsync(storedProfileId, ct);
+            return Ok(await spanIndexSearch.CountAsync(request, storedProfileId, ct) with { PendingVideoCount = pendingVideoCount });
+        }
+
         var version = await GetSegmentsVersionAsync(ct);
         var cacheKey = $"spans-count:{version}:{BuildSpanCountKey(request)}";
         var canCache = request.VideoTagIds is not { Length: > 0 } && !hasRelativeDates;
@@ -653,12 +711,36 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
         var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
         var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
         var derivedQueryRequest = BuildDerivedQueryRequest(request, profileId);
-        var videoMap = videoList.ToDictionary(v => v.Id);
-        var (allItems, _) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
 
-        var aggregate = new SegmentSpanCountResponseDto(
-            allItems.Count,
-            allItems.Sum(item => Math.Max(0, item.Span.EndSec - item.Span.StartSec)));
+        // Count one batch of videos at a time: the total needs every span in scope to be resolved, but
+        // not all of them, and the segment rows the filters read, to be held in memory at once.
+        var needsSegmentRows = NeedsSegmentRows(request with { Sort = null });
+        var totalCount = 0;
+        var totalDuration = 0d;
+        for (var i = 0; i < videoList.Count; i += SpanResolveBatchSize)
+        {
+            var batchVideos = videoList.Skip(i).Take(SpanResolveBatchSize).ToDictionary(video => video.Id);
+            var batchItems = new List<SegmentSpanSearchResultItemDto>();
+            foreach (var (videoId, spans) in await ResolveSpanBatchAsync(batchVideos.Keys.ToList(), profileId, derivedQueryRequest, ct))
+            {
+                if (!batchVideos.TryGetValue(videoId, out var video)) continue;
+                foreach (var span in spans)
+                    batchItems.Add(new SegmentSpanSearchResultItemDto(span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+            }
+
+            if (batchItems.Count == 0) continue;
+            var segmentRows = needsSegmentRows
+                ? await LoadSpanSegmentRowsAsync(batchItems.SelectMany(item => item.Span.SegmentIds), ct)
+                : null;
+            foreach (var item in batchItems)
+            {
+                if (segmentRows is not null && !MatchesSpanSearchRequest(item, request, segmentRows)) continue;
+                totalCount++;
+                totalDuration += Math.Max(0, item.Span.EndSec - item.Span.StartSec);
+            }
+        }
+
+        var aggregate = new SegmentSpanCountResponseDto(totalCount, totalDuration);
         if (canCache)
             memoryCache.Set(cacheKey, aggregate, TimeSpan.FromMinutes(30));
         return Ok(aggregate);
@@ -718,6 +800,7 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             // (loss-free — empty videos always resolve to zero spans) avoids walking and resolving every
             // video in the library, which is the dominant cost when listing spans at scale.
             .Where(s => db.Segments.Any(seg => seg.HostType == SegmentHostType.Video && seg.HostId == s.Id));
+        videoQuery = ApplyDerivedOperandCandidates(videoQuery, request.DerivedQuery);
 
         if (request.VideoTagIds is { Length: > 0 })
         {
@@ -744,6 +827,100 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
 
         var ordered = await videoQuery.Select(s => new { s.Id, s.Title, s.UpdatedAt }).ToListAsync(ct);
         return ordered.Select(s => (s.Id, (string?)s.Title, (DateTimeOffset)s.UpdatedAt)).ToList();
+    }
+
+    /// <summary>
+    /// Narrows a derived query to the videos that can produce a span at all, so that "this face while
+    /// that tag" resolves the videos showing the face rather than every video with segments. A video
+    /// can only contribute to an intersection if each operand matches one of its segments, to a
+    /// difference if the first operand does, and to a union if any operand does. The conditions used
+    /// are necessary, never sufficient: the query itself still decides.
+    /// </summary>
+    private IQueryable<Video> ApplyDerivedOperandCandidates(IQueryable<Video> videos, SegmentSpanDerivedQueryDto? derivedQuery)
+    {
+        if (derivedQuery?.Operands is not { Count: > 0 } operands || string.IsNullOrWhiteSpace(derivedQuery.Operator))
+            return videos;
+
+        var candidates = operands.Select(OperandCandidateSegments).ToList();
+        var videoSegments = db.Segments.AsNoTracking().Where(segment => segment.HostType == SegmentHostType.Video);
+        switch (derivedQuery.Operator.Trim().ToLowerInvariant())
+        {
+            case "intersection":
+                foreach (var candidate in candidates)
+                {
+                    if (candidate is null) continue;
+                    var matching = videoSegments.Where(candidate);
+                    videos = videos.Where(video => matching.Any(segment => segment.HostId == video.Id));
+                }
+
+                break;
+            case "difference" when candidates[0] is { } first:
+            {
+                var matching = videoSegments.Where(first);
+                videos = videos.Where(video => matching.Any(segment => segment.HostId == video.Id));
+                break;
+            }
+            case "union" when candidates.All(candidate => candidate is not null):
+            {
+                var any = candidates.Select(candidate => candidate!).Aggregate(OrElse);
+                var matching = videoSegments.Where(any);
+                videos = videos.Where(video => matching.Any(segment => segment.HostId == video.Id));
+                break;
+            }
+        }
+
+        return videos;
+    }
+
+    /// <summary>
+    /// What a segment must satisfy to match the operand, as far as the database can test it exactly the
+    /// way the resolver does; null when nothing can be. Tags are left out because an operand also
+    /// matches a segment's secondary tags, which live in its payload, and a source or kind is only
+    /// compared when it is plain ASCII, where the database's case folding agrees with the resolver's.
+    /// </summary>
+    private static Expression<Func<Segment, bool>>? OperandCandidateSegments(SegmentSpanOperandDto operand)
+    {
+        Expression<Func<Segment, bool>>? result = null;
+        void Require(Expression<Func<Segment, bool>> condition) => result = result is null ? condition : AndAlso(result, condition);
+
+        if (operand.SourceKey is { } sourceKey && Ascii.IsValid(sourceKey))
+        {
+            var lowered = sourceKey.ToLowerInvariant();
+            Require(segment => EF.Functions.Collate(segment.SourceKey, AsciiFoldCollation).ToLower() == lowered);
+        }
+
+        if (operand.Kind is { } kind && Ascii.IsValid(kind))
+        {
+            var lowered = kind.ToLowerInvariant();
+            Require(segment => segment.Kind != null && EF.Functions.Collate(segment.Kind, AsciiFoldCollation).ToLower() == lowered);
+        }
+
+        if (operand.RefIds is { Count: > 0 } refIds)
+            Require(segment => segment.RefId != null && refIds.Contains(segment.RefId.Value));
+
+        if (operand.MinConfidence is { } minConfidence)
+            Require(segment => segment.Confidence != null && segment.Confidence >= minConfidence);
+
+        return result;
+    }
+
+    // lower() under "C" folds A-Z and nothing else, whatever collation the database was created with.
+    private const string AsciiFoldCollation = "C";
+
+    private static Expression<Func<Segment, bool>> AndAlso(Expression<Func<Segment, bool>> left, Expression<Func<Segment, bool>> right)
+        => Expression.Lambda<Func<Segment, bool>>(
+            Expression.AndAlso(left.Body, new ParameterReplacer(right.Parameters[0], left.Parameters[0]).Visit(right.Body)),
+            left.Parameters);
+
+    private static Expression<Func<Segment, bool>> OrElse(Expression<Func<Segment, bool>> left, Expression<Func<Segment, bool>> right)
+        => Expression.Lambda<Func<Segment, bool>>(
+            Expression.OrElse(left.Body, new ParameterReplacer(right.Parameters[0], left.Parameters[0]).Visit(right.Body)),
+            left.Parameters);
+
+    private sealed class ParameterReplacer(ParameterExpression parameter, Expression replacement) : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node)
+            => node == parameter ? replacement : base.VisitParameter(node);
     }
 
     private async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveSpanBatchAsync(
@@ -794,7 +971,9 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     {
         // The count depends only on the filter set + profile + derived query — never on page/sort/direction.
         var derived = request.DerivedQuery is { } dq
-            ? $"{dq.Operator}|{string.Join(",", dq.Operands ?? [])}|{dq.MergeGapSec}|{dq.MinDurationSec}"
+            // Serialized, not joined: an operand record prints its tag and reference lists as a type name,
+            // which gave two queries differing only in those ids the same key and each other's totals.
+            ? $"{dq.Operator}|{JsonSerializer.Serialize(dq.Operands ?? [])}|{dq.MergeGapSec}|{dq.MinDurationSec}"
             : string.Empty;
         return string.Join("|",
             request.Profile, derived, request.Q, request.VideoTitle,

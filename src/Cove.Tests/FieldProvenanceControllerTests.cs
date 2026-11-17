@@ -73,7 +73,7 @@ public class FieldProvenanceControllerTests
         await fieldProvenance.RecordAsync(AffinityHostType.Segment, segment.Id, "title", "Detected beat", "ext:test", cancellationToken: CancellationToken.None);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = new SegmentsController(db, new SegmentRepository(db), null!, new MemoryCache(new MemoryCacheOptions()), fieldProvenance);
+        var controller = new SegmentsController(db, new SegmentRepository(db), null!, new MemoryCache(new MemoryCacheOptions()), null!, null!, fieldProvenance);
 
         var result = await controller.GetById(segment.Id, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);

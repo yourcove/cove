@@ -340,6 +340,7 @@ try
     }
     coveCfgInstance.DatabaseConnectionString = connectionString;
     builder.Services.AddCoveData(connectionString, runBackgroundMaterializers: !isIntegrationStartupTest);
+    builder.Services.AddScoped<Cove.Api.Services.SegmentSpanIndexSearch>();
 
     // Event bus (singleton for cross-service communication)
     builder.Services.AddSingleton<IEventBus, EventBus>();

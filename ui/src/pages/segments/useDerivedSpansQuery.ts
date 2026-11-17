@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { segmentSpans } from "../../api/client";
 import type { SegmentDerivedQueryDescriptor, SegmentSpanSearchRequest } from "../../api/types";
@@ -138,6 +139,7 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
     rawFilter,
     enabled,
   } = options;
+  const pendingRefetchInterval = usePendingRefetchInterval();
   return useQuery({
     queryKey: [
       "segments-page",
@@ -157,9 +159,14 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
       appliedQuery ?? null,
       rawFilter,
     ],
-    queryFn: async (): Promise<{ items: DerivedSpanItem[]; totalCount: number; hasMore: boolean }> => {
+    queryFn: async (): Promise<{
+      items: DerivedSpanItem[];
+      totalCount: number;
+      hasMore: boolean;
+      pendingVideoCount: number;
+    }> => {
       if (activeProfileId == null) {
-        return { items: [], totalCount: 0, hasMore: false };
+        return { items: [], totalCount: 0, hasMore: false, pendingVideoCount: 0 };
       }
 
       const response = await segmentSpans.search(
@@ -208,11 +215,31 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
         })),
         totalCount: response.totalCount,
         hasMore: response.hasMore ?? false,
+        pendingVideoCount: response.pendingVideoCount ?? 0,
       };
     },
     enabled,
     staleTime: 15_000,
+    // While the server is still building the stored spans, the page fills in as it goes.
+    refetchInterval: (query) => pendingRefetchInterval(query.state.data?.pendingVideoCount, query.state.dataUpdatedAt),
   });
+}
+
+// Polls while the server is still building the stored spans, quickly as long as the backlog shrinks and
+// only once a minute when it has stopped moving (a video the server cannot index would otherwise have
+// every open tab asking again every few seconds, indefinitely).
+function usePendingRefetchInterval() {
+  const last = useRef<{ pending: number; updatedAt: number; interval: number } | null>(null);
+  return (pending: number | undefined, updatedAt: number): number | false => {
+    if (!pending || pending <= 0) {
+      last.current = null;
+      return false;
+    }
+    if (last.current?.updatedAt === updatedAt) return last.current.interval;
+    const stalled = last.current != null && pending >= last.current.pending;
+    last.current = { pending, updatedAt, interval: stalled ? 60_000 : 5_000 };
+    return last.current.interval;
+  };
 }
 
 /**
@@ -232,6 +259,7 @@ export function useDerivedSpansCountQuery(options: UseDerivedSpansQueryOptions) 
     rawFilter,
     enabled,
   } = options;
+  const pendingRefetchInterval = usePendingRefetchInterval();
   return useQuery({
     queryKey: [
       "segments-page",
@@ -270,5 +298,7 @@ export function useDerivedSpansCountQuery(options: UseDerivedSpansQueryOptions) 
     },
     enabled: enabled && activeProfileId != null,
     staleTime: 30_000,
+    // A total counted while the stored spans were still being built is not final.
+    refetchInterval: (query) => pendingRefetchInterval(query.state.data?.pendingVideoCount, query.state.dataUpdatedAt),
   });
 }

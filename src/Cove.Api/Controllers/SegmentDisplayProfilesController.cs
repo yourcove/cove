@@ -169,8 +169,10 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             UserId = profile.UserId,
         };
 
+        // The database moves the profile to a new version whenever its rules change (see
+        // SegmentSpanIndexSqlDefinitions), here and for every writer that does not come through this
+        // controller, so the rule endpoints do not bump it themselves.
         db.SegmentDisplayRules.Add(rule);
-        BumpProfileVersion(profile);
         await db.SaveChangesAsync(ct);
         spanResolver.EvictProfile(profile.Id);
         await LoadTagAsync(rule, ct);
@@ -217,7 +219,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             }).ToList();
 
             db.SegmentDisplayRules.AddRange(rules);
-            BumpProfileVersion(retryProfile);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
         });
@@ -253,8 +254,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         rule.Lane = dto.Lane;
         rule.Priority = dto.Priority;
         rule.UserId = profile.UserId;
-
-        BumpProfileVersion(profile);
         await db.SaveChangesAsync(ct);
         spanResolver.EvictProfile(profile.Id);
         await LoadTagAsync(rule, ct);
@@ -275,11 +274,123 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             return NotFound();
 
         db.SegmentDisplayRules.Remove(rule);
-        BumpProfileVersion(profile);
         await db.SaveChangesAsync(ct);
         spanResolver.EvictProfile(profile.Id);
         return NoContent();
     }
+
+    /// <summary>
+    /// Saves a profile's complete rule list in one transaction, which is what the profile editor's Save button
+    /// sends. Changing a profile's rules rebuilds its stored segments in the background, so saving the edits
+    /// together starts that work once instead of once per edit. Rules whose values did not change are not
+    /// written, and a save that changes nothing leaves the profile's version alone.
+    /// </summary>
+    [HttpPut("{profileId:int}/rules")]
+    [RequiresPermission(Permissions.SegmentsWrite)]
+    public async Task<ActionResult<SegmentDisplayRulesSavedDto>> ReplaceRules(
+        int profileId,
+        [FromBody] SegmentDisplayRulesReplaceDto dto,
+        [FromServices] SegmentSpanIndexService spanIndex,
+        [FromServices] SegmentSpanIndexSignal spanIndexSignal,
+        CancellationToken ct)
+    {
+        var (profile, error) = await LoadEditableProfileAsync(profileId, ct);
+        if (profile is null)
+            return error!;
+
+        var items = dto.Rules ?? [];
+        var keptIds = items.Where(item => item.Id.HasValue).Select(item => item.Id!.Value).ToList();
+        if (keptIds.Count != keptIds.Distinct().Count())
+            return BadRequest("Each rule can appear only once.");
+
+        var outcome = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+            // Lock the profile so two saves from the same version cannot both pass the check below. NO KEY
+            // UPDATE still serialises saves and the rule trigger's version bump, without waiting on the
+            // key-share locks the span index's foreign keys take while it writes this profile's rows.
+            var currentVersion = await db.Database
+                .SqlQuery<int?>($"""SELECT "Version" AS "Value" FROM segment_display_profiles WHERE "Id" = {profileId} FOR NO KEY UPDATE""")
+                .FirstOrDefaultAsync(ct);
+            if (currentVersion is null)
+                return ReplaceOutcome.ProfileGone;
+            if (currentVersion != dto.ExpectedVersion)
+                return ReplaceOutcome.Conflict;
+
+            var existing = await db.SegmentDisplayRules.Where(rule => rule.ProfileId == profileId).ToListAsync(ct);
+            var existingById = existing.ToDictionary(rule => rule.Id);
+            if (keptIds.Any(id => !existingById.ContainsKey(id)))
+                return ReplaceOutcome.UnknownRule;
+
+            var removed = existing.Where(rule => !keptIds.Contains(rule.Id)).ToList();
+            if (removed.Count > 0 && principalAccessor?.Current?.Has(Permissions.SegmentsDelete) != true)
+                return ReplaceOutcome.Forbidden;
+
+            db.SegmentDisplayRules.RemoveRange(removed);
+            foreach (var item in items)
+            {
+                var rule = item.Id is { } id ? existingById[id] : db.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profileId }).Entity;
+                rule.SourceKey = item.SourceKey;
+                rule.Kind = item.Kind;
+                rule.TagId = item.TagId;
+                rule.TagCategory = item.TagCategory;
+                rule.HostType = item.HostType;
+                rule.Visible = item.Visible;
+                rule.MinConfidence = item.MinConfidence;
+                rule.MinDurationSec = item.MinDurationSec;
+                rule.MergeGapSec = item.MergeGapSec;
+                rule.CollapseToInstant = item.CollapseToInstant;
+                rule.ColorOverride = item.ColorOverride;
+                rule.Lane = item.Lane;
+                rule.Priority = item.Priority;
+                rule.UserId = profile.UserId;
+            }
+
+            db.ChangeTracker.DetectChanges();
+            var changed = db.ChangeTracker.HasChanges();
+            if (changed)
+                await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return changed ? ReplaceOutcome.Changed : ReplaceOutcome.Unchanged;
+        });
+
+        switch (outcome)
+        {
+            case ReplaceOutcome.Conflict:
+                return Conflict(new { code = "PROFILE_RULES_CHANGED", message = "The profile's rules were changed elsewhere since they were loaded." });
+            case ReplaceOutcome.UnknownRule:
+                return BadRequest("A rule in the list does not belong to this profile.");
+            case ReplaceOutcome.Forbidden:
+                return Forbid();
+            case ReplaceOutcome.ProfileGone:
+                return NotFound();
+        }
+
+        if (outcome == ReplaceOutcome.Changed)
+        {
+            spanResolver.EvictProfile(profileId);
+            // Start building the profile's stored segments now, rather than the next time it is opened or
+            // the background pass next wakes up.
+            await spanIndex.RegisterProfileAsync(profileId, ct);
+            spanIndexSignal.Notify();
+        }
+
+        db.ChangeTracker.Clear();
+        var saved = await db.SegmentDisplayProfiles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == profileId, ct);
+        if (saved is null)
+            return NotFound();
+        var rules = await db.SegmentDisplayRules.AsNoTracking()
+            .Include(rule => rule.Tag)
+            .Where(rule => rule.ProfileId == profileId)
+            .OrderByDescending(rule => rule.Priority ?? 0)
+            .ThenBy(rule => rule.Id)
+            .ToListAsync(ct);
+        return Ok(new SegmentDisplayRulesSavedDto(MapProfile(saved), rules.Select(MapRule).ToList(), outcome == ReplaceOutcome.Changed));
+    }
+
+    private enum ReplaceOutcome { Changed, Unchanged, Conflict, UnknownRule, Forbidden, ProfileGone }
 
     [HttpPost("preview")]
     [RequiresPermission(Permissions.SegmentsRead)]
@@ -384,9 +495,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         if (rule.TagId.HasValue)
             await db.Entry(rule).Reference(item => item.Tag).LoadAsync(ct);
     }
-
-    private static void BumpProfileVersion(SegmentDisplayProfile profile)
-        => profile.Version = Math.Max(profile.Version, 1) + 1;
 
     private static string? NormalizeRequiredText(string? value, string _)
     {
