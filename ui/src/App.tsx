@@ -111,6 +111,7 @@ const BUILT_IN_PAGES = new Set<string>([
   "groups",
   "group",
   "compilation",
+  "segments-play",
   "images",
   "image",
   "settings",
@@ -141,6 +142,7 @@ const BUILTIN_ROUTE_PERMISSIONS: Partial<Record<Route["page"], string>> = {
   groups: "groups.read",
   group: "groups.read",
   compilation: "groups.read",
+  "segments-play": "segments.read",
   images: "images.read",
   image: "images.read",
   faces: "faces.read",
@@ -183,6 +185,7 @@ const GroupDetailPage = lazy(() => import("./pages/GroupDetailPage").then((m) =>
 const CompilationPlayerPage = lazy(() =>
   import("./pages/CompilationPlayerPage").then((m) => ({ default: m.CompilationPlayerPage })),
 );
+const SegmentsPlayPage = lazy(() => import("./pages/SegmentsPlayPage").then((m) => ({ default: m.SegmentsPlayPage })));
 const ImageDetailPage = lazy(() => import("./pages/ImageDetailPage").then((m) => ({ default: m.ImageDetailPage })));
 const FacesPage = lazy(() => import("./pages/FacesPage").then((m) => ({ default: m.FacesPage })));
 const FaceDetailPage = lazy(() => import("./pages/FaceDetailPage").then((m) => ({ default: m.FaceDetailPage })));
@@ -826,6 +829,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       {route.page === "compilation" && route.id !== undefined && (
         <CompilationPlayerPage id={route.id} itemOrder={route.compilationItemOrder} onNavigate={navigate} />
       )}
+      {route.page === "segments-play" && <SegmentsPlayPage onNavigate={navigate} />}
       {route.page === "images" && <ImagesPage onNavigate={navigate} />}
       {route.page === "image" && route.id !== undefined && <ImageDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "settings" && <SettingsPage />}

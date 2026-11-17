@@ -53,6 +53,8 @@ const NON_CONTENT_QUERY_ROOTS = new Set([
   "scrapers",
   "segment-display-profile",
   "segment-display-profiles",
+  // A segment playback plays a snapshot of its list: refetching its pages could swap the playing item.
+  "segments-play",
   "settings",
   "setup",
   "system-config",

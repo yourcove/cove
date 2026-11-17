@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Bookmark,
   ExternalLink,
   FileText,
   Image as ImageIcon,
@@ -17,17 +18,38 @@ import {
 } from "lucide-react";
 import { audios, images, videos, texts } from "../api/client";
 import type { GroupPlaybackManifestItem } from "../api/types";
+import type { Route } from "../router/location";
+import type { PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { AudioPlayer } from "./AudioPlayer";
 import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
 import { VideoPlayer } from "./VideoPlayer";
+import { createRouteLinkProps } from "./cardNavigation";
 import { useAppConfig } from "../state/AppConfigContext";
 import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
 
+/** A playable item; `detailRoute` replaces the segment link for items that are not stored segments, such as spans. */
+export type CompilationPlayerItem = GroupPlaybackManifestItem & { detailRoute?: Route };
+
 interface Props {
-  groupId: number;
+  /** The group being played. Without one the player plays an ad hoc list, untracked against any group. */
+  groupId?: number;
   groupName: string;
-  items: GroupPlaybackManifestItem[];
+  items: CompilationPlayerItem[];
+  /** Identifies the list for per-list player state; defaults to the group. */
+  sourceKey?: string;
+  /** Where the Current tab's return button leads; defaults to the group. */
+  returnTarget?: { route: Route; label: string };
+  /** The full list length when `items` is only the part loaded so far. */
+  totalCount?: number;
+  /** More items follow the loaded ones; reaching the end then waits for them instead of stopping or looping. */
+  hasMore?: boolean;
+  /** Asked for more items when playback nears the end of the loaded ones. */
+  onNearEnd?: () => void;
+  /** Tracking for plays of an ad hoc list, which has no group to attribute them to. */
+  getPlaybackTracking?: (item: CompilationPlayerItem) => PlaybackTrackingTarget;
+  /** Shown above the playback controls, e.g. when more items failed to load. */
+  notice?: ReactNode;
   onNavigate: (r: any) => void;
   embedded?: boolean;
   backLabel?: string;
@@ -41,11 +63,19 @@ type TypeFilterKey = "videos" | "segments" | "images" | "texts" | "audios";
 
 const DEFAULT_IMAGE_DISPLAY_DURATION_SEC = 6;
 const DEFAULT_TEXT_DISPLAY_DURATION_SEC = 12;
+const NEAR_END_ITEM_COUNT = 5;
 
 export function CompilationPlayer({
   groupId,
   groupName,
   items,
+  sourceKey,
+  returnTarget,
+  totalCount,
+  hasMore = false,
+  onNearEnd,
+  getPlaybackTracking,
+  notice,
   onNavigate,
   embedded = false,
   backLabel,
@@ -57,10 +87,15 @@ export function CompilationPlayer({
   const playbackIntentSetRef = useRef(false);
   const playbackActiveRef = useRef(automaticPlayback);
   // Moving to the next item with autoplay hides its poster so the transition does not flash it. The
-  // choice belongs to the group it was made in, so opening another group shows posters again.
-  const [transitionPosterState, setTransitionPosterState] = useState({ groupId, suppressed: false });
-  const transitionPosterSuppressed = transitionPosterState.groupId === groupId && transitionPosterState.suppressed;
+  // choice belongs to the list it was made in, so opening another group or list shows posters again.
+  const scopeKey = sourceKey ?? `group:${groupId}`;
+  const returnRoute =
+    returnTarget ?? (groupId != null ? { route: { page: "group", id: groupId }, label: "Back to group" } : undefined);
+  const [transitionPosterState, setTransitionPosterState] = useState({ scopeKey, suppressed: false });
+  const transitionPosterSuppressed = transitionPosterState.scopeKey === scopeKey && transitionPosterState.suppressed;
   const seekRef = useRef<((time: number) => void) | null>(null);
+  // Set when playback reached the end of the loaded items while more were still to come.
+  const pendingAdvanceRef = useRef(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
   const [autostart, setAutostart] = useState(automaticPlayback);
@@ -203,13 +238,15 @@ export function CompilationPlayer({
 
   const moveToItem = useCallback(
     (nextIndex: number, shouldAutoPlay = false) => {
+      // Choosing an item replaces any wait for the next page.
+      pendingAdvanceRef.current = false;
       if (visibleItems.length === 0) {
         return;
       }
 
       const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
       if (boundedIndex === currentItemIndex) return;
-      setTransitionPosterState({ groupId, suppressed: shouldAutoPlay });
+      setTransitionPosterState({ scopeKey, suppressed: shouldAutoPlay });
       if (!shouldAutoPlay) playbackIntentSetRef.current = true;
       if (shouldAutoPlay) {
         playbackActiveRef.current = true;
@@ -221,8 +258,15 @@ export function CompilationPlayer({
       }
       setCurrentItemIndex(boundedIndex);
     },
-    [currentItemIndex, groupId, visibleItems.length],
+    [currentItemIndex, scopeKey, visibleItems.length],
   );
+
+  // A partly loaded list asks for more while a few items are still ahead, so playback never runs dry.
+  useEffect(() => {
+    if (onNearEnd && visibleItems.length > 0 && currentItemIndex >= visibleItems.length - NEAR_END_ITEM_COUNT) {
+      onNearEnd();
+    }
+  }, [currentItemIndex, onNearEnd, visibleItems.length]);
 
   const advanceToNextItem = useCallback(() => {
     if (currentItemIndex + 1 < visibleItems.length) {
@@ -230,10 +274,23 @@ export function CompilationPlayer({
       return;
     }
 
+    // The end of the loaded items is not the end of the list: wait for the next page, then carry on.
+    if (hasMore) {
+      pendingAdvanceRef.current = true;
+      onNearEnd?.();
+      return;
+    }
+
     if (loopCompilation && visibleItems.length > 0) {
       moveToItem(0, true);
     }
-  }, [currentItemIndex, loopCompilation, moveToItem, visibleItems.length]);
+  }, [currentItemIndex, hasMore, loopCompilation, moveToItem, onNearEnd, visibleItems.length]);
+
+  useEffect(() => {
+    if (!pendingAdvanceRef.current || currentItemIndex + 1 >= visibleItems.length) return;
+    pendingAdvanceRef.current = false;
+    moveToItem(currentItemIndex + 1, true);
+  }, [currentItemIndex, moveToItem, visibleItems.length]);
 
   useEffect(() => {
     if (!autostart || !item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
@@ -253,6 +310,10 @@ export function CompilationPlayer({
       return;
     }
 
+    if (item.detailRoute) {
+      onNavigate(item.detailRoute);
+      return;
+    }
     if (item.segmentId != null) {
       onNavigate({ page: "segment", id: item.segmentId });
       return;
@@ -289,30 +350,44 @@ export function CompilationPlayer({
   );
 
   const currentTitle = item ? getItemTitle(item) : "No playable item";
-  const currentPlaybackTracking = item
-    ? {
-        hostType: "group",
-        hostId: groupId,
-        surface: "compilation",
-        scopeKey: `group:${groupId}`,
-        parentHostType: "group",
-        parentHostId: groupId,
-        itemHostType: item.hostType,
-        itemHostId: item.hostId,
-        groupItemId: item.groupItemId,
-        segmentId: item.segmentId ?? undefined,
-        clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
-        clipEndSec: itemIsVideo ? videoItemEnd : (item.endSec ?? null),
-        context: {
-          videoId: item.videoId ?? undefined,
-          audioId: item.audioId ?? undefined,
-          imageId: item.imageId ?? undefined,
-          textId: item.textId ?? undefined,
-          segmentId: item.segmentId ?? undefined,
-          itemIndex: currentItemIndex,
-        },
-      }
-    : undefined;
+  // A list whose total is unknown says how many it has so far; one with a known total shows that total
+  // wherever every loaded item is shown.
+  const listTotalLabel = totalCount != null ? String(totalCount) : hasMore ? `${items.length}+` : String(items.length);
+  const playingTotalLabel = !hasMore
+    ? String(visibleItems.length)
+    : totalCount != null && visibleItems.length === items.length
+      ? String(totalCount)
+      : `${visibleItems.length}+`;
+  // A segment also opens on its source video, at the segment's start, beside opening the segment itself.
+  const currentSegmentVideoRoute = item ? (getSegmentItemLinks(item)?.video ?? null) : null;
+  // Plays of an ad hoc list belong to no group, so the video player tracks them as plain video plays.
+  const currentPlaybackTracking: PlaybackTrackingTarget | undefined =
+    item && groupId == null
+      ? getPlaybackTracking?.(item)
+      : item && groupId != null
+        ? {
+            hostType: "group",
+            hostId: groupId,
+            surface: "compilation",
+            scopeKey: `group:${groupId}`,
+            parentHostType: "group",
+            parentHostId: groupId,
+            itemHostType: item.hostType,
+            itemHostId: item.hostId,
+            groupItemId: item.groupItemId,
+            segmentId: item.segmentId ?? undefined,
+            clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
+            clipEndSec: itemIsVideo ? videoItemEnd : (item.endSec ?? null),
+            context: {
+              videoId: item.videoId ?? undefined,
+              audioId: item.audioId ?? undefined,
+              imageId: item.imageId ?? undefined,
+              textId: item.textId ?? undefined,
+              segmentId: item.segmentId ?? undefined,
+              itemIndex: currentItemIndex,
+            },
+          }
+        : undefined;
   const playerMedia = (
     <div className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
       {renderPreloads(nextVideoId, nextAudioId, nextImageId)}
@@ -336,7 +411,7 @@ export function CompilationPlayer({
             resumeTime={videoItemStart}
             videoId={currentVideoId}
             extensionSurface="compilation"
-            interactionResetKey={`group:${groupId}:item:${item.groupItemId}`}
+            interactionResetKey={`${scopeKey}:item:${item.groupItemId}`}
             detections={[]}
             captions={currentFile.captions}
             onPlay={() => {
@@ -437,6 +512,7 @@ export function CompilationPlayer({
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <IconButton
         label="Previous item"
+        shortLabel="Previous"
         title="Previous item"
         onClick={() => moveToItem(currentItemIndex - 1, true)}
         disabled={!item || (currentItemIndex === 0 && !loopCompilation)}
@@ -444,16 +520,21 @@ export function CompilationPlayer({
       />
       <IconButton
         label="Next item"
+        shortLabel="Next"
         title="Next item"
-        onClick={() => moveToItem(currentItemIndex + 1, true)}
-        disabled={!item || (currentItemIndex >= visibleItems.length - 1 && !loopCompilation)}
+        onClick={() =>
+          currentItemIndex + 1 < visibleItems.length ? moveToItem(currentItemIndex + 1, true) : advanceToNextItem()
+        }
+        disabled={!item || (currentItemIndex >= visibleItems.length - 1 && !loopCompilation && !hasMore)}
         icon={<SkipForward className="h-4 w-4" />}
       />
       <IconButton
         label="Loop compilation"
+        shortLabel="Loop"
         title="Loop compilation"
         onClick={() => setLoopCompilation((value) => !value)}
         active={loopCompilation}
+        pressed={loopCompilation}
         icon={<Repeat className="h-4 w-4" />}
       />
     </div>
@@ -461,28 +542,68 @@ export function CompilationPlayer({
 
   const sidebarContent = (
     <div className="space-y-4">
+      {notice}
       {playbackControls}
       {activeTab === "playlist" ? (
         <div className="space-y-2">
           {visibleItems.map((manifestItem, index) => {
             const active = index === currentItemIndex;
+            const segmentLinks = getSegmentItemLinks(manifestItem);
+            const subtitle = getItemSubtitle(manifestItem);
             return (
-              <button
+              <div
                 key={manifestItem.groupItemId}
-                type="button"
-                onClick={() => moveToItem(index, playbackActiveRef.current)}
-                className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
+                className={`flex w-full min-w-0 items-center rounded-lg border transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-current/20 bg-background/70">
-                  {getItemIcon(manifestItem)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {index + 1}. {getItemTitle(manifestItem)}
+                <button
+                  type="button"
+                  onClick={() => moveToItem(index, playbackActiveRef.current)}
+                  aria-current={active ? "true" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 pr-1 text-left"
+                >
+                  {/* The icon alone marks the item's type; screen readers hear it after the title instead. */}
+                  <span
+                    aria-hidden="true"
+                    title={getItemTypeLabel(manifestItem)}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center"
+                  >
+                    {getItemIcon(manifestItem)}
                   </span>
-                  <span className="mt-0.5 block text-xs text-muted">{getItemTypeLabel(manifestItem)}</span>
-                </span>
-              </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {index + 1}. {getItemTitle(manifestItem)}
+                    </span>
+                    <span className="sr-only">{getItemTypeLabel(manifestItem)}</span>
+                    {subtitle ? <span className="mt-0.5 block truncate text-xs text-muted">{subtitle}</span> : null}
+                  </span>
+                </button>
+                {segmentLinks ? (
+                  <span className="flex shrink-0 items-center pr-1">
+                    <a
+                      {...createRouteLinkProps<HTMLAnchorElement>(segmentLinks.segment, () =>
+                        onNavigate(segmentLinks.segment),
+                      )}
+                      aria-label={`Open segment ${getItemTitle(manifestItem)}`}
+                      title="Open segment"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-background/70 hover:text-accent"
+                    >
+                      <Bookmark className="h-4 w-4" aria-hidden="true" />
+                    </a>
+                    {segmentLinks.video ? (
+                      <a
+                        {...createRouteLinkProps<HTMLAnchorElement>(segmentLinks.video, () =>
+                          onNavigate(segmentLinks.video),
+                        )}
+                        aria-label={`Open video ${manifestItem.videoTitle || `#${segmentLinks.video.id}`} at ${formatTime(manifestItem.startSec)}`}
+                        title="Open video at segment start"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-background/70 hover:text-accent"
+                      >
+                        <Video className="h-4 w-4" aria-hidden="true" />
+                      </a>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -519,13 +640,25 @@ export function CompilationPlayer({
               <ExternalLink className="h-4 w-4" />
               Open item
             </button>
-            <button
-              type="button"
-              onClick={() => onNavigate({ page: "group", id: groupId })}
-              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
-            >
-              Back to group
-            </button>
+            {currentSegmentVideoRoute ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(currentSegmentVideoRoute)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+              >
+                <Video className="h-4 w-4" />
+                Open video
+              </button>
+            ) : null}
+            {returnRoute ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(returnRoute.route)}
+                className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+              >
+                {returnRoute.label}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -595,11 +728,11 @@ export function CompilationPlayer({
         subtitle={
           <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
             <span>
-              {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+              {visibleItems.length}/{listTotalLabel} item{listTotalLabel === "1" ? "" : "s"}
             </span>
             {item ? (
               <span>
-                Now playing {currentItemIndex + 1}/{visibleItems.length}
+                Now playing {currentItemIndex + 1}/{playingTotalLabel}
               </span>
             ) : null}
             {clipDuration > 0 ? <span>{formatTime(clipDuration)}</span> : null}
@@ -630,11 +763,11 @@ export function CompilationPlayer({
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-secondary">
           <span className="rounded-full border border-border bg-surface px-2 py-1">
-            {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+            {visibleItems.length}/{listTotalLabel} item{listTotalLabel === "1" ? "" : "s"}
           </span>
           {item ? (
             <span className="rounded-full border border-border bg-surface px-2 py-1">
-              Now playing {currentItemIndex + 1}/{visibleItems.length}
+              Now playing {currentItemIndex + 1}/{playingTotalLabel}
             </span>
           ) : null}
         </div>
@@ -649,18 +782,24 @@ export function CompilationPlayer({
 
 function IconButton({
   label,
+  shortLabel,
   title,
   icon,
   onClick,
   disabled,
   active,
+  pressed,
 }: {
   label: string;
+  /** The visible text; the sidebar is too narrow for the full label, which stays the accessible name. */
+  shortLabel: string;
   title: string;
   icon: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
+  /** Set for toggles, so assistive technology hears whether it is on. */
+  pressed?: boolean;
 }) {
   return (
     <button
@@ -669,10 +808,14 @@ function IconButton({
       disabled={disabled}
       title={title}
       aria-label={label}
+      aria-pressed={pressed}
       className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground hover:border-accent"}`}
     >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
+      {/* The icon keeps its size when the label is long, instead of being squeezed to a sliver. */}
+      <span className="flex shrink-0" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="hidden whitespace-nowrap sm:inline">{shortLabel}</span>
     </button>
   );
 }
@@ -854,6 +997,42 @@ function getTextId(item?: GroupPlaybackManifestItem) {
 
 function getItemTitle(item: GroupPlaybackManifestItem) {
   return item.title || item.videoTitle || `Untitled ${getItemTypeLabel(item).toLowerCase()}`;
+}
+
+/**
+ * Segment items name their source video and range, so rows that share a tag name stay distinguishable.
+ * Other items have no second line; the row icon already marks their type.
+ */
+function getItemSubtitle(item: GroupPlaybackManifestItem) {
+  if (!isSegmentItem(item)) return null;
+  // Only timed media has a range; an image-hosted segment would show a meaningless 0:00.
+  const mediaKind = getMediaKind(item);
+  const range =
+    mediaKind !== "video" && mediaKind !== "audio"
+      ? null
+      : item.endSec != null
+        ? `${formatTime(item.startSec)} - ${formatTime(item.endSec)}`
+        : formatTime(item.startSec);
+  return [item.videoTitle, range].filter(Boolean).join(" · ");
+}
+
+/** Links for a segment item: the segment itself and, for video-hosted segments, the video at its start. */
+export function getSegmentItemLinks(item: CompilationPlayerItem): { segment: Route; video: Route | null } | null {
+  // The segment page shows video-hosted segments only, so audio- and image-hosted ones get no links.
+  const videoId = getVideoId(item);
+  if (videoId == null) return null;
+  const segmentRoute: Route | null =
+    item.detailRoute ?? (item.segmentId != null ? { page: "segment", id: item.segmentId } : null);
+  if (!segmentRoute) return null;
+  return {
+    segment: segmentRoute,
+    video:
+      videoId != null
+        ? item.startSec > 0
+          ? { page: "video" as const, id: videoId, seekTo: item.startSec }
+          : { page: "video" as const, id: videoId }
+        : null,
+  };
 }
 
 function getItemTypeLabel(item: GroupPlaybackManifestItem) {
