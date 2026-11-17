@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, ExternalLink, Info, MoreVertical, Play, Sparkles, Tag as TagIcon } from "lucide-react";
 import { faces, performers, videos, segmentDisplayProfiles, segmentLibrary, tags } from "../api/client";
 import type {
@@ -73,6 +73,9 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
   } = useQuery({
     queryKey: ["video", videoId, "span", spanKey, profileId],
     queryFn: () => videos.segments.spanDetail(videoId, spanKey, profileId),
+    // Moving to another segment of the same video keeps this one on screen until the next loads, so the player,
+    // the open tab and the sidebar scroll stay put instead of passing through a loading skeleton.
+    placeholderData: (previous) => (previous?.videoId === videoId ? previous : undefined),
   });
   const detailLoadError = getLoadError(detail, detailError);
 
@@ -192,6 +195,8 @@ function ResolvedSpanPlayerCard({
       return response.items;
     },
     enabled: !isDerivedQuery && detail.span.segmentIds.length > 0,
+    // The previous segment's list stays until the next one's arrives, so the page does not jump while it loads.
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
@@ -367,6 +372,7 @@ function ResolvedSpanPlayerCard({
       return response.items;
     },
     enabled: !isDerivedQuery && nearbyUntaggedFirstIds.length > 0,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
   const nearbySegmentsById = useMemo(

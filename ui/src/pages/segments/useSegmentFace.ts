@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { faces } from "../../api/client";
 import type { Face, FaceSuggestion, SegmentRecord } from "../../api/types";
 import { readReferenceLinkInfo } from "../../components/FaceCompareDialog";
@@ -17,11 +17,15 @@ export function useSegmentFace(segment: SegmentRecord | undefined, canReadFaces:
   const queryClient = useQueryClient();
   const faceId = segment ? rawSegmentFaceId(segment) : undefined;
 
-  const { data: face, isLoading: faceQueryLoading } = useQuery({
+  const { data: loadedFace, isError: faceQueryFailed } = useQuery({
     queryKey: ["face", faceId],
     queryFn: () => faces.get(faceId!),
     enabled: faceId != null && canReadFaces,
+    // Moving between segments of the same face keeps it shown; another face replaces it once it loads.
+    placeholderData: keepPreviousData,
   });
+  // A face kept from the previous segment is only used while it is still the face this segment names.
+  const face = loadedFace?.id === faceId ? loadedFace : undefined;
   // Suggestions are only offered for a face nobody has linked to a performer, ignored or merged away.
   const faceNeedsMatch = !!face && face.performerId == null && !face.ignored && face.mergedIntoFaceId == null;
   const { data: suggestionData } = useQuery({
@@ -85,7 +89,8 @@ export function useSegmentFace(segment: SegmentRecord | undefined, canReadFaces:
   return {
     faceId,
     face,
-    faceLoading: faceId != null && canReadFaces && faceQueryLoading,
+    // Loading until this segment's own face arrives, not while the previous one is still shown.
+    faceLoading: faceId != null && canReadFaces && !face && !faceQueryFailed,
     suggestions,
     shownName,
     playerFaces,

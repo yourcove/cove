@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Camera,
   ChevronLeft,
@@ -204,6 +204,9 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   } = useQuery({
     queryKey: ["segment", id],
     queryFn: () => segmentLibrary.get(id),
+    // Moving to another segment keeps this one on screen until the next loads, so the player, the open tab and the
+    // sidebar scroll stay put instead of passing through a loading skeleton.
+    placeholderData: keepPreviousData,
   });
   const segmentLoadError = getLoadError(segment, segmentError);
 
@@ -252,7 +255,8 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     error: siblingSegmentsError,
     refetch: retrySiblingSegments,
   } = useQuery({
-    queryKey: ["segment", id, "video-context", segment?.hostId],
+    // Shared with the video page, so moving between segments of one video does not reload them.
+    queryKey: ["video", segment?.hostId, "segments"],
     queryFn: () => videos.segments.list(segment!.hostId),
     // Only video segments have siblings to list; other hosts have no video segment list to read.
     enabled: !!segment && segment.hostType === "video",

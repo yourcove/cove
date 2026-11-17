@@ -498,6 +498,33 @@ describe("ResolvedSpanPlayPage", () => {
       expect(screen.queryByTitle("Open parent video")).not.toBeInTheDocument();
     });
 
+    it("keeps the page and player in place while another segment of the same video loads", async () => {
+      mockFaceSpan();
+      mockSegmentLibrary.list.mockResolvedValue({ items: [rawFaceSegment(71, 5, 10), rawFaceSegment(72, 20, 25)] });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const page = (spanKey: string) => (
+        <QueryClientProvider client={queryClient}>
+          <ResolvedSpanPlayPage videoId={14} spanKey={spanKey} onNavigate={vi.fn()} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(page("face-14"));
+      const player = await screen.findByTestId("resolved-span-player");
+
+      let releaseNext: (value: unknown) => void = () => {};
+      mockVideos.segments.spanDetail.mockReturnValue(new Promise((resolve) => (releaseNext = resolve)));
+      rerender(page("face-15"));
+
+      // While the next segment loads, the current one stays on screen with the same player.
+      expect(screen.getByTestId("resolved-span-player")).toBe(player);
+      expect(player).toHaveTextContent("Clip 5-25");
+
+      const next = buildFaceDetail();
+      next.span = { ...next.span, spanKey: "face-15", startSec: 40, endSec: 60 };
+      releaseNext(next);
+      await waitFor(() => expect(screen.getByTestId("resolved-span-player")).toHaveTextContent("Clip 40-60 @ 40"));
+      expect(screen.getByTestId("resolved-span-player")).toBe(player);
+    });
+
     it("highlights the raw segment under the playhead", async () => {
       mockFaceSpan();
       mockSegmentLibrary.list.mockResolvedValue({ items: [rawFaceSegment(71, 5, 10), rawFaceSegment(72, 20, 25)] });

@@ -668,6 +668,29 @@ describe("SegmentDetailPage", () => {
       expect(mockVideos.segments.spans).not.toHaveBeenCalled();
     });
 
+    it("keeps the page and player in place while the next raw segment loads", async () => {
+      mockVideoContext(buildSegment({ title: "Opening", kind: "tag", tagName: "Opening" }));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const page = (segmentId: number) => (
+        <QueryClientProvider client={queryClient}>
+          <SegmentDetailPage id={segmentId} onNavigate={vi.fn()} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(page(7));
+      const player = await screen.findByTestId("segment-video-player");
+
+      let releaseNext: (value: unknown) => void = () => {};
+      mockSegmentLibrary.get.mockReturnValue(new Promise((resolve) => (releaseNext = resolve)));
+      rerender(page(8));
+
+      expect(screen.getByTestId("segment-video-player")).toBe(player);
+      expect(screen.getByRole("heading", { name: "Opening" })).toBeInTheDocument();
+
+      releaseNext(buildSegment({ id: 8, title: "Closing", kind: "tag", tagName: "Closing", startSec: 30, endSec: 40 }));
+      expect(await screen.findByRole("heading", { name: "Closing" })).toBeInTheDocument();
+      expect(screen.getByTestId("segment-video-player")).toBe(player);
+    });
+
     it("shows a tag segment's tag once, with its icon", async () => {
       mockVideoContext(buildSegment({ title: "Opening", kind: "tag", tagName: "Opening" }));
 
