@@ -19,6 +19,15 @@ public sealed class SegmentSpanIndexMaterializerService(
 {
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The longest wait between passes that find nothing to do. Looking for stale videos compares every
+    /// video's version with its stored state for each stored profile, so an idle server backs off from
+    /// <see cref="IdleDelay"/> to this. A profile registered or saved, or a request that leaves work
+    /// pending, wakes the service at once; a write made outside the app is picked up within this long,
+    /// and any list request brings its own profile up to date regardless.
+    /// </summary>
+    internal static readonly TimeSpan MaxIdleDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ErrorDelay = TimeSpan.FromSeconds(30);
 
     /// <summary>
@@ -36,7 +45,6 @@ public sealed class SegmentSpanIndexMaterializerService(
 
     private bool _loggedWaitingForMigrations;
     private int _storedSinceStatisticsRefresh;
-    private readonly SegmentSpanIndexIdleChecks _idleChecks = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,6 +57,7 @@ public sealed class SegmentSpanIndexMaterializerService(
             return;
         }
 
+        var idleDelay = IdleDelay;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -60,8 +69,16 @@ public sealed class SegmentSpanIndexMaterializerService(
                 }
 
                 var processed = await RunPassAsync(stoppingToken);
-                if (processed == 0)
-                    await signal.WaitAsync(IdleDelay, stoppingToken);
+                if (processed > 0)
+                {
+                    idleDelay = IdleDelay;
+                    continue;
+                }
+
+                // Nothing to do: wait longer each time, until woken or the next long check is due.
+                idleDelay = await signal.WaitAsync(idleDelay, stoppingToken)
+                    ? IdleDelay
+                    : NextIdleDelay(idleDelay);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -81,6 +98,10 @@ public sealed class SegmentSpanIndexMaterializerService(
             }
         }
     }
+
+    /// <summary>The wait after another pass that found nothing: twice the last, up to <see cref="MaxIdleDelay"/>.</summary>
+    internal static TimeSpan NextIdleDelay(TimeSpan current)
+        => current * 2 < MaxIdleDelay ? current * 2 : MaxIdleDelay;
 
     private async Task<int> RunPassAsync(CancellationToken ct)
     {
@@ -104,32 +125,12 @@ public sealed class SegmentSpanIndexMaterializerService(
             .Select(profile => profile.ProfileId)
             .ToListAsync(ct);
 
-        // Looking for stale videos compares every video's version with its stored state, so an idle pass
-        // would repeat that for every stored profile. A profile found clean is skipped until its rules or
-        // some video's version change (see SegmentSpanIndexIdleChecks).
-        var now = DateTime.UtcNow;
-        var versionChanges = await index.ReadVideoVersionChangeCounterAsync(ct);
-        _idleChecks.ObserveVersionChanges(versionChanges, now);
-        var profileVersions = await db.SegmentDisplayProfiles.AsNoTracking()
-            .Where(profile => profileIds.Contains(profile.Id))
-            .ToDictionaryAsync(profile => profile.Id, profile => profile.Version, ct);
-
         var processed = 0;
         foreach (var profileId in profileIds)
         {
-            if (!profileVersions.TryGetValue(profileId, out var profileVersion))
-                continue;
-            if (!_idleChecks.NeedsScan(profileId, profileVersion, now))
-                continue;
-
             try
             {
-                var reconciled = await index.ReconcileBatchAsync(profileId, SegmentSpanIndexService.BatchSize, ct, SettleDelay);
-                processed += reconciled;
-                if (reconciled == 0)
-                    _idleChecks.RecordClean(profileId, profileVersion, now);
-                else
-                    _idleChecks.Forget(profileId);
+                processed += await index.ReconcileBatchAsync(profileId, SegmentSpanIndexService.BatchSize, ct, SettleDelay);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -188,54 +189,4 @@ public sealed class SegmentSpanIndexMaterializerService(
             return false;
         }
     }
-}
-
-/// <summary>
-/// Decides when the background pass may skip a stored profile's search for stale videos. That search
-/// grows with the library, and every profile ever opened stays stored, so repeating it every few seconds
-/// for each one would keep a large library's database busy while nothing changes. A profile found clean
-/// is skipped while its version and PostgreSQL's change counter for the video versions both stay put.
-/// The counter is a statistic, updated a moment after a commit and not at all if statistics are off, so
-/// a clean result only counts once the counter has been still for longer than the settle delay (a video
-/// still settling would otherwise be missed), and every profile is searched again at least once a
-/// minute regardless. Requests never depend on this: they bring their profile up to date themselves.
-/// </summary>
-internal sealed class SegmentSpanIndexIdleChecks
-{
-    internal static readonly TimeSpan MaxCleanAge = TimeSpan.FromMinutes(1);
-    internal static readonly TimeSpan QuietBeforeTrusted = SegmentSpanIndexMaterializerService.SettleDelay + TimeSpan.FromSeconds(2);
-
-    private readonly Dictionary<int, (int ProfileVersion, long? Changes, DateTime At)> _clean = new();
-    private long? _changes;
-    private DateTime _changesSeenAt = DateTime.MinValue;
-
-    public void ObserveVersionChanges(long? changes, DateTime now)
-    {
-        if (changes == _changes && _changesSeenAt != DateTime.MinValue)
-            return;
-
-        _changes = changes;
-        _changesSeenAt = now;
-    }
-
-    public bool NeedsScan(int profileId, int profileVersion, DateTime now)
-        => _changes is null
-           || !_clean.TryGetValue(profileId, out var clean)
-           || clean.ProfileVersion != profileVersion
-           || clean.Changes != _changes
-           || now - clean.At >= MaxCleanAge;
-
-    public void RecordClean(int profileId, int profileVersion, DateTime now)
-    {
-        // A counter that moved moments ago may belong to a video that is still settling.
-        if (_changes is null || now - _changesSeenAt < QuietBeforeTrusted)
-        {
-            _clean.Remove(profileId);
-            return;
-        }
-
-        _clean[profileId] = (profileVersion, _changes, now);
-    }
-
-    public void Forget(int profileId) => _clean.Remove(profileId);
 }

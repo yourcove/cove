@@ -260,29 +260,6 @@ public sealed class SegmentSpanIndexService(
     public async Task RefreshStatisticsAsync(CancellationToken ct)
         => await db.Database.ExecuteSqlRawAsync("ANALYZE public.segment_spans, public.segment_span_video_states", ct);
 
-    /// <summary>
-    /// How many rows of the video versions have been inserted, updated or deleted, according to
-    /// PostgreSQL's statistics: a cheap way to tell that nothing has changed since an earlier read. Null
-    /// when the statistics are unavailable.
-    /// </summary>
-    public async Task<long?> ReadVideoVersionChangeCounterAsync(CancellationToken ct)
-    {
-        try
-        {
-            return await db.Database.SqlQuery<long?>($"""
-                SELECT (n_tup_ins + n_tup_upd + n_tup_del)::bigint AS "Value"
-                FROM pg_stat_user_tables
-                WHERE schemaname = 'public' AND relname = 'segment_span_video_versions'
-                """).FirstOrDefaultAsync(ct);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // Without the counter the background pass simply searches every profile, as it would anyway.
-            logger?.LogDebug(exception, "Reading the change counter of the video versions failed.");
-            return null;
-        }
-    }
-
     private sealed record StaleVideo(int VideoId, long Version);
 
     private Task<int?> LoadProfileVersionAsync(int profileId, CancellationToken ct)
@@ -474,6 +451,7 @@ public sealed class SegmentSpanIndexSignal
         }
     }
 
-    public async Task WaitAsync(TimeSpan timeout, CancellationToken ct)
-        => await _wake.WaitAsync(timeout, ct);
+    /// <summary>Waits for a wake-up or the timeout; true when woken.</summary>
+    public Task<bool> WaitAsync(TimeSpan timeout, CancellationToken ct)
+        => _wake.WaitAsync(timeout, ct);
 }

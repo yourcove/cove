@@ -1077,6 +1077,7 @@ public record SegmentDisplayRulesReplaceDto(
     int ExpectedVersion,
     List<SegmentDisplayRuleReplaceItemDto> Rules);
 
+/// <summary>A rule as it is created, plus the id of the rule it replaces, if any.</summary>
 public record SegmentDisplayRuleReplaceItemDto(
     int? Id,
     string? SourceKey,
@@ -1091,7 +1092,8 @@ public record SegmentDisplayRuleReplaceItemDto(
     bool CollapseToInstant,
     string? ColorOverride,
     int? Lane,
-    int? Priority);
+    int? Priority)
+    : SegmentDisplayRuleCreateDto(SourceKey, Kind, TagId, TagCategory, HostType, Visible, MinConfidence, MinDurationSec, MergeGapSec, CollapseToInstant, ColorOverride, Lane, Priority);
 
 /// <summary>The profile and its rules after a save; <c>Changed</c> is false when the save matched what was stored.</summary>
 public record SegmentDisplayRulesSavedDto(

@@ -150,24 +150,8 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         if (profile is null)
             return error!;
 
-        var rule = new SegmentDisplayRule
-        {
-            ProfileId = profile.Id,
-            SourceKey = dto.SourceKey,
-            Kind = dto.Kind,
-            TagId = dto.TagId,
-            TagCategory = dto.TagCategory,
-            HostType = dto.HostType,
-            Visible = dto.Visible,
-            MinConfidence = dto.MinConfidence,
-            MinDurationSec = dto.MinDurationSec,
-            MergeGapSec = dto.MergeGapSec,
-            CollapseToInstant = dto.CollapseToInstant,
-            ColorOverride = dto.ColorOverride,
-            Lane = dto.Lane,
-            Priority = dto.Priority,
-            UserId = profile.UserId,
-        };
+        var rule = new SegmentDisplayRule { ProfileId = profile.Id };
+        ApplyRuleFields(rule, dto, profile.UserId);
 
         // The database moves the profile to a new version whenever its rules change (see
         // SegmentSpanIndexSqlDefinitions), here and for every writer that does not come through this
@@ -199,23 +183,11 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
                 ?? throw new InvalidOperationException($"Segment display profile {profileId} disappeared during bulk rule creation.");
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-            var rules = ruleDtos.Select(dto => new SegmentDisplayRule
+            var rules = ruleDtos.Select(dto =>
             {
-                ProfileId = retryProfile.Id,
-                SourceKey = dto.SourceKey,
-                Kind = dto.Kind,
-                TagId = dto.TagId,
-                TagCategory = dto.TagCategory,
-                HostType = dto.HostType,
-                Visible = dto.Visible,
-                MinConfidence = dto.MinConfidence,
-                MinDurationSec = dto.MinDurationSec,
-                MergeGapSec = dto.MergeGapSec,
-                CollapseToInstant = dto.CollapseToInstant,
-                ColorOverride = dto.ColorOverride,
-                Lane = dto.Lane,
-                Priority = dto.Priority,
-                UserId = retryProfile.UserId,
+                var rule = new SegmentDisplayRule { ProfileId = retryProfile.Id };
+                ApplyRuleFields(rule, dto, retryProfile.UserId);
+                return rule;
             }).ToList();
 
             db.SegmentDisplayRules.AddRange(rules);
@@ -240,20 +212,10 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         if (rule is null)
             return NotFound();
 
-        rule.SourceKey = dto.SourceKey;
-        rule.Kind = dto.Kind;
-        rule.TagId = dto.TagId;
-        rule.TagCategory = dto.TagCategory;
-        rule.HostType = dto.HostType;
-        rule.Visible = dto.Visible;
-        rule.MinConfidence = dto.MinConfidence;
-        rule.MinDurationSec = dto.MinDurationSec;
-        rule.MergeGapSec = dto.MergeGapSec;
-        rule.CollapseToInstant = dto.CollapseToInstant;
-        rule.ColorOverride = dto.ColorOverride;
-        rule.Lane = dto.Lane;
-        rule.Priority = dto.Priority;
-        rule.UserId = profile.UserId;
+        // The update request has the create request's fields; it is a separate type only for the extension ABI.
+        ApplyRuleFields(rule, new SegmentDisplayRuleCreateDto(
+            dto.SourceKey, dto.Kind, dto.TagId, dto.TagCategory, dto.HostType, dto.Visible, dto.MinConfidence,
+            dto.MinDurationSec, dto.MergeGapSec, dto.CollapseToInstant, dto.ColorOverride, dto.Lane, dto.Priority), profile.UserId);
         await db.SaveChangesAsync(ct);
         spanResolver.EvictProfile(profile.Id);
         await LoadTagAsync(rule, ct);
@@ -332,20 +294,7 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             foreach (var item in items)
             {
                 var rule = item.Id is { } id ? existingById[id] : db.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profileId }).Entity;
-                rule.SourceKey = item.SourceKey;
-                rule.Kind = item.Kind;
-                rule.TagId = item.TagId;
-                rule.TagCategory = item.TagCategory;
-                rule.HostType = item.HostType;
-                rule.Visible = item.Visible;
-                rule.MinConfidence = item.MinConfidence;
-                rule.MinDurationSec = item.MinDurationSec;
-                rule.MergeGapSec = item.MergeGapSec;
-                rule.CollapseToInstant = item.CollapseToInstant;
-                rule.ColorOverride = item.ColorOverride;
-                rule.Lane = item.Lane;
-                rule.Priority = item.Priority;
-                rule.UserId = profile.UserId;
+                ApplyRuleFields(rule, item, profile.UserId);
             }
 
             db.ChangeTracker.DetectChanges();
@@ -488,6 +437,25 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
 
         fallback.IsDefault = true;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Copies a rule request onto a rule: the one place every rule endpoint sets the fields.</summary>
+    private static void ApplyRuleFields(SegmentDisplayRule rule, SegmentDisplayRuleCreateDto fields, int? userId)
+    {
+        rule.SourceKey = fields.SourceKey;
+        rule.Kind = fields.Kind;
+        rule.TagId = fields.TagId;
+        rule.TagCategory = fields.TagCategory;
+        rule.HostType = fields.HostType;
+        rule.Visible = fields.Visible;
+        rule.MinConfidence = fields.MinConfidence;
+        rule.MinDurationSec = fields.MinDurationSec;
+        rule.MergeGapSec = fields.MergeGapSec;
+        rule.CollapseToInstant = fields.CollapseToInstant;
+        rule.ColorOverride = fields.ColorOverride;
+        rule.Lane = fields.Lane;
+        rule.Priority = fields.Priority;
+        rule.UserId = userId;
     }
 
     private async Task LoadTagAsync(SegmentDisplayRule rule, CancellationToken ct)

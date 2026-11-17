@@ -770,66 +770,14 @@ public class SegmentSpanIndexTests
         };
 
     [Fact]
-    public void IdleChecks_SkipACleanProfile_OnlyWhileNothingHasMoved()
+    public void IdleBackoff_DoublesUpToTheLongestWait()
     {
-        var checks = new SegmentSpanIndexIdleChecks();
-        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        checks.ObserveVersionChanges(10, start);
-        Assert.True(checks.NeedsScan(1, 3, start));
+        var delays = new List<TimeSpan>();
+        var delay = TimeSpan.FromSeconds(5);
+        for (var pass = 0; pass < 6; pass++)
+            delays.Add(delay = SegmentSpanIndexMaterializerService.NextIdleDelay(delay));
 
-        // The counter has only just been seen: a video could still be settling, so the clean result is not kept.
-        checks.RecordClean(1, 3, start);
-        Assert.True(checks.NeedsScan(1, 3, start.AddSeconds(1)));
-
-        var quiet = start + SegmentSpanIndexIdleChecks.QuietBeforeTrusted;
-        checks.ObserveVersionChanges(10, quiet);
-        checks.RecordClean(1, 3, quiet);
-        Assert.False(checks.NeedsScan(1, 3, quiet.AddSeconds(5)));
-        Assert.True(checks.NeedsScan(1, 4, quiet.AddSeconds(5)));
-        Assert.True(checks.NeedsScan(2, 1, quiet.AddSeconds(5)));
-        Assert.True(checks.NeedsScan(1, 3, quiet + SegmentSpanIndexIdleChecks.MaxCleanAge));
-
-        checks.ObserveVersionChanges(11, quiet.AddSeconds(6));
-        Assert.True(checks.NeedsScan(1, 3, quiet.AddSeconds(6)));
-
-        // Without statistics nothing is ever skipped.
-        var blind = new SegmentSpanIndexIdleChecks();
-        blind.ObserveVersionChanges(null, start);
-        blind.RecordClean(1, 3, start.AddMinutes(5));
-        Assert.True(blind.NeedsScan(1, 3, start.AddMinutes(5)));
-    }
-
-    [Fact]
-    public async Task VideoVersionChangeCounter_MovesWhenASegmentIsWritten()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var ct = TestContext.Current.CancellationToken;
-        var video = await fixture.AddVideoAsync("Counted");
-        var before = await fixture.Index.ReadVideoVersionChangeCounterAsync(ct);
-        Assert.NotNull(before);
-
-        // The writer reports its statistics when it next flushes them; ask it to do so straight away.
-        await fixture.Context.Database.OpenConnectionAsync(ct);
-        try
-        {
-            fixture.Context.Segments.Add(Segment(video, 0, 30, kind: "scene"));
-            await fixture.Context.SaveChangesAsync(ct);
-            await fixture.Context.Database.ExecuteSqlRawAsync("SELECT pg_stat_force_next_flush()", ct);
-            await fixture.Context.Database.ExecuteSqlRawAsync("SELECT 1", ct);
-        }
-        finally
-        {
-            await fixture.Context.Database.CloseConnectionAsync();
-        }
-
-        var after = before;
-        for (var attempt = 0; attempt < 50 && after == before; attempt++)
-        {
-            await Task.Delay(100, ct);
-            after = await fixture.Index.ReadVideoVersionChangeCounterAsync(ct);
-        }
-
-        Assert.True(after > before, $"The counter stayed at {before}.");
+        Assert.Equal(new[] { 10, 20, 40, 60, 60, 60 }, delays.Select(wait => (int)wait.TotalSeconds));
     }
 
     [Fact]
