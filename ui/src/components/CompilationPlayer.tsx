@@ -512,6 +512,7 @@ export function CompilationPlayer({
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <IconButton
         label="Previous item"
+        shortLabel="Previous"
         title="Previous item"
         onClick={() => moveToItem(currentItemIndex - 1, true)}
         disabled={!item || (currentItemIndex === 0 && !loopCompilation)}
@@ -519,6 +520,7 @@ export function CompilationPlayer({
       />
       <IconButton
         label="Next item"
+        shortLabel="Next"
         title="Next item"
         onClick={() =>
           currentItemIndex + 1 < visibleItems.length ? moveToItem(currentItemIndex + 1, true) : advanceToNextItem()
@@ -528,9 +530,11 @@ export function CompilationPlayer({
       />
       <IconButton
         label="Loop compilation"
+        shortLabel="Loop"
         title="Loop compilation"
         onClick={() => setLoopCompilation((value) => !value)}
         active={loopCompilation}
+        pressed={loopCompilation}
         icon={<Repeat className="h-4 w-4" />}
       />
     </div>
@@ -778,18 +782,24 @@ export function CompilationPlayer({
 
 function IconButton({
   label,
+  shortLabel,
   title,
   icon,
   onClick,
   disabled,
   active,
+  pressed,
 }: {
   label: string;
+  /** The visible text; the sidebar is too narrow for the full label, which stays the accessible name. */
+  shortLabel: string;
   title: string;
   icon: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
+  /** Set for toggles, so assistive technology hears whether it is on. */
+  pressed?: boolean;
 }) {
   return (
     <button
@@ -798,10 +808,14 @@ function IconButton({
       disabled={disabled}
       title={title}
       aria-label={label}
+      aria-pressed={pressed}
       className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground hover:border-accent"}`}
     >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
+      {/* The icon keeps its size when the label is long, instead of being squeezed to a sliver. */}
+      <span className="flex shrink-0" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="hidden whitespace-nowrap sm:inline">{shortLabel}</span>
     </button>
   );
 }

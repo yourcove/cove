@@ -492,6 +492,19 @@ describe("CompilationPlayer", () => {
     expect(screen.queryByRole("button", { name: "Back to group" })).not.toBeInTheDocument();
   });
 
+  it("keeps the playback controls' full names and reports whether looping is on", async () => {
+    mockVideos.get.mockResolvedValue({ id: 14, files: [{ format: "mp4", duration: 120, captions: [] }] });
+    renderPlayer();
+    await screen.findByTestId("compilation-video-player");
+
+    const loop = screen.getByRole("button", { name: "Loop compilation" });
+    expect(loop).toHaveAttribute("aria-pressed", "false");
+    expect(loop).toHaveTextContent("Loop");
+    fireEvent.click(loop);
+    expect(loop).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Previous item" })).toHaveTextContent("Previous");
+  });
+
   it("waits at the end of the loaded items for more instead of stopping or looping back", async () => {
     mockVideos.get.mockImplementation(async (id: number) => ({
       id,
