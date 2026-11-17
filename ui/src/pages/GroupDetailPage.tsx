@@ -1330,6 +1330,7 @@ function GroupItemsPanel({
               <div ref={measureRef}>
                 <GroupItemRow
                   item={item}
+                  hydrated={hydratedItems.get(item.id)}
                   onNavigate={onNavigate}
                   selected={selectedIds.has(item.id)}
                   onToggleSelect={() => toggle(item.id)}
@@ -1347,6 +1348,7 @@ function GroupItemsPanel({
             renderItem={(item, { dragHandleProps, isDragging, isOver }) => (
               <GroupItemRow
                 item={item}
+                hydrated={hydratedItems.get(item.id)}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(item.id)}
                 onToggleSelect={() => toggle(item.id)}
@@ -2309,6 +2311,10 @@ function getMixedItemHost(
 
 function routeForGroupItem(item: GroupItem, hostType: string, hostId: number | null) {
   if (item.childGroupId) return { page: "group", id: item.childGroupId };
+  // A segment opens its own detail page, like it does on the Segments page; its card links the source
+  // video separately. Checked before videoId, which dynamic segment items also carry. The segment page
+  // shows video-hosted segments only, so an image-hosted one keeps opening its image below.
+  if (hostType === "segment" && hostId && !item.imageId) return { page: "segment", id: hostId };
   // Only seek when the item carries a real position (spans/ranges). A plain video item has no
   // startSec, so omit seekTo and let the video page resume from engagement rather than restart at 0.
   if (item.videoId)
@@ -2325,6 +2331,14 @@ function routeForGroupItem(item: GroupItem, hostType: string, hostId: number | n
     return { page: hostType === "text" ? "text" : hostType, id: hostId };
   }
   return null;
+}
+
+/** The source video of a video-hosted segment, opened at the segment's start. */
+function segmentHostVideoRoute(segment: { hostType: string; hostId: number; startSec: number }) {
+  if (segment.hostType !== "video") return undefined;
+  return segment.startSec > 0
+    ? { page: "video" as const, id: segment.hostId, seekTo: segment.startSec }
+    : { page: "video" as const, id: segment.hostId };
 }
 
 function labelForGroupItemKind(kind: GroupItemKind) {
@@ -2487,6 +2501,7 @@ function GroupItemCardShell({ children }: { children: React.ReactNode }) {
 
 function GroupItemRow({
   item,
+  hydrated,
   onNavigate,
   selected,
   onToggleSelect,
@@ -2495,6 +2510,7 @@ function GroupItemRow({
   isOver,
 }: {
   item: MixedGroupItem;
+  hydrated?: HydratedGroupItemState;
   onNavigate: (r: any) => void;
   selected: boolean;
   onToggleSelect: () => void;
@@ -2503,6 +2519,11 @@ function GroupItemRow({
   isOver?: boolean;
 }) {
   const host = groupItemHost(item);
+  // Static segment items carry no video id of their own, so the source video comes from the loaded segment.
+  const segmentVideoRoute =
+    hydrated?.status === "ready" && hydrated.data.type === "segment"
+      ? segmentHostVideoRoute(hydrated.data.segment)
+      : undefined;
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border bg-card/80 px-4 py-3 transition-colors ${selected ? "border-accent ring-1 ring-accent" : isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}
@@ -2539,6 +2560,16 @@ function GroupItemRow({
         >
           <ExternalLink className="h-4 w-4" />
           Open
+        </button>
+      ) : null}
+      {segmentVideoRoute ? (
+        <button
+          type="button"
+          onClick={() => onNavigate(segmentVideoRoute)}
+          className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1.5 text-sm text-foreground transition hover:border-accent"
+        >
+          <Film className="h-4 w-4" />
+          Open video
         </button>
       ) : null}
     </div>
@@ -2654,10 +2685,14 @@ function GroupItemGridCard({
       }
       case "segment": {
         const segment = item.item.title ? { ...hydrated.data.segment, title: item.item.title } : hydrated.data.segment;
+        const hostRoute = segmentHostVideoRoute(segment);
         return (
           <GroupItemCardShell>
             <SegmentTile
               segment={segment}
+              route={route}
+              hostRoute={hostRoute}
+              onOpenHost={hostRoute ? () => onNavigate(hostRoute) : undefined}
               onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               selected={selected}
               onSelect={onToggleSelect}
