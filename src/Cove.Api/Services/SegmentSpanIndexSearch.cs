@@ -76,13 +76,29 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
             skip = remaining - take;
         }
 
-        var rows = take == 0
+        // The page is read in two steps. Ordering carries every selected column through the sort, and an
+        // order no index holds (random, a computed text key) sorts every matching span: with the whole
+        // row that reads the wide span table on one core. The first step orders and pages only the span
+        // ids, which the covering index on the profile can answer; the second reads those few rows.
+        var pageIds = take == 0
             ? []
             : await Ordered(reverse: fromEnd)
                 .Skip(skip)
                 .Take(take)
+                .Select(row => row.Span.Id)
+                .ToListAsync(ct);
+        // The extra row read to tell whether more pages follow is not shown, so it is not loaded either.
+        var shownIds = fromEnd ? pageIds : pageIds.Take(perPage).ToList();
+        var unordered = shownIds.Count == 0
+            ? []
+            : await (
+                from span in db.StoredSegmentSpans.AsNoTracking()
+                join video in db.Videos.AsNoTracking() on span.VideoId equals video.Id
+                where shownIds.Contains(span.Id)
+                select new SpanRow { Span = span, Video = video })
                 .Select(row => new
                 {
+                    row.Span.Id,
                     row.Span.SpanKey,
                     row.Span.VideoId,
                     row.Span.StartSec,
@@ -101,10 +117,14 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
                     VideoUpdatedAt = row.Video.UpdatedAt,
                 })
                 .ToListAsync(ct);
+        var byId = unordered.ToDictionary(row => row.Id);
+        // A span replaced between the two steps drops out of this page rather than failing it.
+        var rows = shownIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
         if (fromEnd)
             rows.Reverse();
 
-        var hasMore = knownTotal is { } total ? offset + Math.Min(rows.Count, perPage) < total : rows.Count > perPage;
+        // Counted from the ids the first step found, so a row replaced in between cannot end the list early.
+        var hasMore = knownTotal is { } total ? offset + Math.Min(pageIds.Count, perPage) < total : pageIds.Count > perPage;
         var items = rows.Take(perPage)
             .Select(row => new SegmentSpanSearchResultItemDto(
                 new ResolvedSpan(
@@ -135,8 +155,9 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
             totalCount = exact;
         else if (sort is "updated_at" or "created_at" or "title" && !videoScoped && !HasSpanFilters(request) && hasMore)
             totalCount = -1;
-        else if (!hasMore && (items.Count > 0 || offset == 0))
-            totalCount = offset + items.Count;
+        else if (!hasMore && (pageIds.Count > 0 || offset == 0))
+            // From the ids, so a row replaced between the two steps does not shrink the total.
+            totalCount = offset + Math.Min(pageIds.Count, perPage);
         else
             totalCount = await filtered.CountAsync(ct);
 
@@ -287,7 +308,9 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
 
     private IQueryable<Video> BuildVideoQuery(SegmentSpanSearchRequestDto request)
     {
-        var videos = db.Videos.AsNoTracking().AsQueryable();
+        // The access check stays exact, but leaves the per-row function out where it cannot change the
+        // answer, so the scan over every stored span of the profile can run in parallel.
+        var videos = db.VideosForLargeRead().AsNoTracking();
         var excludeIds = request.ExcludeVideoIds ?? [];
         if (excludeIds.Length > 0)
             videos = videos.Where(video => !excludeIds.Contains(video.Id));
@@ -328,11 +351,9 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
 
     private IOrderedQueryable<SpanRow> ApplySpanOrdering(IQueryable<SpanRow> query, string sort, bool descending, int? seed, bool reverse)
     {
-        var mixSeed = seed ?? 1;
         return sort switch
         {
-            // The stored key is fixed per span; mixing in the seed gives each seed its own stable shuffle.
-            "random" => OrderSpansBy(query, row => (long)(row.Span.RandomKey ^ mixSeed) * 2654435761L % 4294967296L, descending, reverse),
+            "random" => OrderSpansBy(query, ShuffleKey(seed ?? 1), descending, reverse),
             "start_sec" or "span_start" => OrderSpansBy(query, row => row.Span.StartSec, descending, reverse),
             "end_sec" or "span_end" => OrderSpansBy(query, row => row.Span.EndSec, descending, reverse),
             "duration" or "span_duration" => OrderSpansBy(query, row => row.Span.DurationSec, descending, reverse),
@@ -369,6 +390,35 @@ public sealed class SegmentSpanIndexSearch(CoveContext db)
             // "host_type": every span is a video span, so only the tie-breaks order them.
             _ => OrderSpansBy(query, row => 0, descending, reverse),
         };
+    }
+
+    /// <summary>
+    /// The random sort's key: a 32-bit integer hash of the span's video, its place in the video and the
+    /// seed, worked out by the database. A seed gives a stable shuffle, so its pages line up, and another
+    /// seed gives an unrelated one. A write to a video can only move that video's own spans. The mix is
+    /// done in 64-bit integers kept below 2^63 and never negative: the identity is a video id (under
+    /// 2^31) times a constant under 2^32 plus a small ordinal term, and every later product is of a
+    /// value under 2^32 and a constant under 2^31. The seed is passed as a parameter, so each new
+    /// shuffle reuses the same compiled query.
+    /// </summary>
+    internal static Expression<Func<SpanRow, long>> ShuffleKey(int seed)
+    {
+        const long Mask = 4294967296L;
+        Expression<Func<SpanRow, long>> identity = row =>
+            ((long)row.Span.VideoId * 2654435761L + (long)row.Span.Ordinal * 40503L) % Mask;
+        var parameter = identity.Parameters[0];
+        static Expression Constant(long value) => Expression.Constant(value);
+        static Expression Multiply(Expression value, long factor) => Expression.Modulo(Expression.Multiply(value, Constant(factor)), Constant(Mask));
+        // Every value here is non-negative, so a division is the right shift (which the provider does not translate).
+        static Expression ShiftXor(Expression value, int bits) => Expression.ExclusiveOr(value, Expression.Divide(value, Constant(1L << bits)));
+
+        // A murmur-style finaliser over the identity with the seed folded in.
+        long mixedSeed = (uint)seed;
+        Expression<Func<long>> seedValue = () => mixedSeed;
+        Expression key = Expression.ExclusiveOr(identity.Body, seedValue.Body);
+        key = ShiftXor(Multiply(key, 2146121005L), 15);
+        key = ShiftXor(Multiply(key, 1597334677L), 16);
+        return Expression.Lambda<Func<SpanRow, long>>(key, parameter);
     }
 
     // Text keys sort in the natural collation the other lists use, not the database's byte order.

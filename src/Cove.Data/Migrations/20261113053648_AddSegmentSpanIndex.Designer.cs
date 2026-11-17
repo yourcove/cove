@@ -3815,9 +3815,6 @@ namespace Cove.Data.Migrations
                     b.Property<int>("ProfileId")
                         .HasColumnType("integer");
 
-                    b.Property<int>("RandomKey")
-                        .HasColumnType("integer");
-
                     b.PrimitiveCollection<long[]>("RefIds")
                         .IsRequired()
                         .HasColumnType("bigint[]");
@@ -3869,6 +3866,8 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("ProfileId", "VideoId", "Ordinal")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("ProfileId", "VideoId", "Ordinal"), new[] { "StartSec", "Kind", "Id" });
 
                     b.ToTable("segment_spans", (string)null);
                 });

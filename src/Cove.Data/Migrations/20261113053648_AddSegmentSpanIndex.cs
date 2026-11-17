@@ -109,8 +109,7 @@ namespace Cove.Data.Migrations
                     MinSegmentCreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     MaxSegmentCreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     MinSegmentUpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    MaxSegmentUpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    RandomKey = table.Column<int>(type: "integer", nullable: false)
+                    MaxSegmentUpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -153,7 +152,8 @@ namespace Cove.Data.Migrations
                 name: "IX_segment_spans_ProfileId_VideoId_Ordinal",
                 table: "segment_spans",
                 columns: new[] { "ProfileId", "VideoId", "Ordinal" },
-                unique: true);
+                unique: true)
+                .Annotation("Npgsql:IndexInclude", new[] { "StartSec", "Kind", "Id" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_segment_spans_RefIds",

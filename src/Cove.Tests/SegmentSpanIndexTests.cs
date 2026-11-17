@@ -427,6 +427,9 @@ public class SegmentSpanIndexTests
 
         var full = Assert.Single((await fixture.SearchAsync()).Items);
         Assert.Equal(("Secret", "#abcdef", 3), (full.Span.TagName, full.Span.ColorHint, full.Span.Lane));
+        // The principal is held per async flow, so this runs before the restricted reader takes over.
+        var byTagName = new SegmentSpanSearchRequestDto(null, null, 1, 50, null, null, "Secret", null, null, null);
+        Assert.Single((await fixture.SearchAsync(byTagName)).Items);
 
         await using var restricted = fixture.ForPrincipal(Permissions.SegmentsRead, Permissions.VideosRead);
         var limited = Assert.Single((await restricted.SearchAsync()).Items);
@@ -434,6 +437,59 @@ public class SegmentSpanIndexTests
         Assert.Null(limited.Span.TagName);
         Assert.Null(limited.Span.ColorHint);
         Assert.Null(limited.Span.Lane);
+
+        // Nor can the hidden name be searched for: a reader with every video but no tags finds nothing,
+        // even though their video access needs no per-row check.
+        Assert.Empty((await restricted.SearchAsync(byTagName)).Items);
+        Assert.Equal(0, (await restricted.CountAsync(byTagName with { Page = null, PerPage = null })).TotalCount);
+        Assert.Empty((await restricted.SearchAsync(byTagName with { Sort = "random" })).Items);
+    }
+
+    [Fact]
+    public async Task ReadersWhoseAccessIsLimited_CannotReachHiddenVideosOrTagsThroughFiltersOrSorts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var zulu = new Tag { Name = "Zulu" };
+        var alpha = new Tag { Name = "Alpha" };
+        fixture.Context.Tags.AddRange(zulu, alpha);
+        var first = await fixture.AddVideoAsync("First");
+        var second = await fixture.AddVideoAsync("Second");
+        fixture.Context.Segments.AddRange(Segment(first, 0, 30, tagId: zulu.Id), Segment(second, 0, 30, tagId: alpha.Id));
+        fixture.Context.Set<VideoTag>().Add(new VideoTag { VideoId = first.Id, TagId = zulu.Id });
+        await fixture.Context.SaveChangesAsync(ct);
+
+        SegmentSpanSearchRequestDto Request(string? sort = null, string? direction = null, int[]? videoTagIds = null)
+            => new(null, null, 1, 50, sort, direction, null, null, null, null) { VideoTagIds = videoTagIds };
+        static int[] Videos(SegmentSpanSearchResponseDto response) => response.Items.Select(item => item.VideoId).ToArray();
+
+        // Controls, as a reader who sees everything. The principal is held per async flow, so these run first.
+        Assert.Equal(new[] { first.Id }, Videos(await fixture.SearchAsync(Request(videoTagIds: [zulu.Id]))));
+        Assert.Equal(new[] { second.Id, first.Id }, Videos(await fixture.SearchAsync(Request("tag_name", "asc"))));
+
+        // A share link that shares nothing sees no video, so none of their segments.
+        await using (var shareLink = fixture.ForPrincipal(new CovePrincipal
+        {
+            UserId = null,
+            Username = "share-link",
+            Kind = PrincipalKind.ShareLink,
+            TokenId = Guid.NewGuid(),
+            Roles = new HashSet<string>(),
+            Permissions = new HashSet<string> { Permissions.SegmentsRead, Permissions.VideosRead },
+        }))
+        {
+            Assert.Empty((await shareLink.SearchAsync(Request())).Items);
+            Assert.Equal(0, (await shareLink.CountAsync(Request() with { Page = null, PerPage = null })).TotalCount);
+            Assert.Empty((await shareLink.SearchAsync(Request("random", "desc"))).Items);
+        }
+
+        // A reader of every video but no tags can neither filter by a hidden tag nor be sorted by hidden names.
+        await using var noTags = fixture.ForPrincipal(Permissions.SegmentsRead, Permissions.VideosRead);
+        Assert.Empty((await noTags.SearchAsync(Request(videoTagIds: [zulu.Id]))).Items);
+        Assert.Equal(0, (await noTags.CountAsync(Request(videoTagIds: [zulu.Id]) with { Page = null, PerPage = null })).TotalCount);
+        // With the names hidden both spans tie, so they fall back to video order both ways.
+        Assert.Equal(new[] { first.Id, second.Id }, Videos(await noTags.SearchAsync(Request("tag_name", "asc"))));
+        Assert.Equal(new[] { second.Id, first.Id }, Videos(await noTags.SearchAsync(Request("tag_name", "desc"))));
     }
 
     [Fact]
@@ -580,6 +636,7 @@ public class SegmentSpanIndexTests
     [InlineData("start_sec", "asc")]
     [InlineData("start_sec", "desc")]
     [InlineData("kind", "asc")]
+    [InlineData("random", "desc")]
     public async Task DeepPages_ReadFromTheFarEnd_MatchTheSameOrderReadFromTheStart(string sort, string direction)
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -627,6 +684,72 @@ public class SegmentSpanIndexTests
         var beyond = await fixture.SearchAsync(Request(pageCount + 1));
         Assert.Empty(beyond.Items);
         Assert.Equal((total, false), (beyond.TotalCount, beyond.HasMore));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(int.MaxValue, int.MaxValue, int.MinValue)]
+    [InlineData(int.MaxValue, 0, -1)]
+    [InlineData(123_456, 789, 1_997_909_738)]
+    public void ShuffleKey_NeverOverflows_AndStaysA32BitValue(int videoId, int ordinal, int seed)
+    {
+        var key = SegmentSpanIndexSearch.ShuffleKey(seed).Compile()(new SegmentSpanIndexSearch.SpanRow
+        {
+            Span = new StoredSegmentSpan { VideoId = videoId, Ordinal = ordinal, SpanKey = "k" },
+            Video = new Video(),
+        });
+
+        // The same mix in arbitrary precision: equal only if no 64-bit step wrapped.
+        var mask = System.Numerics.BigInteger.One << 32;
+        var reference = (new System.Numerics.BigInteger(videoId) * 2654435761L + new System.Numerics.BigInteger(ordinal) * 40503L) % mask;
+        reference ^= (uint)seed;
+        reference = reference * 2146121005L % mask;
+        reference ^= reference >> 15;
+        reference = reference * 1597334677L % mask;
+        reference ^= reference >> 16;
+        Assert.Equal(reference, new System.Numerics.BigInteger(key));
+        Assert.InRange(key, 0, uint.MaxValue);
+    }
+
+    [Fact]
+    public async Task RandomOrder_IsStablePerSeed_PagesWithoutRepeats_AndDiffersBetweenSeeds()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var ct = TestContext.Current.CancellationToken;
+        foreach (var title in new[] { "One", "Two", "Three" })
+        {
+            var video = await fixture.AddVideoAsync(title);
+            // Twenty separate spans per video, two of them starting together in different lanes.
+            for (var index = 0; index < 20; index++)
+                fixture.Context.Segments.Add(Segment(video, index * 100, index * 100 + 30, kind: index % 2 == 0 ? "scene" : "beat"));
+        }
+        await fixture.Context.SaveChangesAsync(ct);
+
+        SegmentSpanSearchRequestDto Request(int seed, int page, int perPage) =>
+            new(null, null, page, perPage, "random", "desc", null, null, null, null, Seed: seed);
+        static string Key(SegmentSpanSearchResultItemDto item) => $"{item.VideoId}:{item.Span.SpanKey}";
+        async Task<List<string>> AllAsync(int seed) => (await fixture.SearchAsync(Request(seed, 1, 100))).Items.Select(Key).ToList();
+
+        var first = await AllAsync(11);
+        Assert.Equal(60, first.Count);
+        Assert.Equal(60, first.Distinct().Count());
+        Assert.Equal(first, await AllAsync(11));
+
+        // Pages of one seed line up with the whole list.
+        var paged = new List<string>();
+        for (var page = 1; page <= 4; page++)
+            paged.AddRange((await fixture.SearchAsync(Request(11, page, 16))).Items.Select(Key));
+        Assert.Equal(first, paged);
+
+        // Another seed is another shuffle, not the same one shifted along.
+        var second = await AllAsync(12);
+        Assert.Equal(first.Order(), second.Order());
+        Assert.NotEqual(first, second);
+        var rotated = Enumerable.Range(0, 60).Any(shift => first.Skip(shift).Concat(first.Take(shift)).SequenceEqual(second));
+        Assert.False(rotated);
+
+        // Neither order is just video by video.
+        Assert.NotEqual(first.OrderBy(key => key, StringComparer.Ordinal), first);
     }
 
     private static Segment Segment(
@@ -837,6 +960,9 @@ public class SegmentSpanIndexTests
         public SegmentsController Controller { get; }
 
         public SegmentDisplayProfilesController ProfilesController() => new(Context, Resolver, _accessor);
+
+        /// <summary>The same database as the given principal sees it.</summary>
+        public Fixture ForPrincipal(CovePrincipal principal) => new(_database, principal, ownsDatabase: false);
 
         public static async Task<Fixture> CreateAsync()
             => new(await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken), principal: null, ownsDatabase: true);

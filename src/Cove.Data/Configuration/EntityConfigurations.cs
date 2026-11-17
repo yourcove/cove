@@ -840,8 +840,11 @@ public class StoredSegmentSpanConfiguration : IEntityTypeConfiguration<StoredSeg
         builder.HasOne<SegmentDisplayProfile>().WithMany().HasForeignKey(span => span.ProfileId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Video>().WithMany().HasForeignKey(span => span.VideoId).OnDelete(DeleteBehavior.Cascade);
 
-        // A video's spans in display order: the join the default (video-ordered) listing walks.
-        builder.HasIndex(span => new { span.ProfileId, span.VideoId, span.Ordinal }).IsUnique();
+        // A video's spans in display order: the join the default (video-ordered) listing walks. It also
+        // covers the first step of a page read in an order no index holds (random, kind): the order's
+        // tie-breaks, the kind filter and the row id, without reading the wide span rows.
+        builder.HasIndex(span => new { span.ProfileId, span.VideoId, span.Ordinal }).IsUnique()
+            .IncludeProperties(span => new { span.StartSec, span.Kind, span.Id });
         builder.HasIndex(span => span.VideoId);
         builder.HasIndex(span => new { span.ProfileId, span.DurationSec, span.Id });
         builder.HasIndex(span => new { span.ProfileId, span.StartSec, span.Id });

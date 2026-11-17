@@ -53,9 +53,6 @@ public class StoredSegmentSpan
     public DateTime MaxSegmentCreatedAt { get; set; }
     public DateTime MinSegmentUpdatedAt { get; set; }
     public DateTime MaxSegmentUpdatedAt { get; set; }
-
-    /// <summary>A hash of the span's identity; mixed with the request's seed for the random sort.</summary>
-    public int RandomKey { get; set; }
 }
 
 /// <summary>

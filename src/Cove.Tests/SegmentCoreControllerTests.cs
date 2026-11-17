@@ -1305,17 +1305,40 @@ public class SegmentCoreControllerTests
             new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
             new SegmentSpanIndexSearch(context));
 
-        var sourceKeysResult = await controller.DistinctSourceKeys(CancellationToken.None);
-        var sourceKeysOk = Assert.IsType<OkObjectResult>(sourceKeysResult.Result);
-        var sourceKeys = Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(sourceKeysOk.Value);
+        var principals = new CurrentPrincipalAccessor();
+        var writes = new LibraryWriteSignal();
+        async Task<IReadOnlyList<SegmentDistinctValueDto>> SourceKeysAsync()
+            => Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(Assert.IsType<OkObjectResult>(
+                (await controller.DistinctSourceKeys(principals, writes, CancellationToken.None)).Result).Value);
+
+        var sourceKeys = await SourceKeysAsync();
         Assert.Equal("ext:ai.faces", sourceKeys[0].Value);
         Assert.Equal(2, sourceKeys[0].Count);
 
-        var kindsResult = await controller.DistinctKinds(CancellationToken.None);
+        var kindsResult = await controller.DistinctKinds(principals, writes, CancellationToken.None);
         var kindsOk = Assert.IsType<OkObjectResult>(kindsResult.Result);
         var kinds = Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(kindsOk.Value);
         Assert.Contains(kinds, item => item.Value == "face" && item.Count == 2);
         Assert.Contains(kinds, item => item.Value == "action" && item.Count == 1);
+
+        // The counts are kept until something is written through the app.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO segments ("HostType", "HostId", "StartSec", "EndSec", "Kind", "SourceKey", "CreatedAt", "UpdatedAt")
+            VALUES (1, {video.Id}, 20, 22, 'face', 'ext:ai.faces', now(), now())
+            """, TestContext.Current.CancellationToken);
+        Assert.Equal(2, (await SourceKeysAsync())[0].Count);
+        writes.Signal();
+        Assert.Equal(3, (await SourceKeysAsync())[0].Count);
+
+        // Another reader scope gets its own answer, worked out now, while the first keeps its own.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO segments ("HostType", "HostId", "StartSec", "EndSec", "Kind", "SourceKey", "CreatedAt", "UpdatedAt")
+            VALUES (1, {video.Id}, 30, 32, 'face', 'ext:ai.faces', now(), now())
+            """, TestContext.Current.CancellationToken);
+        principals.Set(CreatePrincipal(7));
+        Assert.Equal(4, (await SourceKeysAsync())[0].Count);
+        principals.Set(null);
+        Assert.Equal(3, (await SourceKeysAsync())[0].Count);
     }
 
     [Fact]

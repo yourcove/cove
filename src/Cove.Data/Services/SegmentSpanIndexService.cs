@@ -311,8 +311,7 @@ public sealed class SegmentSpanIndexService(
                 "SourceKey", "Kind", "TagId", "Label", "ColorHint", "Lane", "CollapsedToInstant",
                 "SegmentIds", "SegmentCount", "RefIds", "EntityRefIds", "Titles", "SourceRunIds", "ColorHints",
                 "HasImage", "HasPayload", "MinConfidence", "MaxConfidence",
-                "MinSegmentCreatedAt", "MaxSegmentCreatedAt", "MinSegmentUpdatedAt", "MaxSegmentUpdatedAt",
-                "RandomKey")
+                "MinSegmentCreatedAt", "MaxSegmentCreatedAt", "MinSegmentUpdatedAt", "MaxSegmentUpdatedAt")
             FROM STDIN (FORMAT BINARY)
             """, ct);
 
@@ -358,7 +357,6 @@ public sealed class SegmentSpanIndexService(
                 await writer.WriteAsync(facts.MaxCreatedAt, NpgsqlDbType.TimestampTz, ct);
                 await writer.WriteAsync(facts.MinUpdatedAt, NpgsqlDbType.TimestampTz, ct);
                 await writer.WriteAsync(facts.MaxUpdatedAt, NpgsqlDbType.TimestampTz, ct);
-                await writer.WriteAsync(RandomKey(videoId, span), NpgsqlDbType.Integer, ct);
             }
         }
 
@@ -371,21 +369,6 @@ public sealed class SegmentSpanIndexService(
     private static Task WriteNullableAsync<T>(NpgsqlBinaryImporter writer, T? value, NpgsqlDbType type, CancellationToken ct)
         where T : struct
         => value is null ? writer.WriteNullAsync(ct) : writer.WriteAsync(value.Value, type, ct);
-
-    // FNV-1a over the span's identity. Only its spread matters: the random sort mixes it with the seed.
-    private static int RandomKey(int videoId, ResolvedSpan span)
-    {
-        unchecked
-        {
-            var hash = 2166136261u;
-            hash = (hash ^ (uint)videoId) * 16777619u;
-            foreach (var character in span.SpanKey)
-                hash = (hash ^ character) * 16777619u;
-            foreach (var segmentId in span.SegmentIds)
-                hash = (hash ^ (uint)segmentId) * 16777619u;
-            return (int)hash;
-        }
-    }
 
     private sealed record SpanFacts(
         long[] RefIds,

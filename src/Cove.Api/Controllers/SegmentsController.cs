@@ -265,7 +265,57 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
     }
 
     [HttpGet("source-keys/distinct")]
-    public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctSourceKeys(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctSourceKeys(
+        [FromServices] ICurrentPrincipalAccessor principals, [FromServices] LibraryWriteSignal writes, CancellationToken cancellationToken)
+        => Ok(await CachedDistinctValuesAsync("source-keys", principals, writes, LoadDistinctSourceKeysAsync, cancellationToken));
+
+    [HttpGet("kinds/distinct")]
+    public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctKinds(
+        [FromServices] ICurrentPrincipalAccessor principals, [FromServices] LibraryWriteSignal writes, CancellationToken cancellationToken)
+        => Ok(await CachedDistinctValuesAsync("kinds", principals, writes, LoadDistinctKindsAsync, cancellationToken));
+
+    private static readonly TimeSpan DistinctValuesLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The source keys and kinds that fill the filter menus, with how many raw segments carry each.
+    /// Counting them reads every raw segment the reader may see, seconds on a large library, and the
+    /// Segments page, tag pages and display profile settings ask on every visit. The answer is kept per
+    /// reader scope until anything is written through the app, or for a few minutes when a write
+    /// bypasses it (extension SQL, imports): the counts only label the menu options.
+    /// </summary>
+    private async Task<IReadOnlyList<SegmentDistinctValueDto>> CachedDistinctValuesAsync(
+        string field,
+        ICurrentPrincipalAccessor principals,
+        LibraryWriteSignal writes,
+        Func<CancellationToken, Task<List<SegmentDistinctValueDto>>> load,
+        CancellationToken ct)
+    {
+        var principal = principals.Current;
+        // Everything that decides which segments this reader may see.
+        var scope = principal is null
+            ? "unscoped"
+            : string.Join('|',
+                principal.Kind,
+                principal.UserId,
+                principal.TokenId,
+                string.Join(',', principal.Roles.Order(StringComparer.OrdinalIgnoreCase)),
+                string.Join(',', principal.Permissions.Order(StringComparer.OrdinalIgnoreCase)),
+                string.Join(',', principal.ReadRestrictedEntityKinds.Order(StringComparer.OrdinalIgnoreCase)),
+                string.Join(',', principal.ReadGrantedEntityKinds.Order(StringComparer.OrdinalIgnoreCase)));
+        var key = $"segments-distinct:{field}:{scope}";
+        if (memoryCache.TryGetValue<IReadOnlyList<SegmentDistinctValueDto>>(key, out var cached) && cached is not null)
+            return cached;
+
+        // Taken before the query, so a write that lands while it runs expires the entry at once.
+        var writeToken = writes.GetChangeToken();
+        var values = await load(ct);
+        memoryCache.Set(key, (IReadOnlyList<SegmentDistinctValueDto>)values, new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(DistinctValuesLifetime)
+            .AddExpirationToken(writeToken));
+        return values;
+    }
+
+    private async Task<List<SegmentDistinctValueDto>> LoadDistinctSourceKeysAsync(CancellationToken cancellationToken)
     {
         var values = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
             .Where(segment => !string.IsNullOrWhiteSpace(segment.SourceKey))
@@ -280,15 +330,12 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             .Take(200)
             .ToListAsync(cancellationToken);
 
-        var items = values
+        return values
             .Select(item => new SegmentDistinctValueDto(item.Value!, item.Count))
             .ToList();
-
-        return Ok(items);
     }
 
-    [HttpGet("kinds/distinct")]
-    public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctKinds(CancellationToken cancellationToken)
+    private async Task<List<SegmentDistinctValueDto>> LoadDistinctKindsAsync(CancellationToken cancellationToken)
     {
         var values = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
             .Where(segment => segment.Kind != null && segment.Kind != string.Empty)
@@ -303,11 +350,9 @@ public class SegmentsController(CoveContext db, ISegmentRepository segments, Seg
             .Take(200)
             .ToListAsync(cancellationToken);
 
-        var items = values
+        return values
             .Select(item => new SegmentDistinctValueDto(item.Value, item.Count))
             .ToList();
-
-        return Ok(items);
     }
 
     private static SegmentRecordDto MapToDto(SegmentLibraryItem item, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null)
