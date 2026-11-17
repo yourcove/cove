@@ -116,13 +116,14 @@ import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { PerformerTile, EntityRefBadge, StudioHeaderImage, SuggestedNameMarker } from "../components/EntityCards";
+import { formatShownTitle, resolveSpanName, segmentFaceName } from "./segments/segmentDisplayUtils";
 import {
-  formatShownTitle,
-  resolveRawSegmentName,
-  resolveSpanName,
-  segmentFaceName,
-  type ShownName,
-} from "./segments/segmentDisplayUtils";
+  buildFaceTimelineItems,
+  isFaceResolvedSpan,
+  isFaceTimelineSegment,
+  timelineName,
+  type TimelineOverlayItem,
+} from "./videoDetail/timelineFaces";
 import {
   PerformerContextTagList,
   applyPerformerContextTagEdits,
@@ -2515,22 +2516,6 @@ function VideoFiltersTab({ filters, onChange }: { filters: VideoFilters; onChang
   );
 }
 
-type TimelineOverlayItem = {
-  key: string;
-  startSec: number;
-  endSec: number;
-  label: string;
-  /** The label is a face's suggested performer, not one it is linked to; shown in italics and said in its title. */
-  suggested?: boolean;
-  colorHint?: string | null;
-  colorSeed?: string;
-};
-
-// A timeline bar's label from the shared segment naming.
-function timelineName(shown: ShownName) {
-  return { label: shown.name, suggested: shown.suggested };
-}
-
 const SEGMENT_TIMELINE_COLORS = [
   "#a87a2d",
   "#4c6faa",
@@ -2659,65 +2644,26 @@ function VideoScrubber({
   );
   const faceLanes = useMemo(() => {
     if (!effectiveFacesEnabled) return [] as ReturnType<typeof buildTimelineLanes<TimelineOverlayItem>>;
-    const items: TimelineOverlayItem[] = [];
-    const segmentFaceIds = new Set<number>();
-
-    for (const segment of rawSegments) {
-      if (!isFaceTimelineSegment(segment)) continue;
-      const faceId = segment.refId != null ? Number(segment.refId) : -Math.abs(segment.id);
-      const face = facesById.get(faceId);
-      if (!faceFilterPredicate(faceId, face?.performerId)) continue;
-      if (faceId > 0) segmentFaceIds.add(faceId);
-      items.push({
-        key: `face-segment-${segment.id}`,
-        startSec: segment.startSec,
-        endSec: Math.max(segment.endSec ?? segment.startSec, segment.startSec + 0.4),
-        ...timelineName(resolveRawSegmentName(segment, facesById)),
-        colorSeed: String(faceId),
-      });
-    }
-
-    const buckets = new Map<number, number[]>();
-    for (const det of detections) {
-      if (det.refId == null || det.refKind?.toLowerCase() !== "face" || segmentFaceIds.has(det.refId)) continue;
-      if (det.observedAtSec == null) continue;
-      if (!faceFilterPredicate(det.refId, facesById.get(det.refId)?.performerId)) continue;
-      const arr = buckets.get(det.refId) ?? [];
-      arr.push(det.observedAtSec);
-      buckets.set(det.refId, arr);
-    }
-
-    const MERGE_GAP_SEC = 2.5;
-    for (const [faceId, times] of buckets.entries()) {
-      times.sort((left, right) => left - right);
-      let windowStart = times[0];
-      let windowEnd = times[0];
-      let runIndex = 0;
-      const flush = () => {
-        const face = facesById.get(faceId);
-        items.push({
-          key: `face-${faceId}-${runIndex++}`,
-          startSec: windowStart,
-          endSec: Math.max(windowEnd, windowStart + 0.4),
-          ...timelineName((face ? segmentFaceName(face) : undefined) ?? { name: `Face #${faceId}`, suggested: false }),
-          colorSeed: String(faceId),
-        });
-      };
-      for (let i = 1; i < times.length; i++) {
-        const t = times[i];
-        if (t - windowEnd <= MERGE_GAP_SEC) {
-          windowEnd = t;
-        } else {
-          flush();
-          windowStart = t;
-          windowEnd = t;
-        }
-      }
-      flush();
-    }
-
+    const items = buildFaceTimelineItems({
+      spans,
+      rawSegments,
+      rawSegmentsById,
+      detections,
+      facesById,
+      includeFace: faceFilterPredicate,
+      filterActive,
+    });
     return buildTimelineLanes(items);
-  }, [detections, rawSegments, facesById, effectiveFacesEnabled, faceFilterPredicate]);
+  }, [
+    detections,
+    spans,
+    rawSegments,
+    rawSegmentsById,
+    facesById,
+    effectiveFacesEnabled,
+    faceFilterPredicate,
+    filterActive,
+  ]);
   // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
   const visibleDetections = useMemo(
     () =>
@@ -3000,31 +2946,6 @@ function buildTimelineLanes<T extends { key: string; startSec: number; endSec: n
   });
 
   return lanes;
-}
-
-function isFaceTimelineSegment(segment: Pick<Segment, "title" | "kind" | "sourceKey">) {
-  const normalizedKind = segment.kind?.trim().toLowerCase() ?? "";
-  const normalizedSource = segment.sourceKey?.trim().toLowerCase() ?? "";
-  const normalizedTitle = segment.title?.trim().toLowerCase() ?? "";
-  return normalizedKind === "face" || normalizedSource.includes("face") || normalizedTitle.startsWith("face-");
-}
-
-function isFaceResolvedSpan(
-  span: Pick<ResolvedSpan, "kind" | "sourceKey" | "tagName" | "segmentIds">,
-  rawSegmentsById: Map<number, Pick<Segment, "id" | "title" | "kind" | "sourceKey" | "refId">>,
-) {
-  if (isFaceTimelineSegment({ title: span.tagName ?? undefined, kind: span.kind, sourceKey: span.sourceKey ?? "" })) {
-    return true;
-  }
-
-  const segmentIds = span.segmentIds ?? [];
-  return (
-    segmentIds.length > 0 &&
-    segmentIds.every((segmentId) => {
-      const segment = rawSegmentsById.get(segmentId);
-      return segment ? isFaceTimelineSegment(segment) : false;
-    })
-  );
 }
 
 function formatTimelineTime(seconds: number) {
