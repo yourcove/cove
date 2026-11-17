@@ -15,7 +15,9 @@ import {
   List as ListIcon,
 } from "lucide-react";
 import { videos, tagGroups as tagGroupsApi } from "../api/client";
-import type { ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
+import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
+import { resolveSpanName, type ShownName } from "../pages/segments/segmentDisplayUtils";
+import { SuggestedNameMarker } from "./EntityCards";
 import { AddToGroupDialog, type AddToGroupEntry } from "./AddToGroupDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { EntityReferenceSelector, EntityReferenceMultiSelector } from "./EntityReferenceSelector";
@@ -35,6 +37,8 @@ interface Props {
   videoId: number;
   spans: ResolvedSpan[];
   rawSegments: Segment[];
+  /** The video's faces by id, which name face segments the way every other view does. */
+  facesById?: ReadonlyMap<number, Face>;
   loading: boolean;
   profiles: SegmentDisplayProfile[];
   currentProfileId?: number;
@@ -61,6 +65,7 @@ export function VideoSegmentsPanel({
   videoId,
   spans,
   rawSegments,
+  facesById,
   loading,
   profiles,
   currentProfileId,
@@ -150,10 +155,10 @@ export function VideoSegmentsPanel({
         key: span.spanKey,
         videoId,
         spanKey: span.spanKey,
-        title: spanLabel(span, rawSegmentsById),
+        title: resolveSpanName(span, rawSegmentsById, facesById).name,
         profileId: activeProfileId,
       }));
-  }, [filteredSpans, selectedSpanKeys, videoId, rawSegmentsById, activeProfileId]);
+  }, [filteredSpans, selectedSpanKeys, videoId, rawSegmentsById, facesById, activeProfileId]);
 
   const toggleSelection = (spanKey: string) => {
     setSelectedSpanKeys((current) => {
@@ -501,6 +506,7 @@ export function VideoSegmentsPanel({
         </div>
       ) : view === "grouped" ? (
         <GroupedList
+          facesById={facesById}
           spans={sortedSpans}
           rawSegmentsById={rawSegmentsById}
           selectedSpanKeys={selectedSpanKeys}
@@ -520,6 +526,7 @@ export function VideoSegmentsPanel({
               key={span.spanKey}
               span={span}
               rawSegmentsById={rawSegmentsById}
+              facesById={facesById}
               checked={selectedSpanKeys.has(span.spanKey)}
               onToggleSelect={() => toggleSelection(span.spanKey)}
               onSeek={onSeek}
@@ -694,6 +701,7 @@ function FilterChip({
 function GroupedList({
   spans,
   rawSegmentsById,
+  facesById,
   selectedSpanKeys,
   onToggleSelect,
   onSeek,
@@ -704,6 +712,7 @@ function GroupedList({
 }: {
   spans: ResolvedSpan[];
   rawSegmentsById: Map<number, Segment>;
+  facesById?: ReadonlyMap<number, Face>;
   selectedSpanKeys: Set<string>;
   onToggleSelect: (spanKey: string) => void;
   onSeek?: (time: number) => void;
@@ -713,21 +722,25 @@ function GroupedList({
   onOpen: (span: ResolvedSpan) => void;
 }) {
   const groups = useMemo(() => {
-    const byLabel = new Map<string, ResolvedSpan[]>();
+    // A suggested performer is grouped apart from the same performer confirmed, so a guess never joins real matches.
+    const byName = new Map<string, { shown: ShownName; items: ResolvedSpan[] }>();
     for (const span of spans) {
-      const label = spanLabel(span, rawSegmentsById);
-      const bucket = byLabel.get(label) ?? [];
-      bucket.push(span);
-      byLabel.set(label, bucket);
+      const shown = resolveSpanName(span, rawSegmentsById, facesById);
+      const key = `${shown.suggested ? "suggested:" : ""}${shown.name}`;
+      const group = byName.get(key) ?? { shown, items: [] };
+      group.items.push(span);
+      byName.set(key, group);
     }
-    return Array.from(byLabel.entries())
-      .map(([label, items]) => ({
-        label,
+    return Array.from(byName.entries())
+      .map(([key, { shown, items }]) => ({
+        key,
+        label: shown.name,
+        suggested: shown.suggested,
         items,
         totalSec: items.reduce((sum, span) => sum + Math.max(0, span.endSec - span.startSec), 0),
       }))
       .sort((left, right) => right.totalSec - left.totalSec || compareNatural(left.label, right.label));
-  }, [spans, rawSegmentsById]);
+  }, [spans, rawSegmentsById, facesById]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleGroup = (label: string) =>
@@ -741,12 +754,12 @@ function GroupedList({
   return (
     <div className="divide-y divide-border/50">
       {groups.map((group) => {
-        const open = !collapsed.has(group.label);
+        const open = !collapsed.has(group.key);
         return (
-          <div key={group.label}>
+          <div key={group.key}>
             <button
               type="button"
-              onClick={() => toggleGroup(group.label)}
+              onClick={() => toggleGroup(group.key)}
               className="flex w-full items-center justify-between gap-3 py-1.5 text-left"
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -756,6 +769,12 @@ function GroupedList({
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
                 )}
                 <span className="truncate text-sm font-medium text-foreground">{group.label}</span>
+                {group.suggested ? (
+                  <>
+                    <SuggestedNameMarker />
+                    <span className="sr-only"> (suggested)</span>
+                  </>
+                ) : null}
               </span>
               <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
                 <span>{group.items.length}×</span>
@@ -769,6 +788,7 @@ function GroupedList({
                     key={span.spanKey}
                     span={span}
                     rawSegmentsById={rawSegmentsById}
+                    facesById={facesById}
                     checked={selectedSpanKeys.has(span.spanKey)}
                     onToggleSelect={() => onToggleSelect(span.spanKey)}
                     onSeek={onSeek}
@@ -792,6 +812,7 @@ function GroupedList({
 function SegmentRow({
   span,
   rawSegmentsById,
+  facesById,
   checked,
   onToggleSelect,
   onSeek,
@@ -803,6 +824,7 @@ function SegmentRow({
 }: {
   span: ResolvedSpan;
   rawSegmentsById: Map<number, Segment>;
+  facesById?: ReadonlyMap<number, Face>;
   checked: boolean;
   onToggleSelect: () => void;
   onSeek?: (time: number) => void;
@@ -812,7 +834,8 @@ function SegmentRow({
   onOpen: () => void;
   hideLabel?: boolean;
 }) {
-  const label = spanLabel(span, rawSegmentsById);
+  const shown = resolveSpanName(span, rawSegmentsById, facesById);
+  const label = shown.name;
   const rawCount = span.segmentIds?.length ?? 0;
   return (
     <div
@@ -830,7 +853,13 @@ function SegmentRow({
           {formatTime(span.startSec)}
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
-        {!hideLabel ? <span className="truncate text-foreground group-hover:text-accent">{label}</span> : null}
+        {!hideLabel ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-foreground group-hover:text-accent">{label}</span>
+            {shown.suggested ? <SuggestedNameMarker /> : null}
+            {shown.suggested ? <span className="sr-only"> (suggested)</span> : null}
+          </span>
+        ) : null}
         {span.kind && span.kind !== "tag" ? (
           <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{span.kind}</span>
         ) : null}
@@ -1057,22 +1086,6 @@ function rawSegmentLabel(segment: Segment) {
     (segment.title?.trim() && !isRawDataLabel(segment.title) ? segment.title.trim() : "");
   if (candidate && candidate.toLowerCase() !== "performer") return candidate;
   return segment.kind?.trim() || cleanSourceLabel(segment.sourceKey || "") || "Segment";
-}
-
-function spanLabel(span: ResolvedSpan, rawSegmentsById: Map<number, Segment>) {
-  const tagName = span.tagName?.trim();
-  if (tagName) return tagName;
-  for (const segmentId of span.segmentIds ?? []) {
-    const segment = rawSegmentsById.get(segmentId);
-    if (!segment) continue;
-    const label = rawSegmentLabel(segment);
-    if (label && label.toLowerCase() !== "performer") return label;
-  }
-  const kind = span.kind?.trim();
-  if (kind && kind !== "tag") return kind;
-  const sourceKey = span.sourceKey?.trim();
-  if (sourceKey) return cleanSourceLabel(sourceKey);
-  return "Segment";
 }
 
 function formatTime(seconds: number) {

@@ -66,7 +66,6 @@ import type {
   Detection,
   Face,
   MetadataServer,
-  PerformerSummary,
   ResolvedSpan,
   Video,
   VideoUpdate,
@@ -116,7 +115,14 @@ import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
-import { PerformerTile, EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
+import { PerformerTile, EntityRefBadge, StudioHeaderImage, SuggestedNameMarker } from "../components/EntityCards";
+import {
+  formatShownTitle,
+  resolveRawSegmentName,
+  resolveSpanName,
+  segmentFaceName,
+  type ShownName,
+} from "./segments/segmentDisplayUtils";
 import {
   PerformerContextTagList,
   applyPerformerContextTagEdits,
@@ -691,6 +697,18 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
       .sort((left, right) => right.detectionCount - left.detectionCount || left.face.id - right.face.id);
   }, [detections, videoFaceQueries]);
 
+  // Every view on this page names a face, and the segments it appears in, the same way: its own name, else its top
+  // suggested performer marked as a suggestion.
+  const facesById = useMemo(() => new Map(videoFaces.map(({ face }) => [face.id, face] as const)), [videoFaces]);
+  const playerFaces = useMemo(
+    () =>
+      videoFaces.map(({ face }) => {
+        const shown = segmentFaceName(face);
+        return { ...face, displayName: shown ? formatShownTitle(shown.name, shown.suggested) : undefined };
+      }),
+    [videoFaces],
+  );
+
   const rescanMut = useMutation({
     mutationFn: () => videos.rescan(id),
   });
@@ -1242,6 +1260,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         videoId={video.id}
         spans={resolvedSpans}
         rawSegments={segments}
+        facesById={facesById}
         loading={resolvedSpansLoading || segmentsLoading}
         profiles={displayProfiles}
         currentProfileId={activeProfileId}
@@ -1360,7 +1379,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
               extensionSurface="detail"
               detections={alternateFileId == null ? detections : []}
               segments={alternateFileId == null ? segments : []}
-              faces={videoFaces.map(({ face }) => face)}
+              faces={playerFaces}
               captions={file.captions}
               videoStyle={videoStyle}
               vr={video.vr}
@@ -1421,8 +1440,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
           spans={resolvedSpans}
           rawSegments={segments}
           detections={detections}
-          faces={videoFaces.map(({ face }) => face)}
-          performers={video.performers}
+          facesById={facesById}
           onSeek={(time) => seekRef.current?.(time)}
           currentTime={videoTime}
           profileName={activeProfileName}
@@ -1935,7 +1953,8 @@ export function DetailsTab({
           <h6 className="mb-2 text-sm text-muted">Faces in this video</h6>
           <div className="flex flex-wrap gap-2">
             {videoFaces.map(({ face, detectionCount, trackCount = 0 }) => {
-              const title = faceDisplayName(face);
+              const shown = segmentFaceName(face);
+              const title = shown?.name ?? `Face #${face.id}`;
               const isMarking = markingFaceId === face.id;
               // Only offer the split where there is something to split: the face has to have been
               // detected as more than one separate run in this video.
@@ -1965,7 +1984,11 @@ export function DetailsTab({
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                      <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
+                        <span className="truncate">{title}</span>
+                        {shown?.suggested ? <SuggestedNameMarker /> : null}
+                        {shown?.suggested ? <span className="sr-only"> (suggested)</span> : null}
+                      </div>
                       <div className="mt-1 text-xs text-secondary">
                         {detectionCount} detection{detectionCount === 1 ? "" : "s"}
                       </div>
@@ -2497,9 +2520,16 @@ type TimelineOverlayItem = {
   startSec: number;
   endSec: number;
   label: string;
+  /** The label is a face's suggested performer, not one it is linked to; shown in italics and said in its title. */
+  suggested?: boolean;
   colorHint?: string | null;
   colorSeed?: string;
 };
+
+// A timeline bar's label from the shared segment naming.
+function timelineName(shown: ShownName) {
+  return { label: shown.name, suggested: shown.suggested };
+}
 
 const SEGMENT_TIMELINE_COLORS = [
   "#a87a2d",
@@ -2532,41 +2562,6 @@ function timelineLabelFits(widthPercent: number, label: string) {
   return widthPercent >= Math.min(10, Math.max(2.4, label.length * 0.28));
 }
 
-function getSegmentTimelineLabel(
-  span: Pick<ResolvedSpan, "spanKey" | "tagName" | "kind" | "sourceKey" | "segmentIds">,
-  rawSegmentsById: Map<number, Pick<Segment, "id" | "title" | "kind" | "sourceKey" | "refId">>,
-  performersById: Map<number, Pick<PerformerSummary, "id" | "name">>,
-) {
-  const tagName = span.tagName?.trim();
-  if (tagName) return tagName;
-
-  for (const segmentId of span.segmentIds ?? []) {
-    const segment = rawSegmentsById.get(segmentId);
-    if (!segment) continue;
-
-    const kind = segment.kind?.trim().toLowerCase();
-    if (segment.refId != null && kind === "performer") {
-      const performerName = performersById.get(Number(segment.refId))?.name?.trim();
-      if (performerName) return performerName;
-    }
-
-    const title = segment.title?.trim();
-    if (title && title.toLowerCase() !== "performer" && !isRawDataLabel(title)) return title;
-  }
-
-  const kind = span.kind?.trim();
-  if (kind && kind !== "tag") return kind;
-
-  const sourceKey = span.sourceKey?.trim();
-  if (sourceKey) return sourceKey.replace(/^ext:ai\./, "").replace(/^ext:/, "");
-
-  return "Segment";
-}
-
-function isRawDataLabel(value: string) {
-  return value.startsWith("{") || value.startsWith("[") || value.includes('"probabilit');
-}
-
 // Video Scrubber / Timeline Component
 function VideoScrubber({
   sprites,
@@ -2574,8 +2569,7 @@ function VideoScrubber({
   spans,
   rawSegments,
   detections,
-  faces,
-  performers,
+  facesById,
   onSeek,
   currentTime,
   profileName,
@@ -2589,10 +2583,10 @@ function VideoScrubber({
     ResolvedSpan,
     "spanKey" | "startSec" | "endSec" | "tagId" | "tagName" | "kind" | "colorHint" | "sourceKey" | "lane" | "segmentIds"
   >[];
-  rawSegments: Pick<Segment, "id" | "startSec" | "endSec" | "title" | "kind" | "sourceKey" | "refId">[];
+  rawSegments: Segment[];
   detections: Pick<Detection, "id" | "observedAtSec" | "class" | "score" | "refKind" | "refId">[];
-  faces?: Pick<Face, "id" | "label" | "performerName" | "performerId">[];
-  performers?: Pick<PerformerSummary, "id" | "name">[];
+  /** The video's faces by id, which name face segments and detections. */
+  facesById: ReadonlyMap<number, Face>;
   onSeek?: (time: number) => void;
   currentTime?: number;
   profileName?: string;
@@ -2616,10 +2610,6 @@ function VideoScrubber({
   const thumbWidth = 160;
   const thumbHeight = sprites ? Math.round(thumbWidth * (sprites.entries[0].h / sprites.entries[0].w)) : 0;
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
-  const performersById = useMemo(
-    () => new Map((performers ?? []).map((performer) => [performer.id, performer])),
-    [performers],
-  );
   const filterActive = isSegmentFilterActive(filter);
   const nonFaceSpans = useMemo(
     () =>
@@ -2660,18 +2650,15 @@ function VideoScrubber({
           key: span.spanKey,
           startSec: span.startSec,
           endSec: span.endSec,
-          label: getSegmentTimelineLabel(span, rawSegmentsById, performersById),
+          ...timelineName(resolveSpanName(span, rawSegmentsById, facesById)),
           colorHint: span.colorHint,
           colorSeed: `${span.kind ?? "span"}:${span.tagName ?? ""}:${span.sourceKey ?? ""}`,
         })),
       ),
-    [nonFaceSpans, performersById, rawSegmentsById],
+    [facesById, nonFaceSpans, rawSegmentsById],
   );
   const faceLanes = useMemo(() => {
     if (!effectiveFacesEnabled) return [] as ReturnType<typeof buildTimelineLanes<TimelineOverlayItem>>;
-    const facesById = new Map<number, Pick<Face, "id" | "label" | "performerName" | "performerId">>();
-    for (const face of faces ?? []) facesById.set(face.id, face);
-
     const items: TimelineOverlayItem[] = [];
     const segmentFaceIds = new Set<number>();
 
@@ -2681,16 +2668,11 @@ function VideoScrubber({
       const face = facesById.get(faceId);
       if (!faceFilterPredicate(faceId, face?.performerId)) continue;
       if (faceId > 0) segmentFaceIds.add(faceId);
-      const label =
-        face?.performerName?.trim() ||
-        face?.label?.trim() ||
-        segment.title?.trim() ||
-        (faceId > 0 ? `Face #${faceId}` : "Face");
       items.push({
         key: `face-segment-${segment.id}`,
         startSec: segment.startSec,
         endSec: Math.max(segment.endSec ?? segment.startSec, segment.startSec + 0.4),
-        label,
+        ...timelineName(resolveRawSegmentName(segment, facesById)),
         colorSeed: String(faceId),
       });
     }
@@ -2713,12 +2695,11 @@ function VideoScrubber({
       let runIndex = 0;
       const flush = () => {
         const face = facesById.get(faceId);
-        const label = face?.performerName?.trim() || face?.label?.trim() || (faceId > 0 ? `Face #${faceId}` : "Face");
         items.push({
           key: `face-${faceId}-${runIndex++}`,
           startSec: windowStart,
           endSec: Math.max(windowEnd, windowStart + 0.4),
-          label,
+          ...timelineName((face ? segmentFaceName(face) : undefined) ?? { name: `Face #${faceId}`, suggested: false }),
           colorSeed: String(faceId),
         });
       };
@@ -2736,7 +2717,7 @@ function VideoScrubber({
     }
 
     return buildTimelineLanes(items);
-  }, [detections, rawSegments, faces, effectiveFacesEnabled, faceFilterPredicate]);
+  }, [detections, rawSegments, facesById, effectiveFacesEnabled, faceFilterPredicate]);
   // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
   const visibleDetections = useMemo(
     () =>
@@ -2879,11 +2860,11 @@ function VideoScrubber({
                               backgroundColor: color,
                               boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
                             }}
-                            title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
+                            title={`${formatShownTitle(item.label, item.suggested)} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
                             onClick={() => onSeek?.(item.startSec)}
                           >
                             {timelineLabelFits(width, item.label) ? (
-                              <span className="block truncate">{item.label}</span>
+                              <span className={`block truncate ${item.suggested ? "italic" : ""}`}>{item.label}</span>
                             ) : null}
                           </button>
                         );
@@ -2920,11 +2901,11 @@ function VideoScrubber({
                               backgroundColor: color,
                               boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
                             }}
-                            title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
+                            title={`${formatShownTitle(item.label, item.suggested)} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
                             onClick={() => onSeek?.(item.startSec)}
                           >
                             {timelineLabelFits(width, item.label) ? (
-                              <span className="block truncate">{item.label}</span>
+                              <span className={`block truncate ${item.suggested ? "italic" : ""}`}>{item.label}</span>
                             ) : null}
                           </button>
                         );
