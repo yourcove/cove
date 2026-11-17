@@ -3,7 +3,9 @@ title: Segments
 description: Reference for display-ready ranges resolved from raw segments.
 ---
 
-A segment is a display-ready video point or time range resolved from one or more [raw segments](../raw-segments/). It is a query result or presentation unit, not necessarily one stored database record.
+A segment is a display-ready video point or time range resolved from one or more [raw segments](../raw-segments/). Technically, a segment is a span of one or more raw segments: one appearance written as several short pieces becomes one segment. This is why the API and the extension SDK call a segment a span, for example `ResolvedSpan` and `/api/segments/spans/search`.
+
+Raw segments stay the source of truth. Cove stores the segments of each display profile in use so that lists stay fast on large libraries, and works them out again whenever the raw segments, the tags they use or the profile's rules change.
 
 ## Composition
 
@@ -17,7 +19,7 @@ Segments can support timeline display, filtering, navigation, and group membersh
 
 ## Availability
 
-The active display profile can be system-defined or user-specific. Different profiles can present different segments from the same raw data without rewriting those inputs. Segment visibility and editing also depend on access permissions.
+The active display profile can be system-defined or user-specific. Different profiles can present different segments from the same raw data without rewriting those inputs. Each profile in use takes disk space for its stored segments, which is freed when the profile is deleted. After a profile's rules are saved, its segments are updated in the background; on a large library this can take a few minutes, and the Segments page shows how many videos are left. Segment visibility and editing also depend on access permissions.
 
 ## Related reference
 

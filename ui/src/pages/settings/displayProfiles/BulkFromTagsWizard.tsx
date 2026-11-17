@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { EntityMultiSelector } from "../../../components/EntityMultiSelector";
-import { EditModal, Field, NumberInput, SaveButton, SelectInput, TextInput } from "../../../components/EditModal";
+import { EditModal, Field, NumberInput, SelectInput, TextInput } from "../../../components/EditModal";
 import type { BulkWizardState } from "./types";
 
 interface Props {
@@ -9,10 +9,9 @@ interface Props {
   setForm: Dispatch<SetStateAction<BulkWizardState>>;
   onClose: () => void;
   onSave: () => void;
-  saving: boolean;
 }
 
-export function BulkFromTagsWizard({ open, form, setForm, onClose, onSave, saving }: Props) {
+export function BulkFromTagsWizard({ open, form, setForm, onClose, onSave }: Props) {
   return (
     <EditModal title="Generate Rules From Tags" open={open} onClose={onClose}>
       <div className="space-y-4 py-4">
@@ -94,8 +93,15 @@ export function BulkFromTagsWizard({ open, form, setForm, onClose, onSave, savin
           ) : null}
         </div>
 
-        <div className="flex justify-end pb-4">
-          <SaveButton loading={saving} onClick={onSave} />
+        <div className="flex flex-wrap items-center justify-end gap-3 pb-4">
+          <p className="text-xs text-muted">Nothing is saved until you press Save changes on the profile.</p>
+          <button
+            type="button"
+            onClick={onSave}
+            className="rounded-lg bg-accent px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            Add rules
+          </button>
         </div>
       </div>
     </EditModal>

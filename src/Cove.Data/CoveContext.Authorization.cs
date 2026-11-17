@@ -128,9 +128,37 @@ public partial class CoveContext
     public IQueryable<TEntity> ReadSet<TEntity>() where TEntity : class
         => AuthorizationFiltersBypassed ? Set<TEntity>().IgnoreQueryFilters() : Set<TEntity>();
 
+    /// <summary>
+    /// The videos this reader may see, the same rows the video query filter allows, but without the
+    /// per-row <c>cove_authz_can_read</c> call whenever the filter's answer does not depend on the row:
+    /// for a reader who bypasses authorization, and for one whose video reads are not scoped by rules or
+    /// a share link. That function is not parallel safe, so merely naming it in a query, even in a branch
+    /// that never runs, keeps PostgreSQL from scanning a large table with more than one worker.
+    /// </summary>
+    /// <remarks>
+    /// Ignoring a query filter applies to the whole query, so only the video read filter is ignored, by
+    /// name: the filters on tags, performers, faces and the rest stay in force wherever the query uses
+    /// them. For the readers this applies to, the video filter's answer is the same for every video, so
+    /// dropping it everywhere in the query and testing the permission once is exact.
+    /// </remarks>
+    internal IQueryable<Video> VideosForLargeRead()
+    {
+        if (AuthorizationFiltersBypassed)
+            return Set<Video>().IgnoreQueryFilters([VideoReadFilter]);
+        if (RequiresVideoReadScopeEvaluation)
+            return Set<Video>();
+
+        // A reader without video access gets the normal filter, which then matches nothing, so the
+        // filter is only ever lifted when it would have let every video through.
+        return CanReadVideos ? Set<Video>().IgnoreQueryFilters([VideoReadFilter]) : Set<Video>();
+    }
+
+    /// <summary>The name of the video read filter, so <see cref="VideosForLargeRead"/> can lift it alone.</summary>
+    internal const string VideoReadFilter = "VideoRead";
+
     private void ConfigureAuthorizationFilters(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Video>().HasQueryFilter(video =>
+        modelBuilder.Entity<Video>().HasQueryFilter(VideoReadFilter, video =>
             AuthorizationFiltersBypassed
                 ? true
                 : !RequiresVideoReadScopeEvaluation

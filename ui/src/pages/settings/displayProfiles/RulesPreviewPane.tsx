@@ -120,13 +120,13 @@ function SpanPreviewCard({
           </div>
         </div>
         <div className="text-xs text-muted">
-          {spans.length} span{spans.length === 1 ? "" : "s"}
+          {spans.length} segment{spans.length === 1 ? "" : "s"}
         </div>
       </div>
 
       {loading ? <div className="mt-4 text-sm text-secondary">Loading preview...</div> : null}
       {!loading && spans.length === 0 ? (
-        <div className="mt-4 text-sm text-secondary">No spans would be shown for this video.</div>
+        <div className="mt-4 text-sm text-secondary">No segments would be shown for this video.</div>
       ) : null}
       {!loading && spans.length > 0 ? (
         <div className="mt-4 space-y-3">
@@ -154,7 +154,7 @@ function SpanPreviewCard({
               </div>
             );
           })}
-          {spans.length > 8 ? <div className="text-xs text-muted">Showing the first 8 spans.</div> : null}
+          {spans.length > 8 ? <div className="text-xs text-muted">Showing the first 8 segments.</div> : null}
         </div>
       ) : null}
     </div>

@@ -471,6 +471,14 @@ export function registerNavigationBlocker(blocker: NavigationBlocker): () => voi
   return () => navigationBlockers.delete(blocker);
 }
 
+/**
+ * Asks every registered guard whether the current view may be left, for a view change that does not go
+ * through navigateToUrl (a settings tab switch, for one). False means stay.
+ */
+export function confirmLeavingCurrentView(): boolean {
+  return [...navigationBlockers].every((blocker) => blocker());
+}
+
 export function navigateToUrl(
   url: string,
   options?: {
@@ -486,7 +494,7 @@ export function navigateToUrl(
     return true;
   }
 
-  if (!options?.bypassBlockers && [...navigationBlockers].some((blocker) => !blocker())) return false;
+  if (!options?.bypassBlockers && !confirmLeavingCurrentView()) return false;
 
   const state = withEntryState(options?.state ?? null, url, options?.replace, options?.backOrigin);
   if (options?.replace) {

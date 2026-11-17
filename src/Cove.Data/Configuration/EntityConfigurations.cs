@@ -830,6 +830,65 @@ public class SegmentDisplayRuleConfiguration : IEntityTypeConfiguration<SegmentD
     }
 }
 
+public class StoredSegmentSpanConfiguration : IEntityTypeConfiguration<StoredSegmentSpan>
+{
+    public void Configure(EntityTypeBuilder<StoredSegmentSpan> builder)
+    {
+        builder.ToTable("segment_spans");
+        builder.HasKey(span => span.Id);
+        builder.Property(span => span.SpanKey).IsRequired();
+        builder.HasOne<SegmentDisplayProfile>().WithMany().HasForeignKey(span => span.ProfileId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<Video>().WithMany().HasForeignKey(span => span.VideoId).OnDelete(DeleteBehavior.Cascade);
+
+        // A video's spans in display order: the join the default (video-ordered) listing walks. It also
+        // covers the first step of a page read in an order no index holds (random, kind): the order's
+        // tie-breaks, the kind filter and the row id, without reading the wide span rows.
+        builder.HasIndex(span => new { span.ProfileId, span.VideoId, span.Ordinal }).IsUnique()
+            .IncludeProperties(span => new { span.StartSec, span.Kind, span.Id });
+        builder.HasIndex(span => span.VideoId);
+        builder.HasIndex(span => new { span.ProfileId, span.DurationSec, span.Id });
+        builder.HasIndex(span => new { span.ProfileId, span.StartSec, span.Id });
+        builder.HasIndex(span => new { span.ProfileId, span.TagId, span.VideoId });
+        // Reference, face and performer filters test the contributing segments' references.
+        builder.HasIndex(span => span.RefIds).HasMethod("gin");
+    }
+}
+
+public class SegmentSpanVideoVersionConfiguration : IEntityTypeConfiguration<SegmentSpanVideoVersion>
+{
+    public void Configure(EntityTypeBuilder<SegmentSpanVideoVersion> builder)
+    {
+        builder.ToTable("segment_span_video_versions");
+        builder.HasKey(version => version.VideoId);
+        builder.Property(version => version.VideoId).ValueGeneratedNever();
+        builder.Property(version => version.ChangedAt).HasDefaultValueSql("now()");
+        builder.HasOne<Video>().WithMany().HasForeignKey(version => version.VideoId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public class SegmentSpanVideoStateConfiguration : IEntityTypeConfiguration<SegmentSpanVideoState>
+{
+    public void Configure(EntityTypeBuilder<SegmentSpanVideoState> builder)
+    {
+        builder.ToTable("segment_span_video_states");
+        builder.HasKey(state => new { state.ProfileId, state.VideoId });
+        builder.HasOne<SegmentDisplayProfile>().WithMany().HasForeignKey(state => state.ProfileId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<Video>().WithMany().HasForeignKey(state => state.VideoId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(state => state.VideoId);
+    }
+}
+
+public class SegmentSpanIndexedProfileConfiguration : IEntityTypeConfiguration<SegmentSpanIndexedProfile>
+{
+    public void Configure(EntityTypeBuilder<SegmentSpanIndexedProfile> builder)
+    {
+        builder.ToTable("segment_span_indexed_profiles");
+        builder.HasKey(profile => profile.ProfileId);
+        builder.Property(profile => profile.ProfileId).ValueGeneratedNever();
+        builder.HasOne<SegmentDisplayProfile>().WithMany().HasForeignKey(profile => profile.ProfileId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public class SegmentDisplayProfileConfiguration : IEntityTypeConfiguration<SegmentDisplayProfile>
 {
     public void Configure(EntityTypeBuilder<SegmentDisplayProfile> builder)

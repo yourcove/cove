@@ -859,9 +859,21 @@ public record SegmentSpanSearchResponseDto(
     int TotalCount,
     int Page,
     int PerPage,
-    bool HasMore = false);
+    bool HasMore = false)
+{
+    /// <summary>
+    /// How many videos' spans were still being brought up to date when this page was read: the first
+    /// build after an upgrade, a rebuild after the profile's rules changed, or a bulk import. The page
+    /// and its total can be incomplete until it reaches zero. Always zero for a derived query.
+    /// </summary>
+    public int PendingVideoCount { get; init; }
+}
 
-public record SegmentSpanCountResponseDto(int TotalCount, double Duration);
+public record SegmentSpanCountResponseDto(int TotalCount, double Duration)
+{
+    /// <summary>See <see cref="SegmentSpanSearchResponseDto.PendingVideoCount"/>.</summary>
+    public int PendingVideoCount { get; init; }
+}
 
 public static class ResolvedSpanKeys
 {
@@ -1054,6 +1066,40 @@ public record SegmentDisplayRuleUpdateDto(
     string? ColorOverride,
     int? Lane,
     int? Priority);
+
+/// <summary>
+/// A profile's complete rule list, saved in one transaction so the profile is rebuilt once. A rule with an
+/// <c>Id</c> updates that rule, one without adds a rule, and the profile's rules left out are deleted.
+/// <c>ExpectedVersion</c> is the profile version the list was edited from; the save is refused with 409 if
+/// the rules have changed since.
+/// </summary>
+public record SegmentDisplayRulesReplaceDto(
+    int ExpectedVersion,
+    List<SegmentDisplayRuleReplaceItemDto> Rules);
+
+/// <summary>A rule as it is created, plus the id of the rule it replaces, if any.</summary>
+public record SegmentDisplayRuleReplaceItemDto(
+    int? Id,
+    string? SourceKey,
+    string? Kind,
+    int? TagId,
+    string? TagCategory,
+    SegmentHostType? HostType,
+    bool Visible,
+    float? MinConfidence,
+    double? MinDurationSec,
+    double? MergeGapSec,
+    bool CollapseToInstant,
+    string? ColorOverride,
+    int? Lane,
+    int? Priority)
+    : SegmentDisplayRuleCreateDto(SourceKey, Kind, TagId, TagCategory, HostType, Visible, MinConfidence, MinDurationSec, MergeGapSec, CollapseToInstant, ColorOverride, Lane, Priority);
+
+/// <summary>The profile and its rules after a save; <c>Changed</c> is false when the save matched what was stored.</summary>
+public record SegmentDisplayRulesSavedDto(
+    SegmentDisplayProfileDto Profile,
+    IReadOnlyList<SegmentDisplayRuleDto> Rules,
+    bool Changed);
 
 public record DetectionDto(
     int Id,

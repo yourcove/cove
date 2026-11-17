@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildRouteUrl,
+  confirmLeavingCurrentView,
   getPreviousInternalRoute,
   navigateToUrl,
   parseCurrentRoute,
@@ -39,6 +40,14 @@ describe("route history", () => {
     unregister();
     expect(navigateToUrl("/videos")).toBe(true);
     expect(window.location.pathname).toBe("/videos");
+  });
+
+  it("asks the same guards before a view change that is not a navigation", () => {
+    expect(confirmLeavingCurrentView()).toBe(true);
+    const unregister = registerNavigationBlocker(() => false);
+    expect(confirmLeavingCurrentView()).toBe(false);
+    unregister();
+    expect(confirmLeavingCurrentView()).toBe(true);
   });
 
   it("parses and rebuilds video seek timestamps", () => {

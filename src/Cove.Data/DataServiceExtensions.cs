@@ -91,6 +91,8 @@ public static class DataServiceExtensions
         services.AddSingleton<ISegmentSpanCacheInvalidator>(
             sp => sp.GetRequiredService<SegmentSpanCacheRegistry>());
         services.AddScoped<SegmentSpanResolver>();
+        services.AddSingleton<SegmentSpanIndexSignal>();
+        services.AddScoped<SegmentSpanIndexService>();
         services.AddScoped<FacePerformerPropagationService>();
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
         services.AddScoped<ISegmentRepository, SegmentRepository>();
@@ -120,6 +122,8 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         services.AddScoped<IFaceTopSuggestionMaintenance>(sp => sp.GetRequiredService<FaceTopSuggestionService>());
         if (runBackgroundMaterializers)
             services.AddHostedService<FaceTopSuggestionMaterializerService>();
+        if (runBackgroundMaterializers)
+            services.AddHostedService<SegmentSpanIndexMaterializerService>();
 
         // Auth / RBAC services
         services.AddSingleton<IPermissionRegistry, PermissionRegistry>();

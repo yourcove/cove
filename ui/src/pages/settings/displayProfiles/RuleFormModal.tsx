@@ -1,7 +1,7 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { SegmentDisplayRule, TagDetail } from "../../../api/types";
 import { EntityMultiSelector } from "../../../components/EntityMultiSelector";
-import { EditModal, Field, NumberInput, SaveButton, SelectInput, TextInput } from "../../../components/EditModal";
+import { EditModal, Field, NumberInput, SelectInput, TextInput } from "../../../components/EditModal";
 import { HOST_TYPE_OPTIONS, type RuleFormState } from "./types";
 
 interface Props {
@@ -16,7 +16,6 @@ interface Props {
   onClose: () => void;
   onSave: () => void;
   onOpenTagDetail: (tagId: number) => void;
-  saving: boolean;
 }
 
 export function RuleFormModal({
@@ -31,7 +30,6 @@ export function RuleFormModal({
   onClose,
   onSave,
   onOpenTagDetail,
-  saving,
 }: Props) {
   return (
     <EditModal title={editingRule ? "Edit Rule" : "Create Rule"} open={open} onClose={onClose}>
@@ -182,8 +180,15 @@ export function RuleFormModal({
 
         {previewPane}
 
-        <div className="flex justify-end pb-4">
-          <SaveButton loading={saving} onClick={onSave} />
+        <div className="flex flex-wrap items-center justify-end gap-3 pb-4">
+          <p className="text-xs text-muted">Nothing is saved until you press Save changes on the profile.</p>
+          <button
+            type="button"
+            onClick={onSave}
+            className="rounded-lg bg-accent px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            {editingRule ? "Apply" : "Add rule"}
+          </button>
         </div>
       </div>
     </EditModal>

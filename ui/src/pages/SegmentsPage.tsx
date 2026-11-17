@@ -496,6 +496,8 @@ export function SegmentsPage({ onNavigate }: Props) {
       });
 
       return {
+        // Carried on the page so the notice belongs to the data shown, whichever query it came from.
+        pendingVideoCount: response.pendingVideoCount ?? 0,
         items: response.items.map<DerivedSpanItem>((item) => ({
           id: `${item.videoId}:${item.span.spanKey}`,
           key: `${item.videoId}:${item.span.spanKey}`,
@@ -772,6 +774,13 @@ export function SegmentsPage({ onNavigate }: Props) {
     ? derivedInfiniteQuery.totalCount
     : (segmentsWindowQuery.data?.totalCount ?? 0);
   const spansHasMore = !infinitePageSize && (segmentsWindowQuery.data?.hasMore ?? false);
+  // Stored spans are built in the background after an upgrade, a profile change or a bulk import.
+  const spansPendingVideoCount = isRawView
+    ? 0
+    : infinitePageSize
+      ? ((derivedInfiniteQuery.data?.pages.at(-1) as { pendingVideoCount?: number } | undefined)?.pendingVideoCount ??
+        0)
+      : (segmentsWindowQuery.data?.pendingVideoCount ?? 0);
   const spansTotalCount =
     spansCountQuery.data?.totalCount ??
     (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
@@ -1024,7 +1033,12 @@ export function SegmentsPage({ onNavigate }: Props) {
         customFilterSections={customFilterSections}
         totalCountIsLowerBound={spansTotalUnknown}
         metadataByline={
-          spansTotalUnknown ? (
+          spansPendingVideoCount > 0 ? (
+            <span className="text-xs text-muted" role="status">
+              Indexing segments: {spansPendingVideoCount.toLocaleString()}{" "}
+              {spansPendingVideoCount === 1 ? "video" : "videos"} remaining
+            </span>
+          ) : spansTotalUnknown ? (
             spanCountRequested && spansCountQuery.isError ? (
               <button
                 type="button"
