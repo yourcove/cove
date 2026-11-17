@@ -352,4 +352,84 @@ describe("CompilationPlayer", () => {
     expect(nextPlayer).toHaveAttribute("data-autostart", "true");
     expect(nextPlayer).not.toHaveAttribute("data-poster");
   });
+
+  it("links each segment row to its segment and to its video at the segment start", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({
+      id,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    }));
+    const onNavigate = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupId={9}
+          groupName="Summer Compilation"
+          items={[
+            {
+              groupItemId: 1,
+              hostType: "segment",
+              hostId: 101,
+              segmentId: 101,
+              videoId: 14,
+              videoTitle: "Source Video",
+              title: "Facial",
+              src: "/video-14.mp4",
+              startSec: 65,
+              endSec: 75,
+              durationSec: 10,
+              hasVideoTrack: false,
+            },
+            {
+              groupItemId: 2,
+              hostType: "video",
+              hostId: 15,
+              videoId: 15,
+              title: "Whole Video",
+              src: "/video-15.mp4",
+              startSec: 0,
+              durationSec: 120,
+              hasVideoTrack: false,
+            },
+            {
+              groupItemId: 3,
+              hostType: "segment",
+              hostId: 102,
+              segmentId: 102,
+              audioId: 30,
+              title: "Audio Moment",
+              src: "",
+              startSec: 4,
+              endSec: 8,
+              hasVideoTrack: false,
+            },
+          ]}
+          onNavigate={onNavigate}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByTestId("compilation-video-player");
+    expect(screen.getByRole("button", { name: /^1\. Facial\s*Segment\s*Source Video · 1:05 - 1:15$/ })).toBeInTheDocument();
+
+    const segmentLink = screen.getByRole("link", { name: "Open segment Facial" });
+    expect(segmentLink).toHaveAttribute("href", "/segment/101");
+    const videoLink = screen.getByRole("link", { name: "Open video Source Video at 1:05" });
+    expect(videoLink).toHaveAttribute("href", expect.stringMatching(/^\/video\/14\?t=65/));
+
+    // Only video-hosted segment rows get the links: the segment page cannot show an audio-hosted segment,
+    // and other media keep the plain playlist row.
+    expect(screen.getAllByRole("link", { name: /^Open (segment|video) / })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /^1\. Facial/ })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: /^2\. Whole Video/ })).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(videoLink);
+    expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 14, seekTo: 65 });
+
+    // The Current tab opens the playing segment's video too, not only the segment.
+    onNavigate.mockClear();
+    fireEvent.click(screen.getAllByRole("tab", { name: "Current" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Open video" }));
+    expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 14, seekTo: 65 });
+  });
 });

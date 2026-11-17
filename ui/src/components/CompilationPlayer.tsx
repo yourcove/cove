@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Bookmark,
   ExternalLink,
   FileText,
   Image as ImageIcon,
@@ -21,6 +22,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
 import { VideoPlayer } from "./VideoPlayer";
+import { createRouteLinkProps } from "./cardNavigation";
 import { useAppConfig } from "../state/AppConfigContext";
 import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
 
@@ -289,6 +291,8 @@ export function CompilationPlayer({
   );
 
   const currentTitle = item ? getItemTitle(item) : "No playable item";
+  // A segment also opens on its source video, at the segment's start, beside opening the segment itself.
+  const currentSegmentVideoRoute = item ? (getSegmentItemLinks(item)?.video ?? null) : null;
   const currentPlaybackTracking = item
     ? {
         hostType: "group",
@@ -466,23 +470,62 @@ export function CompilationPlayer({
         <div className="space-y-2">
           {visibleItems.map((manifestItem, index) => {
             const active = index === currentItemIndex;
+            const segmentLinks = getSegmentItemLinks(manifestItem);
+            const subtitle = getItemSubtitle(manifestItem);
             return (
-              <button
+              <div
                 key={manifestItem.groupItemId}
-                type="button"
-                onClick={() => moveToItem(index, playbackActiveRef.current)}
-                className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
+                className={`flex w-full min-w-0 items-center rounded-lg border transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-current/20 bg-background/70">
-                  {getItemIcon(manifestItem)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {index + 1}. {getItemTitle(manifestItem)}
+                <button
+                  type="button"
+                  onClick={() => moveToItem(index, playbackActiveRef.current)}
+                  aria-current={active ? "true" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 pr-1 text-left"
+                >
+                  {/* The icon alone marks the item's type; screen readers hear it after the title instead. */}
+                  <span
+                    aria-hidden="true"
+                    title={getItemTypeLabel(manifestItem)}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center"
+                  >
+                    {getItemIcon(manifestItem)}
                   </span>
-                  <span className="mt-0.5 block text-xs text-muted">{getItemTypeLabel(manifestItem)}</span>
-                </span>
-              </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {index + 1}. {getItemTitle(manifestItem)}
+                    </span>
+                    <span className="sr-only">{getItemTypeLabel(manifestItem)}</span>
+                    {subtitle ? <span className="mt-0.5 block truncate text-xs text-muted">{subtitle}</span> : null}
+                  </span>
+                </button>
+                {segmentLinks ? (
+                  <span className="flex shrink-0 items-center pr-1">
+                    <a
+                      {...createRouteLinkProps<HTMLAnchorElement>(segmentLinks.segment, () =>
+                        onNavigate(segmentLinks.segment),
+                      )}
+                      aria-label={`Open segment ${getItemTitle(manifestItem)}`}
+                      title="Open segment"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-background/70 hover:text-accent"
+                    >
+                      <Bookmark className="h-4 w-4" aria-hidden="true" />
+                    </a>
+                    {segmentLinks.video ? (
+                      <a
+                        {...createRouteLinkProps<HTMLAnchorElement>(segmentLinks.video, () =>
+                          onNavigate(segmentLinks.video),
+                        )}
+                        aria-label={`Open video ${manifestItem.videoTitle || `#${segmentLinks.video.id}`} at ${formatTime(manifestItem.startSec)}`}
+                        title="Open video at segment start"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-background/70 hover:text-accent"
+                      >
+                        <Video className="h-4 w-4" aria-hidden="true" />
+                      </a>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -519,6 +562,16 @@ export function CompilationPlayer({
               <ExternalLink className="h-4 w-4" />
               Open item
             </button>
+            {currentSegmentVideoRoute ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(currentSegmentVideoRoute)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+              >
+                <Video className="h-4 w-4" />
+                Open video
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => onNavigate({ page: "group", id: groupId })}
@@ -854,6 +907,40 @@ function getTextId(item?: GroupPlaybackManifestItem) {
 
 function getItemTitle(item: GroupPlaybackManifestItem) {
   return item.title || item.videoTitle || `Untitled ${getItemTypeLabel(item).toLowerCase()}`;
+}
+
+/**
+ * Segment items name their source video and range, so rows that share a tag name stay distinguishable.
+ * Other items have no second line; the row icon already marks their type.
+ */
+function getItemSubtitle(item: GroupPlaybackManifestItem) {
+  if (!isSegmentItem(item)) return null;
+  // Only timed media has a range; an image-hosted segment would show a meaningless 0:00.
+  const mediaKind = getMediaKind(item);
+  const range =
+    mediaKind !== "video" && mediaKind !== "audio"
+      ? null
+      : item.endSec != null
+        ? `${formatTime(item.startSec)} - ${formatTime(item.endSec)}`
+        : formatTime(item.startSec);
+  return [item.videoTitle, range].filter(Boolean).join(" · ");
+}
+
+/** Links for a segment item: the segment itself and, for video-hosted segments, the video at its start. */
+export function getSegmentItemLinks(item: GroupPlaybackManifestItem) {
+  if (item.segmentId == null) return null;
+  // The segment page shows video-hosted segments only, so audio- and image-hosted ones get no links.
+  const videoId = getVideoId(item);
+  if (videoId == null) return null;
+  return {
+    segment: { page: "segment" as const, id: item.segmentId },
+    video:
+      videoId != null
+        ? item.startSec > 0
+          ? { page: "video" as const, id: videoId, seekTo: item.startSec }
+          : { page: "video" as const, id: videoId }
+        : null,
+  };
 }
 
 function getItemTypeLabel(item: GroupPlaybackManifestItem) {
