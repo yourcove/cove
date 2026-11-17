@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Layers,
   Plus,
-  ExternalLink,
   Pencil,
   Trash2,
   Clock,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import { faces, videos, tagGroups as tagGroupsApi } from "../api/client";
 import { readReferenceLinkInfo } from "./FaceCompareDialog";
+import { SegmentIcon } from "./segmentViewIcons";
 import { hasConflictingMatch } from "../utils/faceSuggestions";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
 import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
@@ -1123,7 +1123,8 @@ function SegmentRow({
             <ShownNameText name={label} suggested={shown.suggested} />
           </span>
         ) : null}
-        {span.kind && span.kind !== "tag" ? (
+        {/* A face or tag segment's name or group already says what it is; other kinds keep their label. */}
+        {span.kind && span.kind !== "tag" && span.kind.toLowerCase() !== "face" ? (
           <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{span.kind}</span>
         ) : null}
         {rawCount > 1 ? (
@@ -1132,17 +1133,37 @@ function SegmentRow({
           </span>
         ) : null}
       </button>
-      <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button onClick={onOpen} className="text-muted hover:text-accent" title="Open segment">
-          <ExternalLink className="h-3.5 w-3.5" />
-        </button>
+      {/* Opening the segment page is always on offer. On a wide screen with a mouse, editing and deleting appear on
+          hover or keyboard focus; on a narrow or touch screen they always show, with room to tap them. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="shrink-0 text-muted hover:text-accent pointer-coarse:p-1.5"
+        title="Open segment"
+        aria-label="Open segment"
+      >
+        <SegmentIcon className="h-3.5 w-3.5" />
+      </button>
+      <div className="flex shrink-0 items-center gap-1.5 transition-opacity md:pointer-fine:opacity-0 md:pointer-fine:group-hover:opacity-100 md:pointer-fine:focus-within:opacity-100">
         {canEdit ? (
-          <button onClick={onEdit} className="text-muted hover:text-accent" title="Edit segment">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-muted hover:text-accent pointer-coarse:p-1.5"
+            title="Edit segment"
+            aria-label="Edit segment"
+          >
             <Pencil className="h-3.5 w-3.5" />
           </button>
         ) : null}
         {canEdit ? (
-          <button onClick={onDelete} className="text-muted hover:text-red-400" title="Delete segment">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-muted hover:text-red-400 pointer-coarse:p-1.5"
+            title="Delete segment"
+            aria-label="Delete segment"
+          >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         ) : null}

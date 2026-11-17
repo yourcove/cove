@@ -105,6 +105,10 @@ describe("VideoSegmentsPanel groups by person", () => {
     expect(screen.getByRole("button", { name: "Suggested Person (suggested)" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Unnamed face" })).toBeInTheDocument();
 
+    // Each row opens its segment from an always-visible button and no longer repeats that it is a face.
+    expect(screen.getAllByRole("button", { name: "Open segment" })).toHaveLength(4);
+    expect(screen.queryByText("face", { exact: true })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Show the 2 faces of Linked Person" }));
     expect(screen.getByText("face-0031")).toBeInTheDocument();
     expect(screen.getByText("face-0032")).toBeInTheDocument();
