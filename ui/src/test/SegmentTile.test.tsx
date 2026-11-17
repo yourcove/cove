@@ -5,7 +5,9 @@ import type { ResolvedSpan } from "../api/types";
 import { SegmentTile, type SegmentTileItem } from "../components/EntityCards";
 import { RawSegmentListRow } from "../pages/segments/RawSegmentResults";
 import {
+  buildRawSegmentTitle,
   buildSpanTileSegment,
+  rawSegmentGivenTitle,
   buildSpanTitle,
   formatDerivedQueryName,
   hasDerivedQueryNames,
@@ -495,6 +497,20 @@ describe("suggested face names", () => {
     expect(rawSegmentPlaceholderFaceId(raw({ performerName: "Linked" }))).toBeUndefined();
     expect(rawSegmentPlaceholderFaceId(raw({ kind: "performer" }))).toBeUndefined();
     expect(rawSegmentFaceName(raw({ title: "Kitchen scene" }), suggestions)).toBeUndefined();
+  });
+
+  it("name a raw face segment from its face rather than a stored placeholder key", () => {
+    const raw = (segment: Partial<RawSegmentItem>) =>
+      ({ kind: "face", refId: 31, refLabel: "face-0031", sourceKey: "ext:ai.faces", ...segment }) as RawSegmentItem;
+    // A face linked to a performer since detection reads as that performer, not the key the segment was stored with.
+    expect(buildRawSegmentTitle(raw({ title: "face-0048", performerName: "Linked" }))).toBe("Linked");
+    // A key from a face merged into this one, or the detection's own key, is a placeholder too.
+    expect(rawSegmentGivenTitle(raw({ title: "face-9999" }))).toBeUndefined();
+    expect(rawSegmentGivenTitle(raw({ title: "cluster-a", payload: { refKey: "cluster-a" } }))).toBeUndefined();
+    expect(rawSegmentPlaceholderFaceId(raw({ title: "face-9999" }))).toBe(31);
+    // A title someone typed stays, and other kinds keep their titles as they are.
+    expect(buildRawSegmentTitle(raw({ title: "Kitchen scene", performerName: "Linked" }))).toBe("Kitchen scene");
+    expect(rawSegmentGivenTitle(raw({ kind: "tag", title: "face-0001" }))).toBe("face-0001");
   });
 
   it("are marked as suggestions on the card, with the face's own key kept in the details", () => {

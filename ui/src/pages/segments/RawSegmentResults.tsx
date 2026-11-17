@@ -77,7 +77,7 @@ export function RawSegmentResults({
           const title = faceName?.name ?? buildRawSegmentTitle(item);
           return (
             <SegmentTile
-              segment={faceName ? { ...item, title, titleIsSuggestion: faceName.suggested } : item}
+              segment={{ ...item, title, titleIsSuggestion: !!faceName?.suggested }}
               label={`Open raw segment ${formatShownTitle(title, faceName?.suggested)}`}
               eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
               onClick={(toggleOptions) =>

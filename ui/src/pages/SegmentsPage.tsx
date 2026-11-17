@@ -12,6 +12,7 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
 import { createDerivedSpanCustomFilterSection } from "./segments/derivedQueryCriterion";
+import { RawSegmentIcon, SegmentIcon } from "../components/segmentViewIcons";
 import {
   readRawSegmentIdsFromUrl,
   readSegmentsPageContentView,
@@ -832,15 +833,17 @@ export function SegmentsPage({ onNavigate }: Props) {
               <button
                 type="button"
                 onClick={() => switchContentView("spans")}
-                className={`rounded-md px-2.5 py-1.5 transition-colors ${!isRawView ? "bg-accent text-white" : "text-muted hover:text-foreground"}`}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors ${!isRawView ? "bg-accent text-white" : "text-muted hover:text-foreground"}`}
               >
+                <SegmentIcon className="h-3.5 w-3.5" aria-hidden />
                 Segments
               </button>
               <button
                 type="button"
                 onClick={() => switchContentView("raw")}
-                className={`rounded-md px-2.5 py-1.5 transition-colors ${isRawView ? "bg-accent text-white" : "text-muted hover:text-foreground"}`}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors ${isRawView ? "bg-accent text-white" : "text-muted hover:text-foreground"}`}
               >
+                <RawSegmentIcon className="h-3.5 w-3.5" aria-hidden />
                 Raw segments
               </button>
             </div>

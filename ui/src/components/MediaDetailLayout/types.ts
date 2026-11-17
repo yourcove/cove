@@ -49,6 +49,8 @@ export interface MetadataPanelItem {
 
 export interface MediaDetailLayoutProps {
   title: ReactNode;
+  /** A short muted label above the title saying what kind of thing the page shows. */
+  eyebrow?: ReactNode;
   subtitle?: ReactNode;
   backLabel?: string;
   onGoBack?: () => void;

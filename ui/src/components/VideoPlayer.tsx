@@ -50,7 +50,9 @@ import { useKeySequence } from "../hooks/useKeySequence";
 import { findSpriteIndex, spriteTileStyle, type VideoSprites } from "../hooks/useVideoSprites";
 import { usePopoverPosition } from "../hooks/usePopoverPosition";
 
-type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
+// `displayName` names a face in its X-ray box when the caller knows a better name than its linked performer, such as
+// a suggested match.
+export type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId"> & { displayName?: string };
 type DetectionOverlay = Detection & { overlayKey?: string };
 
 const VOLUME_KEY = "cove-video-player-volume";
@@ -205,6 +207,7 @@ export function VideoPlayer({
   detections = [],
   segments = [],
   faces = [],
+  faceOverlayDefault = false,
   captions,
   onPlay,
   onPause,
@@ -244,6 +247,8 @@ export function VideoPlayer({
   detections?: Detection[];
   segments?: Segment[];
   faces?: FaceOverlayInfo[];
+  /** Whether X-ray starts on for a viewer who has never turned it on or off. */
+  faceOverlayDefault?: boolean;
   captions?: { id: number; languageCode: string; captionType: string; filename: string }[];
   onPlay?: () => void;
   onPause?: () => void;
@@ -377,7 +382,7 @@ export function VideoPlayer({
   const autoTranscodeTriedRef = useRef(false);
   // Guards the one-shot compatibility default selection so a user can still pick Direct later.
   const compatibilityFallbackAppliedRef = useRef(false);
-  const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, false);
+  const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, faceOverlayDefault);
   const playbackTracker = useRef(createPlaybackTracker());
   const sourceRef = useRef<HTMLSourceElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -3086,8 +3091,9 @@ function interpolateDetection(detections: Detection[], currentTime: number): Det
 function formatDetectionBadge(detection: Detection, faceLabelsById?: Map<number, FaceOverlayInfo>) {
   const confidence = Math.round(detection.score * 100);
   const face = detection.refId != null && isFaceDetection(detection) ? faceLabelsById?.get(detection.refId) : undefined;
-  if (face?.performerName?.trim()) {
-    return `${detection.class} ${confidence}% · ${face.performerName.trim()}`;
+  const faceName = face?.displayName?.trim() || face?.performerName?.trim();
+  if (faceName) {
+    return `${detection.class} ${confidence}% · ${faceName}`;
   }
 
   const refText = detection.refKind && detection.refId != null ? ` · ${detection.refKind} #${detection.refId}` : "";

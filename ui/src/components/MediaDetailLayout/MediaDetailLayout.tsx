@@ -266,6 +266,7 @@ function moveTabFocus(currentTab: HTMLButtonElement, direction: "next" | "previo
 
 function MediaDetailLayoutRoot({
   title,
+  eyebrow,
   subtitle,
   backLabel = "Back",
   onGoBack,
@@ -533,14 +534,26 @@ function MediaDetailLayoutRoot({
               />
             ) : null}
             {headerImage ? <div className="mb-2 empty:hidden">{headerImage}</div> : null}
+            {eyebrow ? (
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{eyebrow}</div>
+            ) : null}
             <h3 className="mt-1 break-words text-xl font-semibold leading-snug text-foreground sm:text-[1.5rem]">
               {title}
             </h3>
-            {subtitle ? <div className="mt-1 text-sm text-secondary">{subtitle}</div> : null}
-            {engagement || headerActions.length > 0 ? (
+            {!engagement && headerActions.length > 0 ? (
+              // With no engagement bar to share a row with, the actions sit beside the subtitle instead of on a
+              // line of their own.
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <div className="min-w-0 text-sm text-secondary">{subtitle}</div>
+                <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
+              </div>
+            ) : subtitle ? (
+              <div className="mt-1 text-sm text-secondary">{subtitle}</div>
+            ) : null}
+            {engagement ? (
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  {engagement ? <EngagementBar {...engagement} className="" /> : null}
+                  <EngagementBar {...engagement} className="" />
                 </div>
                 {headerActions.length > 0 ? (
                   <div className="flex shrink-0 items-center gap-1">{headerActions}</div>

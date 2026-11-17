@@ -1,5 +1,4 @@
 import {
-  Bookmark,
   Building2,
   FileText,
   Film,
@@ -13,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { NavPage } from "../auth/visibility";
+import { SegmentIcon } from "./segmentViewIcons";
 
 export interface BuiltInNavigationItem {
   page: NavPage;
@@ -24,7 +24,7 @@ export const BUILT_IN_NAVIGATION_ITEMS: BuiltInNavigationItem[] = [
   { page: "videos", label: "Videos", icon: Film },
   { page: "audios", label: "Audios", icon: Headphones },
   { page: "texts", label: "Texts", icon: FileText },
-  { page: "segments", label: "Segments", icon: Bookmark },
+  { page: "segments", label: "Segments", icon: SegmentIcon },
   { page: "images", label: "Images", icon: ImageIcon },
   { page: "faces", label: "Faces", icon: Fingerprint },
   { page: "galleries", label: "Galleries", icon: Image },
