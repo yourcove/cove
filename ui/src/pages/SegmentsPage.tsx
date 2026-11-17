@@ -33,6 +33,7 @@ import {
   useSegmentsListUrlState,
 } from "./segments/segmentsListState";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
+import { SegmentsViewSettings } from "./segments/SegmentsViewSettings";
 import {
   buildSpanSearchRequest,
   toDerivedSpanItem,
@@ -827,16 +828,6 @@ export function SegmentsPage({ onNavigate }: Props) {
         summaryLoading={isRawView ? rawAggregateQuery.isLoading : false}
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePlay}
-              disabled={!canPlay}
-              title="Play these results in order"
-              aria-label="Play"
-              className="inline-flex items-center rounded-lg border border-border bg-card/70 p-2 text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Play className="h-4 w-4" aria-hidden="true" />
-            </button>
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">
               <button
                 type="button"
@@ -853,29 +844,22 @@ export function SegmentsPage({ onNavigate }: Props) {
                 Raw segments
               </button>
             </div>
-            <label
-              title={
-                isRawView
-                  ? "Raw view shows segments as observed; profiles and derived queries do not apply."
-                  : undefined
-              }
-              className="flex items-center gap-2 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 text-xs text-muted"
+            <button
+              type="button"
+              onClick={handlePlay}
+              disabled={!canPlay}
+              title="Play these results in order"
+              aria-label="Play"
+              className="inline-flex items-center rounded-lg border border-border bg-card/70 p-2 text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="font-semibold uppercase tracking-wide">Profile</span>
-              <select
-                value={activeProfileId ?? ""}
-                onChange={(event) => setActiveProfileId(Number(event.target.value))}
-                className="min-w-[10rem] bg-transparent text-xs text-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isRawView || availableProfiles.length === 0}
-              >
-                {availableProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                    {profile.isDefault ? " (Default)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Play className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <SegmentsViewSettings
+              profiles={availableProfiles}
+              activeProfileId={activeProfileId}
+              onProfileChange={setActiveProfileId}
+              isRawView={isRawView}
+            />
           </div>
         )}
         selectedIds={selectedIds}
