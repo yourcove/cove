@@ -2695,22 +2695,23 @@ function VideoScrubber({
           </div>
           {!overlaysCollapsed ? (
             <div className="space-y-2 px-2 py-2">
-              {nonFaceSpans.length > 0 ? (
+              {/* People come first, as in the Segments tab. */}
+              {hasFaceDetections && effectiveFacesEnabled && faceLanes.length > 0 ? (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
-                    <span>Segments{profileName ? ` · ${profileName}` : ""}</span>
-                    {hiddenResolvedLaneCount > 0 ? <span>{hiddenResolvedLaneCount} hidden</span> : null}
+                    <span>Faces</span>
+                    {hiddenFaceLaneCount > 0 ? <span>{hiddenFaceLaneCount} hidden</span> : null}
                   </div>
                   <div
                     className="relative overflow-hidden rounded border border-white/10 bg-black/25"
-                    style={{ height: `${Math.max(28, visibleResolvedLanes.length * 24 + 6)}px` }}
+                    style={{ height: `${Math.max(28, visibleFaceLanes.length * 24 + 6)}px` }}
                   >
-                    {visibleResolvedLanes.map((lane, laneIndex) =>
+                    {visibleFaceLanes.map((lane, laneIndex) =>
                       lane.map(({ item, endSec }) => {
                         const start = clampPercent((item.startSec / timelineDuration) * 100);
                         const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
                         const width = Math.max(0.45, end - start);
-                        const color = getTimelineOverlayColor(item, SEGMENT_TIMELINE_COLORS);
+                        const color = getTimelineOverlayColor(item, FACE_TIMELINE_COLORS);
 
                         return (
                           <button
@@ -2736,22 +2737,22 @@ function VideoScrubber({
                   </div>
                 </div>
               ) : null}
-              {hasFaceDetections && effectiveFacesEnabled && faceLanes.length > 0 ? (
+              {nonFaceSpans.length > 0 ? (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
-                    <span>Faces</span>
-                    {hiddenFaceLaneCount > 0 ? <span>{hiddenFaceLaneCount} hidden</span> : null}
+                    <span>Segments{profileName ? ` · ${profileName}` : ""}</span>
+                    {hiddenResolvedLaneCount > 0 ? <span>{hiddenResolvedLaneCount} hidden</span> : null}
                   </div>
                   <div
                     className="relative overflow-hidden rounded border border-white/10 bg-black/25"
-                    style={{ height: `${Math.max(28, visibleFaceLanes.length * 24 + 6)}px` }}
+                    style={{ height: `${Math.max(28, visibleResolvedLanes.length * 24 + 6)}px` }}
                   >
-                    {visibleFaceLanes.map((lane, laneIndex) =>
+                    {visibleResolvedLanes.map((lane, laneIndex) =>
                       lane.map(({ item, endSec }) => {
                         const start = clampPercent((item.startSec / timelineDuration) * 100);
                         const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
                         const width = Math.max(0.45, end - start);
-                        const color = getTimelineOverlayColor(item, FACE_TIMELINE_COLORS);
+                        const color = getTimelineOverlayColor(item, SEGMENT_TIMELINE_COLORS);
 
                         return (
                           <button

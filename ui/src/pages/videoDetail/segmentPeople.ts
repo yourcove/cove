@@ -11,7 +11,11 @@ export interface SegmentPerson {
   suggested: boolean;
   /** The face the segment shows, when it is a face segment. */
   faceId?: number;
+  /** Which section of the Segments tab the group belongs in: people first, then tags, then anything else. */
+  section: SegmentSection;
 }
+
+export type SegmentSection = "people" | "tags" | "other";
 
 /**
  * The person a segment belongs to. A face segment belongs to its face's linked performer, else the name the face was
@@ -31,14 +35,16 @@ export function spanPerson(
 
   if (first && span.tagId == null && first.kind?.toLowerCase() === "performer") {
     const name = first.performerName?.trim();
-    if (name) return { key: personNameKey(name), name, suggested: false };
+    if (name) return { key: personNameKey(name), name, suggested: false, section: "people" };
   }
 
   const shown = resolveSpanName(span, rawSegmentsById, facesById);
+  const isTag = span.tagId != null || first?.tagId != null;
   return {
-    key: shown.suggested ? `suggested-name:${shown.name}` : personNameKey(shown.name),
+    key: `${isTag ? "tag" : "other"}:${shown.name.trim().toLowerCase()}`,
     name: shown.name,
     suggested: shown.suggested,
+    section: isTag ? "tags" : "other",
   };
 }
 
@@ -55,17 +61,23 @@ export function facePerson(
   const performerId = face?.performerId ?? segment?.performerId;
   const performerName = face?.performerName?.trim() || segment?.performerName?.trim();
   if (performerId != null && performerName) {
-    return { key: personNameKey(performerName), name: performerName, suggested: false, faceId };
+    return { key: personNameKey(performerName), name: performerName, suggested: false, faceId, section: "people" };
   }
   // A name the face was given counts before its suggestion, as everywhere else segments are named.
   const ownName = face ? faceStoredName({ ...face, performerId: undefined, performerName: undefined }) : undefined;
-  if (ownName) return { key: personNameKey(ownName), name: ownName, suggested: false, faceId };
+  if (ownName) return { key: personNameKey(ownName), name: ownName, suggested: false, faceId, section: "people" };
   const suggestion = face && !face.ignored && face.mergedIntoFaceId == null ? face.topSuggestion : undefined;
   const suggestedName = suggestion?.performerName?.trim();
   if (suggestion && suggestedName) {
-    return { key: `suggested:${suggestion.performerId}`, name: suggestedName, suggested: true, faceId };
+    return {
+      key: `suggested:${suggestion.performerId}`,
+      name: suggestedName,
+      suggested: true,
+      faceId,
+      section: "people",
+    };
   }
-  return { key: `face:${faceId}`, name: "Unnamed face", suggested: false, faceId };
+  return { key: `face:${faceId}`, name: "Unnamed face", suggested: false, faceId, section: "people" };
 }
 
 // Muted colours that read on the dark timeline and as small dots beside the Segments tab's groups.

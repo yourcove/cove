@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Face, ResolvedSpan, Segment } from "../api/types";
@@ -174,6 +174,27 @@ describe("VideoSegmentsPanel groups by person", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ page: "face", id: 33 }));
     expect(mockFaces.recordSuggestionDecision).not.toHaveBeenCalled();
+  });
+
+  it("lists people first, then tags, each under its own heading", () => {
+    const tagRaw = {
+      ...raw(9, 0, 100),
+      kind: "tag",
+      refId: undefined,
+      tagId: 5,
+      tagName: "Kissing",
+      title: "Kissing",
+    } as Segment;
+    const tagSpan = { ...span(tagRaw), kind: "tag", tagId: 5, tagName: "Kissing" } as ResolvedSpan;
+    renderPanel({ spans: [tagSpan, ...rawSegments.map(span)], rawSegments: [...rawSegments, tagRaw] });
+
+    const people = screen.getByRole("region", { name: /People/ });
+    const tags = screen.getByRole("region", { name: /Tags/ });
+    // The tag lasts longest, yet people still come first.
+    expect(people.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(tags).getByRole("button", { name: "Kissing" })).toBeInTheDocument();
+    expect(within(people).queryByRole("button", { name: "Kissing" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Other/ })).not.toBeInTheDocument();
   });
 
   it("offers no decisions without permission to change faces", () => {

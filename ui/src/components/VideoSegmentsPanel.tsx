@@ -20,7 +20,7 @@ import { createNestedRouteLinkProps } from "./cardNavigation";
 import type { Route } from "../router/location";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
 import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
-import { faceKeyLabel, spanPerson } from "../pages/videoDetail/segmentPeople";
+import { faceKeyLabel, spanPerson, type SegmentSection } from "../pages/videoDetail/segmentPeople";
 import { useFaceSuggestionDecision } from "../pages/videoDetail/useFaceSuggestionDecision";
 import { SuggestionDecision } from "../pages/videoDetail/SuggestionDecision";
 import { FaceCrop, FaceStack } from "../pages/videoDetail/FaceCrops";
@@ -732,6 +732,7 @@ interface PersonGroup {
   key: string;
   name: string;
   suggested: boolean;
+  section: SegmentSection;
   items: ResolvedSpan[];
   totalSec: number;
   /** The faces the person appears through in this video, most seen first. */
@@ -786,6 +787,7 @@ function GroupedList({
         key: person.key,
         name: person.name,
         suggested: person.suggested,
+        section: person.section,
         items: [],
         totalSec: 0,
         faces: [],
@@ -830,131 +832,151 @@ function GroupedList({
     });
 
   return (
-    <div className="divide-y divide-border/50">
-      {groups.map((group) => {
-        const open = !collapsed.has(group.key);
-        // A suggested group always lists its faces, since that is where each one is accepted or rejected.
-        const listsFaces = group.faces.length > 1 || (group.suggested && group.faces.length > 0);
-        const showFaces = facesOpen.has(group.key) && listsFaces;
+    // People come first, then tags, then anything else; within a section the longest groups lead.
+    <div className="space-y-4">
+      {SEGMENT_SECTIONS.map((section) => {
+        const sectionGroups = groups.filter((group) => group.section === section.key);
+        if (sectionGroups.length === 0) return null;
         return (
-          <div key={group.key}>
-            <div className="flex items-center justify-between gap-3 py-1.5">
-              <button
-                type="button"
-                onClick={() => toggleIn(setCollapsed, group.key)}
-                aria-expanded={open}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              >
-                {open ? (
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
-                )}
-                {personColors?.get(group.key) ? (
-                  // The colour of the person's bars on the timeline's face lanes.
-                  <span
-                    aria-hidden
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: personColors.get(group.key) }}
-                  />
-                ) : null}
-                <ShownNameText name={group.name} suggested={group.suggested} className="text-sm font-medium" />
-              </button>
-              {listsFaces ? (
-                <button
-                  type="button"
-                  onClick={() => toggleIn(setFacesOpen, group.key)}
-                  aria-expanded={showFaces}
-                  aria-label={`${showFaces ? "Hide" : "Show"} the ${facesLabel(group.faces.length)} of ${group.name}`}
-                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-1.5 py-0.5 text-xs text-secondary hover:border-accent hover:text-foreground"
-                >
-                  <FaceStack faces={group.faces} />
-                  <span>{facesLabel(group.faces.length)}</span>
-                  {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </button>
-              ) : group.faces.length === 1 ? (
-                <a
-                  {...createNestedRouteLinkProps<HTMLAnchorElement>({ page: "face", id: group.faces[0].faceId }, () =>
-                    onOpenFace(group.faces[0].faceId),
-                  )}
-                  aria-label={`Open face ${faceKeyLabel(group.faces[0].face, group.faces[0].faceId)}`}
-                  title="Open face"
-                  className="shrink-0 rounded-full hover:ring-1 hover:ring-accent"
-                >
-                  <FaceStack faces={group.faces} />
-                </a>
-              ) : null}
-              <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
-                <span>{group.items.length}×</span>
-                <span className="font-mono">{formatTime(group.totalSec)}</span>
-              </span>
-            </div>
-            {showFaces ? (
-              <ul className="mb-1.5 ml-6 space-y-1 rounded-lg border border-border bg-surface/30 p-1.5">
-                {group.faces.map((entry) => (
-                  <li key={entry.faceId} className="flex flex-wrap items-center gap-2 text-xs">
-                    <FaceCrop face={entry.face} className="h-6 w-6" />
-                    <span className="min-w-0 flex-1 truncate text-foreground">
-                      {faceKeyLabel(entry.face, entry.faceId)}
-                    </span>
-                    <span className="shrink-0 text-secondary">{entry.count}×</span>
-                    <span className="shrink-0 font-mono text-secondary">{formatTime(entry.totalSec)}</span>
-                    {group.suggested && onDecide && entry.face?.topSuggestion ? (
-                      <SuggestionDecision
-                        performerId={entry.face.topSuggestion.performerId}
-                        pending={decidingFaceId === entry.faceId}
-                        onDecide={(performerId, decision) => onDecide(entry.faceId, performerId, decision)}
-                        onReview={() => onOpenFace(entry.faceId)}
-                      />
-                    ) : null}
-                    <a
-                      {...createNestedRouteLinkProps<HTMLAnchorElement>({ page: "face", id: entry.faceId }, () =>
-                        onOpenFace(entry.faceId),
-                      )}
-                      className="shrink-0 text-accent hover:underline"
-                    >
-                      Open face
-                    </a>
-                    {decisionError?.faceId === entry.faceId ? (
-                      <span role="alert" className="basis-full text-red-400">
-                        {decisionError.error.message}
+          <section key={section.key} aria-labelledby={`segment-section-${section.key}`}>
+            <h5
+              id={`segment-section-${section.key}`}
+              className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted"
+            >
+              {section.title}
+              <span className="font-normal normal-case tracking-normal">{sectionGroups.length}</span>
+            </h5>
+            <div className="divide-y divide-border/50">
+              {sectionGroups.map((group) => {
+                const open = !collapsed.has(group.key);
+                // A suggested group always lists its faces, since that is where each one is accepted or rejected.
+                const listsFaces = group.faces.length > 1 || (group.suggested && group.faces.length > 0);
+                const showFaces = facesOpen.has(group.key) && listsFaces;
+                return (
+                  <div key={group.key}>
+                    <div className="flex items-center justify-between gap-3 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleIn(setCollapsed, group.key)}
+                        aria-expanded={open}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        {open ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                        )}
+                        {personColors?.get(group.key) ? (
+                          // The colour of the person's bars on the timeline's face lanes.
+                          <span
+                            aria-hidden
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: personColors.get(group.key) }}
+                          />
+                        ) : null}
+                        <ShownNameText name={group.name} suggested={group.suggested} className="text-sm font-medium" />
+                      </button>
+                      {listsFaces ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleIn(setFacesOpen, group.key)}
+                          aria-expanded={showFaces}
+                          aria-label={`${showFaces ? "Hide" : "Show"} the ${facesLabel(group.faces.length)} of ${group.name}`}
+                          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-1.5 py-0.5 text-xs text-secondary hover:border-accent hover:text-foreground"
+                        >
+                          <FaceStack faces={group.faces} />
+                          <span>{facesLabel(group.faces.length)}</span>
+                          {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                      ) : group.faces.length === 1 ? (
+                        <a
+                          {...createNestedRouteLinkProps<HTMLAnchorElement>(
+                            { page: "face", id: group.faces[0].faceId },
+                            () => onOpenFace(group.faces[0].faceId),
+                          )}
+                          aria-label={`Open face ${faceKeyLabel(group.faces[0].face, group.faces[0].faceId)}`}
+                          title="Open face"
+                          className="shrink-0 rounded-full hover:ring-1 hover:ring-accent"
+                        >
+                          <FaceStack faces={group.faces} />
+                        </a>
+                      ) : null}
+                      <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
+                        <span>{group.items.length}×</span>
+                        <span className="font-mono">{formatTime(group.totalSec)}</span>
                       </span>
+                    </div>
+                    {showFaces ? (
+                      <ul className="mb-1.5 ml-6 space-y-1 rounded-lg border border-border bg-surface/30 p-1.5">
+                        {group.faces.map((entry) => (
+                          <li key={entry.faceId} className="flex flex-wrap items-center gap-2 text-xs">
+                            <FaceCrop face={entry.face} className="h-6 w-6" />
+                            <span className="min-w-0 flex-1 truncate text-foreground">
+                              {faceKeyLabel(entry.face, entry.faceId)}
+                            </span>
+                            <span className="shrink-0 text-secondary">{entry.count}×</span>
+                            <span className="shrink-0 font-mono text-secondary">{formatTime(entry.totalSec)}</span>
+                            {group.suggested && onDecide && entry.face?.topSuggestion ? (
+                              <SuggestionDecision
+                                performerId={entry.face.topSuggestion.performerId}
+                                pending={decidingFaceId === entry.faceId}
+                                onDecide={(performerId, decision) => onDecide(entry.faceId, performerId, decision)}
+                                onReview={() => onOpenFace(entry.faceId)}
+                              />
+                            ) : null}
+                            <a
+                              {...createNestedRouteLinkProps<HTMLAnchorElement>(
+                                { page: "face", id: entry.faceId },
+                                () => onOpenFace(entry.faceId),
+                              )}
+                              className="shrink-0 text-accent hover:underline"
+                            >
+                              Open face
+                            </a>
+                            {decisionError?.faceId === entry.faceId ? (
+                              <span role="alert" className="basis-full text-red-400">
+                                {decisionError.error.message}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
                     ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {open ? (
-              <div className="space-y-0.5 pb-1.5 pl-6">
-                {group.items.map((span) => {
-                  const faceId = faceIdBySpanKey.get(span.spanKey);
-                  return (
-                    <SegmentRow
-                      key={span.spanKey}
-                      span={span}
-                      rawSegmentsById={rawSegmentsById}
-                      facesById={facesById}
-                      checked={selectedSpanKeys.has(span.spanKey)}
-                      onToggleSelect={() => onToggleSelect(span.spanKey)}
-                      onSeek={onSeek}
-                      canEdit={canEdit}
-                      onEdit={() => onEdit(span)}
-                      onDelete={() => onDelete(span)}
-                      onOpen={() => onOpen(span)}
-                      openRoute={spanRoute(span)}
-                      // With the person's faces listed, each segment shows which of them it is.
-                      leading={
-                        showFaces && faceId != null ? (
-                          <FaceCrop face={facesById?.get(faceId)} className="h-4 w-4" />
-                        ) : undefined
-                      }
-                      hideLabel
-                    />
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
+                    {open ? (
+                      <div className="space-y-0.5 pb-1.5 pl-6">
+                        {group.items.map((span) => {
+                          const faceId = faceIdBySpanKey.get(span.spanKey);
+                          return (
+                            <SegmentRow
+                              key={span.spanKey}
+                              span={span}
+                              rawSegmentsById={rawSegmentsById}
+                              facesById={facesById}
+                              checked={selectedSpanKeys.has(span.spanKey)}
+                              onToggleSelect={() => onToggleSelect(span.spanKey)}
+                              onSeek={onSeek}
+                              canEdit={canEdit}
+                              onEdit={() => onEdit(span)}
+                              onDelete={() => onDelete(span)}
+                              onOpen={() => onOpen(span)}
+                              openRoute={spanRoute(span)}
+                              // With the person's faces listed, each segment shows which of them it is.
+                              leading={
+                                showFaces && faceId != null ? (
+                                  <FaceCrop face={facesById?.get(faceId)} className="h-4 w-4" />
+                                ) : undefined
+                              }
+                              hideLabel
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </div>
@@ -975,6 +997,12 @@ function ShownNameText({ name, suggested, className = "" }: { name: string; sugg
     </>
   );
 }
+
+const SEGMENT_SECTIONS: Array<{ key: SegmentSection; title: string }> = [
+  { key: "people", title: "People" },
+  { key: "tags", title: "Tags" },
+  { key: "other", title: "Other" },
+];
 
 function facesLabel(count: number) {
   return count === 1 ? "1 face" : `${count} faces`;
