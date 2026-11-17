@@ -37,6 +37,27 @@ describe("MediaDetailLayout", () => {
     expect(screen.getByText("Body content")).toBeInTheDocument();
   });
 
+  it("puts header actions beside the subtitle when there is no engagement bar, with the label above the title", () => {
+    render(
+      <MediaDetailLayout
+        eyebrow="Raw segment"
+        title="Segment Title"
+        subtitle="0:10 - 0:20"
+        actions={<button type="button">Next</button>}
+        tabs={[{ key: "overview", label: "Overview" }]}
+        activeTab="overview"
+      >
+        <MediaDetailLayout.Content>
+          <div>Body content</div>
+        </MediaDetailLayout.Content>
+      </MediaDetailLayout>,
+    );
+
+    expect(screen.getByText("Raw segment")).toBeInTheDocument();
+    const subtitleRow = screen.getByText("0:10 - 0:20").parentElement!;
+    expect(subtitleRow).toContainElement(screen.getByRole("button", { name: "Next" }));
+  });
+
   it("fires onTabChange when a tab is clicked", () => {
     const onTabChange = vi.fn();
 

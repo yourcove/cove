@@ -1,4 +1,4 @@
-import { Bookmark } from "lucide-react";
+import { RawSegmentIcon, SegmentIcon } from "../../components/segmentViewIcons";
 import type { DisplayMode } from "../../components/ListPage";
 import { DerivedSpanResults } from "./DerivedSpanResults";
 import { RawSegmentResults } from "./RawSegmentResults";
@@ -85,7 +85,11 @@ export function SegmentsPageList({
 
       {items.length === 0 && !isLoading ? (
         <div className="py-16 text-center text-secondary">
-          <Bookmark className="mx-auto mb-3 h-12 w-12 text-muted opacity-50" />
+          {isRawView ? (
+            <RawSegmentIcon className="mx-auto mb-3 h-12 w-12 text-muted opacity-50" />
+          ) : (
+            <SegmentIcon className="mx-auto mb-3 h-12 w-12 text-muted opacity-50" />
+          )}
           <p>
             {isRawView
               ? rawSegmentIds.length > 0

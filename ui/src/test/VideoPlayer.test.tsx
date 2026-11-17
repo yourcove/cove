@@ -162,6 +162,53 @@ describe("VideoPlayer source lifecycle", () => {
     expect(playMock).toHaveBeenCalled();
   });
 
+  it("follows a changing X-ray default until the viewer chooses for themselves", () => {
+    window.localStorage.removeItem("cove.player.faceOverlay");
+    const player = (faceOverlayDefault: boolean) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        // A face segment with a detected box, so the player offers X-ray.
+        segments={[
+          {
+            id: 7,
+            hostType: "video",
+            hostId: 1,
+            startSec: 10,
+            endSec: 20,
+            kind: "face",
+            refId: 31,
+            sourceKey: "ext:ai.faces",
+            payload: { bestBbox: [0.1, 0.1, 0.3, 0.3], bestTimeSec: "12" },
+          } as never,
+        ]}
+        faceOverlayDefault={faceOverlayDefault}
+      />
+    );
+    const xray = () =>
+      screen.getAllByRole("button", { name: "X-ray" }).find((button) => button.hasAttribute("aria-pressed"))!;
+    try {
+      const { rerender } = render(player(false));
+      expect(xray()).toHaveAttribute("aria-pressed", "false");
+
+      // The same player moves on to a segment whose default is on, such as a face segment after a tag segment.
+      rerender(player(true));
+      expect(xray()).toHaveAttribute("aria-pressed", "true");
+
+      // Once the viewer turns it off, that choice wins over any default.
+      fireEvent.click(xray());
+      expect(localStorageMock.setItem).toHaveBeenCalledWith("cove.player.faceOverlay", "false");
+      rerender(player(true));
+      expect(xray()).toHaveAttribute("aria-pressed", "false");
+    } finally {
+      window.localStorage.removeItem("cove.player.faceOverlay");
+    }
+  });
+
   it("keeps media loaded while player keyboard shortcuts are disabled", () => {
     const { container } = render(
       <VideoPlayer

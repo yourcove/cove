@@ -623,12 +623,13 @@ export function getRouteLabel(route: Route): string {
       return "Text";
     case "texts":
       return "Texts";
+    // Users see resolved spans as segments and stored segments as raw segments, as the Segments page names them.
     case "video-span":
-      return "Span";
+      return "Segment";
     case "videos":
       return "Videos";
     case "segment":
-      return "Segment";
+      return "Raw segment";
     case "segments":
       return "Segments";
     case "faces":

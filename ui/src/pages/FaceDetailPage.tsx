@@ -39,6 +39,7 @@ import { DetailListPagination, DetailListToolbar } from "../components/DetailLis
 import { ListLoadError } from "../components/ListLoadError";
 import { ListQueryState } from "../components/ListQueryState";
 import { FaceSuggestionsPanel } from "../components/FaceSuggestionsPanel";
+import { hasConflictingMatch } from "../utils/faceSuggestions";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { FACE_PATH_CRITERION, FACE_PATH_MODIFIERS } from "../components/faceFilterCriteria";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
@@ -116,19 +117,6 @@ type FaceAppearanceHost = Pick<FaceAppearance, "hostType" | "hostId" | "title">;
 
 function readSuggestionPerformerId(value: number | FaceSuggestion) {
   return typeof value === "number" ? value : value.performerId;
-}
-
-// A suggestion is "conflicting" when it shares a conflict group with another suggestion that points
-// at a different performer — i.e. two reference (SAIE) packs disagree about who this face is. Only
-// then should accepting open the compare dialog so the user can choose between / merge them. Every
-// other accept just links directly.
-function hasConflictingMatch(suggestion: FaceSuggestion, allSuggestions: readonly FaceSuggestion[]) {
-  const groupId = suggestion.conflictGroupId;
-  if (!groupId) return false;
-  return allSuggestions.some(
-    (other) =>
-      other !== suggestion && other.conflictGroupId === groupId && other.performerId !== suggestion.performerId,
-  );
 }
 
 export function FaceDetailPage({ id, onNavigate }: Props) {

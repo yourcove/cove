@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import type { ResolvedSpan, SegmentSpanOperator, SegmentSpanReference } from "../../api/types";
+import type { ResolvedSpan, SegmentRecord, SegmentSpanOperator, SegmentSpanReference } from "../../api/types";
 import type { SegmentTileItem } from "../../components/EntityCards";
 import { SegmentPreviewMedia } from "../../components/SegmentPreviewMedia";
 import { formatDate } from "../../components/shared";
@@ -7,7 +7,7 @@ import { faceStoredName } from "../../utils/faceDisplay";
 import { formatSegmentTime } from "../../utils/segmentTime";
 import { formatSourceKeyLabel } from "../../utils/sourceKeyLabel";
 import { formatOperatorLabel } from "./derivedQueryCriterion";
-import type { DerivedSpanItem, RawSegmentItem } from "./types";
+import type { DerivedSpanItem } from "./types";
 import type { ListedFaceName } from "./useListedFaceNames";
 
 export function Pill({ children }: { children: ReactNode }) {
@@ -118,9 +118,39 @@ export function buildSpanDisplayTitle(
   };
 }
 
-export function buildRawSegmentTitle(segment: RawSegmentItem) {
+type RawSegmentNameFields = Pick<
+  SegmentRecord,
+  "kind" | "title" | "tagName" | "performerName" | "refId" | "refLabel" | "sourceKey" | "payload"
+>;
+
+// Face analysis names each segment after its face's placeholder key ("face-0042") when it is stored, and a face
+// merged into another keeps segments titled with its old key. Such a title is not a name anyone gave the segment,
+// so the face's current name, performer or suggestion replaces it.
+const FACE_PLACEHOLDER_TITLE = /^face-\d+$/i;
+
+/** The title someone or something gave the segment, leaving out a face segment's placeholder face key. */
+export function rawSegmentGivenTitle(segment: RawSegmentNameFields) {
+  const title = segment.title?.trim();
+  if (!title || segment.kind?.toLowerCase() !== "face") return title || undefined;
+  const normalized = title.toLowerCase();
+  const isPlaceholder =
+    FACE_PLACEHOLDER_TITLE.test(title) ||
+    normalized === segment.refLabel?.trim().toLowerCase() ||
+    normalized === readSegmentPayloadString(segment.payload, "refKey")?.toLowerCase();
+  return isPlaceholder ? undefined : title;
+}
+
+/** A string or number field from a segment's source payload, as text. */
+export function readSegmentPayloadString(payload: unknown, key: string) {
+  if (!payload || typeof payload !== "object") return undefined;
+  const value = (payload as Record<string, unknown>)[key];
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function buildRawSegmentTitle(segment: RawSegmentNameFields) {
   return (
-    segment.title?.trim() ||
+    rawSegmentGivenTitle(segment) ||
     segment.tagName ||
     segment.performerName ||
     segment.refLabel ||
@@ -264,25 +294,24 @@ export function spanFaceRoute(item: DerivedSpanItem) {
   return faceId == null ? undefined : ({ page: "face", id: faceId } as const);
 }
 
-export function rawSegmentFaceRoute(segment: RawSegmentItem) {
+export function rawSegmentFaceRoute(segment: Pick<SegmentRecord, "kind" | "refId">) {
   const faceId = rawSegmentFaceId(segment);
   return faceId == null ? undefined : ({ page: "face", id: faceId } as const);
 }
 
-function rawSegmentFaceId(segment: RawSegmentItem) {
-  return segment.kind?.toLowerCase() === "face" ? segment.refId : undefined;
+export function rawSegmentFaceId(segment: Pick<SegmentRecord, "kind" | "refId">) {
+  return segment.kind?.toLowerCase() === "face" && segment.refId != null ? Number(segment.refId) : undefined;
 }
 
-// A raw face segment of a face linked to no performer and titled with nothing but that face's label, whose name
-// is worth looking up; a title someone gave the segment stays.
-export function rawSegmentPlaceholderFaceId(segment: RawSegmentItem) {
+// A raw face segment of a face linked to no performer and titled with nothing but a placeholder face key, whose
+// name is worth looking up; a title someone gave the segment stays.
+export function rawSegmentPlaceholderFaceId(segment: RawSegmentNameFields) {
   if (segment.performerName || segment.tagName) return undefined;
-  const title = segment.title?.trim().toLowerCase();
-  if (title && title !== segment.refLabel?.trim().toLowerCase()) return undefined;
+  if (rawSegmentGivenTitle(segment)) return undefined;
   return rawSegmentFaceId(segment);
 }
 
-export function rawSegmentFaceName(segment: RawSegmentItem, faceNames: ReadonlyMap<number, ListedFaceName>) {
+export function rawSegmentFaceName(segment: RawSegmentNameFields, faceNames: ReadonlyMap<number, ListedFaceName>) {
   const faceId = rawSegmentPlaceholderFaceId(segment);
   return faceId == null ? undefined : faceNames.get(faceId);
 }

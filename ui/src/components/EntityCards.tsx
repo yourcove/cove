@@ -3704,7 +3704,8 @@ export function SuggestedNameMarker({ className = "" }: { className?: string }) 
 
 type SegmentKindIconKind = "tag" | "face" | "performer";
 
-function segmentKindIconKind(kind: string | undefined, titleIsTag: boolean): SegmentKindIconKind | null {
+// The icon that marks what a segment names: its tag (only when the name shown is that tag), face or performer.
+export function segmentKindIconKind(kind: string | undefined, titleIsTag: boolean): SegmentKindIconKind | null {
   switch (kind?.toLowerCase()) {
     case "tag":
       return titleIsTag ? "tag" : null;
@@ -3717,9 +3718,15 @@ function segmentKindIconKind(kind: string | undefined, titleIsTag: boolean): Seg
   }
 }
 
-function SegmentKindIcon({ kind }: { kind: SegmentKindIconKind }) {
+export function SegmentKindIcon({
+  kind,
+  className = "mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary",
+}: {
+  kind: SegmentKindIconKind;
+  className?: string;
+}) {
   const props = {
-    className: "mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary",
+    className,
     "aria-label": formatSegmentKindLabel(kind),
     role: "img",
   };

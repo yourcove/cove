@@ -3190,11 +3190,12 @@ function EntityCard({
     case "rawsegments": {
       const raw = item as RawSegmentItem;
       const route = { page: "segment", id: raw.id };
+      const title = buildRawSegmentTitle(raw);
       return (
         <SegmentTile
-          segment={raw}
+          segment={{ ...raw, title }}
           route={route}
-          label={`Open raw segment ${buildRawSegmentTitle(raw)}`}
+          label={`Open raw segment ${title}`}
           eyebrow={formatSegmentCardEyebrow(raw.startSec, raw.endSec)}
           onClick={() => onNavigate(route)}
         />
