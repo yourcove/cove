@@ -48,8 +48,6 @@ import {
   Sparkles,
   Volume2,
   Filter,
-  UserX,
-  Loader2,
   Scissors,
   AlertTriangle,
   FileVideoCamera,
@@ -116,7 +114,7 @@ import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
-import { PerformerTile, EntityRefBadge, StudioHeaderImage, SuggestedNameMarker } from "../components/EntityCards";
+import { PerformerTile, EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
 import { formatShownTitle, resolveSpanName, segmentFaceName } from "./segments/segmentDisplayUtils";
 import {
   buildFaceTimelineItems,
@@ -126,6 +124,7 @@ import {
   type TimelineOverlayItem,
 } from "./videoDetail/timelineFaces";
 import { assignPersonColors, videoPersonKeys } from "./videoDetail/segmentPeople";
+import { VideoFacesList } from "./videoDetail/VideoFacesList";
 import {
   PerformerContextTagList,
   applyPerformerContextTagEdits,
@@ -1219,6 +1218,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
           markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
           onSplitFace={canWriteFaces && canEditOccurrences ? (face) => setSplitFace(face) : undefined}
           onRequestReportTag={requestReportTag}
+          personColors={personColors}
+          canDecideFaces={canWriteFaces}
         />
       </>
     ) : activeTab === "segments" && segmentsTabLoadError ? (
@@ -1776,6 +1777,8 @@ export function DetailsTab({
   onMarkFaceNotPresent,
   markingFaceId,
   onSplitFace,
+  personColors,
+  canDecideFaces = false,
 }: {
   video: Video;
   onNavigate: (r: any) => void;
@@ -1785,6 +1788,10 @@ export function DetailsTab({
   markingFaceId?: number;
   onSplitFace?: (face: Face) => void;
   onRequestReportTag?: (tag: any) => void;
+  /** Each person's colour, shared with the timeline's face lanes and the Segments tab. */
+  personColors?: ReadonlyMap<string, string>;
+  /** The viewer may accept or reject a face's suggested performer. */
+  canDecideFaces?: boolean;
 }) {
   const { engagementById: performerEngagement } = useEntityEngagementBatch(
     "performer",
@@ -1930,94 +1937,16 @@ export function DetailsTab({
       {videoFaces.length > 0 && (
         <div>
           <h6 className="mb-2 text-sm text-muted">Faces in this video</h6>
-          <div className="flex flex-wrap gap-2">
-            {videoFaces.map(({ face, detectionCount, trackCount = 0 }) => {
-              const shown = segmentFaceName(face);
-              const title = shown?.name ?? `Face #${face.id}`;
-              const isMarking = markingFaceId === face.id;
-              // Only offer the split where there is something to split: the face has to have been
-              // detected as more than one separate run in this video.
-              const canSplit = !!onSplitFace && trackCount > 1;
-              return (
-                <div
-                  key={face.id}
-                  className="group relative flex min-w-[180px] flex-1 items-stretch sm:flex-none sm:basis-[calc(50%-0.25rem)]"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onNavigate({ page: "face", id: face.id })}
-                    className="flex w-full items-center gap-3 rounded-xl border border-border bg-card/70 px-3 py-2 text-left transition-colors hover:border-accent"
-                  >
-                    <div className="h-14 w-14 overflow-hidden rounded-lg bg-surface/80">
-                      {face.coverImageUrl ? (
-                        <img
-                          src={face.coverImageUrl}
-                          alt={title}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-muted">
-                          <Image className="h-5 w-5" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                        <span className="truncate">{title}</span>
-                        {shown?.suggested ? <SuggestedNameMarker /> : null}
-                        {shown?.suggested ? <span className="sr-only"> (suggested)</span> : null}
-                      </div>
-                      <div className="mt-1 text-xs text-secondary">
-                        {detectionCount} detection{detectionCount === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </button>
-                  {onMarkFaceNotPresent || canSplit ? (
-                    <div
-                      className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}
-                    >
-                      {canSplit ? (
-                        <button
-                          type="button"
-                          title={`Detected as ${trackCount} separate appearances — separate a different person out of this face`}
-                          aria-label="Separate people in this face"
-                          onClick={() => onSplitFace(face)}
-                          className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-accent"
-                        >
-                          <Scissors className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      {onMarkFaceNotPresent ? (
-                        <button
-                          type="button"
-                          title="This face is not actually present in this video"
-                          aria-label="Mark face not present in this video"
-                          disabled={isMarking}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`,
-                              )
-                            ) {
-                              onMarkFaceNotPresent(face.id);
-                            }
-                          }}
-                          className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-red-300 disabled:cursor-not-allowed"
-                        >
-                          {isMarking ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <UserX className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+          <VideoFacesList
+            videoId={video.id}
+            videoFaces={videoFaces}
+            personColors={personColors}
+            canDecideFaces={canDecideFaces}
+            onMarkFaceNotPresent={onMarkFaceNotPresent}
+            markingFaceId={markingFaceId}
+            onSplitFace={onSplitFace}
+            onNavigate={onNavigate}
+          />
         </div>
       )}
 

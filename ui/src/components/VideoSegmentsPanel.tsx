@@ -11,17 +11,19 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  Fingerprint,
   ListTree,
   List as ListIcon,
 } from "lucide-react";
-import { faces, videos, tagGroups as tagGroupsApi } from "../api/client";
-import { readReferenceLinkInfo } from "./FaceCompareDialog";
+import { videos, tagGroups as tagGroupsApi } from "../api/client";
 import { SegmentIcon } from "./segmentViewIcons";
-import { hasConflictingMatch } from "../utils/faceSuggestions";
+import { createNestedRouteLinkProps } from "./cardNavigation";
+import type { Route } from "../router/location";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
 import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
 import { faceKeyLabel, spanPerson } from "../pages/videoDetail/segmentPeople";
+import { useFaceSuggestionDecision } from "../pages/videoDetail/useFaceSuggestionDecision";
+import { SuggestionDecision } from "../pages/videoDetail/SuggestionDecision";
+import { FaceCrop, FaceStack } from "../pages/videoDetail/FaceCrops";
 import { SuggestedNameMarker } from "./EntityCards";
 import { AddToGroupDialog, type AddToGroupEntry } from "./AddToGroupDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -92,39 +94,7 @@ export function VideoSegmentsPanel({
   onNavigate,
 }: Props) {
   const queryClient = useQueryClient();
-  // Deciding on a suggested face here works as on the faces list: accepting records the reference link the match
-  // carries, and a match that another reference source disputes is reviewed on the face page instead.
-  const faceDecision = useMutation({
-    meta: { suppressGlobalError: true },
-    mutationFn: async ({
-      faceId,
-      performerId,
-      decision,
-    }: {
-      faceId: number;
-      performerId: number;
-      decision: "accept" | "reject";
-    }): Promise<"done" | "review"> => {
-      if (decision === "reject") {
-        await faces.recordSuggestionDecision(faceId, { performerId, decision });
-        return "done";
-      }
-      const suggestions = await faces.suggestions(faceId);
-      const match = suggestions.find((suggestion) => suggestion.performerId === performerId);
-      if (!match || match.performerId <= 0 || hasConflictingMatch(match, suggestions)) return "review";
-      await faces.recordSuggestionDecision(faceId, { performerId, decision, ...readReferenceLinkInfo(match) });
-      return "done";
-    },
-    onSuccess: (result, { faceId }) => {
-      if (result === "review") {
-        onNavigate({ page: "face", id: faceId });
-        return;
-      }
-      queryClient.invalidateQueries({ queryKey: ["face", faceId] });
-      queryClient.invalidateQueries({ queryKey: ["faces"] });
-      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
-    },
-  });
+  const faceDecision = useFaceSuggestionDecision(videoId, onNavigate);
   const [selectedSpanKeys, setSelectedSpanKeys] = useState<Set<string>>(new Set());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -171,6 +141,12 @@ export function VideoSegmentsPanel({
   );
   const activeProfileId =
     currentProfileId ?? orderedProfiles.find((profile) => profile.isDefault)?.id ?? orderedProfiles[0]?.id;
+  const spanRoute = (span: ResolvedSpan): Route => ({
+    page: "video-span",
+    id: videoId,
+    spanKey: span.spanKey,
+    profileId: activeProfileId,
+  });
 
   const facets = useMemo(() => buildSegmentFacets(spans, filterContext), [spans, filterContext]);
   const filteredSpans = useMemo(
@@ -559,20 +535,13 @@ export function VideoSegmentsPanel({
           canEdit={canEdit}
           onEdit={handleEditSpan}
           onDelete={handleDeleteSpan}
-          onOpen={(span) =>
-            onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
-          }
+          onOpen={(span) => onNavigate(spanRoute(span))}
           onOpenFace={(faceId) => onNavigate({ page: "face", id: faceId })}
+          spanRoute={spanRoute}
           personColors={personColors}
-          onDecide={
-            canDecideFaces
-              ? (faceId, performerId, decision) => faceDecision.mutate({ faceId, performerId, decision })
-              : undefined
-          }
-          decidingFaceId={faceDecision.isPending ? faceDecision.variables?.faceId : undefined}
-          decisionError={
-            faceDecision.error ? { faceId: faceDecision.variables?.faceId, error: faceDecision.error } : undefined
-          }
+          onDecide={canDecideFaces ? faceDecision.decide : undefined}
+          decidingFaceId={faceDecision.decidingFaceId}
+          decisionError={faceDecision.decisionError}
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -588,9 +557,8 @@ export function VideoSegmentsPanel({
               canEdit={canEdit}
               onEdit={() => handleEditSpan(span)}
               onDelete={() => handleDeleteSpan(span)}
-              onOpen={() =>
-                onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
-              }
+              onOpen={() => onNavigate(spanRoute(span))}
+              openRoute={spanRoute(span)}
             />
           ))}
         </div>
@@ -784,6 +752,7 @@ function GroupedList({
   onDelete,
   onOpen,
   onOpenFace,
+  spanRoute,
   personColors,
   onDecide,
   decidingFaceId,
@@ -800,6 +769,8 @@ function GroupedList({
   onDelete: (span: ResolvedSpan) => void;
   onOpen: (span: ResolvedSpan) => void;
   onOpenFace: (faceId: number) => void;
+  /** The page of a segment, for links that can open in a new tab. */
+  spanRoute: (span: ResolvedSpan) => Route;
   personColors?: ReadonlyMap<string, string>;
   /** Accept or reject a face's suggested performer, when the viewer may. */
   onDecide?: (faceId: number, performerId: number, decision: "accept" | "reject") => void;
@@ -902,15 +873,16 @@ function GroupedList({
                   {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
               ) : group.faces.length === 1 ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenFace(group.faces[0].faceId)}
+                <a
+                  {...createNestedRouteLinkProps<HTMLAnchorElement>({ page: "face", id: group.faces[0].faceId }, () =>
+                    onOpenFace(group.faces[0].faceId),
+                  )}
                   aria-label={`Open face ${faceKeyLabel(group.faces[0].face, group.faces[0].faceId)}`}
                   title="Open face"
                   className="shrink-0 rounded-full hover:ring-1 hover:ring-accent"
                 >
                   <FaceStack faces={group.faces} />
-                </button>
+                </a>
               ) : null}
               <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
                 <span>{group.items.length}×</span>
@@ -935,13 +907,14 @@ function GroupedList({
                         onReview={() => onOpenFace(entry.faceId)}
                       />
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => onOpenFace(entry.faceId)}
+                    <a
+                      {...createNestedRouteLinkProps<HTMLAnchorElement>({ page: "face", id: entry.faceId }, () =>
+                        onOpenFace(entry.faceId),
+                      )}
                       className="shrink-0 text-accent hover:underline"
                     >
                       Open face
-                    </button>
+                    </a>
                     {decisionError?.faceId === entry.faceId ? (
                       <span role="alert" className="basis-full text-red-400">
                         {decisionError.error.message}
@@ -968,6 +941,7 @@ function GroupedList({
                       onEdit={() => onEdit(span)}
                       onDelete={() => onDelete(span)}
                       onOpen={() => onOpen(span)}
+                      openRoute={spanRoute(span)}
                       // With the person's faces listed, each segment shows which of them it is.
                       leading={
                         showFaces && faceId != null ? (
@@ -1008,67 +982,6 @@ function facesLabel(count: number) {
 
 // Accepting links the face to its suggested performer; a match that would import a new performer is reviewed on the
 // face page.
-function SuggestionDecision({
-  performerId,
-  pending,
-  onDecide,
-  onReview,
-}: {
-  performerId: number;
-  pending: boolean;
-  onDecide: (performerId: number, decision: "accept" | "reject") => void;
-  onReview: () => void;
-}) {
-  if (performerId <= 0) {
-    return (
-      <button type="button" onClick={onReview} className="shrink-0 text-accent hover:underline">
-        Review
-      </button>
-    );
-  }
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => onDecide(performerId, "accept")}
-        disabled={pending}
-        className="shrink-0 rounded bg-accent px-2 py-0.5 font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-      >
-        Accept
-      </button>
-      <button
-        type="button"
-        onClick={() => onDecide(performerId, "reject")}
-        disabled={pending}
-        className="shrink-0 rounded border border-border px-2 py-0.5 text-foreground hover:border-accent disabled:opacity-50"
-      >
-        Not them
-      </button>
-    </>
-  );
-}
-
-// Up to three of a person's face crops, overlapping.
-function FaceStack({ faces }: { faces: PersonFace[] }) {
-  return (
-    <span aria-hidden className="flex -space-x-1.5">
-      {faces.slice(0, 3).map((entry) => (
-        <FaceCrop key={entry.faceId} face={entry.face} className="h-5 w-5 ring-1 ring-card" />
-      ))}
-    </span>
-  );
-}
-
-function FaceCrop({ face, className }: { face?: Face; className: string }) {
-  return face?.coverImageUrl ? (
-    <img src={face.coverImageUrl} alt="" className={`${className} shrink-0 rounded-full object-cover`} loading="lazy" />
-  ) : (
-    <span className={`${className} flex shrink-0 items-center justify-center rounded-full bg-surface text-muted`}>
-      <Fingerprint className="h-3 w-3" />
-    </span>
-  );
-}
-
 // ===== Compact row =====
 function SegmentRow({
   span,
@@ -1081,6 +994,7 @@ function SegmentRow({
   onEdit,
   onDelete,
   onOpen,
+  openRoute,
   leading,
   hideLabel = false,
 }: {
@@ -1094,6 +1008,8 @@ function SegmentRow({
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
+  /** The segment page, so the open button is a link that can open in a new tab. */
+  openRoute: Route;
   /** Shown before the time range, such as the crop of the face the segment shows. */
   leading?: React.ReactNode;
   hideLabel?: boolean;
@@ -1135,15 +1051,14 @@ function SegmentRow({
       </button>
       {/* Opening the segment page is always on offer. On a wide screen with a mouse, editing and deleting appear on
           hover or keyboard focus; on a narrow or touch screen they always show, with room to tap them. */}
-      <button
-        type="button"
-        onClick={onOpen}
+      <a
+        {...createNestedRouteLinkProps<HTMLAnchorElement>(openRoute, onOpen)}
         className="shrink-0 text-muted hover:text-accent pointer-coarse:p-1.5"
         title="Open segment"
         aria-label="Open segment"
       >
         <SegmentIcon className="h-3.5 w-3.5" />
-      </button>
+      </a>
       <div className="flex shrink-0 items-center gap-1.5 transition-opacity md:pointer-fine:opacity-0 md:pointer-fine:group-hover:opacity-100 md:pointer-fine:focus-within:opacity-100">
         {canEdit ? (
           <button

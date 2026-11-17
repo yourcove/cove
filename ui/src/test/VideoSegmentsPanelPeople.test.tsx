@@ -106,12 +106,18 @@ describe("VideoSegmentsPanel groups by person", () => {
     expect(screen.getByRole("button", { name: "Unnamed face" })).toBeInTheDocument();
 
     // Each row opens its segment from an always-visible button and no longer repeats that it is a face.
-    expect(screen.getAllByRole("button", { name: "Open segment" })).toHaveLength(4);
+    expect(screen.getAllByRole("link", { name: "Open segment" })).toHaveLength(4);
     expect(screen.queryByText("face", { exact: true })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Show the 2 faces of Linked Person" }));
     expect(screen.getByText("face-0031")).toBeInTheDocument();
     expect(screen.getByText("face-0032")).toBeInTheDocument();
+    // Faces and segments open from links, so they can be opened in a new tab.
+    expect(screen.getAllByRole("link", { name: "Open face" }).map((link) => link.getAttribute("href"))).toEqual([
+      "/face/31",
+      "/face/32",
+    ]);
+    expect(screen.getAllByRole("link", { name: "Open segment" })[0]).toHaveAttribute("href", "/video/7/span/span-1");
   });
 
   it("accepts a suggested face with the reference link its match carries", async () => {
