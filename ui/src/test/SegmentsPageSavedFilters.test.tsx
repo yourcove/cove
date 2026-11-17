@@ -75,7 +75,8 @@ vi.mock("../hooks/usePaginatedInfiniteQuery", () => ({
     isLoading: false,
   }),
 }));
-vi.mock("../pages/segments/useDerivedSpansQuery", () => ({
+vi.mock("../pages/segments/useDerivedSpansQuery", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../pages/segments/useDerivedSpansQuery")>()),
   useDerivedSpansQuery: useDerivedSpansQueryMock,
   useDerivedSpansCountQuery: useDerivedSpansCountQueryMock,
 }));

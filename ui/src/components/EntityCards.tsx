@@ -2173,12 +2173,15 @@ export function ImageTile({
   );
 }
 
-/** The tag, performer, gallery and group references an image card summarises in its footer. */
-export type ImageReferences = Pick<Image, "tags" | "performers" | "galleryCount" | "groups">;
+/**
+ * The tag, performer, gallery and group references an image card summarises in its footer. A list entry
+ * carries its tags as `tagIds`, resolved through the tag lookup when the popover opens.
+ */
+export type ImageReferences = Pick<Image, "tags" | "tagIds" | "performers" | "galleryCount" | "groups">;
 
 export function hasImageReferences(references: ImageReferences) {
   return (
-    (references.tags?.length ?? 0) > 0 ||
+    entityTagCount(references) > 0 ||
     (references.performers?.length ?? 0) > 0 ||
     references.galleryCount > 0 ||
     (references.groups?.length ?? 0) > 0
@@ -2196,20 +2199,20 @@ export function ImageReferencePopovers({
   onNavigate?: (route: any) => void;
   buttonClassName?: string;
 }) {
-  const tags = references.tags ?? [];
+  const tagCount = entityTagCount(references);
   const performers = references.performers ?? [];
   const groups = references.groups ?? [];
   return (
     <>
-      {tags.length > 0 && (
+      {tagCount > 0 && (
         <PopoverButton
           icon={<Tag className="w-3.5 h-3.5" />}
-          count={tags.length}
+          count={tagCount}
           title="Tags"
           preferBelow
           buttonClassName={buttonClassName}
         >
-          <TagLinkList items={tags} onNavigate={onNavigate} />
+          <EntityTagLinks entity={references} onNavigate={onNavigate} />
         </PopoverButton>
       )}
       {performers.length > 0 && (

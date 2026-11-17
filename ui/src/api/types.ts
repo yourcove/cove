@@ -1577,11 +1577,15 @@ export interface SegmentSpanSearchResponse {
   page: number;
   perPage: number;
   hasMore?: boolean;
+  /** Videos whose stored spans were still being brought up to date when the page was read; the page and
+   *  its total can be incomplete until this reaches zero. */
+  pendingVideoCount?: number;
 }
 
 export interface SegmentSpanCountResponse {
   totalCount: number;
   duration: number;
+  pendingVideoCount?: number;
 }
 
 export interface SegmentDistinctValue {
@@ -1627,6 +1631,25 @@ export interface SegmentDisplayRuleCreate {
 }
 
 export interface SegmentDisplayRuleUpdate extends SegmentDisplayRuleCreate {}
+
+/** One rule in a profile's complete list; a rule without an id is added. */
+export interface SegmentDisplayRuleReplaceItem extends SegmentDisplayRuleCreate {
+  id?: number;
+}
+
+/** A profile's complete rule list, saved together. Rules of the profile left out are deleted. */
+export interface SegmentDisplayRulesReplace {
+  /** The profile version the list was edited from; the save is refused with 409 if the rules changed since. */
+  expectedVersion: number;
+  rules: SegmentDisplayRuleReplaceItem[];
+}
+
+export interface SegmentDisplayRulesSaved {
+  profile: SegmentDisplayProfile;
+  rules: SegmentDisplayRule[];
+  /** False when the saved list matched what was already stored. */
+  changed: boolean;
+}
 
 export interface SegmentDisplayProfilePreviewRequest {
   videoId: number;

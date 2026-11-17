@@ -218,6 +218,188 @@ public class UserServiceTests
 
     [Fact]
     [RequiresPostgres]
+    public async Task RecordLoginFailure_after_lockout_expires_starts_a_new_window()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        var user = new User
+        {
+            Username = "bob",
+            PasswordHash = "hash",
+            PasswordAlgo = "test",
+            IsActive = true,
+            IsLocked = true,
+            FailedLoginCount = UserService.MaxFailedLogins,
+            LockedUntil = DateTime.UtcNow.AddMinutes(-1),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
+
+        await svc.RecordLoginFailureAsync(user.Id, TestContext.Current.CancellationToken);
+
+        var after = await db.Users.AsNoTracking().FirstAsync(u => u.Id == user.Id, TestContext.Current.CancellationToken);
+        Assert.False(after.IsLocked);
+        Assert.Null(after.LockedUntil);
+        Assert.Equal(1, after.FailedLoginCount);
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task RecordLoginFailure_locks_again_after_a_full_new_window_of_failures()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        var expiredAt = DateTime.UtcNow.AddMinutes(-1);
+        var user = new User
+        {
+            Username = "bob",
+            PasswordHash = "hash",
+            PasswordAlgo = "test",
+            IsActive = true,
+            IsLocked = true,
+            FailedLoginCount = UserService.MaxFailedLogins,
+            LockedUntil = expiredAt,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
+
+        for (var i = 0; i < UserService.MaxFailedLogins - 1; i++)
+            await svc.RecordLoginFailureAsync(user.Id, TestContext.Current.CancellationToken);
+
+        var midway = await db.Users.AsNoTracking().FirstAsync(u => u.Id == user.Id, TestContext.Current.CancellationToken);
+        Assert.False(midway.IsLocked);
+        Assert.Null(midway.LockedUntil);
+        Assert.Equal(UserService.MaxFailedLogins - 1, midway.FailedLoginCount);
+
+        await svc.RecordLoginFailureAsync(user.Id, TestContext.Current.CancellationToken);
+
+        var relocked = await db.Users.AsNoTracking().FirstAsync(u => u.Id == user.Id, TestContext.Current.CancellationToken);
+        Assert.True(relocked.IsLocked);
+        Assert.Equal(UserService.MaxFailedLogins, relocked.FailedLoginCount);
+        Assert.NotNull(relocked.LockedUntil);
+        Assert.True(relocked.LockedUntil > DateTime.UtcNow);
+        Assert.True(UserService.IsLockedOut(relocked, DateTime.UtcNow));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task RecordLoginFailure_counts_every_failure_when_they_arrive_together()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        int userId;
+        await using (var seed = database.CreateContext())
+        {
+            var user = new User
+            {
+                Username = "bob",
+                PasswordHash = "hash",
+                PasswordAlgo = "test",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            seed.Users.Add(user);
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+            userId = user.Id;
+        }
+
+        // Each failure gets its own context, as concurrent login requests would.
+        var contexts = Enumerable.Range(0, UserService.MaxFailedLogins).Select(_ => database.CreateContext()).ToList();
+        try
+        {
+            await Task.WhenAll(contexts.Select(context =>
+                new UserService(context, new NoopAudit(), NullLogger<UserService>.Instance)
+                    .RecordLoginFailureAsync(userId, TestContext.Current.CancellationToken)));
+        }
+        finally
+        {
+            foreach (var context in contexts)
+                await context.DisposeAsync();
+        }
+
+        await using var db = database.CreateContext();
+        var after = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, TestContext.Current.CancellationToken);
+        Assert.Equal(UserService.MaxFailedLogins, after.FailedLoginCount);
+        Assert.True(after.IsLocked);
+        Assert.NotNull(after.LockedUntil);
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task Refresh_is_rejected_during_a_lockout_and_works_again_after_it_ends()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+
+        await db.Users.Where(u => u.Id == 1).ExecuteUpdateAsync(s => s
+            .SetProperty(u => u.IsLocked, true)
+            .SetProperty(u => u.FailedLoginCount, UserService.MaxFailedLogins)
+            .SetProperty(u => u.LockedUntil, DateTime.UtcNow.AddMinutes(10)), TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<UnauthorizedException>(
+            () => tokens.RefreshAsync(pair.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken));
+
+        await db.Users.Where(u => u.Id == 1).ExecuteUpdateAsync(s => s
+            .SetProperty(u => u.LockedUntil, DateTime.UtcNow.AddSeconds(-1)), TestContext.Current.CancellationToken);
+
+        var refreshed = await tokens.RefreshAsync(pair.RefreshToken, "127.0.0.1", "test", TestContext.Current.CancellationToken);
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {refreshed.AccessToken}", "127.0.0.1", "test", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
+    public async Task Lockout_ends_at_LockedUntil_but_a_lock_without_an_end_time_stays()
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var db = database.CreateContext();
+        User LockedUser(string username, DateTime? lockedUntil) => new()
+        {
+            Username = username,
+            PasswordHash = "hash",
+            PasswordAlgo = "test",
+            IsActive = true,
+            IsLocked = true,
+            FailedLoginCount = UserService.MaxFailedLogins,
+            LockedUntil = lockedUntil,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var expired = LockedUser("expired", DateTime.UtcNow.AddMinutes(-1));
+        var current = LockedUser("current", DateTime.UtcNow.AddMinutes(10));
+        var indefinite = LockedUser("indefinite", null);
+        db.Users.AddRange(expired, current, indefinite);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var notLockedOut = await db.Users.AsNoTracking()
+            .Where(UserService.IsNotLockedOut(DateTime.UtcNow))
+            .Select(u => u.Username)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["expired"], notLockedOut);
+        Assert.False((await svc.GetAsync(expired.Id, TestContext.Current.CancellationToken))!.IsLocked);
+        Assert.True((await svc.GetAsync(current.Id, TestContext.Current.CancellationToken))!.IsLocked);
+        Assert.True((await svc.GetAsync(indefinite.Id, TestContext.Current.CancellationToken))!.IsLocked);
+        Assert.NotNull(await tokens.ResolveExistingUserAsync(expired.Id, null, null, TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveExistingUserAsync(current.Id, null, null, TestContext.Current.CancellationToken));
+        Assert.Null(await tokens.ResolveExistingUserAsync(indefinite.Id, null, null, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [RequiresPostgres]
     public async Task VerifyPassword_returns_false_for_wrong_password()
     {
         await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);

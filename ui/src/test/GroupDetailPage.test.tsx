@@ -5,7 +5,7 @@ import { useState } from "react";
 import { GroupDetailPage, matchesTimestampCriterion } from "../pages/GroupDetailPage";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 
-const { mockGroups, mockVideos, mockGoBack } = vi.hoisted(() => ({
+const { mockGroups, mockVideos, mockSegmentLibrary, mockGoBack } = vi.hoisted(() => ({
   mockGroups: {
     get: vi.fn(),
     find: vi.fn(),
@@ -26,6 +26,9 @@ const { mockGroups, mockVideos, mockGoBack } = vi.hoisted(() => ({
   mockVideos: {
     find: vi.fn(),
   },
+  mockSegmentLibrary: {
+    get: vi.fn(),
+  },
   mockGoBack: vi.fn(),
 }));
 
@@ -36,6 +39,7 @@ vi.mock("../hooks/useDocumentTitle", () => ({
 vi.mock("../api/client", () => ({
   groups: mockGroups,
   videos: mockVideos,
+  segmentLibrary: mockSegmentLibrary,
   entityImages: {
     groupFrontImageUrl: vi.fn(() => "/front.jpg"),
     uploadGroupFrontImage: vi.fn(),
@@ -83,6 +87,26 @@ vi.mock("../components/EntityCards", () => ({
     <button type="button" onClick={onClick}>
       {group.name}
     </button>
+  ),
+  SegmentTile: ({
+    segment,
+    onClick,
+    onOpenHost,
+  }: {
+    segment: { title: string };
+    onClick: () => void;
+    onOpenHost?: () => void;
+  }) => (
+    <div>
+      <button type="button" onClick={onClick}>
+        {`Segment card ${segment.title}`}
+      </button>
+      {onOpenHost ? (
+        <button type="button" onClick={onOpenHost}>
+          {`Segment host ${segment.title}`}
+        </button>
+      ) : null}
+    </div>
   ),
   VideoCard: ({ video, onClick }: { video: { title?: string; id: number }; onClick: () => void }) => (
     <button type="button" onClick={onClick}>
@@ -604,5 +628,93 @@ describe("GroupDetailPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /nested group/i }));
 
     await waitFor(() => expect(mockGroups.addSubGroup).toHaveBeenCalledWith(4, 8));
+  });
+
+  describe("segment items", () => {
+    const segmentItem = {
+      id: 31,
+      orderIndex: 0,
+      kind: "segment",
+      hostType: "segment",
+      hostId: 501,
+      videoId: 10,
+      startSec: 65,
+      endSec: 75,
+      title: "Facial",
+    };
+
+    function mockSegmentGroup(item: Record<string, unknown> = segmentItem) {
+      mockGroups.get.mockResolvedValue(buildGroup());
+      mockGroups.items.list.mockResolvedValue([item]);
+      mockGroups.items.page.mockResolvedValue({ items: [item], totalCount: 1, page: 1, perPage: 40 });
+      mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+      mockSegmentLibrary.get.mockResolvedValue({
+        id: 501,
+        hostType: "video",
+        hostId: 10,
+        hostTitle: "Source Video",
+        startSec: 65,
+        endSec: 75,
+        title: "Facial",
+        kind: "tag",
+      });
+      mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+      mockGroups.subGroups.mockResolvedValue([]);
+      mockGroups.containingGroups.mockResolvedValue([]);
+    }
+
+    it("opens the segment from its grid card and the source video from its host link", async () => {
+      mockSegmentGroup();
+      window.history.replaceState(null, "", "/group/4?view=grid");
+      const { onNavigate } = renderPage();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Segment card Facial" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "segment", id: 501 });
+
+      fireEvent.click(screen.getByRole("button", { name: "Segment host Facial" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "video", id: 10, seekTo: 65 });
+    });
+
+    it("offers the segment and its source video separately in list view", async () => {
+      mockSegmentGroup();
+      window.history.replaceState(null, "", "/group/4?view=list");
+      const { onNavigate } = renderPage();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "segment", id: 501 });
+
+      fireEvent.click(screen.getByRole("button", { name: "Open video" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "video", id: 10, seekTo: 65 });
+    });
+
+    it("finds a static segment item's source video from the loaded segment", async () => {
+      // Items added to a static group store the segment only; the API leaves their video id empty.
+      mockSegmentGroup({ ...segmentItem, videoId: null });
+      window.history.replaceState(null, "", "/group/4?view=list");
+      const { onNavigate } = renderPage();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open video" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "video", id: 10, seekTo: 65 });
+      fireEvent.click(screen.getByRole("button", { name: "Open" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "segment", id: 501 });
+    });
+
+    it("keeps opening an image-hosted segment's image, which the segment page cannot show", async () => {
+      mockSegmentGroup({ ...segmentItem, videoId: null, imageId: 77 });
+      mockSegmentLibrary.get.mockResolvedValue({
+        id: 501,
+        hostType: "image",
+        hostId: 77,
+        startSec: 0,
+        title: "Facial",
+        kind: "tag",
+      });
+      window.history.replaceState(null, "", "/group/4?view=list");
+      const { onNavigate } = renderPage();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+      expect(onNavigate).toHaveBeenLastCalledWith({ page: "image", id: 77 });
+      expect(screen.queryByRole("button", { name: "Open video" })).not.toBeInTheDocument();
+    });
   });
 });

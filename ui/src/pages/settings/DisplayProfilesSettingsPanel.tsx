@@ -5,16 +5,18 @@ import { BulkFromTagsWizard } from "./displayProfiles/BulkFromTagsWizard";
 import { ProfileFormModal } from "./displayProfiles/ProfileFormModal";
 import { RuleFormModal } from "./displayProfiles/RuleFormModal";
 import { RulesPreviewPane } from "./displayProfiles/RulesPreviewPane";
-import { useDisplayProfilesSettings } from "./displayProfiles/useDisplayProfilesSettings";
+import { useDisplayProfilesSettings, type RuleSaveNotice } from "./displayProfiles/useDisplayProfilesSettings";
 import { formatRuleTitle } from "./displayProfiles/types";
 
 interface Props {
   canWrite: boolean;
+  /** Removing a rule needs the segments delete permission, as deleting one always has. */
+  canDelete: boolean;
   /** Admins may edit the shared profiles (including the built-ins); everyone else only edits their own. */
   canWriteShared: boolean;
 }
 
-export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props) {
+export function DisplayProfilesSettingsPanel({ canWrite, canDelete, canWriteShared }: Props) {
   const state = useDisplayProfilesSettings();
   const selectedProfile = state.selectedProfile;
   const canEditSelected = canWrite && selectedProfile != null && (selectedProfile.userId != null || canWriteShared);
@@ -42,13 +44,16 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
         previewPane={
           <RulesPreviewPane
             title="Rule Preview"
-            description="Compare the saved profile against this draft before saving."
+            description="Compare the profile's current rules against this draft."
             previewVideo={state.previewVideo}
             cards={[
               {
-                title: "Current profile",
-                spans: state.currentPreviewQuery.data?.spans ?? [],
-                loading: state.currentPreviewQuery.isLoading || state.currentPreviewQuery.isFetching,
+                title: state.hasUnsavedChanges ? "Current rules (unsaved)" : "Current profile",
+                spans:
+                  (state.hasUnsavedChanges ? state.unsavedPreviewQuery : state.currentPreviewQuery).data?.spans ?? [],
+                loading: state.hasUnsavedChanges
+                  ? state.unsavedPreviewQuery.isLoading || state.unsavedPreviewQuery.isFetching
+                  : state.currentPreviewQuery.isLoading || state.currentPreviewQuery.isFetching,
               },
               {
                 title: state.editingRule ? "Draft update" : "Draft rule",
@@ -62,7 +67,6 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
         onClose={state.closeRuleModal}
         onSave={state.saveRule}
         onOpenTagDetail={openTagDetail}
-        saving={state.ruleSavePending}
       />
 
       <BulkFromTagsWizard
@@ -78,7 +82,6 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
 
           state.createBulkRules();
         }}
-        saving={state.bulkSavePending}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
@@ -86,6 +89,7 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
           <h3 className="text-lg font-semibold text-foreground">Display Profiles</h3>
           <p className="mt-1 text-sm text-secondary">
             Edit rules against real source keys and kinds, preview them on a video, and drag rows to change precedence.
+            Rule changes are kept until you save them together.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -189,7 +193,11 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm(`Delete profile "${selectedProfile.name}"?`)) {
+                          if (
+                            window.confirm(
+                              `Delete profile "${selectedProfile.name}"? Its rules are deleted, and so are the segments Cove has prepared for it.`,
+                            )
+                          ) {
                             state.deleteProfile(selectedProfile.id);
                           }
                         }}
@@ -207,7 +215,7 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
 
           <RulesPreviewPane
             title="Preview Video"
-            description="Pick a video to compare the saved profile against a draft rule before saving."
+            description="Pick a video to see how the profile shows its segments, and how unsaved changes would show them."
             previewVideo={state.previewVideo}
             previewVideoSearch={state.previewVideoSearch}
             onPreviewVideoSearchChange={state.setPreviewVideoSearch}
@@ -218,10 +226,19 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
             }}
             cards={[
               {
-                title: "Current profile preview",
+                title: "Saved profile",
                 spans: state.currentPreviewQuery.data?.spans ?? [],
                 loading: state.currentPreviewQuery.isLoading || state.currentPreviewQuery.isFetching,
               },
+              ...(state.hasUnsavedChanges
+                ? [
+                    {
+                      title: "With unsaved changes",
+                      spans: state.unsavedPreviewQuery.data?.spans ?? [],
+                      loading: state.unsavedPreviewQuery.isLoading || state.unsavedPreviewQuery.isFetching,
+                    },
+                  ]
+                : []),
             ]}
             emptyMessage="Select a video to enable live preview."
           />
@@ -239,7 +256,8 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                   <button
                     type="button"
                     onClick={state.openBulkWizard}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+                    disabled={!state.rulesEditable}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent disabled:opacity-50"
                   >
                     <Sparkles className="h-4 w-4" />
                     Bulk from tags
@@ -247,7 +265,8 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                   <button
                     type="button"
                     onClick={state.openCreateRule}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+                    disabled={!state.rulesEditable}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent disabled:opacity-50"
                   >
                     <Plus className="h-4 w-4" />
                     Add rule
@@ -255,6 +274,41 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                 </div>
               ) : null}
             </div>
+
+            {canEditSelected && state.saveNotice ? <SaveNoticeMessage notice={state.saveNotice} /> : null}
+            {canEditSelected && state.hasUnsavedChanges ? (
+              <div
+                className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4"
+                role="region"
+                aria-label="Unsaved rule changes"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-foreground">You have unsaved rule changes.</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={state.discardChanges}
+                      disabled={state.saveChangesPending}
+                      className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent disabled:opacity-50"
+                    >
+                      Discard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={state.saveChanges}
+                      disabled={state.saveChangesPending}
+                      className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      {state.saveChangesPending ? "Saving..." : "Save changes"}
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-secondary">
+                  After you save, Cove updates the segments this profile shows in the background. On a large library
+                  this can take a few minutes; the Segments page shows how many videos are left.
+                </p>
+              </div>
+            ) : null}
 
             {state.rulesLoading ? (
               <div className="mt-4 text-sm text-secondary">Loading rules...</div>
@@ -267,7 +321,7 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                 items={state.rules}
                 getKey={(rule) => rule.id}
                 onReorder={state.reorderRules}
-                disabled={!canEditSelected || state.reorderRulesPending}
+                disabled={!canEditSelected || !state.rulesEditable}
                 className="mt-4 space-y-2"
                 renderItem={(rule, { dragHandleProps, isDragging, isOver }) => {
                   const tagOverride = rule.tagId != null ? state.ruleTagMap.get(rule.tagId) : undefined;
@@ -286,7 +340,14 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                             </span>
                           ) : null}
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-foreground">{formatRuleTitle(rule)}</div>
+                            <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+                              {formatRuleTitle(rule)}
+                              {rule.id < 0 ? (
+                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-normal text-amber-100">
+                                  Not saved
+                                </span>
+                              ) : null}
+                            </div>
                             <div className="mt-2 flex flex-wrap gap-2 text-xs text-secondary">
                               <span
                                 className={`rounded-full px-2 py-1 ${rule.visible ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}
@@ -335,23 +396,23 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
                             <button
                               type="button"
                               onClick={() => state.openEditRule(rule)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+                              disabled={!state.rulesEditable}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent disabled:opacity-50"
                             >
                               <Pencil className="h-4 w-4" />
                               Edit
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm(`Delete rule #${rule.id}?`)) {
-                                  state.deleteRule(rule.id);
-                                }
-                              }}
-                              className="inline-flex items-center gap-2 rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-400"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete
-                            </button>
+                            {canDelete ? (
+                              <button
+                                type="button"
+                                onClick={() => state.deleteRule(rule.id)}
+                                disabled={!state.rulesEditable}
+                                className="inline-flex items-center gap-2 rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-400 disabled:opacity-50"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -363,6 +424,26 @@ export function DisplayProfilesSettingsPanel({ canWrite, canWriteShared }: Props
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SaveNoticeMessage({ notice }: { notice: RuleSaveNotice }) {
+  const text =
+    notice.kind === "saved"
+      ? "Saved. Cove is updating the segments this profile shows in the background; on a large library this can take a few minutes, and the Segments page shows how many videos are left."
+      : notice.kind === "unchanged"
+        ? "Nothing to save: the rules already match the saved profile."
+        : notice.kind === "conflict"
+          ? "These rules were changed somewhere else after you started editing. Discard your changes to load the current rules, then make your changes again."
+          : `Saving the rules failed. ${notice.message ?? ""}`.trim();
+  const tone =
+    notice.kind === "saved" || notice.kind === "unchanged"
+      ? "border-border bg-surface/40 text-secondary"
+      : "border-red-400/30 bg-red-500/10 text-red-200";
+  return (
+    <div className={`mt-4 rounded-xl border px-4 py-3 text-sm ${tone}`} role="status">
+      {text}
     </div>
   );
 }

@@ -37,6 +37,12 @@ export function ProfileFormModal({ open, editingProfile, form, setForm, onClose,
             Make default profile
           </label>
         ) : null}
+        {!editingProfile ? (
+          <p className="mt-3 text-xs text-secondary">
+            Cove prepares the segments a profile shows in the background, once its rules are saved or it is first opened
+            on the Segments page. On a large library this can take a few minutes.
+          </p>
+        ) : null}
         <div className="mt-4 flex justify-end">
           <SaveButton loading={saving} onClick={onSave} />
         </div>

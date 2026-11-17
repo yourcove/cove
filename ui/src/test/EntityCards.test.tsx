@@ -19,6 +19,7 @@ import {
   GalleryPreviewList,
   GalleryTile,
   GroupTile,
+  hasImageReferences,
   ImageTile,
   PerformerTile,
   StudioHeaderImage,
@@ -26,7 +27,7 @@ import {
   VideoCard,
   VideoCardPopovers,
 } from "../components/EntityCards";
-import { images } from "../api/client";
+import { images, tags as tagsApi } from "../api/client";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 import { performers } from "../api/client";
 import { mediaCacheRevision } from "../api/mediaCacheRevisions";
@@ -751,6 +752,52 @@ describe("ImageTile", () => {
     expect(screen.getByRole("tooltip", { name: "Media for Animated Image Tag" })).toContainElement(
       screen.getByRole("img", { name: "Animated Image Tag" }),
     );
+  });
+
+  it("shows the tag badge for a list entry that carries only tag ids and resolves them when opened", async () => {
+    const lookup = vi.spyOn(tagsApi, "lookup").mockResolvedValue([
+      { id: 23, name: "Listed Tag", favorite: false, hasImage: false },
+      { id: 24, name: "Other Listed Tag", favorite: false, hasImage: false },
+    ]);
+    render(
+      <ImageTile
+        image={
+          {
+            id: 3,
+            title: "Sample Image",
+            organized: false,
+            urls: [],
+            tags: [],
+            tagIds: [23, 24],
+            performers: [],
+            galleryCount: 0,
+            galleryIds: [],
+            galleries: [],
+            files: [],
+            createdAt: "",
+            updatedAt: "",
+          } as any
+        }
+        onClick={vi.fn()}
+      />,
+    );
+
+    const tagsButton = screen.getByTitle("Tags");
+    expect(tagsButton).toHaveTextContent("2");
+    expect(lookup).not.toHaveBeenCalled();
+
+    fireEvent.click(tagsButton);
+
+    expect(await screen.findByRole("link", { name: "Listed Tag" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Other Listed Tag" })).toBeInTheDocument();
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("hasImageReferences", () => {
+  it("counts a list entry's tag ids as references", () => {
+    expect(hasImageReferences({ tags: [], tagIds: [23], performers: [], galleryCount: 0, groups: [] })).toBe(true);
+    expect(hasImageReferences({ tags: [], tagIds: [], performers: [], galleryCount: 0, groups: [] })).toBe(false);
   });
 });
 

@@ -2352,6 +2352,165 @@ public class VideoFilterBehaviorTests
         Assert.Equal(["below-threshold-derived", "performer-context", "untagged"], items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.Includes, "both", "derived", "manual", "split")]
+    [InlineData(CriterionModifier.IncludesAll, "split")]
+    [InlineData(CriterionModifier.Excludes, "below-threshold-derived", "untagged")]
+    [InlineData(CriterionModifier.ExcludesAll, "below-threshold-derived", "both", "derived", "manual", "untagged")]
+    [RequiresPostgres]
+    public async Task TagsCriterion_WithAiAnalysisCriterion_MatchesManualAndEffectiveDerivedTags(CriterionModifier modifier, params string[] expectedTitles)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
+        var (action, outdoor) = await SeedManualAndDerivedTagFixtureAsync(context);
+
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion { Value = [action.Id, outdoor.Id], Modifier = modifier },
+            AiAnalysisCriterion = NotYetAnalysedCriterion(),
+        };
+
+        var (items, totalCount) = await new VideoRepository(context).FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedTitles.Length, totalCount);
+        Assert.Equal(expectedTitles, items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    // Required tags and the flat TagIds list reach the same manual-or-derived tag predicate as INCLUDES.
+    [Theory]
+    [InlineData("required-ids", "split")]
+    [InlineData("flat-tag-ids", "both", "derived", "manual", "split")]
+    [RequiresPostgres]
+    public async Task RequiredTagIdsAndFlatTagIds_WithAiAnalysisCriterion_MatchManualAndEffectiveDerivedTags(string route, params string[] expectedTitles)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using var context = await CreateContextAsync(database);
+        var (action, outdoor) = await SeedManualAndDerivedTagFixtureAsync(context);
+
+        var filter = route == "required-ids"
+            ? new VideoFilter
+            {
+                // Outdoor is derived on "split" only; Action is required on top, and "split" has it manually.
+                TagsCriterion = new MultiIdCriterion { Value = [outdoor.Id], Modifier = CriterionModifier.Includes, RequiredIds = [action.Id] },
+                AiAnalysisCriterion = NotYetAnalysedCriterion(),
+            }
+            : new VideoFilter
+            {
+                TagIds = [action.Id],
+                AiAnalysisCriterion = NotYetAnalysedCriterion(),
+            };
+
+        var (items, totalCount) = await new VideoRepository(context).FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedTitles.Length, totalCount);
+        Assert.Equal(expectedTitles, items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    // A tag the principal may not read matches nothing through either tag source. An unrestricted principal gets
+    // "manual-outdoor" and "split" for INCLUDES [Outdoor], so an empty result shows both sources stay filtered.
+    [Theory]
+    [InlineData(CriterionModifier.Includes, false)]
+    [InlineData(CriterionModifier.Includes, true, "both", "derived", "manual", "split")]
+    [InlineData(CriterionModifier.IncludesAll, true)]
+    [InlineData(CriterionModifier.ExcludesAll, true, "below-threshold-derived", "both", "derived", "manual", "manual-outdoor", "split", "untagged")]
+    [InlineData(CriterionModifier.Excludes, false, "below-threshold-derived", "both", "derived", "manual", "manual-outdoor", "split", "untagged")]
+    [RequiresPostgres]
+    public async Task TagsCriterion_ForPrincipalDeniedATag_MatchesNeitherManualNorDerivedRowsOfThatTag(CriterionModifier modifier, bool alsoReadableTag, params string[] expectedTitles)
+    {
+        await using var database = await CovePostgresDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        Tag action;
+        Tag outdoor;
+        Role role;
+        await using (var seed = await CreateContextAsync(database))
+        {
+            (action, outdoor) = await SeedManualAndDerivedTagFixtureAsync(seed);
+            var manualOutdoorVideo = CreateVideoWithFile("manual-outdoor");
+            manualOutdoorVideo.VideoTags.Add(new VideoTag { TagId = outdoor.Id });
+            seed.Videos.Add(manualOutdoorVideo);
+            role = new Role { Name = "Outdoor hidden" };
+            seed.Roles.Add(role);
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+            seed.RoleEntityOverrides.Add(new RoleEntityOverride
+            {
+                RoleId = role.Id,
+                EntityKind = EntityKinds.Tag,
+                EntityId = outdoor.Id.ToString(),
+                Effect = "deny",
+                AppliesTo = "read",
+            });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var principal = new CovePrincipal
+        {
+            UserId = 1,
+            Username = "tag-restricted",
+            Kind = PrincipalKind.User,
+            Roles = new HashSet<string>([role.Name], StringComparer.OrdinalIgnoreCase),
+            Permissions = new HashSet<string>([Permissions.VideosRead, Permissions.TagsRead, Permissions.AiRunsRead], StringComparer.OrdinalIgnoreCase),
+            ReadRestrictedEntityKinds = new HashSet<string>([EntityKinds.Tag], StringComparer.OrdinalIgnoreCase),
+        };
+        await using var context = new CoveContext(database.CreateOptions(), new FixedPrincipalAccessor(principal));
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                Value = alsoReadableTag ? [action.Id, outdoor.Id] : [outdoor.Id],
+                Modifier = modifier,
+            },
+            AiAnalysisCriterion = NotYetAnalysedCriterion(),
+        };
+
+        var (items, totalCount) = await new VideoRepository(context).FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedTitles.Length, totalCount);
+        Assert.Equal(expectedTitles, items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    private static AiAnalysisCriterion NotYetAnalysedCriterion() => new()
+    {
+        SourceKey = "ext:ai.core",
+        States = [AiAnalysisState.NeverRun, AiAnalysisState.InProgress, AiAnalysisState.Cancelled],
+    };
+
+    // Action needs 80% coverage to count when derived. "split" has Action manually and Outdoor derived; "analysed"
+    // has a completed AI run, so the not-yet-analysed criterion leaves it out.
+    private async Task<(Tag Action, Tag Outdoor)> SeedManualAndDerivedTagFixtureAsync(CoveContext context)
+    {
+        var action = new Tag { Name = "Action", MinOccurrencePercent = 80 };
+        var outdoor = new Tag { Name = "Outdoor" };
+        var manualVideo = CreateVideoWithFile("manual");
+        manualVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var derivedVideo = CreateVideoWithFile("derived");
+        var belowThresholdVideo = CreateVideoWithFile("below-threshold-derived");
+        var bothVideo = CreateVideoWithFile("both");
+        bothVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var splitVideo = CreateVideoWithFile("split");
+        splitVideo.VideoTags.Add(new VideoTag { Tag = action });
+        var analysedVideo = CreateVideoWithFile("analysed");
+        var untaggedVideo = CreateVideoWithFile("untagged");
+
+        context.Tags.AddRange(action, outdoor);
+        context.Videos.AddRange(manualVideo, derivedVideo, belowThresholdVideo, bothVideo, splitVideo, analysedVideo, untaggedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            CreateDurationApplication(derivedVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(belowThresholdVideo.Id, action.Id, totalDurationSec: 72, hostDurationSec: 100),
+            CreateDurationApplication(bothVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(splitVideo.Id, outdoor.Id, totalDurationSec: 82, hostDurationSec: 100),
+            CreateDurationApplication(analysedVideo.Id, action.Id, totalDurationSec: 82, hostDurationSec: 100));
+        context.AiRuns.Add(new AiRun
+        {
+            SourceKey = "ext:ai.core",
+            TargetType = AiRunTargetType.Video,
+            TargetId = analysedVideo.Id,
+            Status = AiRunStatus.Completed,
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (action, outdoor);
+    }
+
     [Fact]
     [RequiresPostgres]
     public async Task VideosController_GetById_MapsOnlyEffectiveDerivedTagsAsNonRemovable()

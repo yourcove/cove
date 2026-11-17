@@ -44,7 +44,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             .Include(u => u.Roles).ThenInclude(r => r.Role)
             .FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new UnauthorizedException("User not found.");
-        if (!user.IsActive || user.IsLocked || string.IsNullOrWhiteSpace(user.PasswordHash))
+        if (!user.IsActive || UserService.IsLockedOut(user, DateTime.UtcNow) || string.IsNullOrWhiteSpace(user.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
         var roleNames = user.Roles.Select(r => r.Role!.Name).ToList();
@@ -129,7 +129,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             throw new UnauthorizedException("Refresh token expired.");
         if (existing.User is null
             || !existing.User.IsActive
-            || existing.User.IsLocked
+            || UserService.IsLockedOut(existing.User, DateTime.UtcNow)
             || string.IsNullOrWhiteSpace(existing.User.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
@@ -368,7 +368,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
                 .FirstOrDefaultAsync(u => u.Id == userId, ct);
             if (user is null
                 || !user.IsActive
-                || user.IsLocked
+                || UserService.IsLockedOut(user, DateTime.UtcNow)
                 || string.IsNullOrWhiteSpace(user.PasswordHash)) return null;
 
             var roleIds = user.Roles.Select(r => r.RoleId).Distinct().ToArray();
@@ -428,7 +428,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
         if (!BCrypt.Net.BCrypt.Verify(secret, record.TokenHash)) return null;
         if (record.User is null
             || !record.User.IsActive
-            || record.User.IsLocked
+            || UserService.IsLockedOut(record.User, DateTime.UtcNow)
             || string.IsNullOrWhiteSpace(record.User.PasswordHash)) return null;
 
         var roleIds = record.User.Roles.Select(r => r.RoleId).Distinct().ToArray();
@@ -517,7 +517,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
                 ct);
         if (user is null
             || !user.IsActive
-            || user.IsLocked
+            || UserService.IsLockedOut(user, DateTime.UtcNow)
             || string.IsNullOrWhiteSpace(user.PasswordHash))
         {
             _log.LogDebug(
@@ -720,7 +720,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             .Select(a => a.Role!.Name)
             .ToListAsync(ct);
         return new UserDto(user.Id, user.Username, user.DisplayName, user.Email,
-            user.IsActive, user.IsLocked, user.IsSystem, user.MustChangePassword,
+            user.IsActive, UserService.IsLockedOut(user, DateTime.UtcNow), user.IsSystem, user.MustChangePassword,
             !string.IsNullOrWhiteSpace(user.PasswordHash),
             user.LastLoginAt, user.LastLoginIp, user.CreatedAt, roleNames,
             UserService.ParseUiPreferences(user.UiPreferencesJson, _log));

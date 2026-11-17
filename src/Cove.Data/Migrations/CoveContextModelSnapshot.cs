@@ -3696,6 +3696,179 @@ namespace Cove.Data.Migrations
                     b.ToTable("segment_display_rules", (string)null);
                 });
 
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanIndexedProfile", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ProfileId");
+
+                    b.ToTable("segment_span_indexed_profiles", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanVideoState", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProfileVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ResolvedVersion")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ProfileId", "VideoId");
+
+                    b.HasIndex("VideoId");
+
+                    b.ToTable("segment_span_video_states", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanVideoVersion", b =>
+                {
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("VideoId");
+
+                    b.ToTable("segment_span_video_versions", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.StoredSegmentSpan", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("CollapsedToInstant")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ColorHint")
+                        .HasColumnType("text");
+
+                    b.PrimitiveCollection<string[]>("ColorHints")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<double>("DurationSec")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("EndSec")
+                        .HasColumnType("double precision");
+
+                    b.PrimitiveCollection<int[]>("EntityRefIds")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<bool>("HasImage")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("HasPayload")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Label")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Lane")
+                        .HasColumnType("integer");
+
+                    b.Property<float?>("MaxConfidence")
+                        .HasColumnType("real");
+
+                    b.Property<DateTime>("MaxSegmentCreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("MaxSegmentUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<float?>("MinConfidence")
+                        .HasColumnType("real");
+
+                    b.Property<DateTime>("MinSegmentCreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("MinSegmentUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<long[]>("RefIds")
+                        .IsRequired()
+                        .HasColumnType("bigint[]");
+
+                    b.Property<int>("SegmentCount")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<int[]>("SegmentIds")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<string>("SourceKey")
+                        .HasColumnType("text");
+
+                    b.PrimitiveCollection<string[]>("SourceRunIds")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("SpanKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<double>("StartSec")
+                        .HasColumnType("double precision");
+
+                    b.Property<int?>("TagId")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<string[]>("Titles")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RefIds");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("RefIds"), "gin");
+
+                    b.HasIndex("VideoId");
+
+                    b.HasIndex("ProfileId", "DurationSec", "Id");
+
+                    b.HasIndex("ProfileId", "StartSec", "Id");
+
+                    b.HasIndex("ProfileId", "TagId", "VideoId");
+
+                    b.HasIndex("ProfileId", "VideoId", "Ordinal")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("ProfileId", "VideoId", "Ordinal"), new[] { "StartSec", "Kind", "Id" });
+
+                    b.ToTable("segment_spans", (string)null);
+                });
+
             modelBuilder.Entity("Cove.Core.Entities.Studio", b =>
                 {
                     b.Property<int>("Id")
@@ -6132,6 +6305,54 @@ namespace Cove.Data.Migrations
                     b.Navigation("Profile");
 
                     b.Navigation("Tag");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanIndexedProfile", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.SegmentDisplayProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanVideoState", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.SegmentDisplayProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Cove.Core.Entities.Video", null)
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SegmentSpanVideoVersion", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.Video", null)
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.StoredSegmentSpan", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.SegmentDisplayProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Cove.Core.Entities.Video", null)
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Studio", b =>

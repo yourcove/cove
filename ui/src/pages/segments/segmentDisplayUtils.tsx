@@ -51,7 +51,7 @@ export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string, referenc
     span.kind ||
     span.sourceKey ||
     videoTitle ||
-    `Span ${span.spanKey}`
+    `Segment ${span.spanKey}`
   );
 }
 

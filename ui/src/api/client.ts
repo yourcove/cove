@@ -1811,14 +1811,25 @@ export const segmentDisplayProfiles = {
       }),
     delete: (profileId: number, ruleId: number) =>
       request<void>(`/segment-display-profiles/${profileId}/rules/${ruleId}`, { method: "DELETE" }),
+    /** Saves the profile's complete rule list in one go, so its segments are rebuilt once. */
+    replace: (profileId: number, data: import("./types").SegmentDisplayRulesReplace) =>
+      request<import("./types").SegmentDisplayRulesSaved>(`/segment-display-profiles/${profileId}/rules`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
   },
 };
 
 export const segmentSpans = {
+  // A page deep inside a library-wide sort, or a derived query, can take well over the default timeout
+  // on a very large library, so both span requests get the long one.
   search: (data: SegmentSpanSearchRequest) =>
-    request<SegmentSpanSearchResponse>("/segments/spans/search", { method: "POST", body: JSON.stringify(data) }),
-  // Exact span total for a filter set, computed/cached server-side. Independent of page/sort/direction.
-  // Asked for on demand, and on a large library it resolves every span in scope, so it gets the long timeout.
+    request<SegmentSpanSearchResponse>("/segments/spans/search", {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
+  // Exact span total for a filter set. Independent of page/sort/direction and asked for on demand.
   count: (data: SegmentSpanSearchRequest) =>
     request<SegmentSpanCountResponse>("/segments/spans/count", {
       method: "POST",

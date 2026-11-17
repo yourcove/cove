@@ -101,7 +101,7 @@ export function formatRuleTitle(rule: SegmentDisplayRule) {
     rule.kind,
     rule.hostType,
   ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : `Rule #${rule.id}`;
+  return parts.length > 0 ? parts.join(" · ") : rule.id > 0 ? `Rule #${rule.id}` : "New rule";
 }
 
 export function ruleToPayload(rule: SegmentDisplayRule): SegmentDisplayRuleCreate {
@@ -154,4 +154,26 @@ export function getNextPriority(rules: SegmentDisplayRule[]) {
 
 export function formatSeconds(value: number) {
   return `${value.toFixed(2)}s`;
+}
+
+/** What a rule list saves as, ignoring display-only fields, so an edit that is undone no longer counts as a change. */
+export function rulesSignature(rules: SegmentDisplayRule[]) {
+  return JSON.stringify(
+    rules.map((rule) => [
+      rule.id,
+      rule.sourceKey ?? null,
+      rule.kind ?? null,
+      rule.tagId ?? null,
+      rule.tagCategory ?? null,
+      rule.hostType ?? null,
+      rule.visible,
+      rule.minConfidence ?? null,
+      rule.minDurationSec ?? null,
+      rule.mergeGapSec ?? null,
+      rule.collapseToInstant,
+      rule.colorOverride ?? null,
+      rule.lane ?? null,
+      rule.priority ?? null,
+    ]),
+  );
 }
