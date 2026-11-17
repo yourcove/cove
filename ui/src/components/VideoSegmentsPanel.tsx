@@ -11,12 +11,15 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  Fingerprint,
   ListTree,
   List as ListIcon,
 } from "lucide-react";
 import { videos, tagGroups as tagGroupsApi } from "../api/client";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
-import { resolveSpanName, type ShownName } from "../pages/segments/segmentDisplayUtils";
+import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
+import { faceKeyLabel, spanPerson } from "../pages/videoDetail/segmentPeople";
 import { SuggestedNameMarker } from "./EntityCards";
 import { AddToGroupDialog, type AddToGroupEntry } from "./AddToGroupDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -518,6 +521,7 @@ export function VideoSegmentsPanel({
           onOpen={(span) =>
             onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
           }
+          onOpenFace={(faceId) => onNavigate({ page: "face", id: faceId })}
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -698,6 +702,25 @@ function FilterChip({
 }
 
 // ===== Grouped list =====
+interface PersonFace {
+  faceId: number;
+  face?: Face;
+  count: number;
+  totalSec: number;
+}
+
+interface PersonGroup {
+  key: string;
+  name: string;
+  suggested: boolean;
+  items: ResolvedSpan[];
+  totalSec: number;
+  /** The faces the person appears through in this video, most seen first. */
+  faces: PersonFace[];
+}
+
+// Segments are grouped by the person they are about, so all of a performer's faces in the video are one group. The
+// group's faces are shown as a small stack of face crops, which opens a list of them to tell them apart.
 function GroupedList({
   spans,
   rawSegmentsById,
@@ -709,6 +732,7 @@ function GroupedList({
   onEdit,
   onDelete,
   onOpen,
+  onOpenFace,
 }: {
   spans: ResolvedSpan[];
   rawSegmentsById: Map<number, Segment>;
@@ -720,34 +744,57 @@ function GroupedList({
   onEdit: (span: ResolvedSpan) => void;
   onDelete: (span: ResolvedSpan) => void;
   onOpen: (span: ResolvedSpan) => void;
+  onOpenFace: (faceId: number) => void;
 }) {
-  const groups = useMemo(() => {
-    // A suggested performer is grouped apart from the same performer confirmed, so a guess never joins real matches.
-    const byName = new Map<string, { shown: ShownName; items: ResolvedSpan[] }>();
+  const { groups, faceIdBySpanKey } = useMemo(() => {
+    const byKey = new Map<string, PersonGroup & { facesById: Map<number, PersonFace> }>();
+    const faceIdBySpanKey = new Map<string, number>();
     for (const span of spans) {
-      const shown = resolveSpanName(span, rawSegmentsById, facesById);
-      const key = `${shown.suggested ? "suggested:" : ""}${shown.name}`;
-      const group = byName.get(key) ?? { shown, items: [] };
+      const person = spanPerson(span, rawSegmentsById, facesById);
+      const group = byKey.get(person.key) ?? {
+        key: person.key,
+        name: person.name,
+        suggested: person.suggested,
+        items: [],
+        totalSec: 0,
+        faces: [],
+        facesById: new Map<number, PersonFace>(),
+      };
+      const duration = Math.max(0, span.endSec - span.startSec);
       group.items.push(span);
-      byName.set(key, group);
+      group.totalSec += duration;
+      if (person.faceId != null) {
+        faceIdBySpanKey.set(span.spanKey, person.faceId);
+        const entry = group.facesById.get(person.faceId) ?? {
+          faceId: person.faceId,
+          face: facesById?.get(person.faceId),
+          count: 0,
+          totalSec: 0,
+        };
+        entry.count += 1;
+        entry.totalSec += duration;
+        group.facesById.set(person.faceId, entry);
+      }
+      byKey.set(person.key, group);
     }
-    return Array.from(byName.entries())
-      .map(([key, { shown, items }]) => ({
-        key,
-        label: shown.name,
-        suggested: shown.suggested,
-        items,
-        totalSec: items.reduce((sum, span) => sum + Math.max(0, span.endSec - span.startSec), 0),
+    const groups: PersonGroup[] = Array.from(byKey.values())
+      .map(({ facesById: groupFaces, ...group }) => ({
+        ...group,
+        faces: Array.from(groupFaces.values()).sort(
+          (left, right) => right.totalSec - left.totalSec || left.faceId - right.faceId,
+        ),
       }))
-      .sort((left, right) => right.totalSec - left.totalSec || compareNatural(left.label, right.label));
+      .sort((left, right) => right.totalSec - left.totalSec || compareNatural(left.name, right.name));
+    return { groups, faceIdBySpanKey };
   }, [spans, rawSegmentsById, facesById]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const toggleGroup = (label: string) =>
-    setCollapsed((current) => {
+  const [facesOpen, setFacesOpen] = useState<Set<string>>(new Set());
+  const toggleIn = (setter: typeof setCollapsed, key: string) =>
+    setter((current) => {
       const next = new Set(current);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
@@ -755,56 +802,132 @@ function GroupedList({
     <div className="divide-y divide-border/50">
       {groups.map((group) => {
         const open = !collapsed.has(group.key);
+        const showFaces = facesOpen.has(group.key) && group.faces.length > 1;
         return (
           <div key={group.key}>
-            <button
-              type="button"
-              onClick={() => toggleGroup(group.key)}
-              className="flex w-full items-center justify-between gap-3 py-1.5 text-left"
-            >
-              <span className="flex min-w-0 items-center gap-2">
+            <div className="flex items-center justify-between gap-3 py-1.5">
+              <button
+                type="button"
+                onClick={() => toggleIn(setCollapsed, group.key)}
+                aria-expanded={open}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
                 {open ? (
                   <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
                 ) : (
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
                 )}
-                <span className="truncate text-sm font-medium text-foreground">{group.label}</span>
+                <span className="truncate text-sm font-medium text-foreground">{group.name}</span>
                 {group.suggested ? (
                   <>
                     <SuggestedNameMarker />
                     <span className="sr-only"> (suggested)</span>
                   </>
                 ) : null}
-              </span>
+              </button>
+              {group.faces.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => toggleIn(setFacesOpen, group.key)}
+                  aria-expanded={showFaces}
+                  aria-label={`${showFaces ? "Hide" : "Show"} the ${group.faces.length} faces of ${group.name}`}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-1.5 py-0.5 text-xs text-secondary hover:border-accent hover:text-foreground"
+                >
+                  <FaceStack faces={group.faces} />
+                  <span>{group.faces.length} faces</span>
+                  {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </button>
+              ) : group.faces.length === 1 ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenFace(group.faces[0].faceId)}
+                  aria-label={`Open face ${faceKeyLabel(group.faces[0].face, group.faces[0].faceId)}`}
+                  title="Open face"
+                  className="shrink-0 rounded-full hover:ring-1 hover:ring-accent"
+                >
+                  <FaceStack faces={group.faces} />
+                </button>
+              ) : null}
               <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
                 <span>{group.items.length}×</span>
                 <span className="font-mono">{formatTime(group.totalSec)}</span>
               </span>
-            </button>
+            </div>
+            {showFaces ? (
+              <ul className="mb-1.5 ml-6 space-y-1 rounded-lg border border-border bg-surface/30 p-1.5">
+                {group.faces.map((entry) => (
+                  <li key={entry.faceId} className="flex items-center gap-2 text-xs">
+                    <FaceCrop face={entry.face} className="h-6 w-6" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">
+                      {faceKeyLabel(entry.face, entry.faceId)}
+                    </span>
+                    <span className="shrink-0 text-secondary">{entry.count}×</span>
+                    <span className="shrink-0 font-mono text-secondary">{formatTime(entry.totalSec)}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenFace(entry.faceId)}
+                      className="shrink-0 text-accent hover:underline"
+                    >
+                      Open face
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {open ? (
               <div className="space-y-0.5 pb-1.5 pl-6">
-                {group.items.map((span) => (
-                  <SegmentRow
-                    key={span.spanKey}
-                    span={span}
-                    rawSegmentsById={rawSegmentsById}
-                    facesById={facesById}
-                    checked={selectedSpanKeys.has(span.spanKey)}
-                    onToggleSelect={() => onToggleSelect(span.spanKey)}
-                    onSeek={onSeek}
-                    canEdit={canEdit}
-                    onEdit={() => onEdit(span)}
-                    onDelete={() => onDelete(span)}
-                    onOpen={() => onOpen(span)}
-                    hideLabel
-                  />
-                ))}
+                {group.items.map((span) => {
+                  const faceId = faceIdBySpanKey.get(span.spanKey);
+                  return (
+                    <SegmentRow
+                      key={span.spanKey}
+                      span={span}
+                      rawSegmentsById={rawSegmentsById}
+                      facesById={facesById}
+                      checked={selectedSpanKeys.has(span.spanKey)}
+                      onToggleSelect={() => onToggleSelect(span.spanKey)}
+                      onSeek={onSeek}
+                      canEdit={canEdit}
+                      onEdit={() => onEdit(span)}
+                      onDelete={() => onDelete(span)}
+                      onOpen={() => onOpen(span)}
+                      // With the person's faces listed, each segment shows which of them it is.
+                      leading={
+                        showFaces && faceId != null ? (
+                          <FaceCrop face={facesById?.get(faceId)} className="h-4 w-4" />
+                        ) : undefined
+                      }
+                      hideLabel
+                    />
+                  );
+                })}
               </div>
             ) : null}
           </div>
         );
       })}
     </div>
+  );
+}
+
+// Up to three of a person's face crops, overlapping.
+function FaceStack({ faces }: { faces: PersonFace[] }) {
+  return (
+    <span aria-hidden className="flex -space-x-1.5">
+      {faces.slice(0, 3).map((entry) => (
+        <FaceCrop key={entry.faceId} face={entry.face} className="h-5 w-5 ring-1 ring-card" />
+      ))}
+    </span>
+  );
+}
+
+function FaceCrop({ face, className }: { face?: Face; className: string }) {
+  return face?.coverImageUrl ? (
+    <img src={face.coverImageUrl} alt="" className={`${className} shrink-0 rounded-full object-cover`} loading="lazy" />
+  ) : (
+    <span className={`${className} flex shrink-0 items-center justify-center rounded-full bg-surface text-muted`}>
+      <Fingerprint className="h-3 w-3" />
+    </span>
   );
 }
 
@@ -820,6 +943,7 @@ function SegmentRow({
   onEdit,
   onDelete,
   onOpen,
+  leading,
   hideLabel = false,
 }: {
   span: ResolvedSpan;
@@ -832,6 +956,8 @@ function SegmentRow({
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
+  /** Shown before the time range, such as the crop of the face the segment shows. */
+  leading?: React.ReactNode;
   hideLabel?: boolean;
 }) {
   const shown = resolveSpanName(span, rawSegmentsById, facesById);
@@ -849,6 +975,7 @@ function SegmentRow({
         title="Select for group"
       />
       <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={() => onSeek?.(span.startSec)}>
+        {leading}
         <span className="w-24 shrink-0 font-mono text-xs text-accent">
           {formatTime(span.startSec)}
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
