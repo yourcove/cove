@@ -699,7 +699,10 @@ describe("SegmentDetailPage", () => {
       const heading = await screen.findByRole("heading", { name: /Opening/ });
       expect(heading.querySelector("svg.lucide-tag")).not.toBeNull();
       expect(screen.getAllByText("Opening")).toHaveLength(1);
-      fireEvent.click(screen.getByRole("button", { name: "Open tag" }));
+      // The tag is opened from the header; the summary line does not repeat the heading.
+      expect(screen.queryByRole("button", { name: "Open tag" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open video Video 99 at this segment" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Open tag Opening" }));
       expect(onNavigate).toHaveBeenCalledWith({ page: "tag", id: 5 });
       expect(mockFaces.get).not.toHaveBeenCalled();
     });

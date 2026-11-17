@@ -51,6 +51,8 @@ export interface MediaDetailLayoutProps {
   title: ReactNode;
   /** A short muted label above the title saying what kind of thing the page shows. */
   eyebrow?: ReactNode;
+  /** Short facts shown right under the subtitle, such as a source and a confidence. */
+  headerDetails?: ReactNode;
   subtitle?: ReactNode;
   backLabel?: string;
   onGoBack?: () => void;

@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { Film, Tag as TagIcon } from "lucide-react";
 import type { EntityEngagement, Video } from "../../api/types";
 import { SuggestedNameMarker, VideoCard } from "../../components/EntityCards";
 
@@ -217,6 +218,51 @@ export function SuggestedName({
       </span>
       <SuggestedNameMarker className={markerClassName} />
       <span className="sr-only">{`${name} (suggested)`}</span>
+    </>
+  );
+}
+
+const headerLinkClassName =
+  "inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground";
+
+/** Header buttons that leave the segment for its video, at the segment's start, and for its tag. */
+export function SegmentHeaderLinks({
+  videoTitle,
+  onOpenVideo,
+  tagName,
+  onOpenTag,
+}: {
+  videoTitle?: string;
+  onOpenVideo?: () => void;
+  tagName?: string;
+  onOpenTag?: () => void;
+}) {
+  const videoLabel = videoTitle ? `Open video ${videoTitle} at this segment` : "Open video at this segment";
+  const tagLabel = tagName ? `Open tag ${tagName}` : "Open tag";
+  return (
+    <>
+      {onOpenVideo ? (
+        <button
+          type="button"
+          onClick={onOpenVideo}
+          className={headerLinkClassName}
+          title={videoLabel}
+          aria-label={videoLabel}
+        >
+          <Film className="h-4 w-4" />
+        </button>
+      ) : null}
+      {onOpenTag ? (
+        <button
+          type="button"
+          onClick={onOpenTag}
+          className={headerLinkClassName}
+          title={tagLabel}
+          aria-label={tagLabel}
+        >
+          <TagIcon className="h-4 w-4" />
+        </button>
+      ) : null}
     </>
   );
 }

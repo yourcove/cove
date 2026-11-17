@@ -72,13 +72,6 @@ export function SegmentOverview(props: Props) {
 
   return (
     <div className="space-y-6">
-      <SummaryLine
-        items={[
-          referenceLink(props),
-          formatSourceKeyLabel(segment.sourceKey),
-          formatConfidencePercent(segment.confidence),
-        ]}
-      />
       {rawSegmentFaceId(segment) != null ? (
         <FaceSection {...props} faceSegment={segment} bestFrameSeek={props.onSeek} />
       ) : null}
@@ -113,11 +106,35 @@ export function SegmentOverview(props: Props) {
   );
 }
 
+/** The facts shown under a raw segment's title: what it names when the heading does not, its source and confidence. */
+export function SegmentSummary(
+  props: Pick<Props, "segment" | "heading" | "canReadTags" | "canReadPerformers" | "onNavigate">,
+) {
+  const { segment } = props;
+  return (
+    <SummaryLine
+      items={[
+        referenceLink(props),
+        formatSourceKeyLabel(segment.sourceKey),
+        formatConfidencePercent(segment.confidence),
+      ]}
+    />
+  );
+}
+
 // The link to what a tag or performer segment names. The heading already shows its name, so the link only repeats
 // it when it differs; a face segment's links are in its face section.
-function referenceLink({ segment, heading, canReadTags, canReadPerformers, onNavigate }: Props) {
+function referenceLink({
+  segment,
+  heading,
+  canReadTags,
+  canReadPerformers,
+  onNavigate,
+}: Pick<Props, "segment" | "heading" | "canReadTags" | "canReadPerformers" | "onNavigate">) {
   if (rawSegmentFaceId(segment) != null) return null;
   const tagId = segment.tagId;
+  // The header's tag button opens the tag; the line names it only when the heading shows something else.
+  if (segment.tagName && segment.tagName.trim().toLowerCase() === heading.trim().toLowerCase()) return null;
   if (segment.tagName) {
     const openTag = canReadTags && tagId != null ? () => onNavigate({ page: "tag", id: tagId }) : undefined;
     return (

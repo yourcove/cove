@@ -267,6 +267,7 @@ function moveTabFocus(currentTab: HTMLButtonElement, direction: "next" | "previo
 function MediaDetailLayoutRoot({
   title,
   eyebrow,
+  headerDetails,
   subtitle,
   backLabel = "Back",
   onGoBack,
@@ -550,6 +551,7 @@ function MediaDetailLayoutRoot({
             ) : subtitle ? (
               <div className="mt-1 text-sm text-secondary">{subtitle}</div>
             ) : null}
+            {headerDetails ? <div className="mt-1">{headerDetails}</div> : null}
             {engagement ? (
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">

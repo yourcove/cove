@@ -41,11 +41,12 @@ import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } fro
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { formatSegmentTime, parseSegmentTimeInput } from "../utils/segmentTime";
-import { SegmentOverview, type SegmentMembership } from "./segments/SegmentOverview";
+import { SegmentOverview, SegmentSummary, type SegmentMembership } from "./segments/SegmentOverview";
 import {
   formatConfidencePercent,
   type NearbyGroup,
   type NearbyItem,
+  SegmentHeaderLinks,
   SuggestedName,
 } from "./segments/SegmentDetailSections";
 import { useSegmentFace } from "./segments/useSegmentFace";
@@ -579,7 +580,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       {
         id: "detail.previous",
         key: "[",
-        description: "Open previous segment",
+        description: "Open previous raw segment",
         handler: () => {
           if (previousSegment) {
             onNavigate({ page: "segment", id: previousSegment.id });
@@ -589,7 +590,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       {
         id: "detail.next",
         key: "]",
-        description: "Open next segment",
+        description: "Open next raw segment",
         handler: () => {
           if (nextSegment) {
             onNavigate({ page: "segment", id: nextSegment.id });
@@ -1035,6 +1036,15 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
           </span>
         }
         subtitle={subtitleWithProvenance}
+        headerDetails={
+          <SegmentSummary
+            segment={segment}
+            heading={displayTitle}
+            canReadTags={canReadTags}
+            canReadPerformers={canReadPerformers}
+            onNavigate={onNavigate}
+          />
+        }
         backLabel={backLabel}
         onGoBack={goBack}
         backAlternative={backAlternative}
@@ -1063,8 +1073,8 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
             {previousSegment ? (
               <button
                 type="button"
-                aria-label="Open previous segment"
-                title="Open previous segment"
+                aria-label="Open previous raw segment"
+                title="Open previous raw segment"
                 onClick={() => onNavigate({ page: "segment", id: previousSegment.id })}
                 className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
               >
@@ -1074,24 +1084,26 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
             {nextSegment ? (
               <button
                 type="button"
-                aria-label="Open next segment"
-                title="Open next segment"
+                aria-label="Open next raw segment"
+                title="Open next raw segment"
                 onClick={() => onNavigate({ page: "segment", id: nextSegment.id })}
                 className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
             ) : null}
-            {segment.hostType === "video" && canReadVideos ? (
-              <button
-                type="button"
-                onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
-                className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-                title="Open parent video"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </button>
-            ) : null}
+            <SegmentHeaderLinks
+              videoTitle={segment.hostTitle}
+              onOpenVideo={
+                segment.hostType === "video" && canReadVideos
+                  ? () => onNavigate(buildVideoRouteForSegment(segment))
+                  : undefined
+              }
+              tagName={segment.tagName}
+              onOpenTag={
+                segment.tagId != null && canReadTags ? () => onNavigate({ page: "tag", id: segment.tagId }) : undefined
+              }
+            />
             {canSetSegmentCover || canCreateSubVideo || canDeleteSegments ? (
               <div className="relative" ref={opsMenuRef}>
                 <button

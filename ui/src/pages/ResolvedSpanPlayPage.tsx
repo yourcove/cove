@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, ExternalLink, Info, MoreVertical, Play, Sparkles, Tag as TagIcon } from "lucide-react";
+import { Clapperboard, Info, MoreVertical, Play, Sparkles, Tag as TagIcon } from "lucide-react";
 import { faces, performers, videos, segmentDisplayProfiles, segmentLibrary, tags } from "../api/client";
 import type {
   Face,
@@ -36,6 +36,7 @@ import {
   formatConfidencePercent,
   type NearbyItem,
   NearbySection,
+  SegmentHeaderLinks,
   SuggestedName,
   SummaryLine,
   TechnicalDetails,
@@ -542,33 +543,37 @@ function ResolvedSpanPlayerCard({
       ? () => onNavigate({ page: "tag", id: tagId })
       : undefined;
 
+  // Facts shown under the title: the tag when the heading does not name it, and the source.
+  const summaryLine = (
+    <SummaryLine
+      items={[
+        isDerivedQuery ? (
+          <ResolvedSpanSourceDetails
+            key="derived"
+            detail={detail}
+            derivedOperator={derivedOperator}
+            derivedQueryDescriptor={derivedQueryDescriptor}
+            profileName={profileQuery.data?.name}
+            tagNamesById={tagNamesById}
+            performerNamesById={performerNamesById}
+            faceLabelsById={faceLabelsById}
+            onNavigate={onNavigate}
+          />
+        ) : hasTag && detail.span.tagName && detail.span.tagName !== spanTitle ? (
+          <EntityLink
+            key="tag"
+            label={linkLabel(detail.span.tagName, spanTitle, "tag", !!openTag)}
+            icon={<TagIcon className="h-3.5 w-3.5" />}
+            onClick={openTag}
+          />
+        ) : null,
+        isDerivedQuery ? undefined : formatSourceKeyLabel(detail.span.sourceKey),
+      ]}
+    />
+  );
+
   const overviewContent = (
     <div className="space-y-6">
-      <SummaryLine
-        items={[
-          isDerivedQuery ? (
-            <ResolvedSpanSourceDetails
-              key="derived"
-              detail={detail}
-              derivedOperator={derivedOperator}
-              derivedQueryDescriptor={derivedQueryDescriptor}
-              profileName={profileQuery.data?.name}
-              tagNamesById={tagNamesById}
-              performerNamesById={performerNamesById}
-              faceLabelsById={faceLabelsById}
-              onNavigate={onNavigate}
-            />
-          ) : hasTag && detail.span.tagName ? (
-            <EntityLink
-              key="tag"
-              label={linkLabel(detail.span.tagName, spanTitle, "tag", !!openTag)}
-              icon={<TagIcon className="h-3.5 w-3.5" />}
-              onClick={openTag}
-            />
-          ) : null,
-          isDerivedQuery ? undefined : formatSourceKeyLabel(detail.span.sourceKey),
-        ]}
-      />
       {faceSegment ? (
         <FaceSection
           faceSegment={faceSegment}
@@ -682,6 +687,7 @@ function ResolvedSpanPlayerCard({
           <SuggestedName name={spanTitle} suggested={spanTitleIsSuggestion} markerClassName="text-xs" />
         </span>
       }
+      headerDetails={summaryLine}
       subtitle={`${formatTime(detail.span.startSec)} - ${formatTime(detail.span.endSec)} • ${formatTime(detail.span.endSec - detail.span.startSec)} long`}
       backLabel={backLabel}
       onGoBack={onGoBack}
@@ -695,16 +701,12 @@ function ResolvedSpanPlayerCard({
       onTabChange={(key) => setActiveTab(key as ResolvedSpanTab)}
       actions={
         <>
-          {openVideo ? (
-            <button
-              type="button"
-              onClick={openVideo}
-              className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-              title="Open parent video"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
-          ) : null}
+          <SegmentHeaderLinks
+            videoTitle={detail.videoTitle}
+            onOpenVideo={openVideo}
+            tagName={hasTag ? detail.span.tagName : undefined}
+            onOpenTag={openTag}
+          />
           {canCreateSubVideo ? (
             <div className="relative" ref={opsMenuRef}>
               <button

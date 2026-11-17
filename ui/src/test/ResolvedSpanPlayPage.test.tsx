@@ -246,6 +246,9 @@ describe("ResolvedSpanPlayPage", () => {
     expect(await screen.findByRole("button", { name: /^0:05 - 0:10/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^0:20 - 0:25/ })).toBeInTheDocument();
     expect(screen.getByText("Segment · 2 raw segments")).toBeInTheDocument();
+    // The header leaves for the video at this segment and for its tag, each named in full.
+    expect(screen.getByRole("button", { name: "Open video Video Fourteen at this segment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open tag Action Sequence" })).toBeInTheDocument();
   });
 
   it("seeks within one continuous clip when an interval is selected", async () => {
@@ -495,7 +498,7 @@ describe("ResolvedSpanPlayPage", () => {
 
       expect(await screen.findByText(/permissions do not allow video playback/)).toBeInTheDocument();
       expect(mockVideos.get).not.toHaveBeenCalled();
-      expect(screen.queryByTitle("Open parent video")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Open video/ })).not.toBeInTheDocument();
     });
 
     it("keeps the page and player in place while another segment of the same video loads", async () => {
