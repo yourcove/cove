@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { segmentLibrary, segmentSpans } from "../api/client";
 import type { PlaybackTrackingTarget } from "../utils/interactionTracking";
@@ -8,7 +8,16 @@ import { CompilationPlayer, type CompilationPlayerItem } from "../components/Com
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import type { Route, SegmentsPlaybackSource } from "../router/location";
+import type { Route } from "../router/location";
+import type {
+  SegmentDerivedQueryDescriptor,
+  SegmentFilteredQueryRequest,
+  SegmentSpanSearchRequest,
+} from "../api/types";
+import { readRawSegmentIdsFromUrl, readSegmentsPageContentView } from "./segments/segmentCriteriaDefinitions";
+import { readSegmentsListDefaults, useSegmentsListUrlState } from "./segments/segmentsListState";
+import { useSegmentDisplayProfiles, useSegmentsQueryInputs } from "./segments/useSegmentsQueryInputs";
+import { buildSegmentFilteredQuery } from "./segments/useRawSegmentsQuery";
 import {
   buildRawSegmentTitle,
   buildSpanDisplayTitle,
@@ -19,7 +28,7 @@ import {
 } from "./segments/segmentDisplayUtils";
 import type { DerivedSpanItem, RawSegmentItem } from "./segments/types";
 import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
-import { toDerivedSpanItem } from "./segments/useDerivedSpansQuery";
+import { buildSpanSearchRequest, toDerivedSpanItem } from "./segments/useDerivedSpansQuery";
 import { useListedFaceNames } from "./segments/useListedFaceNames";
 
 /** Items fetched per request; playback asks for the next page a few items before it runs out. */
@@ -27,19 +36,29 @@ export const SEGMENTS_PLAYBACK_PAGE_SIZE = 100;
 const SEGMENTS_PLAYBACK_SURFACE = "segmentsPlayback";
 
 interface Props {
-  source?: SegmentsPlaybackSource;
   onNavigate: (route: Route) => void;
 }
+
+/**
+ * A Segments list to play: the request the list sends for its view, which playback pages through by changing
+ * only the page, and the route back to that list.
+ */
+type SegmentsPlaybackSource = (
+  | { view: "spans"; request: SegmentSpanSearchRequest; derivedQueryDescriptor?: SegmentDerivedQueryDescriptor }
+  | { view: "raw"; request: SegmentFilteredQueryRequest }
+) & { returnRoute: Route };
 
 type PlaybackPage =
   | { view: "spans"; items: DerivedSpanItem[]; totalCount?: number; hasMore: boolean }
   | { view: "raw"; items: RawSegmentItem[]; totalCount?: number; hasMore: boolean };
 
 /**
- * Plays a Segments page result list in the compilation player. The list is the exact request the page
- * sent, paged through on demand, so its filters, derived query, sort and seed all carry over.
+ * Plays a Segments list in the compilation player. The list comes from this page's URL, which takes the
+ * Segments page's own parameters and reads them with the same defaults and hooks, so a playback link plays
+ * what the Segments page lists for it, in the same order: filters, derived query, sort, seed and profile.
  */
-export function SegmentsPlayPage({ source, onNavigate }: Props) {
+export function SegmentsPlayPage({ onNavigate }: Props) {
+  const { source, unavailable } = useSegmentsPlaybackSource();
   const { backLabel, goBack, backAlternative } = useBackNavigation(
     source?.returnRoute ?? { page: "segments" },
     onNavigate,
@@ -106,10 +125,10 @@ export function SegmentsPlayPage({ source, onNavigate }: Props) {
     if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
   }, [fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError]);
 
-  if (!source) {
+  if (unavailable) {
     return (
       <div className="py-16 text-center text-secondary">
-        <p>Nothing to play. Start playback from the Segments page.</p>
+        <p>{unavailable}</p>
         <button
           type="button"
           onClick={() => onNavigate({ page: "segments" })}
@@ -121,7 +140,7 @@ export function SegmentsPlayPage({ source, onNavigate }: Props) {
     );
   }
 
-  if (query.isLoading) {
+  if (!source || query.isLoading) {
     return (
       <div className="px-1 py-2">
         <DetailSkeleton />
@@ -286,4 +305,60 @@ function rawPlayerItem(item: RawSegmentItem, index: number, title: string): Comp
     default:
       return null;
   }
+}
+
+/** The list this page's URL describes, once everything it needs to be requested has loaded. */
+function useSegmentsPlaybackSource(): { source?: SegmentsPlaybackSource; unavailable?: string } {
+  // The view and raw-id narrowing belong to the link that opened this page, like the rest of its URL.
+  const [view] = useState(readSegmentsPageContentView);
+  const [rawSegmentIds] = useState(readRawSegmentIdsFromUrl);
+  const isRawView = view === "raw";
+  const defaults = useMemo(() => readSegmentsListDefaults(view), [view]);
+  const { filter, objectFilter } = useSegmentsListUrlState("segments-play", defaults);
+  const { profilesQuery, availableProfiles } = useSegmentDisplayProfiles(!isRawView);
+  // The Segments page's own fallback: the linked profile while it exists, otherwise the default one.
+  const activeProfileId = availableProfiles.some((profile) => profile.id === defaults.profileId)
+    ? defaults.profileId
+    : (availableProfiles.find((profile) => profile.isDefault)?.id ?? availableProfiles[0]?.id);
+  const inputs = useSegmentsQueryInputs({ filter, objectFilter, isRawView, activeProfileId });
+
+  const source = useMemo<SegmentsPlaybackSource | undefined>(() => {
+    const returnRoute: Route = {
+      page: "segments",
+      listFilter: filter,
+      listObjectFilter: Object.keys(objectFilter).length > 0 ? objectFilter : undefined,
+      segmentsView: isRawView ? "raw" : undefined,
+      profileId: isRawView ? undefined : activeProfileId,
+      rawSegmentIds: isRawView && rawSegmentIds.length > 0 ? rawSegmentIds : undefined,
+    };
+    const listInputs = {
+      pageNumber: 1,
+      perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
+      q: inputs.q,
+      videoTitle: inputs.videoTitle,
+      videoTagIds: inputs.videoTagIds,
+      videoTagDepth: inputs.videoTagDepth,
+      sort: inputs.sort,
+      direction: inputs.direction,
+      seed: inputs.seed,
+      includeVideoIds: inputs.videoSelection.includeIds,
+      excludeVideoIds: inputs.videoSelection.excludeIds,
+      rawFilter: inputs.combinedRawSegmentFilter,
+    };
+    if (isRawView) {
+      return { view: "raw", request: buildSegmentFilteredQuery({ ...listInputs, rawSegmentIds }), returnRoute };
+    }
+    if (!inputs.derivedQueryEnabled || activeProfileId == null) return undefined;
+    return {
+      view: "spans",
+      request: buildSpanSearchRequest({ ...listInputs, activeProfileId, appliedQuery: inputs.appliedQuery }),
+      derivedQueryDescriptor: inputs.appliedQuery != null ? inputs.derivedQueryDescriptor : undefined,
+      returnRoute,
+    };
+  }, [activeProfileId, filter, inputs, isRawView, objectFilter, rawSegmentIds]);
+
+  if (!isRawView && profilesQuery.isSuccess && availableProfiles.length === 0) {
+    return { unavailable: "No segment display profile is available to play these segments with." };
+  }
+  return { source };
 }

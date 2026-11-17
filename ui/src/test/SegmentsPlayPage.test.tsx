@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { segmentLibrary, segmentSpans } from "../api/client";
 import type { CompilationPlayerItem } from "../components/CompilationPlayer";
 import { SEGMENTS_PLAYBACK_PAGE_SIZE, SegmentsPlayPage } from "../pages/SegmentsPlayPage";
-import type { SegmentsPlaybackSource } from "../router/location";
 
 const playerProps = vi.hoisted(() => ({
   latest: undefined as undefined | PlayerProps,
@@ -13,7 +12,16 @@ const playerProps = vi.hoisted(() => ({
 vi.mock("../api/client", () => ({
   segmentSpans: { search: vi.fn() },
   segmentLibrary: { findFiltered: vi.fn() },
+  segmentDisplayProfiles: {
+    list: vi.fn().mockResolvedValue([
+      { id: 1, name: "Other", isDefault: false, isSystem: false },
+      { id: 2, name: "Default", isDefault: true, isSystem: false },
+    ]),
+  },
+  faces: { list: vi.fn().mockResolvedValue({ items: [] }) },
+  videos: { get: vi.fn() },
 }));
+vi.mock("../components/SavedFilterMenu", () => ({ getDefaultFilter: () => undefined }));
 vi.mock("../components/CompilationPlayer", () => ({
   CompilationPlayer: (props: PlayerProps) => {
     playerProps.latest = props;
@@ -33,6 +41,7 @@ type PlayerProps = {
   onNearEnd?: () => void;
   notice?: React.ReactNode;
   getPlaybackTracking?: (item: CompilationPlayerItem) => Record<string, unknown> | undefined;
+  returnTarget?: { route: Record<string, unknown>; label: string };
 };
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ hasPermission: () => true }) }));
 vi.mock("../hooks/useBackNavigation", () => ({
@@ -43,8 +52,6 @@ vi.mock("../pages/segments/useListedFaceNames", () => ({ useListedFaceNames: () 
 vi.mock("../pages/segments/useDerivedOperandNameMaps", () => ({
   useDerivedOperandNameMaps: () => ({ tags: new Map(), performers: new Map(), faces: new Map() }),
 }));
-
-const returnRoute = { page: "segments" };
 
 function spanResult(index: number) {
   return {
@@ -64,13 +71,17 @@ function spanResult(index: number) {
   };
 }
 
-function renderPage(source: SegmentsPlaybackSource) {
+/** Opens playback at a URL carrying the Segments page's own parameters, as its Play button links to it. */
+function renderPage(search: string) {
+  window.history.replaceState({}, "", `/segments-play${search}`);
+  const onNavigate = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <SegmentsPlayPage source={source} onNavigate={vi.fn()} />
+      <SegmentsPlayPage onNavigate={onNavigate} />
     </QueryClientProvider>,
   );
+  return onNavigate;
 }
 
 describe("SegmentsPlayPage", () => {
@@ -87,11 +98,7 @@ describe("SegmentsPlayPage", () => {
       perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
       hasMore: request.page === 1,
     }));
-    renderPage({
-      view: "spans",
-      request: { profile: 2, sort: "random", seed: 99, page: 1, perPage: 24 },
-      returnRoute,
-    });
+    renderPage("?profile=2&sort=random&seed=99&page=3&perPage=24");
 
     expect(await screen.findByText("1 loaded")).toBeInTheDocument();
     expect(segmentSpans.search).toHaveBeenCalledTimes(1);
@@ -119,42 +126,70 @@ describe("SegmentsPlayPage", () => {
     await waitFor(() => expect(segmentSpans.search).toHaveBeenCalledTimes(2));
   });
 
-  it("pages raw segments through the request's find filter and links each to its segment", async () => {
+  it("plays the raw list its URL describes and links each segment", async () => {
     vi.mocked(segmentLibrary.findFiltered).mockResolvedValue({
       items: [{ id: 501, hostType: "video", hostId: 10, hostTitle: "Source", startSec: 5, endSec: 9, tagName: "Kiss" }],
       totalCount: 1,
       page: 1,
       perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
     } as never);
-    renderPage({
-      view: "raw",
-      request: {
-        findFilter: { sort: "random", seed: 7, page: 3, perPage: 24 },
-        objectFilter: { tagsCriterion: { value: [804], modifier: "INCLUDES_ALL" } },
-      },
-      returnRoute,
-    });
+    renderPage("?segmentsView=raw&sort=random&seed=7&page=3&rawIds=501,502");
 
     expect(await screen.findByText("1 loaded")).toBeInTheDocument();
+    // The page's own list parameters carry over; only the paging is playback's.
     expect(segmentLibrary.findFiltered).toHaveBeenCalledWith({
-      findFilter: { sort: "random", seed: 7, page: 1, perPage: SEGMENTS_PLAYBACK_PAGE_SIZE },
-      objectFilter: { tagsCriterion: { value: [804], modifier: "INCLUDES_ALL" } },
+      findFilter: expect.objectContaining({ sort: "random", seed: 7, page: 1, perPage: SEGMENTS_PLAYBACK_PAGE_SIZE }),
+      objectFilter: expect.objectContaining({ ids: [501, 502] }),
     });
     expect(playerProps.latest?.items[0]).toEqual(
       expect.objectContaining({ segmentId: 501, videoId: 10, videoTitle: "Source", title: "Kiss", startSec: 5 }),
     );
   });
 
-  it("asks the user to start from the Segments page when there is nothing to play", () => {
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <SegmentsPlayPage onNavigate={vi.fn()} />
-      </QueryClientProvider>,
-    );
+  it("falls back to the default profile when the linked one no longer exists, as the Segments page does", async () => {
+    vi.mocked(segmentSpans.search).mockResolvedValue({
+      items: [spanResult(1)],
+      totalCount: 1,
+      page: 1,
+      perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
+      hasMore: false,
+    } as never);
+    renderPage("?profile=999");
 
-    expect(screen.getByText("Nothing to play. Start playback from the Segments page.")).toBeInTheDocument();
-    expect(segmentSpans.search).not.toHaveBeenCalled();
+    expect(await screen.findByText("1 loaded")).toBeInTheDocument();
+    expect(segmentSpans.search).toHaveBeenCalledWith(expect.objectContaining({ profile: 2 }));
+  });
+
+  it("leads back to the same Segments list", async () => {
+    vi.mocked(segmentSpans.search).mockResolvedValue({
+      items: [spanResult(1)],
+      totalCount: 1,
+      page: 1,
+      perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
+      hasMore: false,
+    } as never);
+    const filters = {
+      derivedSpanQuery: { operator: "intersection", operands: [{ tagIds: [804] }, { tagIds: [1005] }] },
+    };
+    renderPage(`?profile=1&q=kiss&sort=random&seed=5&filters=${encodeURIComponent(JSON.stringify(filters))}`);
+
+    await screen.findByText("1 loaded");
+    expect(segmentSpans.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: 1,
+        q: "kiss",
+        seed: 5,
+        derivedQuery: expect.objectContaining({ operator: "intersection" }),
+      }),
+    );
+    expect(playerProps.latest?.returnTarget?.route).toEqual(
+      expect.objectContaining({
+        page: "segments",
+        profileId: 1,
+        listFilter: expect.objectContaining({ q: "kiss", sort: "random", seed: 5 }),
+        listObjectFilter: filters,
+      }),
+    );
   });
 
   it("keeps playing what loaded when a later page fails, and retries only when asked", async () => {
@@ -162,7 +197,7 @@ describe("SegmentsPlayPage", () => {
       if (request.page === 2) throw new Error("timeout on page 2");
       return { items: [spanResult(1)], totalCount: 2, page: 1, perPage: SEGMENTS_PLAYBACK_PAGE_SIZE, hasMore: true };
     });
-    renderPage({ view: "spans", request: { profile: 2 }, returnRoute });
+    renderPage("?profile=2");
 
     expect(await screen.findByText("1 loaded")).toBeInTheDocument();
     act(() => playerProps.latest?.onNearEnd?.());
@@ -194,7 +229,7 @@ describe("SegmentsPlayPage", () => {
       perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
       hasMore: true,
     } as never);
-    renderPage({ view: "spans", request: { profile: 2 }, returnRoute });
+    renderPage("?profile=2");
 
     expect(await screen.findByText("1 loaded")).toBeInTheDocument();
     expect(playerProps.latest?.hasMore).toBe(true);
@@ -208,7 +243,7 @@ describe("SegmentsPlayPage", () => {
       page: 1,
       perPage: SEGMENTS_PLAYBACK_PAGE_SIZE,
     } as never);
-    renderPage({ view: "raw", request: { findFilter: {} }, returnRoute });
+    renderPage("?segmentsView=raw");
     await screen.findByText("1 loaded");
 
     const item = playerProps.latest!.items[0];

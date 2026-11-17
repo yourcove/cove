@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SegmentsPage } from "../pages/SegmentsPage";
+import { buildRouteUrl } from "../router/location";
 
 const listState = vi.hoisted(() => ({ rawTotal: 5 }));
 
@@ -77,38 +78,50 @@ describe("SegmentsPage Play", () => {
     localStorage.clear();
   });
 
-  it("plays the raw results with the request the page sends, seed included", async () => {
-    window.history.replaceState({}, "", "/segments?segmentsView=raw&sort=random&seed=1357&q=kiss");
+  it("links raw playback with the list's own parameters, seed and raw ids included", async () => {
+    window.history.replaceState({}, "", "/segments?segmentsView=raw&sort=random&seed=1357&q=kiss&rawIds=4,5");
     const onNavigate = renderPage();
 
     await userEvent.click(screen.getByRole("button", { name: "Play" }));
 
-    expect(onNavigate).toHaveBeenCalledWith({
-      page: "segments-play",
-      segmentsPlayback: {
-        view: "raw",
-        request: expect.objectContaining({
-          findFilter: expect.objectContaining({ q: "kiss", sort: "random", seed: 1357 }),
-        }),
-        returnRoute: expect.objectContaining({ page: "segments", segmentsView: "raw" }),
-      },
-    });
+    const route = onNavigate.mock.calls.at(-1)?.[0];
+    expect(route).toEqual(
+      expect.objectContaining({
+        page: "segments-play",
+        segmentsView: "raw",
+        rawSegmentIds: [4, 5],
+        listFilter: expect.objectContaining({ q: "kiss", sort: "random", seed: 1357 }),
+      }),
+    );
+    expect(route.profileId).toBeUndefined();
+    const url = buildRouteUrl(route);
+    expect(url).toMatch(/^\/segments-play\?/);
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(Object.fromEntries(params)).toEqual(
+      expect.objectContaining({ q: "kiss", sort: "random", seed: "1357", segmentsView: "raw", rawIds: "4,5" }),
+    );
   });
 
-  it("plays the resolved results of the active profile", async () => {
-    window.history.replaceState({}, "", "/segments?sort=random&seed=2468");
+  it("links resolved playback with the active profile and the list's filters", async () => {
+    const filters = { videoTitleCriterion: { value: "Night", modifier: "INCLUDES" } };
+    window.history.replaceState(
+      {},
+      "",
+      `/segments?sort=random&seed=2468&filters=${encodeURIComponent(JSON.stringify(filters))}`,
+    );
     const onNavigate = renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply test profile" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Play" }));
 
-    expect(onNavigate).toHaveBeenCalledWith({
-      page: "segments-play",
-      segmentsPlayback: expect.objectContaining({
-        view: "spans",
-        request: expect.objectContaining({ profile: 33, sort: "random", seed: 2468 }),
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: "segments-play",
+        profileId: 33,
+        listFilter: expect.objectContaining({ sort: "random", seed: 2468 }),
+        listObjectFilter: filters,
       }),
-    });
+    );
   });
 
   it("offers nothing to play when the results are empty", () => {

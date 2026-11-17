@@ -62,6 +62,29 @@ describe("route history", () => {
     expect(buildRouteUrl({ page: "video", id: 42, seekTo: 91.5 })).toBe("/video/42?t=91.5");
   });
 
+  it("carries a list's multi-column sort and raw segment ids in its URL", () => {
+    const url = buildRouteUrl({
+      page: "segments-play",
+      listFilter: {
+        sort: "title",
+        direction: "asc",
+        sorts: [
+          { key: "title", direction: "asc" },
+          { key: "span_start", direction: "desc" },
+        ],
+      },
+      segmentsView: "raw",
+      rawSegmentIds: [4, 5],
+    });
+
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(url.split("?")[0]).toBe("/segments-play");
+    expect(params.get("sorts")).toBe("title:asc,span_start:desc");
+    expect(params.get("rawIds")).toBe("4,5");
+    // A single sort keeps the plain parameters.
+    expect(buildRouteUrl({ page: "segments", listFilter: { sort: "title" } })).toBe("/segments?sort=title");
+  });
+
   it.each([
     ["video", "videos"],
     ["videos", "videos"],

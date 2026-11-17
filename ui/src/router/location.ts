@@ -1,9 +1,5 @@
-import type {
-  FindFilter,
-  SegmentDerivedQueryDescriptor,
-  SegmentFilteredQueryRequest,
-  SegmentSpanSearchRequest,
-} from "../api/types";
+import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
+import { serializeSortClauses } from "../utils/sortClauses";
 import { formatCutParam, parseCutParam, type CutRange } from "../utils/videoCut";
 
 export interface Route {
@@ -29,23 +25,9 @@ export interface Route {
   listView?: string;
   segmentsView?: "spans" | "raw";
   compilationItemOrder?: string[];
-  /** The Segments page query a segment playback plays, as the page sent it; kept in history state. */
-  segmentsPlayback?: SegmentsPlaybackSource;
+  /** Raw segments a Segments list is narrowed to, from the `rawIds` parameter. */
+  rawSegmentIds?: number[];
 }
-
-/**
- * A Segments page result list to play: the exact request the page sent for its view, which the player
- * pages through by changing only the page. Spans carry the descriptor their detail links need.
- */
-export type SegmentsPlaybackSource =
-  | {
-      view: "spans";
-      request: SegmentSpanSearchRequest;
-      derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
-      /** The Segments page route the playback started from, so the player can lead back to the same results. */
-      returnRoute: Route;
-    }
-  | { view: "raw"; request: SegmentFilteredQueryRequest; returnRoute: Route };
 
 interface RouteHistoryEntry {
   url: string;
@@ -411,6 +393,10 @@ export function buildRouteUrl(route: Route): string {
       params.set(paramKey, filterKey === "perPage" && value === 0 ? "infinite" : String(value));
     }
   }
+  // A multi-column sort travels as `sorts`, the way list pages keep it in their own URL.
+  if (route.listFilter?.sorts && route.listFilter.sorts.length > 1) {
+    params.set("sorts", serializeSortClauses(route.listFilter.sorts));
+  }
   if (route.listObjectFilter !== undefined) {
     params.set("filters", JSON.stringify(route.listObjectFilter));
   }
@@ -419,6 +405,9 @@ export function buildRouteUrl(route: Route): string {
   }
   if (route.segmentsView === "raw") {
     params.set("segmentsView", "raw");
+  }
+  if (route.rawSegmentIds && route.rawSegmentIds.length > 0) {
+    params.set("rawIds", route.rawSegmentIds.join(","));
   }
   if (route.detailTab) {
     params.set("tab", route.detailTab);

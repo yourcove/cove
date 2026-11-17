@@ -829,7 +829,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       {route.page === "compilation" && route.id !== undefined && (
         <CompilationPlayerPage id={route.id} itemOrder={route.compilationItemOrder} onNavigate={navigate} />
       )}
-      {route.page === "segments-play" && <SegmentsPlayPage source={route.segmentsPlayback} onNavigate={navigate} />}
+      {route.page === "segments-play" && <SegmentsPlayPage onNavigate={navigate} />}
       {route.page === "images" && <ImagesPage onNavigate={navigate} />}
       {route.page === "image" && route.id !== undefined && <ImageDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "settings" && <SettingsPage />}
