@@ -27,23 +27,7 @@ export function spanPerson(
   const first = (span.segmentIds ?? []).map((id) => rawSegmentsById.get(id)).find((segment) => segment != null);
   const faceId = first ? rawSegmentFaceId(first) : undefined;
 
-  if (first && faceId != null) {
-    const face = facesById?.get(faceId);
-    const performerId = face?.performerId ?? first.performerId;
-    const performerName = face?.performerName?.trim() || first.performerName?.trim();
-    if (performerId != null && performerName) {
-      return { key: personNameKey(performerName), name: performerName, suggested: false, faceId };
-    }
-    // A name the face was given counts before its suggestion, as everywhere else segments are named.
-    const ownName = face ? faceStoredName({ ...face, performerId: undefined, performerName: undefined }) : undefined;
-    if (ownName) return { key: personNameKey(ownName), name: ownName, suggested: false, faceId };
-    const suggestion = face && !face.ignored && face.mergedIntoFaceId == null ? face.topSuggestion : undefined;
-    const suggestedName = suggestion?.performerName?.trim();
-    if (suggestion && suggestedName) {
-      return { key: `suggested:${suggestion.performerId}`, name: suggestedName, suggested: true, faceId };
-    }
-    return { key: `face:${faceId}`, name: "Unnamed face", suggested: false, faceId };
-  }
+  if (first && faceId != null) return facePerson(faceId, facesById?.get(faceId), first);
 
   if (first && span.tagId == null && first.kind?.toLowerCase() === "performer") {
     const name = first.performerName?.trim();
@@ -56,6 +40,59 @@ export function spanPerson(
     name: shown.name,
     suggested: shown.suggested,
   };
+}
+
+/**
+ * The person a face is: its linked performer, else the name it was given, else its suggested performer marked as
+ * suggested, else an unnamed face of its own. A face segment can stand in for the face's performer while the face
+ * itself has not loaded.
+ */
+export function facePerson(
+  faceId: number,
+  face: Face | undefined,
+  segment?: Pick<Segment, "performerId" | "performerName">,
+): SegmentPerson {
+  const performerId = face?.performerId ?? segment?.performerId;
+  const performerName = face?.performerName?.trim() || segment?.performerName?.trim();
+  if (performerId != null && performerName) {
+    return { key: personNameKey(performerName), name: performerName, suggested: false, faceId };
+  }
+  // A name the face was given counts before its suggestion, as everywhere else segments are named.
+  const ownName = face ? faceStoredName({ ...face, performerId: undefined, performerName: undefined }) : undefined;
+  if (ownName) return { key: personNameKey(ownName), name: ownName, suggested: false, faceId };
+  const suggestion = face && !face.ignored && face.mergedIntoFaceId == null ? face.topSuggestion : undefined;
+  const suggestedName = suggestion?.performerName?.trim();
+  if (suggestion && suggestedName) {
+    return { key: `suggested:${suggestion.performerId}`, name: suggestedName, suggested: true, faceId };
+  }
+  return { key: `face:${faceId}`, name: "Unnamed face", suggested: false, faceId };
+}
+
+// Muted colours that read on the dark timeline and as small dots beside the Segments tab's groups.
+const PERSON_COLORS = ["#4d8569", "#5a7ca5", "#a07a3f", "#93658a", "#7d8842", "#4a807b", "#7963a1", "#a35d4e"];
+
+/**
+ * A colour for each person in a video, the same on the timeline's face lanes and in the Segments tab. People get
+ * different colours in a fixed order, so two people only share one when a video has more people than colours.
+ */
+export function assignPersonColors(personKeys: Iterable<string>): ReadonlyMap<string, string> {
+  const keys = Array.from(new Set(personKeys)).sort();
+  return new Map(keys.map((key, index) => [key, PERSON_COLORS[index % PERSON_COLORS.length]] as const));
+}
+
+/** The people a video's face segments and face detections show, for colouring them. */
+export function videoPersonKeys(
+  spans: Pick<ResolvedSpan, "tagId" | "tagName" | "kind" | "sourceKey" | "segmentIds">[],
+  rawSegmentsById: ReadonlyMap<number, Segment>,
+  facesById: ReadonlyMap<number, Face>,
+): string[] {
+  const keys: string[] = [];
+  for (const span of spans) {
+    const person = spanPerson(span, rawSegmentsById, facesById);
+    if (person.faceId != null) keys.push(person.key);
+  }
+  for (const [faceId, face] of facesById) keys.push(facePerson(faceId, face).key);
+  return keys;
 }
 
 // A linked performer, a face carrying the same name and a performer segment are one person, so the name is the key

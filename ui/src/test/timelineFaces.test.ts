@@ -60,7 +60,12 @@ describe("timeline face lanes", () => {
       [10, 18],
       [40, 45],
     ]);
-    expect(items[0]).toMatchObject({ label: "Suggested Person", suggested: true, colorSeed: "31" });
+    expect(items[0]).toMatchObject({ label: "Suggested Person", suggested: true });
+  });
+
+  it("colour each bar as its person's group in the Segments tab, and name it after the person", () => {
+    const items = build({ personColors: new Map([["suggested:40", "#123456"]]) });
+    expect(items.map((item) => item.colorHint)).toEqual(["#123456", "#123456"]);
   });
 
   it("stand in with detection runs only for faces that have no face segments", () => {

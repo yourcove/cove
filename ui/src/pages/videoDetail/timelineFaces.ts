@@ -1,5 +1,6 @@
 import type { Detection, Face, ResolvedSpan, Segment } from "../../api/types";
-import { resolveSpanName, segmentFaceName, type ShownName } from "../segments/segmentDisplayUtils";
+import type { ShownName } from "../segments/segmentDisplayUtils";
+import { facePerson, spanPerson } from "./segmentPeople";
 
 /** A bar on the video page's timeline overlays. */
 export type TimelineOverlayItem = {
@@ -60,6 +61,7 @@ export function buildFaceTimelineItems({
   facesById,
   includeFace,
   filterActive,
+  personColors,
 }: {
   spans: Pick<
     ResolvedSpan,
@@ -73,6 +75,8 @@ export function buildFaceTimelineItems({
   includeFace: (faceId: number, performerId?: number | null) => boolean;
   /** A filter is applied, so face segments whose face is unknown are left out. */
   filterActive: boolean;
+  /** Each person's colour, shared with the Segments tab's groups. */
+  personColors?: ReadonlyMap<string, string>;
 }): TimelineOverlayItem[] {
   const items: TimelineOverlayItem[] = [];
   const segmentFaceIds = new Set<number>();
@@ -87,12 +91,14 @@ export function buildFaceTimelineItems({
     const face = faceId == null ? undefined : facesById.get(faceId);
     if (faceId != null && !includeFace(faceId, face?.performerId)) continue;
     if (faceId == null && filterActive) continue;
+    // A face bar carries the person it shows, in the colour of the person's group in the Segments tab.
+    const person = spanPerson(span, rawSegmentsById, facesById);
     items.push({
       key: `face-span-${span.spanKey}`,
       startSec: span.startSec,
       endSec: Math.max(span.endSec, span.startSec + 0.4),
-      ...timelineName(resolveSpanName(span, rawSegmentsById, facesById)),
-      colorSeed: faceId != null ? String(faceId) : span.spanKey,
+      ...timelineName(person),
+      colorHint: personColors?.get(person.key),
     });
   }
 
@@ -109,8 +115,7 @@ export function buildFaceTimelineItems({
 
   for (const [faceId, times] of buckets.entries()) {
     times.sort((left, right) => left - right);
-    const face = facesById.get(faceId);
-    const shown = (face ? segmentFaceName(face) : undefined) ?? { name: `Face #${faceId}`, suggested: false };
+    const person = facePerson(faceId, facesById.get(faceId));
     let windowStart = times[0];
     let windowEnd = times[0];
     let runIndex = 0;
@@ -119,8 +124,8 @@ export function buildFaceTimelineItems({
         key: `face-${faceId}-${runIndex++}`,
         startSec: windowStart,
         endSec: Math.max(windowEnd, windowStart + 0.4),
-        ...timelineName(shown),
-        colorSeed: String(faceId),
+        ...timelineName(person),
+        colorHint: personColors?.get(person.key),
       });
     };
     for (let index = 1; index < times.length; index++) {

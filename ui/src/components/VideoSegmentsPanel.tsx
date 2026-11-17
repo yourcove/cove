@@ -42,6 +42,8 @@ interface Props {
   rawSegments: Segment[];
   /** The video's faces by id, which name face segments the way every other view does. */
   facesById?: ReadonlyMap<number, Face>;
+  /** Each person's colour, shared with the timeline's face lanes. */
+  personColors?: ReadonlyMap<string, string>;
   loading: boolean;
   profiles: SegmentDisplayProfile[];
   currentProfileId?: number;
@@ -69,6 +71,7 @@ export function VideoSegmentsPanel({
   spans,
   rawSegments,
   facesById,
+  personColors,
   loading,
   profiles,
   currentProfileId,
@@ -522,6 +525,7 @@ export function VideoSegmentsPanel({
             onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
           }
           onOpenFace={(faceId) => onNavigate({ page: "face", id: faceId })}
+          personColors={personColors}
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -733,6 +737,7 @@ function GroupedList({
   onDelete,
   onOpen,
   onOpenFace,
+  personColors,
 }: {
   spans: ResolvedSpan[];
   rawSegmentsById: Map<number, Segment>;
@@ -745,6 +750,7 @@ function GroupedList({
   onDelete: (span: ResolvedSpan) => void;
   onOpen: (span: ResolvedSpan) => void;
   onOpenFace: (faceId: number) => void;
+  personColors?: ReadonlyMap<string, string>;
 }) {
   const { groups, faceIdBySpanKey } = useMemo(() => {
     const byKey = new Map<string, PersonGroup & { facesById: Map<number, PersonFace> }>();
@@ -817,6 +823,14 @@ function GroupedList({
                 ) : (
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
                 )}
+                {personColors?.get(group.key) ? (
+                  // The colour of the person's bars on the timeline's face lanes.
+                  <span
+                    aria-hidden
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: personColors.get(group.key) }}
+                  />
+                ) : null}
                 <span className="truncate text-sm font-medium text-foreground">{group.name}</span>
                 {group.suggested ? (
                   <>

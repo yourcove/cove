@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Face, ResolvedSpan, Segment } from "../api/types";
-import { spanPerson } from "../pages/videoDetail/segmentPeople";
+import { assignPersonColors, spanPerson } from "../pages/videoDetail/segmentPeople";
 
 function raw(id: number, overrides: Partial<Segment> = {}): Segment {
   return {
@@ -61,5 +61,14 @@ describe("grouping a video's segments by person", () => {
       [],
     );
     expect(fromPerformer.key).toBe(fromFace.key);
+  });
+});
+
+describe("person colours", () => {
+  it("give each person in a video a different colour, the same for the same person", () => {
+    const colors = assignPersonColors(["name:b", "name:a", "suggested:1", "name:a"]);
+    expect(colors.size).toBe(3);
+    expect(new Set(colors.values()).size).toBe(3);
+    expect(assignPersonColors(["name:a", "name:b", "suggested:1"]).get("name:a")).toBe(colors.get("name:a"));
   });
 });

@@ -125,6 +125,7 @@ import {
   timelineName,
   type TimelineOverlayItem,
 } from "./videoDetail/timelineFaces";
+import { assignPersonColors, videoPersonKeys } from "./videoDetail/segmentPeople";
 import {
   PerformerContextTagList,
   applyPerformerContextTagEdits,
@@ -724,6 +725,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
 
   // Shared segment filter context — drives both the segments sidebar and the player swimlanes.
   const segmentRawById = useMemo(() => new Map(segments.map((segment) => [segment.id, segment])), [segments]);
+  // One colour per person in the video, shared by the timeline's face lanes and the Segments tab's groups.
+  const personColors = useMemo(
+    () => assignPersonColors(videoPersonKeys(resolvedSpansResponse?.spans ?? [], segmentRawById, facesById)),
+    [resolvedSpansResponse, segmentRawById, facesById],
+  );
   // When a tag-group filter is active, fetch that group's member tags so segments tagged within
   // the group resolve to it (segments carry a tag id, not a group id).
   const selectedTagGroupIds = segmentFilter.tagGroupIds;
@@ -1231,6 +1237,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         spans={resolvedSpans}
         rawSegments={segments}
         facesById={facesById}
+        personColors={personColors}
         loading={resolvedSpansLoading || segmentsLoading}
         profiles={displayProfiles}
         currentProfileId={activeProfileId}
@@ -1411,6 +1418,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
           rawSegments={segments}
           detections={detections}
           facesById={facesById}
+          personColors={personColors}
           onSeek={(time) => seekRef.current?.(time)}
           currentTime={videoTime}
           profileName={activeProfileName}
@@ -2524,6 +2532,7 @@ function VideoScrubber({
   rawSegments,
   detections,
   facesById,
+  personColors,
   onSeek,
   currentTime,
   profileName,
@@ -2541,6 +2550,8 @@ function VideoScrubber({
   detections: Pick<Detection, "id" | "observedAtSec" | "class" | "score" | "refKind" | "refId">[];
   /** The video's faces by id, which name face segments and detections. */
   facesById: ReadonlyMap<number, Face>;
+  /** Each person's colour, shared with the Segments tab's groups. */
+  personColors: ReadonlyMap<string, string>;
   onSeek?: (time: number) => void;
   currentTime?: number;
   profileName?: string;
@@ -2626,6 +2637,7 @@ function VideoScrubber({
       facesById,
       includeFace: faceFilterPredicate,
       filterActive,
+      personColors,
     });
     return buildTimelineLanes(items);
   }, [
@@ -2637,6 +2649,7 @@ function VideoScrubber({
     effectiveFacesEnabled,
     faceFilterPredicate,
     filterActive,
+    personColors,
   ]);
   // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
   const visibleDetections = useMemo(
