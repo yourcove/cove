@@ -760,7 +760,8 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
   const tabs = filterItemsByPermission(
     [
       { key: "details", label: "Details" },
-      { key: "segments", label: `Segments${segments.length ? ` (${segments.length})` : ""}` },
+      // The tab lists the segments of the chosen display profile, so it counts those rather than the raw segments.
+      { key: "segments", label: `Segments${resolvedSpans.length ? ` (${resolvedSpans.length})` : ""}` },
       ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
       ...(hasAudioSimilarity
         ? [{ key: "audio-similar", label: "Audio Similar", icon: <Volume2 className="h-4 w-4" /> }]
