@@ -117,6 +117,10 @@ describe("job cache invalidation", () => {
     expect(isContentQueryKey(["jobs-history"])).toBe(false);
   });
 
+  it("leaves a playing segment list alone, so a finished job cannot swap the item under the playhead", () => {
+    expect(isContentQueryKey(["segments-play", { view: "spans" }])).toBe(false);
+  });
+
   it("does not invalidate content for jobs that ended before the drawer loaded history", async () => {
     const earlier = job("completed", "earlier");
     const later = job("failed", "later");

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Loader2, Trash2 } from "lucide-react";
+import { FolderOpen, Loader2, Play, Trash2 } from "lucide-react";
 import { faces, videos, segmentDisplayProfiles, segmentLibrary, segmentSpans } from "../api/client";
 import type { FindFilter, SegmentDisplayProfile } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -43,10 +43,15 @@ import {
 } from "./segments/segmentDisplayUtils";
 import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
-import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
+import {
+  buildSpanSearchRequest,
+  toDerivedSpanItem,
+  useDerivedSpansQuery,
+  useDerivedSpansCountQuery,
+} from "./segments/useDerivedSpansQuery";
 import { buildSegmentFilteredQuery, useRawSegmentsQuery } from "./segments/useRawSegmentsQuery";
 import type { DerivedSpanItem, RawSegmentItem, SegmentsPageContentView } from "./segments/types";
-import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
+import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl, parseCurrentRoute } from "../router/location";
 import { getLoadError } from "../utils/queryLoadState";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 
@@ -436,92 +441,28 @@ export function SegmentsPage({ onNavigate }: Props) {
         return { items: [], totalCount: 0, page, perPage: pageSize };
       }
 
-      const response = await segmentSpans.search({
-        profile: activeProfileId,
-        derivedQuery:
-          appliedQuery != null
-            ? {
-                operator: appliedQuery.operator,
-                operands: appliedQuery.operands,
-                mergeGapSec: appliedQuery.mergeGapSec,
-                minDurationSec: appliedQuery.minDurationSec,
-              }
-            : undefined,
-        page,
+      const request = buildSpanSearchRequest({
+        activeProfileId,
+        pageNumber: page,
         perPage: pageSize,
+        q,
+        videoTitle,
+        videoTagIds,
+        videoTagDepth,
         sort,
         direction,
         seed,
-        q: q || undefined,
-        videoTitle: videoTitle || undefined,
-        videoTagIds: videoTagIds.length > 0 ? videoTagIds : undefined,
-        videoTagDepth,
-        videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
-        excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds : undefined,
-        tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds : undefined,
-        tagDepth: combinedRawSegmentFilter.tagDepth,
-        kind: combinedRawSegmentFilter.kind,
-        sourceKey: combinedRawSegmentFilter.sourceKey,
-        sourceCategory: combinedRawSegmentFilter.sourceCategory,
-        title: combinedRawSegmentFilter.titleCriterion?.value,
-        titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
-        hostType: combinedRawSegmentFilter.hostType,
-        sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
-        sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
-        colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
-        colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
-        hasImage: combinedRawSegmentFilter.hasImage,
-        hasPayload: combinedRawSegmentFilter.hasPayload,
-        startSec: combinedRawSegmentFilter.startSecCriterion?.value,
-        startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
-        startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
-        endSec: combinedRawSegmentFilter.endSecCriterion?.value,
-        endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
-        endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
-        createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
-        createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
-        createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
-        updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
-        updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
-        updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
-        refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds : undefined,
-        performerIds:
-          combinedRawSegmentFilter.performerIds.length > 0 ? combinedRawSegmentFilter.performerIds : undefined,
-        confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
-        confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
-        confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
-        durationSec: combinedRawSegmentFilter.durationCriterion?.value,
-        durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
-        durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
+        includeVideoIds: videoSelection.includeIds,
+        excludeVideoIds: videoSelection.excludeIds,
+        appliedQuery,
+        rawFilter: combinedRawSegmentFilter,
       });
+      const response = await segmentSpans.search(request);
 
       return {
         // Carried on the page so the notice belongs to the data shown, whichever query it came from.
         pendingVideoCount: response.pendingVideoCount ?? 0,
-        items: response.items.map<DerivedSpanItem>((item) => ({
-          id: `${item.videoId}:${item.span.spanKey}`,
-          key: `${item.videoId}:${item.span.spanKey}`,
-          kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
-          videoId: item.videoId,
-          videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
-          videoUpdatedAt: item.videoUpdatedAt,
-          coverSegmentId: item.coverSegmentId,
-          coverVersion: item.coverVersion,
-          span: item.span,
-          reference: item.reference,
-          confidence: item.confidence,
-          profileId: item.profileId,
-          derivedQuery:
-            appliedQuery != null
-              ? {
-                  operator: appliedQuery.operator,
-                  operands: appliedQuery.operands,
-                  mergeGapSec: appliedQuery.mergeGapSec,
-                  minDurationSec: appliedQuery.minDurationSec,
-                }
-              : undefined,
-          derivedQueryDescriptor,
-        })),
+        items: response.items.map((item) => toDerivedSpanItem(item, request.derivedQuery, derivedQueryDescriptor)),
         // The search endpoint reports totalCount=-1 when it served the page via early termination. Map it
         // to a value that lets the infinite loader's getNextPageParam continue iff there's more (the exact
         // total for display comes from the separate cached count query).
@@ -983,6 +924,48 @@ export function SegmentsPage({ onNavigate }: Props) {
     }
   }, [filter, setFilter, sortOptions]);
 
+  // Plays the current results in their listed order: the player pages through the very request this
+  // page sends, so filters, the derived query, the sort and its seed all carry over.
+  const canPlay = !isLoading && totalCount !== 0 && (isRawView || (derivedQueryEnabled && activeProfileId != null));
+  const handlePlay = () => {
+    const returnRoute = parseCurrentRoute();
+    const listInputs = {
+      pageNumber: 1,
+      perPage,
+      q,
+      videoTitle,
+      videoTagIds,
+      videoTagDepth,
+      sort,
+      direction,
+      seed,
+      includeVideoIds: videoSelection.includeIds,
+      excludeVideoIds: videoSelection.excludeIds,
+      rawFilter: combinedRawSegmentFilter,
+    };
+    if (isRawView) {
+      onNavigate({
+        page: "segments-play",
+        segmentsPlayback: {
+          view: "raw",
+          request: buildSegmentFilteredQuery({ ...listInputs, rawSegmentIds }),
+          returnRoute,
+        },
+      });
+      return;
+    }
+    if (activeProfileId == null) return;
+    onNavigate({
+      page: "segments-play",
+      segmentsPlayback: {
+        view: "spans",
+        request: buildSpanSearchRequest({ ...listInputs, activeProfileId, appliedQuery }),
+        derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
+        returnRoute,
+      },
+    });
+  };
+
   return (
     <>
       <AddToGroupDialog
@@ -1068,6 +1051,16 @@ export function SegmentsPage({ onNavigate }: Props) {
         summaryLoading={isRawView ? rawAggregateQuery.isLoading : false}
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePlay}
+              disabled={!canPlay}
+              title="Play these results in order"
+              aria-label="Play"
+              className="inline-flex items-center rounded-lg border border-border bg-card/70 p-2 text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Play className="h-4 w-4" aria-hidden="true" />
+            </button>
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">
               <button
                 type="button"

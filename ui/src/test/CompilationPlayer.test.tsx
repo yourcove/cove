@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompilationPlayer } from "../components/CompilationPlayer";
 
@@ -410,7 +410,9 @@ describe("CompilationPlayer", () => {
     );
 
     await screen.findByTestId("compilation-video-player");
-    expect(screen.getByRole("button", { name: /^1\. Facial\s*Segment\s*Source Video · 1:05 - 1:15$/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^1\. Facial\s*Segment\s*Source Video · 1:05 - 1:15$/ }),
+    ).toBeInTheDocument();
 
     const segmentLink = screen.getByRole("link", { name: "Open segment Facial" });
     expect(segmentLink).toHaveAttribute("href", "/segment/101");
@@ -431,5 +433,113 @@ describe("CompilationPlayer", () => {
     fireEvent.click(screen.getAllByRole("tab", { name: "Current" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Open video" }));
     expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 14, seekTo: 65 });
+  });
+
+  it("plays an ad hoc list without a group, linking items to their own detail page", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({
+      id,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    }));
+    const onNavigate = vi.fn();
+    const onNearEnd = vi.fn();
+    const spanRoute = { page: "video-span", id: 14, spanKey: "span-1", profileId: 2 };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupName="Segments"
+          sourceKey="segments:test"
+          returnTarget={{ route: { page: "segments" }, label: "Back to Segments" }}
+          totalCount={250}
+          onNearEnd={onNearEnd}
+          items={[
+            {
+              groupItemId: 1,
+              hostType: "segment",
+              hostId: 14,
+              videoId: 14,
+              videoTitle: "Source Video",
+              title: "Facial",
+              src: "/video-14.mp4",
+              startSec: 65,
+              endSec: 75,
+              hasVideoTrack: false,
+              detailRoute: spanRoute,
+            },
+          ]}
+          onNavigate={onNavigate}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByTestId("compilation-video-player");
+    expect(screen.getByText("1/250 items")).toBeInTheDocument();
+    // Plays of an ad hoc list are not attributed to any group.
+    expect(videoPlayerMock).toHaveBeenLastCalledWith(expect.objectContaining({ playbackTracking: undefined }));
+    // Within a few items of the loaded end, the player asks for more.
+    expect(onNearEnd).toHaveBeenCalled();
+
+    expect(screen.getByRole("link", { name: "Open segment Facial" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/video\/14\/span\/span-1/),
+    );
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Current" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Open item" }));
+    expect(onNavigate).toHaveBeenLastCalledWith(spanRoute);
+    fireEvent.click(screen.getByRole("button", { name: "Back to Segments" }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ page: "segments" });
+    expect(screen.queryByRole("button", { name: "Back to group" })).not.toBeInTheDocument();
+  });
+
+  it("waits at the end of the loaded items for more instead of stopping or looping back", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({
+      id,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    }));
+    const segment = (index: number) => ({
+      groupItemId: index,
+      hostType: "segment",
+      hostId: 100 + index,
+      segmentId: 100 + index,
+      videoId: 20 + index,
+      title: `Clip ${index}`,
+      src: `/video-${20 + index}.mp4`,
+      startSec: 5,
+      endSec: 15,
+      hasVideoTrack: false,
+    });
+    const onNearEnd = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const renderList = (items: ReturnType<typeof segment>[], hasMore: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupName="Segments"
+          sourceKey="segments:test"
+          items={items}
+          hasMore={hasMore}
+          onNearEnd={onNearEnd}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(renderList([segment(1)], true));
+
+    expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-video-id", "21");
+    // The total is unknown, so the counts say there is more rather than claiming the list is complete.
+    expect(screen.getByText("1/1+ items")).toBeInTheDocument();
+    expect(screen.getByText("Now playing 1/1+")).toBeInTheDocument();
+
+    // Looping is on, but the end of the loaded items is not the end of the list.
+    fireEvent.click(screen.getByRole("button", { name: "Loop compilation" }));
+    const next = screen.getByRole("button", { name: "Next item" });
+    expect(next).toBeEnabled();
+    fireEvent.click(next);
+    expect(onNearEnd).toHaveBeenCalled();
+    expect(screen.getByTestId("compilation-video-player")).toHaveAttribute("data-video-id", "21");
+
+    rerender(renderList([segment(1), segment(2)], false));
+    await waitFor(() => expect(screen.getByTestId("compilation-video-player")).toHaveAttribute("data-video-id", "22"));
+    expect(screen.getByText("2/2 items")).toBeInTheDocument();
   });
 });

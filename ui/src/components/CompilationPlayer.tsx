@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { audios, images, videos, texts } from "../api/client";
 import type { GroupPlaybackManifestItem } from "../api/types";
+import type { Route } from "../router/location";
+import type { PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { AudioPlayer } from "./AudioPlayer";
 import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
@@ -26,10 +28,28 @@ import { createRouteLinkProps } from "./cardNavigation";
 import { useAppConfig } from "../state/AppConfigContext";
 import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
 
+/** A playable item; `detailRoute` replaces the segment link for items that are not stored segments, such as spans. */
+export type CompilationPlayerItem = GroupPlaybackManifestItem & { detailRoute?: Route };
+
 interface Props {
-  groupId: number;
+  /** The group being played. Without one the player plays an ad hoc list, untracked against any group. */
+  groupId?: number;
   groupName: string;
-  items: GroupPlaybackManifestItem[];
+  items: CompilationPlayerItem[];
+  /** Identifies the list for per-list player state; defaults to the group. */
+  sourceKey?: string;
+  /** Where the Current tab's return button leads; defaults to the group. */
+  returnTarget?: { route: Route; label: string };
+  /** The full list length when `items` is only the part loaded so far. */
+  totalCount?: number;
+  /** More items follow the loaded ones; reaching the end then waits for them instead of stopping or looping. */
+  hasMore?: boolean;
+  /** Asked for more items when playback nears the end of the loaded ones. */
+  onNearEnd?: () => void;
+  /** Tracking for plays of an ad hoc list, which has no group to attribute them to. */
+  getPlaybackTracking?: (item: CompilationPlayerItem) => PlaybackTrackingTarget;
+  /** Shown above the playback controls, e.g. when more items failed to load. */
+  notice?: ReactNode;
   onNavigate: (r: any) => void;
   embedded?: boolean;
   backLabel?: string;
@@ -43,11 +63,19 @@ type TypeFilterKey = "videos" | "segments" | "images" | "texts" | "audios";
 
 const DEFAULT_IMAGE_DISPLAY_DURATION_SEC = 6;
 const DEFAULT_TEXT_DISPLAY_DURATION_SEC = 12;
+const NEAR_END_ITEM_COUNT = 5;
 
 export function CompilationPlayer({
   groupId,
   groupName,
   items,
+  sourceKey,
+  returnTarget,
+  totalCount,
+  hasMore = false,
+  onNearEnd,
+  getPlaybackTracking,
+  notice,
   onNavigate,
   embedded = false,
   backLabel,
@@ -59,10 +87,15 @@ export function CompilationPlayer({
   const playbackIntentSetRef = useRef(false);
   const playbackActiveRef = useRef(automaticPlayback);
   // Moving to the next item with autoplay hides its poster so the transition does not flash it. The
-  // choice belongs to the group it was made in, so opening another group shows posters again.
-  const [transitionPosterState, setTransitionPosterState] = useState({ groupId, suppressed: false });
-  const transitionPosterSuppressed = transitionPosterState.groupId === groupId && transitionPosterState.suppressed;
+  // choice belongs to the list it was made in, so opening another group or list shows posters again.
+  const scopeKey = sourceKey ?? `group:${groupId}`;
+  const returnRoute =
+    returnTarget ?? (groupId != null ? { route: { page: "group", id: groupId }, label: "Back to group" } : undefined);
+  const [transitionPosterState, setTransitionPosterState] = useState({ scopeKey, suppressed: false });
+  const transitionPosterSuppressed = transitionPosterState.scopeKey === scopeKey && transitionPosterState.suppressed;
   const seekRef = useRef<((time: number) => void) | null>(null);
+  // Set when playback reached the end of the loaded items while more were still to come.
+  const pendingAdvanceRef = useRef(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
   const [autostart, setAutostart] = useState(automaticPlayback);
@@ -205,13 +238,15 @@ export function CompilationPlayer({
 
   const moveToItem = useCallback(
     (nextIndex: number, shouldAutoPlay = false) => {
+      // Choosing an item replaces any wait for the next page.
+      pendingAdvanceRef.current = false;
       if (visibleItems.length === 0) {
         return;
       }
 
       const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
       if (boundedIndex === currentItemIndex) return;
-      setTransitionPosterState({ groupId, suppressed: shouldAutoPlay });
+      setTransitionPosterState({ scopeKey, suppressed: shouldAutoPlay });
       if (!shouldAutoPlay) playbackIntentSetRef.current = true;
       if (shouldAutoPlay) {
         playbackActiveRef.current = true;
@@ -223,8 +258,15 @@ export function CompilationPlayer({
       }
       setCurrentItemIndex(boundedIndex);
     },
-    [currentItemIndex, groupId, visibleItems.length],
+    [currentItemIndex, scopeKey, visibleItems.length],
   );
+
+  // A partly loaded list asks for more while a few items are still ahead, so playback never runs dry.
+  useEffect(() => {
+    if (onNearEnd && visibleItems.length > 0 && currentItemIndex >= visibleItems.length - NEAR_END_ITEM_COUNT) {
+      onNearEnd();
+    }
+  }, [currentItemIndex, onNearEnd, visibleItems.length]);
 
   const advanceToNextItem = useCallback(() => {
     if (currentItemIndex + 1 < visibleItems.length) {
@@ -232,10 +274,23 @@ export function CompilationPlayer({
       return;
     }
 
+    // The end of the loaded items is not the end of the list: wait for the next page, then carry on.
+    if (hasMore) {
+      pendingAdvanceRef.current = true;
+      onNearEnd?.();
+      return;
+    }
+
     if (loopCompilation && visibleItems.length > 0) {
       moveToItem(0, true);
     }
-  }, [currentItemIndex, loopCompilation, moveToItem, visibleItems.length]);
+  }, [currentItemIndex, hasMore, loopCompilation, moveToItem, onNearEnd, visibleItems.length]);
+
+  useEffect(() => {
+    if (!pendingAdvanceRef.current || currentItemIndex + 1 >= visibleItems.length) return;
+    pendingAdvanceRef.current = false;
+    moveToItem(currentItemIndex + 1, true);
+  }, [currentItemIndex, moveToItem, visibleItems.length]);
 
   useEffect(() => {
     if (!autostart || !item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
@@ -255,6 +310,10 @@ export function CompilationPlayer({
       return;
     }
 
+    if (item.detailRoute) {
+      onNavigate(item.detailRoute);
+      return;
+    }
     if (item.segmentId != null) {
       onNavigate({ page: "segment", id: item.segmentId });
       return;
@@ -291,32 +350,44 @@ export function CompilationPlayer({
   );
 
   const currentTitle = item ? getItemTitle(item) : "No playable item";
+  // A list whose total is unknown says how many it has so far; one with a known total shows that total
+  // wherever every loaded item is shown.
+  const listTotalLabel = totalCount != null ? String(totalCount) : hasMore ? `${items.length}+` : String(items.length);
+  const playingTotalLabel = !hasMore
+    ? String(visibleItems.length)
+    : totalCount != null && visibleItems.length === items.length
+      ? String(totalCount)
+      : `${visibleItems.length}+`;
   // A segment also opens on its source video, at the segment's start, beside opening the segment itself.
   const currentSegmentVideoRoute = item ? (getSegmentItemLinks(item)?.video ?? null) : null;
-  const currentPlaybackTracking = item
-    ? {
-        hostType: "group",
-        hostId: groupId,
-        surface: "compilation",
-        scopeKey: `group:${groupId}`,
-        parentHostType: "group",
-        parentHostId: groupId,
-        itemHostType: item.hostType,
-        itemHostId: item.hostId,
-        groupItemId: item.groupItemId,
-        segmentId: item.segmentId ?? undefined,
-        clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
-        clipEndSec: itemIsVideo ? videoItemEnd : (item.endSec ?? null),
-        context: {
-          videoId: item.videoId ?? undefined,
-          audioId: item.audioId ?? undefined,
-          imageId: item.imageId ?? undefined,
-          textId: item.textId ?? undefined,
-          segmentId: item.segmentId ?? undefined,
-          itemIndex: currentItemIndex,
-        },
-      }
-    : undefined;
+  // Plays of an ad hoc list belong to no group, so the video player tracks them as plain video plays.
+  const currentPlaybackTracking: PlaybackTrackingTarget | undefined =
+    item && groupId == null
+      ? getPlaybackTracking?.(item)
+      : item && groupId != null
+        ? {
+            hostType: "group",
+            hostId: groupId,
+            surface: "compilation",
+            scopeKey: `group:${groupId}`,
+            parentHostType: "group",
+            parentHostId: groupId,
+            itemHostType: item.hostType,
+            itemHostId: item.hostId,
+            groupItemId: item.groupItemId,
+            segmentId: item.segmentId ?? undefined,
+            clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
+            clipEndSec: itemIsVideo ? videoItemEnd : (item.endSec ?? null),
+            context: {
+              videoId: item.videoId ?? undefined,
+              audioId: item.audioId ?? undefined,
+              imageId: item.imageId ?? undefined,
+              textId: item.textId ?? undefined,
+              segmentId: item.segmentId ?? undefined,
+              itemIndex: currentItemIndex,
+            },
+          }
+        : undefined;
   const playerMedia = (
     <div className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
       {renderPreloads(nextVideoId, nextAudioId, nextImageId)}
@@ -340,7 +411,7 @@ export function CompilationPlayer({
             resumeTime={videoItemStart}
             videoId={currentVideoId}
             extensionSurface="compilation"
-            interactionResetKey={`group:${groupId}:item:${item.groupItemId}`}
+            interactionResetKey={`${scopeKey}:item:${item.groupItemId}`}
             detections={[]}
             captions={currentFile.captions}
             onPlay={() => {
@@ -449,8 +520,10 @@ export function CompilationPlayer({
       <IconButton
         label="Next item"
         title="Next item"
-        onClick={() => moveToItem(currentItemIndex + 1, true)}
-        disabled={!item || (currentItemIndex >= visibleItems.length - 1 && !loopCompilation)}
+        onClick={() =>
+          currentItemIndex + 1 < visibleItems.length ? moveToItem(currentItemIndex + 1, true) : advanceToNextItem()
+        }
+        disabled={!item || (currentItemIndex >= visibleItems.length - 1 && !loopCompilation && !hasMore)}
         icon={<SkipForward className="h-4 w-4" />}
       />
       <IconButton
@@ -465,6 +538,7 @@ export function CompilationPlayer({
 
   const sidebarContent = (
     <div className="space-y-4">
+      {notice}
       {playbackControls}
       {activeTab === "playlist" ? (
         <div className="space-y-2">
@@ -572,13 +646,15 @@ export function CompilationPlayer({
                 Open video
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => onNavigate({ page: "group", id: groupId })}
-              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
-            >
-              Back to group
-            </button>
+            {returnRoute ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(returnRoute.route)}
+                className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+              >
+                {returnRoute.label}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -648,11 +724,11 @@ export function CompilationPlayer({
         subtitle={
           <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
             <span>
-              {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+              {visibleItems.length}/{listTotalLabel} item{listTotalLabel === "1" ? "" : "s"}
             </span>
             {item ? (
               <span>
-                Now playing {currentItemIndex + 1}/{visibleItems.length}
+                Now playing {currentItemIndex + 1}/{playingTotalLabel}
               </span>
             ) : null}
             {clipDuration > 0 ? <span>{formatTime(clipDuration)}</span> : null}
@@ -683,11 +759,11 @@ export function CompilationPlayer({
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-secondary">
           <span className="rounded-full border border-border bg-surface px-2 py-1">
-            {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+            {visibleItems.length}/{listTotalLabel} item{listTotalLabel === "1" ? "" : "s"}
           </span>
           {item ? (
             <span className="rounded-full border border-border bg-surface px-2 py-1">
-              Now playing {currentItemIndex + 1}/{visibleItems.length}
+              Now playing {currentItemIndex + 1}/{playingTotalLabel}
             </span>
           ) : null}
         </div>
@@ -927,13 +1003,15 @@ function getItemSubtitle(item: GroupPlaybackManifestItem) {
 }
 
 /** Links for a segment item: the segment itself and, for video-hosted segments, the video at its start. */
-export function getSegmentItemLinks(item: GroupPlaybackManifestItem) {
-  if (item.segmentId == null) return null;
+export function getSegmentItemLinks(item: CompilationPlayerItem): { segment: Route; video: Route | null } | null {
   // The segment page shows video-hosted segments only, so audio- and image-hosted ones get no links.
   const videoId = getVideoId(item);
   if (videoId == null) return null;
+  const segmentRoute: Route | null =
+    item.detailRoute ?? (item.segmentId != null ? { page: "segment", id: item.segmentId } : null);
+  if (!segmentRoute) return null;
   return {
-    segment: { page: "segment" as const, id: item.segmentId },
+    segment: segmentRoute,
     video:
       videoId != null
         ? item.startSec > 0

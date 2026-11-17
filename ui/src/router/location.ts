@@ -1,4 +1,9 @@
-import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
+import type {
+  FindFilter,
+  SegmentDerivedQueryDescriptor,
+  SegmentFilteredQueryRequest,
+  SegmentSpanSearchRequest,
+} from "../api/types";
 import { formatCutParam, parseCutParam, type CutRange } from "../utils/videoCut";
 
 export interface Route {
@@ -24,7 +29,23 @@ export interface Route {
   listView?: string;
   segmentsView?: "spans" | "raw";
   compilationItemOrder?: string[];
+  /** The Segments page query a segment playback plays, as the page sent it; kept in history state. */
+  segmentsPlayback?: SegmentsPlaybackSource;
 }
+
+/**
+ * A Segments page result list to play: the exact request the page sent for its view, which the player
+ * pages through by changing only the page. Spans carry the descriptor their detail links need.
+ */
+export type SegmentsPlaybackSource =
+  | {
+      view: "spans";
+      request: SegmentSpanSearchRequest;
+      derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
+      /** The Segments page route the playback started from, so the player can lead back to the same results. */
+      returnRoute: Route;
+    }
+  | { view: "raw"; request: SegmentFilteredQueryRequest; returnRoute: Route };
 
 interface RouteHistoryEntry {
   url: string;
@@ -637,6 +658,8 @@ export function getRouteLabel(route: Route): string {
       return "Groups";
     case "compilation":
       return "Compilation";
+    case "segments-play":
+      return "Segment playback";
     case "performer":
       return "Performer";
     case "performers":

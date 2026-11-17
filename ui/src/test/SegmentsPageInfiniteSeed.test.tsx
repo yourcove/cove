@@ -52,7 +52,8 @@ vi.mock("../hooks/usePaginatedInfiniteQuery", () => ({
     };
   },
 }));
-vi.mock("../pages/segments/useDerivedSpansQuery", () => ({
+vi.mock("../pages/segments/useDerivedSpansQuery", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../pages/segments/useDerivedSpansQuery")>()),
   useDerivedSpansQuery: () => ({ data: { items: [], totalCount: 0 }, isLoading: false }),
   useDerivedSpansCountQuery: () => ({ data: { totalCount: 0, duration: 0 }, isLoading: false }),
 }));

@@ -1,7 +1,12 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { segmentSpans } from "../../api/client";
-import type { SegmentDerivedQueryDescriptor, SegmentSpanSearchRequest } from "../../api/types";
+import type {
+  SegmentDerivedQueryDescriptor,
+  SegmentSpanDerivedQuery,
+  SegmentSpanSearchRequest,
+  SegmentSpanSearchResultItem,
+} from "../../api/types";
 import type { RawSegmentFilterValue } from "./rawSegmentFilter";
 import type { AppliedDerivedQuery, DerivedSpanItem } from "./types";
 
@@ -120,6 +125,30 @@ export function buildSpanSearchRequest(opts: {
   };
 }
 
+/** One spans search result as the Segments page lists it. */
+export function toDerivedSpanItem(
+  item: SegmentSpanSearchResultItem,
+  derivedQuery: SegmentSpanDerivedQuery | undefined,
+  derivedQueryDescriptor: SegmentDerivedQueryDescriptor | undefined,
+): DerivedSpanItem {
+  return {
+    id: `${item.videoId}:${item.span.spanKey}`,
+    key: `${item.videoId}:${item.span.spanKey}`,
+    kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
+    videoId: item.videoId,
+    videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
+    videoUpdatedAt: item.videoUpdatedAt,
+    coverSegmentId: item.coverSegmentId,
+    coverVersion: item.coverVersion,
+    span: item.span,
+    reference: item.reference,
+    confidence: item.confidence,
+    profileId: item.profileId,
+    derivedQuery,
+    derivedQueryDescriptor,
+  };
+}
+
 export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
   const {
     activeProfileId,
@@ -189,20 +218,9 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
       );
 
       return {
-        items: response.items.map((item) => ({
-          id: `${item.videoId}:${item.span.spanKey}`,
-          key: `${item.videoId}:${item.span.spanKey}`,
-          kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
-          videoId: item.videoId,
-          videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
-          videoUpdatedAt: item.videoUpdatedAt,
-          coverSegmentId: item.coverSegmentId,
-          coverVersion: item.coverVersion,
-          span: item.span,
-          reference: item.reference,
-          confidence: item.confidence,
-          profileId: item.profileId,
-          derivedQuery:
+        items: response.items.map((item) =>
+          toDerivedSpanItem(
+            item,
             appliedQuery != null
               ? {
                   operator: appliedQuery.operator,
@@ -211,8 +229,9 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
                   minDurationSec: appliedQuery.minDurationSec,
                 }
               : undefined,
-          derivedQueryDescriptor,
-        })),
+            derivedQueryDescriptor,
+          ),
+        ),
         totalCount: response.totalCount,
         hasMore: response.hasMore ?? false,
         pendingVideoCount: response.pendingVideoCount ?? 0,
