@@ -6,6 +6,7 @@ import type { LightboxImage } from "../components/Lightbox";
 
 const mockFindGalleries = vi.fn();
 const mockNavigateToUrl = vi.fn();
+const mockTagLookup = vi.fn();
 
 vi.mock("../hooks/useEntityEngagement", () => ({
   useEntityEngagement: () => ({ engagement: undefined, rating: null, setRating: vi.fn(), ratingPending: false }),
@@ -16,6 +17,7 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     galleries: { ...actual.galleries, find: (...args: unknown[]) => mockFindGalleries(...args) },
+    tags: { ...actual.tags, lookup: (...args: unknown[]) => mockTagLookup(...args) },
     playback: { recordIntervals: vi.fn().mockResolvedValue(undefined) },
   };
 });
@@ -172,5 +174,23 @@ describe("Lightbox image references", () => {
 
     expect(screen.queryByTitle("Tags")).not.toBeInTheDocument();
     expect(document.querySelector("[data-lightbox-references]")).toBeNull();
+  });
+
+  it("shows the tags of a list entry that carries only tag ids", async () => {
+    mockTagLookup.mockResolvedValue([{ id: 31, name: "Listed Tag", favorite: false, hasImage: false }]);
+    renderLightbox([
+      {
+        id: 9,
+        src: "/listed.jpg",
+        title: "listed.jpg",
+        references: { tags: [], tagIds: [31], performers: [], groups: [], galleryCount: 0 },
+      },
+    ]);
+    await loadImage("/listed.jpg");
+
+    const tagsButton = screen.getByTitle("Tags");
+    expect(tagsButton).toHaveTextContent("1");
+    fireEvent.click(tagsButton);
+    expect(await screen.findByText("Listed Tag")).toBeInTheDocument();
   });
 });
