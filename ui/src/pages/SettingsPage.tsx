@@ -94,7 +94,7 @@ import { ExtensionLoadFailureDetails } from "../extensions/ExtensionLoadStatus";
 import { DOWNLOADER_METADATA_PREFERENCE_ID, getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { SFW_HIDDEN_METADATA_BATCH_FIELDS } from "../components/sfwPerformerFields";
-import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
+import { LOCATION_CHANGE_EVENT, buildCurrentUrl, confirmLeavingCurrentView, navigateToUrl } from "../router/location";
 import { DisplayProfilesSettingsPanel } from "./settings/DisplayProfilesSettingsPanel";
 import { AiDataSettingsPanel } from "./settings/AiDataSettingsPanel";
 import { SortableList } from "../components/SortableList";
@@ -493,7 +493,8 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "library-paths-storage": "Content roots and file extension handling.",
   "library-scanning": "Scan rules, generated asset paths, preview generation, and FFmpeg/transcoding options.",
   "library-custom-fields": "Typed metadata fields stored in the library database.",
-  "library-display-profiles": "Manage resolved-span display profiles and the rules attached to each profile.",
+  "library-display-profiles":
+    "Manage display profiles: the rules that decide how raw segments are joined, filtered and shown.",
   "operations-jobs": "Current queue and recent job history.",
   "operations-scan-generate": "Scan library roots and generate supporting media artifacts.",
   "operations-downloads": "Import a URL list from a text file and queue downloads.",
@@ -1390,6 +1391,7 @@ export function SettingsPage() {
   const canShutdownSystem = hasPermission("system.shutdown");
   const canReadSegments = hasPermission("segments.read");
   const canWriteSegments = hasPermission("segments.write");
+  const canDeleteSegments = hasPermission("segments.delete");
   const canReadJobs = hasPermission("jobs.read");
   const libraryExtensionsPanels = getSettingsPanelsForTab("library", "extensions");
   const libraryStandalonePanels = getSettingsPanelsForTab("library");
@@ -2186,6 +2188,8 @@ export function SettingsPage() {
           tabDescriptions[resolvedActiveTab as BuiltInSettingsTab] ??
           "Settings and runtime controls.");
   const selectSettingsTab = (key: SettingsTab) => {
+    // A tab switch is a state change, not a navigation, so it asks the open panel's guard itself.
+    if (key !== activeTab && !confirmLeavingCurrentView()) return;
     setActiveTab(key);
     setSettingsNavOpen(false);
   };
@@ -3886,7 +3890,11 @@ export function SettingsPage() {
         )}
 
         {resolvedActiveTab === "library-display-profiles" && canReadSegments && (
-          <DisplayProfilesSettingsPanel canWrite={canWriteSegments} canWriteShared={canWriteSystemSettings} />
+          <DisplayProfilesSettingsPanel
+            canWrite={canWriteSegments}
+            canDelete={canDeleteSegments}
+            canWriteShared={canWriteSystemSettings}
+          />
         )}
 
         {resolvedActiveTab === "data-sources-ai-data" && <AiDataSettingsPanel />}

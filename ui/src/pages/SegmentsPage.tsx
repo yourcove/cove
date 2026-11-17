@@ -1,37 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Loader2, Trash2 } from "lucide-react";
-import { faces, videos, segmentDisplayProfiles, segmentLibrary, segmentSpans } from "../api/client";
-import type { FindFilter, SegmentDisplayProfile } from "../api/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderOpen, Loader2, Play, Trash2 } from "lucide-react";
+import { videos, segmentLibrary, segmentSpans } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { AddToGroupDialog, type AddToGroupEntry } from "../components/AddToGroupDialog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
-import { ListPage, type DisplayMode } from "../components/ListPage";
+import { ListPage } from "../components/ListPage";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
-import { useListUrlState } from "../hooks/useListUrlState";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
-import {
-  buildAppliedDerivedQuery,
-  buildDerivedQueryDescriptor,
-  createDerivedSpanCustomFilterSection,
-  isDerivedSpanQueryFilterActive,
-  readDerivedSpanQueryFilter,
-} from "./segments/derivedQueryCriterion";
-import { readRawSegmentFilter } from "./segments/rawSegmentFilter";
+import { createDerivedSpanCustomFilterSection } from "./segments/derivedQueryCriterion";
 import {
   readRawSegmentIdsFromUrl,
-  readMultiIdCriterionIds,
-  readMultiIdCriterionDepth,
-  readNumberCriterion,
-  readVideoSelectionCriterion,
   readSegmentsPageContentView,
-  readStringCriterion,
-  readStringCriterionValue,
-  readTimestampCriterion,
-  readBoolCriterion,
   createSegmentCriteria,
 } from "./segments/segmentCriteriaDefinitions";
 import {
@@ -42,8 +25,21 @@ import {
   hasDerivedQueryNames,
 } from "./segments/segmentDisplayUtils";
 import { useDerivedOperandNameMaps } from "./segments/useDerivedOperandNameMaps";
+import { useSegmentDisplayProfiles, useSegmentsQueryInputs } from "./segments/useSegmentsQueryInputs";
+import {
+  DEFAULT_SEGMENT_FILTER,
+  readSegmentsListDefaults,
+  segmentFilterMode,
+  useSegmentsListUrlState,
+} from "./segments/segmentsListState";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
-import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
+import { SegmentsViewSettings } from "./segments/SegmentsViewSettings";
+import {
+  buildSpanSearchRequest,
+  toDerivedSpanItem,
+  useDerivedSpansQuery,
+  useDerivedSpansCountQuery,
+} from "./segments/useDerivedSpansQuery";
 import { buildSegmentFilteredQuery, useRawSegmentsQuery } from "./segments/useRawSegmentsQuery";
 import type { DerivedSpanItem, RawSegmentItem, SegmentsPageContentView } from "./segments/types";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
@@ -77,32 +73,6 @@ const DERIVED_SPAN_SORT_OPTIONS = [
   { value: "segment_count", label: "Segment Count" },
 ];
 
-const DEFAULT_SEGMENT_FILTER: FindFilter = { page: 1, perPage: 24, sort: "updated_at", direction: "desc" };
-
-function segmentFilterMode(view: SegmentsPageContentView) {
-  return view === "raw" ? "rawsegments" : "segments";
-}
-
-function dedupeSegmentDisplayProfiles(profiles: SegmentDisplayProfile[]): SegmentDisplayProfile[] {
-  const byName = new Map<string, SegmentDisplayProfile>();
-  for (const profile of profiles) {
-    const key = profile.name.trim().toLocaleLowerCase();
-    const current = byName.get(key);
-    if (!current || isPreferredSegmentDisplayProfile(profile, current)) {
-      byName.set(key, profile);
-    }
-  }
-
-  return profiles.filter((profile) => byName.get(profile.name.trim().toLocaleLowerCase())?.id === profile.id);
-}
-
-function isPreferredSegmentDisplayProfile(candidate: SegmentDisplayProfile, current: SegmentDisplayProfile): boolean {
-  if (candidate.userId != null && current.userId == null) return true;
-  if (candidate.userId == null && current.userId != null) return false;
-  if (candidate.isDefault !== current.isDefault) return candidate.isDefault;
-  return candidate.id < current.id;
-}
-
 async function fetchAllSegmentPages<TItem>(
   queryPage: (page: number, perPage: number) => Promise<{ items: TItem[]; totalCount: number }>,
   chunkSize = 1000,
@@ -125,31 +95,9 @@ async function fetchAllSegmentPages<TItem>(
 export function SegmentsPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
   const initialContentView = useMemo(() => readSegmentsPageContentView(), []);
-  const defaultState = useMemo(() => {
-    const saved = getDefaultFilter(segmentFilterMode(initialContentView));
-    const savedDisplayMode = saved?.uiOptions?.displayMode;
-    const routeProfileId = Number(new URLSearchParams(window.location.search).get("profile"));
-    return {
-      filter: saved?.findFilter ?? DEFAULT_SEGMENT_FILTER,
-      objectFilter: saved?.objectFilter ?? {},
-      displayMode: savedDisplayMode === "list" ? ("list" as DisplayMode) : ("grid" as DisplayMode),
-      profileId:
-        Number.isInteger(routeProfileId) && routeProfileId > 0
-          ? routeProfileId
-          : typeof saved?.uiOptions?.profileId === "number"
-            ? saved.uiOptions.profileId
-            : undefined,
-    };
-  }, [initialContentView]);
+  const defaultState = useMemo(() => readSegmentsListDefaults(initialContentView), [initialContentView]);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, replaceState } =
-    useListUrlState({
-      resetKey: "segments",
-      defaultFilter: defaultState.filter,
-      defaultObjectFilter: defaultState.objectFilter,
-      defaultDisplayMode: defaultState.displayMode,
-      allowedDisplayModes: ["grid", "list"] as const,
-      allowInfinitePageSize: true,
-    });
+    useSegmentsListUrlState("segments", defaultState);
   const { hasPermission } = useAuth();
   const canReadVideos = canReadEntity("video", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
@@ -167,111 +115,31 @@ export function SegmentsPage({ onNavigate }: Props) {
     raw: RawSegmentItem[];
   } | null>(null);
 
-  const videoTitle = readStringCriterion(objectFilter.videoTitleCriterion);
-  const videoSelection = readVideoSelectionCriterion(objectFilter.videosCriterion);
-  const videoTagIds = useMemo(
-    () => readMultiIdCriterionIds(objectFilter.videoTagsCriterion),
-    [objectFilter.videoTagsCriterion],
-  );
-  const videoTagDepth = useMemo(
-    () => readMultiIdCriterionDepth(objectFilter.videoTagsCriterion),
-    [objectFilter.videoTagsCriterion],
-  );
-  const derivedSpanQueryFilter = useMemo(
-    () => readDerivedSpanQueryFilter(objectFilter.derivedSpanQuery),
-    [objectFilter.derivedSpanQuery],
-  );
+  const isRawView = contentView === "raw";
+  const {
+    videoTitle,
+    videoSelection,
+    videoTagIds,
+    videoTagDepth,
+    derivedSpanQueryFilter,
+    combinedRawSegmentFilter,
+    q,
+    sort,
+    direction,
+    seed,
+    selectedVideoQueries,
+    performerFaceQueries,
+    performerFaceQueriesLoading,
+    selectedVideosLoading,
+    appliedQuery,
+    derivedQueryDescriptor,
+    derivedQueryEnabled,
+  } = useSegmentsQueryInputs({ filter, objectFilter, isRawView, activeProfileId });
   const derivedOperandNameMaps = useDerivedOperandNameMaps(derivedSpanQueryFilter.operands);
-  const rawSegmentFilter = useMemo(
-    () => readRawSegmentFilter(objectFilter.rawSegmentFilters),
-    [objectFilter.rawSegmentFilters],
-  );
-  const rawTagIds = useMemo(
-    () => readMultiIdCriterionIds(objectFilter.rawTagsCriterion),
-    [objectFilter.rawTagsCriterion],
-  );
-  const rawTagDepth = useMemo(
-    () => readMultiIdCriterionDepth(objectFilter.rawTagsCriterion),
-    [objectFilter.rawTagsCriterion],
-  );
-  const rawPerformerIds = useMemo(
-    () => readMultiIdCriterionIds(objectFilter.rawPerformersCriterion),
-    [objectFilter.rawPerformersCriterion],
-  );
-  const rawFaceIds = useMemo(
-    () => readMultiIdCriterionIds(objectFilter.rawFacesCriterion),
-    [objectFilter.rawFacesCriterion],
-  );
-  const rawKind = readStringCriterion(objectFilter.rawKindCriterion);
-  const rawSourceKey = readStringCriterion(objectFilter.rawSourceCriterion);
-  const rawTitle = readStringCriterionValue(objectFilter.rawTitleCriterion);
-  const rawHostType = readStringCriterion(objectFilter.rawHostTypeCriterion);
-  const rawSourceRun = readStringCriterionValue(objectFilter.rawSourceRunCriterion);
-  const rawColorHint = readStringCriterionValue(objectFilter.rawColorHintCriterion);
-  const rawHasImage = readBoolCriterion(objectFilter.rawHasImageCriterion);
-  const rawHasPayload = readBoolCriterion(objectFilter.rawHasPayloadCriterion);
-  const rawCreatedAt = readTimestampCriterion(objectFilter.rawCreatedAtCriterion);
-  const rawUpdatedAt = readTimestampCriterion(objectFilter.rawUpdatedAtCriterion);
-  const rawStartSec = readNumberCriterion(objectFilter.rawStartSecCriterion);
-  const rawEndSec = readNumberCriterion(objectFilter.rawEndSecCriterion);
-  const rawConfidence = readNumberCriterion(objectFilter.rawConfidenceCriterion);
-  const rawDuration = readNumberCriterion(objectFilter.rawDurationCriterion);
-  const combinedRawSegmentFilter = useMemo(
-    () => ({
-      ...rawSegmentFilter,
-      titleCriterion: rawTitle,
-      hostType: rawHostType || undefined,
-      sourceRunCriterion: rawSourceRun,
-      colorHintCriterion: rawColorHint,
-      hasImage: rawHasImage?.value,
-      hasPayload: rawHasPayload?.value,
-      createdAtCriterion: rawCreatedAt,
-      updatedAtCriterion: rawUpdatedAt,
-      startSecCriterion: rawStartSec,
-      endSecCriterion: rawEndSec,
-      tagIds: Array.from(new Set([...rawSegmentFilter.tagIds, ...rawTagIds])),
-      tagDepth: rawTagDepth,
-      performerIds: Array.from(new Set([...rawSegmentFilter.performerIds, ...rawPerformerIds])),
-      faceIds: Array.from(new Set([...rawSegmentFilter.faceIds, ...rawFaceIds])),
-      kind: rawSegmentFilter.kind ?? (rawKind || undefined),
-      sourceKey: rawSegmentFilter.sourceKey ?? (rawSourceKey || undefined),
-      confidenceCriterion: rawConfidence ?? rawSegmentFilter.confidenceCriterion,
-      durationCriterion: rawDuration ?? rawSegmentFilter.durationCriterion,
-      minConfidence: rawSegmentFilter.minConfidence,
-      minDurationSec: rawSegmentFilter.minDurationSec,
-    }),
-    [
-      rawColorHint,
-      rawConfidence,
-      rawCreatedAt,
-      rawDuration,
-      rawEndSec,
-      rawFaceIds,
-      rawHasImage?.value,
-      rawHasPayload?.value,
-      rawHostType,
-      rawKind,
-      rawPerformerIds,
-      rawSegmentFilter,
-      rawSourceKey,
-      rawSourceRun,
-      rawStartSec,
-      rawTagDepth,
-      rawTagIds,
-      rawTitle,
-      rawUpdatedAt,
-    ],
-  );
-  const derivedSpanQueryActive = isDerivedSpanQueryFilterActive(objectFilter.derivedSpanQuery);
-  const q = filter.q?.trim() ?? "";
   const infinitePageSize = filter.perPage === 0;
   const defaultPerPage = defaultState.filter.perPage ?? 24;
   const perPage = infinitePageSize ? defaultPerPage : (filter.perPage ?? defaultPerPage);
   const pageNumber = filter.page ?? 1;
-  const sort = filter.sort ?? "updated_at";
-  const direction = filter.direction ?? "desc";
-  const seed = filter.seed;
-  const isRawView = contentView === "raw";
   const sortOptions = isRawView ? RAW_SEGMENT_SORT_OPTIONS : DERIVED_SPAN_SORT_OPTIONS;
 
   const sourceOptionsQuery = useQuery({
@@ -359,17 +227,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     [contentView, replaceState, updateContentView],
   );
 
-  const profilesQuery = useQuery({
-    queryKey: ["segment-display-profiles"],
-    queryFn: () => segmentDisplayProfiles.list(),
-    enabled: !isRawView,
-  });
-
-  const availableProfiles = useMemo(() => {
-    const profiles = dedupeSegmentDisplayProfiles(profilesQuery.data ?? []);
-    const nonRawProfiles = profiles.filter((profile) => !(profile.isSystem && profile.name === "Raw"));
-    return nonRawProfiles.length > 0 ? nonRawProfiles : profiles;
-  }, [profilesQuery.data]);
+  const { profilesQuery, availableProfiles } = useSegmentDisplayProfiles(!isRawView);
 
   // Fall back to the default (or first) profile when the active one is unset or no longer available.
   if (
@@ -379,55 +237,6 @@ export function SegmentsPage({ onNavigate }: Props) {
     setActiveProfileId(availableProfiles.find((profile) => profile.isDefault)?.id ?? availableProfiles[0].id);
   }
 
-  const selectedVideoQueries = useQueries({
-    queries: !isRawView
-      ? videoSelection.includeIds.map((videoId) => ({
-          queryKey: ["video", videoId],
-          queryFn: () => videos.get(videoId),
-          staleTime: 60_000,
-        }))
-      : [],
-  });
-
-  const selectedVideosLoading = selectedVideoQueries.some((query) => query.isLoading);
-
-  const selectedPerformerIds = useMemo(
-    () => Array.from(new Set(derivedSpanQueryFilter.operands.flatMap((operand) => operand.performerIds))),
-    [derivedSpanQueryFilter.operands],
-  );
-
-  const performerFaceQueries = useQueries({
-    queries: !isRawView
-      ? selectedPerformerIds.map((performerId) => ({
-          queryKey: ["segments-page", "performer-faces", performerId],
-          queryFn: () => faces.list({ performerId, merged: false, page: 1, perPage: 200 }),
-          staleTime: 60_000,
-        }))
-      : [],
-  });
-
-  const performerFaceIdsByPerformer = useMemo(() => {
-    const map = new Map<number, number[]>();
-    selectedPerformerIds.forEach((performerId, index) => {
-      map.set(performerId, performerFaceQueries[index]?.data?.items.map((face) => face.id) ?? []);
-    });
-    return map;
-  }, [performerFaceQueries, selectedPerformerIds]);
-
-  const appliedQuery = useMemo(
-    () => buildAppliedDerivedQuery(derivedSpanQueryFilter, performerFaceIdsByPerformer),
-    [derivedSpanQueryFilter, performerFaceIdsByPerformer],
-  );
-  const derivedQueryDescriptor = useMemo(
-    () => buildDerivedQueryDescriptor(derivedSpanQueryFilter),
-    [derivedSpanQueryFilter],
-  );
-  const performerFaceQueriesLoading = performerFaceQueries.some((query) => query.isLoading);
-  const derivedQueryEnabled =
-    !isRawView &&
-    activeProfileId != null &&
-    (!derivedSpanQueryActive || !performerFaceQueriesLoading) &&
-    (videoSelection.includeIds.length === 0 || !selectedVideosLoading);
   const rawQueryEnabled = isRawView;
 
   const queryDerivedSpansPage = useCallback(
@@ -436,90 +245,28 @@ export function SegmentsPage({ onNavigate }: Props) {
         return { items: [], totalCount: 0, page, perPage: pageSize };
       }
 
-      const response = await segmentSpans.search({
-        profile: activeProfileId,
-        derivedQuery:
-          appliedQuery != null
-            ? {
-                operator: appliedQuery.operator,
-                operands: appliedQuery.operands,
-                mergeGapSec: appliedQuery.mergeGapSec,
-                minDurationSec: appliedQuery.minDurationSec,
-              }
-            : undefined,
-        page,
+      const request = buildSpanSearchRequest({
+        activeProfileId,
+        pageNumber: page,
         perPage: pageSize,
+        q,
+        videoTitle,
+        videoTagIds,
+        videoTagDepth,
         sort,
         direction,
         seed,
-        q: q || undefined,
-        videoTitle: videoTitle || undefined,
-        videoTagIds: videoTagIds.length > 0 ? videoTagIds : undefined,
-        videoTagDepth,
-        videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
-        excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds : undefined,
-        tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds : undefined,
-        tagDepth: combinedRawSegmentFilter.tagDepth,
-        kind: combinedRawSegmentFilter.kind,
-        sourceKey: combinedRawSegmentFilter.sourceKey,
-        sourceCategory: combinedRawSegmentFilter.sourceCategory,
-        title: combinedRawSegmentFilter.titleCriterion?.value,
-        titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
-        hostType: combinedRawSegmentFilter.hostType,
-        sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
-        sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
-        colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
-        colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
-        hasImage: combinedRawSegmentFilter.hasImage,
-        hasPayload: combinedRawSegmentFilter.hasPayload,
-        startSec: combinedRawSegmentFilter.startSecCriterion?.value,
-        startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
-        startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
-        endSec: combinedRawSegmentFilter.endSecCriterion?.value,
-        endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
-        endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
-        createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
-        createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
-        createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
-        updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
-        updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
-        updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
-        refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds : undefined,
-        performerIds:
-          combinedRawSegmentFilter.performerIds.length > 0 ? combinedRawSegmentFilter.performerIds : undefined,
-        confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
-        confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
-        confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
-        durationSec: combinedRawSegmentFilter.durationCriterion?.value,
-        durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
-        durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
+        includeVideoIds: videoSelection.includeIds,
+        excludeVideoIds: videoSelection.excludeIds,
+        appliedQuery,
+        rawFilter: combinedRawSegmentFilter,
       });
+      const response = await segmentSpans.search(request);
 
       return {
-        items: response.items.map<DerivedSpanItem>((item) => ({
-          id: `${item.videoId}:${item.span.spanKey}`,
-          key: `${item.videoId}:${item.span.spanKey}`,
-          kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
-          videoId: item.videoId,
-          videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
-          videoUpdatedAt: item.videoUpdatedAt,
-          coverSegmentId: item.coverSegmentId,
-          coverVersion: item.coverVersion,
-          span: item.span,
-          reference: item.reference,
-          confidence: item.confidence,
-          profileId: item.profileId,
-          derivedQuery:
-            appliedQuery != null
-              ? {
-                  operator: appliedQuery.operator,
-                  operands: appliedQuery.operands,
-                  mergeGapSec: appliedQuery.mergeGapSec,
-                  minDurationSec: appliedQuery.minDurationSec,
-                }
-              : undefined,
-          derivedQueryDescriptor,
-        })),
+        // Carried on the page so the notice belongs to the data shown, whichever query it came from.
+        pendingVideoCount: response.pendingVideoCount ?? 0,
+        items: response.items.map((item) => toDerivedSpanItem(item, request.derivedQuery, derivedQueryDescriptor)),
         // The search endpoint reports totalCount=-1 when it served the page via early termination. Map it
         // to a value that lets the infinite loader's getNextPageParam continue iff there's more (the exact
         // total for display comes from the separate cached count query).
@@ -772,6 +519,13 @@ export function SegmentsPage({ onNavigate }: Props) {
     ? derivedInfiniteQuery.totalCount
     : (segmentsWindowQuery.data?.totalCount ?? 0);
   const spansHasMore = !infinitePageSize && (segmentsWindowQuery.data?.hasMore ?? false);
+  // Stored spans are built in the background after an upgrade, a profile change or a bulk import.
+  const spansPendingVideoCount = isRawView
+    ? 0
+    : infinitePageSize
+      ? ((derivedInfiniteQuery.data?.pages.at(-1) as { pendingVideoCount?: number } | undefined)?.pendingVideoCount ??
+        0)
+      : (segmentsWindowQuery.data?.pendingVideoCount ?? 0);
   const spansTotalCount =
     spansCountQuery.data?.totalCount ??
     (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
@@ -974,6 +728,21 @@ export function SegmentsPage({ onNavigate }: Props) {
     }
   }, [filter, setFilter, sortOptions]);
 
+  // Plays the current results in their listed order. The playback link carries this list's own URL
+  // parameters, and the playback page reads them the way this page does, so it plays what is listed here,
+  // and the link can be bookmarked or shared like the list.
+  const canPlay = !isLoading && totalCount !== 0 && (isRawView || (derivedQueryEnabled && activeProfileId != null));
+  const handlePlay = () => {
+    onNavigate({
+      page: "segments-play",
+      listFilter: { q: filter.q, sort: filter.sort, direction: filter.direction, sorts: filter.sorts, seed },
+      listObjectFilter: Object.keys(objectFilter).length > 0 ? objectFilter : undefined,
+      segmentsView: isRawView ? "raw" : undefined,
+      profileId: isRawView ? undefined : activeProfileId,
+      rawSegmentIds: isRawView && rawSegmentIds.length > 0 ? rawSegmentIds : undefined,
+    });
+  };
+
   return (
     <>
       <AddToGroupDialog
@@ -1024,7 +793,12 @@ export function SegmentsPage({ onNavigate }: Props) {
         customFilterSections={customFilterSections}
         totalCountIsLowerBound={spansTotalUnknown}
         metadataByline={
-          spansTotalUnknown ? (
+          spansPendingVideoCount > 0 ? (
+            <span className="text-xs text-muted" role="status">
+              Indexing segments: {spansPendingVideoCount.toLocaleString()}{" "}
+              {spansPendingVideoCount === 1 ? "video" : "videos"} remaining
+            </span>
+          ) : spansTotalUnknown ? (
             spanCountRequested && spansCountQuery.isError ? (
               <button
                 type="button"
@@ -1070,29 +844,22 @@ export function SegmentsPage({ onNavigate }: Props) {
                 Raw segments
               </button>
             </div>
-            <label
-              title={
-                isRawView
-                  ? "Raw view shows segments as observed; profiles and derived queries do not apply."
-                  : undefined
-              }
-              className="flex items-center gap-2 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 text-xs text-muted"
+            <button
+              type="button"
+              onClick={handlePlay}
+              disabled={!canPlay}
+              title="Play these results in order"
+              aria-label="Play"
+              className="inline-flex items-center rounded-lg border border-border bg-card/70 p-2 text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="font-semibold uppercase tracking-wide">Profile</span>
-              <select
-                value={activeProfileId ?? ""}
-                onChange={(event) => setActiveProfileId(Number(event.target.value))}
-                className="min-w-[10rem] bg-transparent text-xs text-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isRawView || availableProfiles.length === 0}
-              >
-                {availableProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                    {profile.isDefault ? " (Default)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Play className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <SegmentsViewSettings
+              profiles={availableProfiles}
+              activeProfileId={activeProfileId}
+              onProfileChange={setActiveProfileId}
+              isRawView={isRawView}
+            />
           </div>
         )}
         selectedIds={selectedIds}

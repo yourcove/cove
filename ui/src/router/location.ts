@@ -1,4 +1,5 @@
 import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
+import { serializeSortClauses } from "../utils/sortClauses";
 import { formatCutParam, parseCutParam, type CutRange } from "../utils/videoCut";
 
 export interface Route {
@@ -24,6 +25,8 @@ export interface Route {
   listView?: string;
   segmentsView?: "spans" | "raw";
   compilationItemOrder?: string[];
+  /** Raw segments a Segments list is narrowed to, from the `rawIds` parameter. */
+  rawSegmentIds?: number[];
 }
 
 interface RouteHistoryEntry {
@@ -390,6 +393,10 @@ export function buildRouteUrl(route: Route): string {
       params.set(paramKey, filterKey === "perPage" && value === 0 ? "infinite" : String(value));
     }
   }
+  // A multi-column sort travels as `sorts`, the way list pages keep it in their own URL.
+  if (route.listFilter?.sorts && route.listFilter.sorts.length > 1) {
+    params.set("sorts", serializeSortClauses(route.listFilter.sorts));
+  }
   if (route.listObjectFilter !== undefined) {
     params.set("filters", JSON.stringify(route.listObjectFilter));
   }
@@ -398,6 +405,9 @@ export function buildRouteUrl(route: Route): string {
   }
   if (route.segmentsView === "raw") {
     params.set("segmentsView", "raw");
+  }
+  if (route.rawSegmentIds && route.rawSegmentIds.length > 0) {
+    params.set("rawIds", route.rawSegmentIds.join(","));
   }
   if (route.detailTab) {
     params.set("tab", route.detailTab);
@@ -471,6 +481,14 @@ export function registerNavigationBlocker(blocker: NavigationBlocker): () => voi
   return () => navigationBlockers.delete(blocker);
 }
 
+/**
+ * Asks every registered guard whether the current view may be left, for a view change that does not go
+ * through navigateToUrl (a settings tab switch, for one). False means stay.
+ */
+export function confirmLeavingCurrentView(): boolean {
+  return [...navigationBlockers].every((blocker) => blocker());
+}
+
 export function navigateToUrl(
   url: string,
   options?: {
@@ -486,7 +504,7 @@ export function navigateToUrl(
     return true;
   }
 
-  if (!options?.bypassBlockers && [...navigationBlockers].some((blocker) => !blocker())) return false;
+  if (!options?.bypassBlockers && !confirmLeavingCurrentView()) return false;
 
   const state = withEntryState(options?.state ?? null, url, options?.replace, options?.backOrigin);
   if (options?.replace) {
@@ -629,6 +647,8 @@ export function getRouteLabel(route: Route): string {
       return "Groups";
     case "compilation":
       return "Compilation";
+    case "segments-play":
+      return "Segment playback";
     case "performer":
       return "Performer";
     case "performers":

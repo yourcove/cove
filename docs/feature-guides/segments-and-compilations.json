@@ -33,7 +33,7 @@
         },
         {
           "type": "paragraph",
-          "text": "Choose a segment to present a cleaned-up range composed from stored inputs. A display profile can select, merge, hide, or restyle raw segments without rewriting them."
+          "text": "Choose a segment to present a cleaned-up range composed from stored inputs. Technically, a segment is a span of one or more raw segments: one appearance written as several short pieces becomes one segment. A display profile can select, merge, hide, or restyle raw segments without rewriting them."
         },
         {
           "type": "heading",
@@ -98,6 +98,10 @@
         {
           "type": "paragraph",
           "text": "A display profile is a saved set of rules for shaping derived segments. Switch profiles to get different views of the same stored inputs without rewriting their source evidence."
+        },
+        {
+          "type": "paragraph",
+          "text": "Cove prepares the segments each profile shows ahead of time, so the Segments page stays fast on a large library. Rule changes in Settings are kept on the page until you press Save changes, and then Cove updates the profile's segments in the background. On a large library this can take a few minutes; the Segments page shows how many videos are left. Each profile in use takes disk space for its prepared segments, which is freed when the profile is deleted."
         }
       ]
     },

@@ -2,6 +2,7 @@ using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Linq.Expressions;
 using System.Text.Json;
 
 namespace Cove.Data.Auth;
@@ -30,6 +31,17 @@ public sealed class UserService : IUserService
         _audit = audit;
         _log = log;
     }
+
+    /// <summary>
+    /// Whether the account is locked out at <paramref name="utcNow"/>. The failed-login lockout ends at
+    /// <see cref="User.LockedUntil"/>; a lock without an end time lasts until an admin unlocks it.
+    /// </summary>
+    public static bool IsLockedOut(User user, DateTime utcNow)
+        => user.IsLocked && (user.LockedUntil == null || user.LockedUntil > utcNow);
+
+    /// <summary>The negation of <see cref="IsLockedOut"/> as a query predicate that translates to SQL.</summary>
+    public static Expression<Func<User, bool>> IsNotLockedOut(DateTime utcNow)
+        => user => !(user.IsLocked && (user.LockedUntil == null || user.LockedUntil > utcNow));
 
     public Task<bool> OwnerExistsAsync(CancellationToken ct = default)
         => _db.Users.AnyAsync(user => user.IsSystem || user.Roles.Any(role => role.Role!.Name == BuiltinRoles.Owner), ct);
@@ -532,15 +544,25 @@ public sealed class UserService : IUserService
 
     public async Task RecordLoginFailureAsync(int userId, CancellationToken ct = default)
     {
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
-        if (user is null) return;
-        user.FailedLoginCount++;
-        if (user.FailedLoginCount >= MaxFailedLogins)
-        {
-            user.IsLocked = true;
-            user.LockedUntil = DateTime.UtcNow.Add(LockoutDuration);
-        }
-        await _db.SaveChangesAsync(ct);
+        var now = DateTime.UtcNow;
+        var lockedUntil = now.Add(LockoutDuration);
+        // One UPDATE rather than read, change and save, so failed logins arriving together cannot
+        // overwrite each other's count: PostgreSQL applies a concurrent update to the row it left
+        // behind. Every expression reads the row as it was before this statement. A lockout that
+        // has run out starts a new window, in which this failure is the first.
+        await _db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(s => s
+            .SetProperty(
+                u => u.FailedLoginCount,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1)
+            .SetProperty(
+                u => u.IsLocked,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1 >= MaxFailedLogins
+                    || (u.IsLocked && !(u.LockedUntil != null && u.LockedUntil <= now)))
+            .SetProperty(
+                u => u.LockedUntil,
+                u => (u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? 0 : u.FailedLoginCount) + 1 >= MaxFailedLogins
+                    ? lockedUntil
+                    : u.IsLocked && u.LockedUntil != null && u.LockedUntil <= now ? null : u.LockedUntil), ct);
     }
 
     public async Task UnlockAsync(int userId, CovePrincipal? actor, CancellationToken ct = default)
@@ -555,7 +577,7 @@ public sealed class UserService : IUserService
 
     private UserDto Map(User u) => new(
         u.Id, u.Username, u.DisplayName, u.Email,
-        u.IsActive, u.IsLocked, u.IsSystem, u.MustChangePassword,
+        u.IsActive, IsLockedOut(u, DateTime.UtcNow), u.IsSystem, u.MustChangePassword,
         !string.IsNullOrWhiteSpace(u.PasswordHash),
         u.LastLoginAt, u.LastLoginIp, u.CreatedAt,
         u.Roles.Select(r => r.Role!.Name).ToList(),

@@ -863,7 +863,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var listResult = await controller.List(q: "Opening", ids: null, videoId: null, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: null, sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: null, minConfidence: null, minDurationSec: null, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: null, direction: null, page: 1, perPage: 20, cancellationToken: CancellationToken.None);
         var listOk = Assert.IsType<OkObjectResult>(listResult.Result);
@@ -903,7 +905,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var result = await controller.List(
             q: null, ids: null, videoId: null, videoIds: null, videoTitle: null,
@@ -950,7 +954,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var rawResult = await controller.List(
             q: null, ids: null, videoId: null, videoIds: null, videoTitle: null,
@@ -992,7 +998,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var result = await controller.SearchSpans(
             new SegmentSpanSearchRequestDto(profile.Id, null, 1, 24, "start_sec", "asc", null, null, null, null),
@@ -1033,7 +1041,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var result = await controller.SearchSpans(
             new SegmentSpanSearchRequestDto(profile.Id, null, 1, 24, sort, "desc", null, null, null, null),
@@ -1101,7 +1111,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var filteredResult = await controller.List(q: null, ids: null, videoId: video.Id, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: "highlight", sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: true, minConfidence: 0.8f, minDurationSec: 5, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: "duration", direction: "desc", page: 1, perPage: 20, includeAggregate: true, cancellationToken: CancellationToken.None);
         var filteredOk = Assert.IsType<OkObjectResult>(filteredResult.Result);
@@ -1227,7 +1239,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var result = await controller.RemoveTagFromSegments(new SegmentsController.SegmentTagBulkRemoveRequest(tag.Id, [targetSegment.Id, differentTagSegment.Id]), CancellationToken.None);
 
@@ -1287,19 +1301,44 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
-        var sourceKeysResult = await controller.DistinctSourceKeys(CancellationToken.None);
-        var sourceKeysOk = Assert.IsType<OkObjectResult>(sourceKeysResult.Result);
-        var sourceKeys = Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(sourceKeysOk.Value);
+        var principals = new CurrentPrincipalAccessor();
+        var writes = new LibraryWriteSignal();
+        async Task<IReadOnlyList<SegmentDistinctValueDto>> SourceKeysAsync()
+            => Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(Assert.IsType<OkObjectResult>(
+                (await controller.DistinctSourceKeys(principals, writes, CancellationToken.None)).Result).Value);
+
+        var sourceKeys = await SourceKeysAsync();
         Assert.Equal("ext:ai.faces", sourceKeys[0].Value);
         Assert.Equal(2, sourceKeys[0].Count);
 
-        var kindsResult = await controller.DistinctKinds(CancellationToken.None);
+        var kindsResult = await controller.DistinctKinds(principals, writes, CancellationToken.None);
         var kindsOk = Assert.IsType<OkObjectResult>(kindsResult.Result);
         var kinds = Assert.IsAssignableFrom<IReadOnlyList<SegmentDistinctValueDto>>(kindsOk.Value);
         Assert.Contains(kinds, item => item.Value == "face" && item.Count == 2);
         Assert.Contains(kinds, item => item.Value == "action" && item.Count == 1);
+
+        // The counts are kept until something is written through the app.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO segments ("HostType", "HostId", "StartSec", "EndSec", "Kind", "SourceKey", "CreatedAt", "UpdatedAt")
+            VALUES (1, {video.Id}, 20, 22, 'face', 'ext:ai.faces', now(), now())
+            """, TestContext.Current.CancellationToken);
+        Assert.Equal(2, (await SourceKeysAsync())[0].Count);
+        writes.Signal();
+        Assert.Equal(3, (await SourceKeysAsync())[0].Count);
+
+        // Another reader scope gets its own answer, worked out now, while the first keeps its own.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO segments ("HostType", "HostId", "StartSec", "EndSec", "Kind", "SourceKey", "CreatedAt", "UpdatedAt")
+            VALUES (1, {video.Id}, 30, 32, 'face', 'ext:ai.faces', now(), now())
+            """, TestContext.Current.CancellationToken);
+        principals.Set(CreatePrincipal(7));
+        Assert.Equal(4, (await SourceKeysAsync())[0].Count);
+        principals.Set(null);
+        Assert.Equal(3, (await SourceKeysAsync())[0].Count);
     }
 
     [Fact]
@@ -1368,7 +1407,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var page1Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 1, "title", "asc", null, null, null, null), CancellationToken.None);
         var page2Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 2, 1, "title", "asc", null, null, null, null), CancellationToken.None);
@@ -1446,7 +1487,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         async Task<List<SegmentSpanSearchResultItemDto>> SearchAsync(string sort, SegmentSpanDerivedQueryDto? derivedQuery = null)
         {
@@ -1523,7 +1566,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         async Task<List<SegmentSpanSearchResultItemDto>> SearchAsync(string sort, SegmentSpanDerivedQueryDto? derivedQuery = null)
         {
@@ -1615,7 +1660,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var sortedResult = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "segment_created_at", "asc", null, null, null, null), CancellationToken.None);
         var sorted = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(sortedResult.Result).Value);
@@ -1698,7 +1745,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
         var exactRequest = new SegmentSpanSearchRequestDto(
             profile.Id, null, 1, 24, "updated_at", "desc", null, null, null, null,
             TagIds: [parent.Id]);
@@ -1792,7 +1841,9 @@ public class SegmentCoreControllerTests
             context,
             new SegmentRepository(context),
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            new SegmentSpanIndexService(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())), new SegmentSpanIndexSignal()),
+            new SegmentSpanIndexSearch(context));
 
         var ascResult = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "segment_updated_at", "asc", null, null, null, null), CancellationToken.None);
         var asc = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(ascResult.Result).Value);

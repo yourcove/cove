@@ -543,6 +543,17 @@ public sealed class DatabaseClient
     }
 
     /// <summary>
+    /// Moves a failed-login lockout's end into the past, as if its duration had elapsed.
+    /// </summary>
+    public async Task ExpireLoginLockoutAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateCoveContext();
+        await db.Users
+            .Where(user => user.Id == userId && user.IsLocked)
+            .ExecuteUpdateAsync(update => update.SetProperty(user => user.LockedUntil, DateTime.UtcNow.AddSeconds(-1)), cancellationToken);
+    }
+
+    /// <summary>
     /// Moves an entity's Updated date into the past so a later write that bumps it is observable
     /// without depending on clock resolution between two requests.
     /// </summary>

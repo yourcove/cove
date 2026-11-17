@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildRouteUrl,
+  confirmLeavingCurrentView,
   getPreviousInternalRoute,
   navigateToUrl,
   parseCurrentRoute,
@@ -41,6 +42,14 @@ describe("route history", () => {
     expect(window.location.pathname).toBe("/videos");
   });
 
+  it("asks the same guards before a view change that is not a navigation", () => {
+    expect(confirmLeavingCurrentView()).toBe(true);
+    const unregister = registerNavigationBlocker(() => false);
+    expect(confirmLeavingCurrentView()).toBe(false);
+    unregister();
+    expect(confirmLeavingCurrentView()).toBe(true);
+  });
+
   it("parses and rebuilds video seek timestamps", () => {
     window.history.replaceState(null, "", "/video/42?t=91.5");
 
@@ -51,6 +60,29 @@ describe("route history", () => {
     });
 
     expect(buildRouteUrl({ page: "video", id: 42, seekTo: 91.5 })).toBe("/video/42?t=91.5");
+  });
+
+  it("carries a list's multi-column sort and raw segment ids in its URL", () => {
+    const url = buildRouteUrl({
+      page: "segments-play",
+      listFilter: {
+        sort: "title",
+        direction: "asc",
+        sorts: [
+          { key: "title", direction: "asc" },
+          { key: "span_start", direction: "desc" },
+        ],
+      },
+      segmentsView: "raw",
+      rawSegmentIds: [4, 5],
+    });
+
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(url.split("?")[0]).toBe("/segments-play");
+    expect(params.get("sorts")).toBe("title:asc,span_start:desc");
+    expect(params.get("rawIds")).toBe("4,5");
+    // A single sort keeps the plain parameters.
+    expect(buildRouteUrl({ page: "segments", listFilter: { sort: "title" } })).toBe("/segments?sort=title");
   });
 
   it.each([

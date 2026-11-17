@@ -102,6 +102,10 @@ public partial class CoveContext : DbContext
     public DbSet<VideoShotSet> VideoShotSets => Set<VideoShotSet>();
     public DbSet<SegmentDisplayProfile> SegmentDisplayProfiles => Set<SegmentDisplayProfile>();
     public DbSet<SegmentDisplayRule> SegmentDisplayRules => Set<SegmentDisplayRule>();
+    public DbSet<StoredSegmentSpan> StoredSegmentSpans => Set<StoredSegmentSpan>();
+    public DbSet<SegmentSpanVideoVersion> SegmentSpanVideoVersions => Set<SegmentSpanVideoVersion>();
+    public DbSet<SegmentSpanVideoState> SegmentSpanVideoStates => Set<SegmentSpanVideoState>();
+    public DbSet<SegmentSpanIndexedProfile> SegmentSpanIndexedProfiles => Set<SegmentSpanIndexedProfile>();
     public DbSet<Detection> Detections => Set<Detection>();
     public DbSet<Face> Faces => Set<Face>();
     public DbSet<FaceAppearance> FaceAppearances => Set<FaceAppearance>();

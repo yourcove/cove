@@ -196,6 +196,109 @@ public sealed class SegmentSpanResolver(
         return results;
     }
 
+    /// <summary>
+    /// Resolves the videos' spans for the stored span index, with the facts about their segments that
+    /// the index keeps. Unlike the request paths this reads every segment and tag regardless of the
+    /// caller's read scope and never touches the per-video cache: the stored rows are shared by all
+    /// users, and the listing applies each reader's video visibility when it queries them. The segment
+    /// payload is not loaded, only whether there is one.
+    /// </summary>
+    internal async Task<SegmentSpanIndexResolution> ResolveForIndexAsync(
+        IReadOnlyList<int> videoIds, SegmentDisplayProfile profile, CancellationToken ct)
+    {
+        if (videoIds.Count == 0)
+            return new SegmentSpanIndexResolution([], new Dictionary<int, SegmentSpanIndexSegmentFacts>());
+
+        var rules = await db.SegmentDisplayRules.AsNoTracking()
+            .Where(rule => rule.ProfileId == profile.Id)
+            .OrderByDescending(rule => rule.TagId.HasValue)
+            .ThenByDescending(rule => rule.Kind != null)
+            .ThenByDescending(rule => rule.SourceKey != null)
+            .ThenByDescending(rule => rule.TagCategory != null)
+            .ThenByDescending(rule => rule.HostType.HasValue)
+            .ThenByDescending(rule => rule.Priority ?? 0)
+            .ThenBy(rule => rule.Id)
+            .ToListAsync(ct);
+
+        var rows = await db.Segments.AsNoTracking()
+            .Where(segment => segment.HostType == SegmentHostType.Video && videoIds.Contains(segment.HostId))
+            .OrderBy(segment => segment.HostId)
+            .ThenBy(segment => segment.StartSec)
+            .ThenBy(segment => segment.Id)
+            .Select(segment => new
+            {
+                segment.Id,
+                segment.HostId,
+                segment.StartSec,
+                segment.EndSec,
+                segment.TagId,
+                segment.Kind,
+                segment.RefId,
+                segment.SourceKey,
+                segment.SourceRunId,
+                segment.Confidence,
+                segment.Title,
+                segment.ColorHint,
+                HasImage = segment.ImageBlobId != null && segment.ImageBlobId != string.Empty,
+                HasPayload = segment.Payload != null,
+                segment.CreatedAt,
+                segment.UpdatedAt,
+            })
+            .ToListAsync(ct);
+
+        var tagIds = rows.Where(row => row.TagId.HasValue).Select(row => row.TagId!.Value).Distinct().ToList();
+        var tags = tagIds.Count == 0
+            ? []
+            : await db.Tags.IgnoreQueryFilters().AsNoTracking()
+                .Include(tag => tag.TagGroup)
+                .Where(tag => tagIds.Contains(tag.Id))
+                .ToDictionaryAsync(tag => tag.Id, ct);
+
+        var facts = new Dictionary<int, SegmentSpanIndexSegmentFacts>(rows.Count);
+        var segmentsByVideo = new Dictionary<int, List<Segment>>();
+        foreach (var row in rows)
+        {
+            facts[row.Id] = new SegmentSpanIndexSegmentFacts(
+                row.RefId, row.Title, row.SourceRunId, row.ColorHint, row.HasImage, row.HasPayload,
+                row.Confidence, row.CreatedAt, row.UpdatedAt);
+
+            if (!segmentsByVideo.TryGetValue(row.HostId, out var segments))
+            {
+                segments = [];
+                segmentsByVideo[row.HostId] = segments;
+            }
+
+            segments.Add(new Segment
+            {
+                Id = row.Id,
+                HostType = SegmentHostType.Video,
+                HostId = row.HostId,
+                StartSec = row.StartSec,
+                EndSec = row.EndSec,
+                TagId = row.TagId,
+                Kind = row.Kind,
+                RefId = row.RefId,
+                SourceKey = row.SourceKey,
+                SourceRunId = row.SourceRunId,
+                Confidence = row.Confidence,
+                Title = row.Title,
+                ColorHint = row.ColorHint,
+                Tag = row.TagId is { } tagId && tags.TryGetValue(tagId, out var tag) ? tag : null,
+            });
+        }
+
+        var videos = new List<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>(videoIds.Count);
+        foreach (var videoId in videoIds)
+        {
+            IReadOnlyList<ResolvedSpan> spans = segmentsByVideo.TryGetValue(videoId, out var segments)
+                ? BuildVideoSpans(videoId, profile, segments, rules)
+                : [];
+            videos.Add((videoId, spans));
+        }
+
+        return new SegmentSpanIndexResolution(videos, facts);
+    }
+
     public async Task<IReadOnlyList<ResolvedSpan>> PreviewVideoAsync(int videoId, IReadOnlyList<SegmentDisplayRule> rules, CancellationToken ct)
     {
         var segments = await LoadVideoSegmentsAsync(videoId, ct);
@@ -935,8 +1038,9 @@ public sealed class SegmentSpanResolver(
         if (hasRules)
             return false;
 
+        // Adding the rule moves the profile to a new version in the database (see
+        // SegmentSpanIndexSqlDefinitions). Writing one from this possibly long-held copy could set it back.
         db.SegmentDisplayRules.Add(CreateBuiltInDefaultRule(profile));
-        profile.Version++;
         return true;
     }
 
@@ -966,3 +1070,19 @@ public sealed class SegmentSpanResolver(
 
     private sealed record OperandMatch(List<IntervalAlgebra.Interval> Intervals, HashSet<int> SegmentIds);
 }
+
+/// <summary>What the stored span index keeps about one contributing segment.</summary>
+internal sealed record SegmentSpanIndexSegmentFacts(
+    long? RefId,
+    string? Title,
+    string? SourceRunId,
+    string? ColorHint,
+    bool HasImage,
+    bool HasPayload,
+    float? Confidence,
+    DateTime CreatedAt,
+    DateTime UpdatedAt);
+
+internal sealed record SegmentSpanIndexResolution(
+    IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)> Videos,
+    IReadOnlyDictionary<int, SegmentSpanIndexSegmentFacts> SegmentFacts);

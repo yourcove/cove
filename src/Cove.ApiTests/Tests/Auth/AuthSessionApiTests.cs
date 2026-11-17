@@ -138,6 +138,38 @@ public sealed class AuthSessionApiTests(
     }
 
     [Fact]
+    public async Task GivenUserLockedOutByFailedLogins_WhenTheLockoutExpires_ThenPasswordSessionAndApiTokenWorkAgain()
+    {
+        var owner = AsUser();
+        var username = $"lockout-{Guid.NewGuid():N}";
+        const string password = "Lockout password 123!";
+        var user = await owner.CreateUserAsync(new CreateUserRequest(
+            username,
+            password,
+            Roles: [BuiltinRoles.Admin]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var apiToken = AsUser(await session.Client.CreateApiTokenAsync($"Lockout API token {Guid.NewGuid():N}", cancellationToken: TestContext.Current.CancellationToken));
+        var sessionIdentity = () => session.Client.GetCurrentUserAsync(TestContext.Current.CancellationToken);
+        var apiTokenIdentity = () => apiToken.GetCurrentUserAsync(TestContext.Current.CancellationToken);
+
+        for (var attempt = 0; attempt < 8; attempt++)
+            (await owner.TryLoginStatusAsync(username, "wrong password", TestContext.Current.CancellationToken)).Should().Be(HttpStatusCode.Unauthorized);
+
+        (await owner.GetUserAsync(user.Id, TestContext.Current.CancellationToken)).IsLocked.Should().BeTrue();
+        (await owner.TryLoginStatusAsync(username, password, TestContext.Current.CancellationToken)).Should().Be(HttpStatusCode.Unauthorized);
+        await sessionIdentity.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 401 (Unauthorized)*");
+        await apiTokenIdentity.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 401 (Unauthorized)*");
+
+        await AsDbUser().ExpireLoginLockoutAsync(user.Id, TestContext.Current.CancellationToken);
+
+        (await owner.GetUserAsync(user.Id, TestContext.Current.CancellationToken)).IsLocked.Should().BeFalse();
+        await sessionIdentity.Should().NotThrowAsync();
+        await apiTokenIdentity.Should().NotThrowAsync();
+        (await owner.TryLoginStatusAsync(username, "wrong password", TestContext.Current.CancellationToken)).Should().Be(HttpStatusCode.Unauthorized);
+        (await owner.TryLoginStatusAsync(username, password, TestContext.Current.CancellationToken)).Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task GivenMember_WhenSigningIn_ThenTheResponseCarriesTheSameCurrentUserAsMe()
     {
         var owner = AsUser();

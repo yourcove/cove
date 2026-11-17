@@ -66,7 +66,9 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
         created.ShouldMatch(rich, tag.Name, profile.UserId);
         DateTimeOffset.TryParse(created.CreatedAt, out _).Should().BeTrue();
         DateTimeOffset.TryParse(created.UpdatedAt, out _).Should().BeTrue();
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(2);
+        var version = (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version;
+        // Each rule statement moves the profile to a new version, so a bulk create can advance it by more than one.
+        version.Should().BeGreaterThan(1);
 
         await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, [new SegmentDisplayRuleCreateDto("bulk-low", null, null, null, null, true, null, null, null, false, null, 1, 10), new SegmentDisplayRuleCreateDto("bulk-high", null, null, null, null, true, null, null, null, false, null, 2, 70)], TestContext.Current.CancellationToken);
         var afterBulk = await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken);
@@ -75,20 +77,66 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
         afterBulk.Select(rule => rule.Lane).Should().Equal(2, 3, 1);
         afterBulk.Should().OnlyContain(rule => rule.UserId == profile.UserId);
         afterBulk.Single(rule => rule.Id == created.Id).ShouldMatch(rich, tag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(3);
+        var previousVersion2 = version;
+        version = (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version;
+        version.Should().BeGreaterThan(previousVersion2);
 
         var update = new SegmentDisplayRuleUpdateDto("edited", "marker", replacementTag.Id, "category", SegmentHostType.Video, false, 0.9f, 3, 1, true, "#112233", 7, 60);
         var edited = await eva.UpdateSegmentDisplayRuleAsync(profile.Id, created.Id, update, TestContext.Current.CancellationToken);
         edited.ShouldMatch(update, replacementTag.Name, profile.UserId);
         (await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken)).Single(rule => rule.Id == created.Id).ShouldMatch(update, replacementTag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(4);
+        var previousVersion3 = version;
+        version = (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version;
+        version.Should().BeGreaterThan(previousVersion3);
         await eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id, TestContext.Current.CancellationToken);
         (await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken)).Should().NotContain(rule => rule.Id == created.Id);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(5);
+        var previousVersion4 = version;
+        version = (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version;
+        version.Should().BeGreaterThan(previousVersion4);
         var deleted = () => eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
         await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, [], TestContext.Current.CancellationToken);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(5);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(version);
+    }
+
+    [Fact]
+    [CoversEndpoint("PUT", "/api/segment-display-profiles/{profileid:int}/rules")]
+    public async Task GivenEditedRuleList_WhenMemberSavesIt_ThenEveryChangeLandsTogetherAndStaleSavesAreRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var eva = AsUser(ApiTestUsers.Eva);
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Saved together", null, false), ct);
+        var kept = await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("kept", null, null, null, null, true, null, null, null, false, null, null, 30), ct);
+        var dropped = await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("dropped", null, null, null, null, true, null, null, null, false, null, null, 20), ct);
+        var loaded = await eva.GetSegmentDisplayProfileAsync(profile.Id, ct);
+
+        var saved = await eva.ReplaceSegmentDisplayRulesAsync(profile.Id, new SegmentDisplayRulesReplaceDto(loaded.Version,
+        [
+            new SegmentDisplayRuleReplaceItemDto(kept.Id, "kept", "face", null, "category", SegmentHostType.Video, false, 0.7f, 4, 1.5, false, "#aabbcc", 2, 30),
+            new SegmentDisplayRuleReplaceItemDto(null, "added", null, null, null, null, true, null, null, null, false, null, null, 10),
+        ]), ct);
+
+        saved.Changed.Should().BeTrue();
+        saved.Profile.Version.Should().BeGreaterThan(loaded.Version);
+        saved.Rules.Select(rule => rule.SourceKey).Should().Equal("kept", "added");
+        saved.Rules[0].Id.Should().Be(kept.Id);
+        saved.Rules[0].Visible.Should().BeFalse();
+        saved.Rules[0].MinDurationSec.Should().Be(4);
+        saved.Rules.Should().OnlyContain(rule => rule.UserId == profile.UserId);
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id, ct)).Select(rule => rule.Id).Should().Equal(saved.Rules.Select(rule => rule.Id));
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id, ct)).Should().NotContain(rule => rule.Id == dropped.Id);
+
+        // Sending back exactly what was returned changes nothing, so the profile is not rebuilt.
+        var resent = await eva.ReplaceSegmentDisplayRulesAsync(profile.Id, new SegmentDisplayRulesReplaceDto(saved.Profile.Version,
+            saved.Rules.Select(rule => new SegmentDisplayRuleReplaceItemDto(rule.Id, rule.SourceKey, rule.Kind, rule.TagId, rule.TagCategory, rule.HostType, rule.Visible, rule.MinConfidence, rule.MinDurationSec, rule.MergeGapSec, rule.CollapseToInstant, rule.ColorOverride, rule.Lane, rule.Priority)).ToList()), ct);
+        resent.Changed.Should().BeFalse();
+        resent.Profile.Version.Should().Be(saved.Profile.Version);
+
+        var stale = () => eva.ReplaceSegmentDisplayRulesAsync(profile.Id, new SegmentDisplayRulesReplaceDto(loaded.Version, []));
+        var crossWrite = () => AsUser(ApiTestUsers.Anthony).ReplaceSegmentDisplayRulesAsync(profile.Id, new SegmentDisplayRulesReplaceDto(saved.Profile.Version, []));
+        await stale.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 409 (Conflict)*");
+        await crossWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id, ct)).Should().HaveCount(2);
     }
 
     [Fact]
