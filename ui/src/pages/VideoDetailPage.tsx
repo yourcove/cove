@@ -1,5 +1,6 @@
 import { VideoMergeEditor } from "../components/VideoMergeEditor";
 import { VideoCreateModal } from "../components/VideoCreateModal";
+import { usePersistedFlag } from "../hooks/usePersistedFlag";
 import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   faces,
@@ -218,39 +219,6 @@ interface Props {
   /** Removals to open the trim editor with, from a `?cut=` link. */
   initialCut?: CutRange[];
   onNavigate: (r: any) => void;
-}
-
-// localStorage-backed boolean flag with safe SSR fallback.
-function usePersistedFlag(
-  key: string,
-  defaultValue: boolean,
-): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [value, setValue] = useState<boolean>(() => {
-    if (typeof window === "undefined") return defaultValue;
-    try {
-      const raw = window.localStorage.getItem(key);
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-    } catch {
-      /* ignore */
-    }
-    return defaultValue;
-  });
-  const set = useCallback(
-    (next: boolean | ((prev: boolean) => boolean)) => {
-      setValue((prev) => {
-        const resolved = typeof next === "function" ? (next as (p: boolean) => boolean)(prev) : next;
-        try {
-          window.localStorage.setItem(key, resolved ? "true" : "false");
-        } catch {
-          /* ignore */
-        }
-        return resolved;
-      });
-    },
-    [key],
-  );
-  return [value, set];
 }
 
 function VideoQueuePanel({
@@ -2584,7 +2552,12 @@ function VideoScrubber({
   const [showAllResolvedLanes, setShowAllResolvedLanes] = useState(false);
   const [showAllFaceLanes, setShowAllFaceLanes] = useState(false);
   const [overlaysCollapsed, setOverlaysCollapsed] = usePersistedFlag("cove.timeline.overlaysCollapsed", false);
-  const [facesEnabled, setFacesEnabled] = usePersistedFlag("cove.timeline.facesEnabled", false);
+  // Faces start out shown when the video has faces with a name or a suggested match, until the viewer chooses.
+  const hasNamedFaces = useMemo(
+    () => Array.from(facesById.values()).some((face) => segmentFaceName(face) != null),
+    [facesById],
+  );
+  const [facesEnabled, setFacesEnabled] = usePersistedFlag("cove.timeline.facesEnabled", hasNamedFaces);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
