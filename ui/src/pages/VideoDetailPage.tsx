@@ -1238,6 +1238,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
         rawSegments={segments}
         facesById={facesById}
         personColors={personColors}
+        canDecideFaces={canWriteFaces}
         loading={resolvedSpansLoading || segmentsLoading}
         profiles={displayProfiles}
         currentProfileId={activeProfileId}

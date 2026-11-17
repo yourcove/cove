@@ -16,7 +16,9 @@ import {
   ListTree,
   List as ListIcon,
 } from "lucide-react";
-import { videos, tagGroups as tagGroupsApi } from "../api/client";
+import { faces, videos, tagGroups as tagGroupsApi } from "../api/client";
+import { readReferenceLinkInfo } from "./FaceCompareDialog";
+import { hasConflictingMatch } from "../utils/faceSuggestions";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
 import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
 import { faceKeyLabel, spanPerson } from "../pages/videoDetail/segmentPeople";
@@ -44,6 +46,8 @@ interface Props {
   facesById?: ReadonlyMap<number, Face>;
   /** Each person's colour, shared with the timeline's face lanes. */
   personColors?: ReadonlyMap<string, string>;
+  /** The viewer may accept or reject a face's suggested performer. */
+  canDecideFaces?: boolean;
   loading: boolean;
   profiles: SegmentDisplayProfile[];
   currentProfileId?: number;
@@ -72,6 +76,7 @@ export function VideoSegmentsPanel({
   rawSegments,
   facesById,
   personColors,
+  canDecideFaces = false,
   loading,
   profiles,
   currentProfileId,
@@ -87,6 +92,39 @@ export function VideoSegmentsPanel({
   onNavigate,
 }: Props) {
   const queryClient = useQueryClient();
+  // Deciding on a suggested face here works as on the faces list: accepting records the reference link the match
+  // carries, and a match that another reference source disputes is reviewed on the face page instead.
+  const faceDecision = useMutation({
+    meta: { suppressGlobalError: true },
+    mutationFn: async ({
+      faceId,
+      performerId,
+      decision,
+    }: {
+      faceId: number;
+      performerId: number;
+      decision: "accept" | "reject";
+    }): Promise<"done" | "review"> => {
+      if (decision === "reject") {
+        await faces.recordSuggestionDecision(faceId, { performerId, decision });
+        return "done";
+      }
+      const suggestions = await faces.suggestions(faceId);
+      const match = suggestions.find((suggestion) => suggestion.performerId === performerId);
+      if (!match || match.performerId <= 0 || hasConflictingMatch(match, suggestions)) return "review";
+      await faces.recordSuggestionDecision(faceId, { performerId, decision, ...readReferenceLinkInfo(match) });
+      return "done";
+    },
+    onSuccess: (result, { faceId }) => {
+      if (result === "review") {
+        onNavigate({ page: "face", id: faceId });
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["face", faceId] });
+      queryClient.invalidateQueries({ queryKey: ["faces"] });
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+    },
+  });
   const [selectedSpanKeys, setSelectedSpanKeys] = useState<Set<string>>(new Set());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -526,6 +564,15 @@ export function VideoSegmentsPanel({
           }
           onOpenFace={(faceId) => onNavigate({ page: "face", id: faceId })}
           personColors={personColors}
+          onDecide={
+            canDecideFaces
+              ? (faceId, performerId, decision) => faceDecision.mutate({ faceId, performerId, decision })
+              : undefined
+          }
+          decidingFaceId={faceDecision.isPending ? faceDecision.variables?.faceId : undefined}
+          decisionError={
+            faceDecision.error ? { faceId: faceDecision.variables?.faceId, error: faceDecision.error } : undefined
+          }
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -738,6 +785,9 @@ function GroupedList({
   onOpen,
   onOpenFace,
   personColors,
+  onDecide,
+  decidingFaceId,
+  decisionError,
 }: {
   spans: ResolvedSpan[];
   rawSegmentsById: Map<number, Segment>;
@@ -751,6 +801,10 @@ function GroupedList({
   onOpen: (span: ResolvedSpan) => void;
   onOpenFace: (faceId: number) => void;
   personColors?: ReadonlyMap<string, string>;
+  /** Accept or reject a face's suggested performer, when the viewer may. */
+  onDecide?: (faceId: number, performerId: number, decision: "accept" | "reject") => void;
+  decidingFaceId?: number;
+  decisionError?: { faceId?: number; error: Error };
 }) {
   const { groups, faceIdBySpanKey } = useMemo(() => {
     const byKey = new Map<string, PersonGroup & { facesById: Map<number, PersonFace> }>();
@@ -808,7 +862,9 @@ function GroupedList({
     <div className="divide-y divide-border/50">
       {groups.map((group) => {
         const open = !collapsed.has(group.key);
-        const showFaces = facesOpen.has(group.key) && group.faces.length > 1;
+        // A suggested group always lists its faces, since that is where each one is accepted or rejected.
+        const listsFaces = group.faces.length > 1 || (group.suggested && group.faces.length > 0);
+        const showFaces = facesOpen.has(group.key) && listsFaces;
         return (
           <div key={group.key}>
             <div className="flex items-center justify-between gap-3 py-1.5">
@@ -831,24 +887,18 @@ function GroupedList({
                     style={{ backgroundColor: personColors.get(group.key) }}
                   />
                 ) : null}
-                <span className="truncate text-sm font-medium text-foreground">{group.name}</span>
-                {group.suggested ? (
-                  <>
-                    <SuggestedNameMarker />
-                    <span className="sr-only"> (suggested)</span>
-                  </>
-                ) : null}
+                <ShownNameText name={group.name} suggested={group.suggested} className="text-sm font-medium" />
               </button>
-              {group.faces.length > 1 ? (
+              {listsFaces ? (
                 <button
                   type="button"
                   onClick={() => toggleIn(setFacesOpen, group.key)}
                   aria-expanded={showFaces}
-                  aria-label={`${showFaces ? "Hide" : "Show"} the ${group.faces.length} faces of ${group.name}`}
+                  aria-label={`${showFaces ? "Hide" : "Show"} the ${facesLabel(group.faces.length)} of ${group.name}`}
                   className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-1.5 py-0.5 text-xs text-secondary hover:border-accent hover:text-foreground"
                 >
                   <FaceStack faces={group.faces} />
-                  <span>{group.faces.length} faces</span>
+                  <span>{facesLabel(group.faces.length)}</span>
                   {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
               ) : group.faces.length === 1 ? (
@@ -870,13 +920,21 @@ function GroupedList({
             {showFaces ? (
               <ul className="mb-1.5 ml-6 space-y-1 rounded-lg border border-border bg-surface/30 p-1.5">
                 {group.faces.map((entry) => (
-                  <li key={entry.faceId} className="flex items-center gap-2 text-xs">
+                  <li key={entry.faceId} className="flex flex-wrap items-center gap-2 text-xs">
                     <FaceCrop face={entry.face} className="h-6 w-6" />
                     <span className="min-w-0 flex-1 truncate text-foreground">
                       {faceKeyLabel(entry.face, entry.faceId)}
                     </span>
                     <span className="shrink-0 text-secondary">{entry.count}×</span>
                     <span className="shrink-0 font-mono text-secondary">{formatTime(entry.totalSec)}</span>
+                    {group.suggested && onDecide && entry.face?.topSuggestion ? (
+                      <SuggestionDecision
+                        performerId={entry.face.topSuggestion.performerId}
+                        pending={decidingFaceId === entry.faceId}
+                        onDecide={(performerId, decision) => onDecide(entry.faceId, performerId, decision)}
+                        onReview={() => onOpenFace(entry.faceId)}
+                      />
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onOpenFace(entry.faceId)}
@@ -884,6 +942,11 @@ function GroupedList({
                     >
                       Open face
                     </button>
+                    {decisionError?.faceId === entry.faceId ? (
+                      <span role="alert" className="basis-full text-red-400">
+                        {decisionError.error.message}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -921,6 +984,67 @@ function GroupedList({
         );
       })}
     </div>
+  );
+}
+
+// A name with its "suggested" marker. The marker is hidden from screen readers, so a suggested name is read as one
+// phrase ending in "(suggested)" instead.
+function ShownNameText({ name, suggested, className = "" }: { name: string; suggested: boolean; className?: string }) {
+  if (!suggested) return <span className={`truncate text-foreground ${className}`}>{name}</span>;
+  return (
+    <>
+      <span aria-hidden className={`truncate text-foreground ${className}`}>
+        {name}
+      </span>
+      <SuggestedNameMarker />
+      <span className="sr-only">{`${name} (suggested)`}</span>
+    </>
+  );
+}
+
+function facesLabel(count: number) {
+  return count === 1 ? "1 face" : `${count} faces`;
+}
+
+// Accepting links the face to its suggested performer; a match that would import a new performer is reviewed on the
+// face page.
+function SuggestionDecision({
+  performerId,
+  pending,
+  onDecide,
+  onReview,
+}: {
+  performerId: number;
+  pending: boolean;
+  onDecide: (performerId: number, decision: "accept" | "reject") => void;
+  onReview: () => void;
+}) {
+  if (performerId <= 0) {
+    return (
+      <button type="button" onClick={onReview} className="shrink-0 text-accent hover:underline">
+        Review
+      </button>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onDecide(performerId, "accept")}
+        disabled={pending}
+        className="shrink-0 rounded bg-accent px-2 py-0.5 font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+      >
+        Accept
+      </button>
+      <button
+        type="button"
+        onClick={() => onDecide(performerId, "reject")}
+        disabled={pending}
+        className="shrink-0 rounded border border-border px-2 py-0.5 text-foreground hover:border-accent disabled:opacity-50"
+      >
+        Not them
+      </button>
+    </>
   );
 }
 
@@ -995,10 +1119,8 @@ function SegmentRow({
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
         {!hideLabel ? (
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-foreground group-hover:text-accent">{label}</span>
-            {shown.suggested ? <SuggestedNameMarker /> : null}
-            {shown.suggested ? <span className="sr-only"> (suggested)</span> : null}
+          <span className="flex min-w-0 items-center gap-1.5 group-hover:text-accent">
+            <ShownNameText name={label} suggested={shown.suggested} />
           </span>
         ) : null}
         {span.kind && span.kind !== "tag" ? (
