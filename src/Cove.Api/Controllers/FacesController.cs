@@ -37,7 +37,8 @@ public class FacesController(
     BulkDeletionJobService? bulkDeletionJobService = null,
     BulkEntityDeletionService? bulkEntityDeletionService = null,
     IThumbnailService? thumbnailService = null,
-    IFaceRepository? faceRepository = null) : ControllerBase
+    IFaceRepository? faceRepository = null,
+    FaceCoverService? faceCoverService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
     // Hosts a batch link stages before saving and clearing the change tracker. Each staged host also holds an advisory
@@ -76,6 +77,23 @@ public class FacesController(
     // meaningless without it, so the endpoints below report it as unimplemented rather than guessing.
     private IFaceOccurrenceEditor? ActiveOccurrenceEditor()
         => (serviceExchange?.GetAll<IFaceOccurrenceEditor>() ?? []).FirstOrDefault();
+
+    // The occurrences have already moved by the time this runs, so a failure here must not report the edit as
+    // failed; the cover is then merely left as it was. A client that has gone away does not stop it either.
+    private async Task ReleaseCoverIfSourceLeftAsync(int faceId)
+    {
+        if (faceCoverService is null)
+            return;
+
+        try
+        {
+            await faceCoverService.ReleaseIfSourceLeftAsync(faceId, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed to release the cover of face {FaceId} after its occurrences moved", faceId);
+        }
+    }
 
     private static string? NormalizeOccurrenceHostType(string? hostType)
         => hostType?.Trim().ToLowerInvariant() switch
@@ -142,6 +160,7 @@ public class FacesController(
         if (result.WouldEmptyFace)
             return BadRequest(new { error = "Separating every appearance would leave the face empty here — mark it not present instead." });
 
+        await ReleaseCoverIfSourceLeftAsync(id);
         return Ok(result);
     }
 
@@ -167,6 +186,7 @@ public class FacesController(
         if (!result.HostHadFace)
             return BadRequest(new { error = "That face is not present on the specified host." });
 
+        await ReleaseCoverIfSourceLeftAsync(id);
         return Ok(result);
     }
 
@@ -508,9 +528,11 @@ public class FacesController(
         if (!faceExists)
             return NotFound();
 
+        // Detections of faces merged into this one still refer to the merged face.
+        var faceRefIds = await FaceMergedIds.LoadWithMergedAsync(db, id, cancellationToken);
         var detections = await db.Detections
             .AsNoTracking()
-            .Where(detection => detection.RefId == id && detection.RefKind != null && detection.RefKind.ToLower() == "face")
+            .Where(detection => detection.RefId != null && faceRefIds.Contains(detection.RefId.Value) && detection.RefKind != null && detection.RefKind.ToLower() == "face")
             .OrderByDescending(detection => detection.UpdatedAt)
             .ThenBy(detection => detection.Id)
             .ToListAsync(cancellationToken);
@@ -2248,7 +2270,9 @@ public class FacesController(
             return [];
 
         var distinctFaceIds = faceIds.Distinct().ToArray();
-        var faceIdLongs = distinctFaceIds.Select(static id => (long)id).ToArray();
+        // Detections of a face merged into one of these still refer to the merged face, and count for its target.
+        var mergedInto = await FaceMergedIds.LoadMergedIntoAsync(db, distinctFaceIds, cancellationToken);
+        var faceIdLongs = distinctFaceIds.Concat(mergedInto.Keys).Select(static id => (long)id).ToArray();
 
         // Aggregate at the database tier so we don't materialize every detection row
         // for every face on the page (a face can have tens of thousands of detections).
@@ -2277,7 +2301,7 @@ public class FacesController(
         sw.Restart();
 
         var detectionCounts = detectionAggregates
-            .GroupBy(row => row.FaceId)
+            .GroupBy(row => mergedInto.GetValueOrDefault(row.FaceId, row.FaceId))
             .ToDictionary(
                 group => group.Key,
                 group =>

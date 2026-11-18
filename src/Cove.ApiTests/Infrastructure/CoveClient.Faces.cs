@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Globalization;
 using System.Text.Json;
@@ -293,6 +294,31 @@ public sealed partial class CoveClient
             $"/api/faces/{faceId}/suggestions/decision",
             decision,
             cancellationToken);
+
+    public Task<Cove.Api.Services.FaceImageSourcesDto> GetFaceImageSourcesAsync(
+        int faceId,
+        IEnumerable<int> detectionIds,
+        CancellationToken cancellationToken = default)
+        => SendAsync<Cove.Api.Services.FaceImageSourcesDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/{faceId}/image-sources?{string.Join("&", detectionIds.Select(id => $"detectionIds={id}"))}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task SetFaceCoverFromDetectionAsync(
+        int faceId,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/faces/{faceId}/cover/detection";
+        using var response = await _client.PostAsJsonAsync(requestUri, new Cove.Api.Services.FaceCoverFromDetectionDto(detectionId), cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"POST {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public async Task UploadFaceImageAsync(
         FaceDto face,

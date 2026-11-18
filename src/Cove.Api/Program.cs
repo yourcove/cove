@@ -376,6 +376,7 @@ try
     builder.Services.AddSingleton<IFaceSuggester, EmptyFaceSuggester>();
     builder.Services.AddScoped<IScanService, ScanService>();
     builder.Services.AddScoped<IStreamService, StreamService>();
+    builder.Services.AddScoped<FaceCoverService>();
     builder.Services.AddScoped<ICleanService, CleanService>();
     builder.Services.AddSingleton<Cove.Api.Services.MaintenanceState>();
     builder.Services.AddSingleton<Cove.Api.Services.DatabaseMigrationCoordinator>();

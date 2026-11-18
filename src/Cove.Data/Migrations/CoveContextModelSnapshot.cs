@@ -1715,6 +1715,9 @@ namespace Cove.Data.Migrations
                     b.Property<string>("CoverBlobId")
                         .HasColumnType("text");
 
+                    b.Property<int?>("CoverDetectionId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1794,6 +1797,8 @@ namespace Cove.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CoverDetectionId");
 
                     b.HasIndex("Ignored");
 
@@ -5842,6 +5847,11 @@ namespace Cove.Data.Migrations
 
             modelBuilder.Entity("Cove.Core.Entities.Face", b =>
                 {
+                    b.HasOne("Cove.Core.Entities.Detection", null)
+                        .WithMany()
+                        .HasForeignKey("CoverDetectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Cove.Core.Entities.Face", "MergedIntoFace")
                         .WithMany("MergedFaces")
                         .HasForeignKey("MergedIntoFaceId")

@@ -280,6 +280,11 @@ public partial class CoveContext : DbContext
             entity.HasIndex(face => face.TopSuggestionLocalPerformerId);
             // Background materializer scan: unlinked faces awaiting (re)compute.
             entity.HasIndex(face => new { face.PerformerId, face.TopSuggestionComputedAt });
+            // A cover outlives the detection it was cropped from; only the knowledge of its source goes.
+            entity.HasOne<Detection>()
+                .WithMany()
+                .HasForeignKey(face => face.CoverDetectionId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         foreach (var ext in _includeDataExtensionsInModel ? _dataExtensions : [])
@@ -617,6 +622,7 @@ public partial class CoveContext : DbContext
             try
             {
                 databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
+                ClearReplacedFaceCoverSources();
                 UpdateTimestamps();
                 ComputeFilePaths();
                 MaintainDenormalizedIdArrays(arrayTargets);
@@ -683,6 +689,7 @@ public partial class CoveContext : DbContext
             try
             {
                 databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+                ClearReplacedFaceCoverSources();
                 UpdateTimestamps();
                 ComputeFilePaths();
                 MaintainDenormalizedIdArrays(arrayTargets);
@@ -3176,6 +3183,20 @@ public partial class CoveContext : DbContext
                 if (fileEntry.State == EntityState.Unchanged)
                     fileEntry.State = EntityState.Modified;
             }
+        }
+    }
+
+    // A face's cover is replaced by several writers, including extensions that set CoverBlobId directly and know
+    // nothing of CoverDetectionId. Whoever replaces the cover without also stating its source leaves the source
+    // unknown, rather than leaving the previous cover's source attached to the new image.
+    private void ClearReplacedFaceCoverSources()
+    {
+        foreach (var entry in ChangeTracker.Entries<Face>())
+        {
+            if (entry.State != EntityState.Modified)
+                continue;
+            if (entry.Property(face => face.CoverBlobId).IsModified && !entry.Property(face => face.CoverDetectionId).IsModified)
+                entry.Entity.CoverDetectionId = null;
         }
     }
 
