@@ -95,6 +95,7 @@ import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
 import { listKey, vrOnlyFilter, type VrListSource } from "../vr/vrListRegistry";
+import { LoadedImage } from "../components/LoadedImage";
 
 const VideoDownloadDialog = lazy(() =>
   import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })),
@@ -1357,7 +1358,12 @@ function CompilationGroupCard({ group, onNavigate }: { group: Group; onNavigate:
           className="absolute left-1 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
         {group.frontImagePath ? (
-          <img src={group.frontImagePath} alt={group.name} className="h-full w-full object-cover" loading="lazy" />
+          <LoadedImage
+            src={group.frontImagePath}
+            alt={group.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <Layers className="h-10 w-10 text-muted opacity-40" />
         )}

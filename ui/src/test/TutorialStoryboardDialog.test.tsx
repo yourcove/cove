@@ -353,6 +353,8 @@ describe("TutorialStoryboardDialog", () => {
       .closest("summary");
     expect(urlRecipe?.closest("details")).not.toHaveAttribute("open");
     expect(performerRecipe?.closest("details")).not.toHaveAttribute("open");
+    // Images stay transparent until they load; load this one so only the collapsed recipe hides it.
+    fireEvent.load(screen.getByAltText(/URL Includes archive\.example/));
     expect(screen.getByAltText(/URL Includes archive\.example/)).not.toBeVisible();
 
     await user.click(urlRecipe!);

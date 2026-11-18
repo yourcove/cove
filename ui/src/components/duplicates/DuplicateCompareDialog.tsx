@@ -47,6 +47,7 @@ import {
   totalSize,
   type DuplicateCopy,
 } from "./duplicateModel";
+import { LoadedImage } from "../LoadedImage";
 
 type CompareMode = "slider" | "side" | "frames";
 type AudioSource = "a" | "b" | "none";
@@ -967,7 +968,7 @@ function FrameStrips({ videos, keepVideoIds }: { videos: Video[]; keepVideoIds: 
                     return (
                       <figure key={position} className="relative aspect-video overflow-hidden rounded bg-black">
                         {duration > 0 ? (
-                          <img
+                          <LoadedImage
                             src={videosApi.screenshotUrl(
                               video.id,
                               video.updatedAt,

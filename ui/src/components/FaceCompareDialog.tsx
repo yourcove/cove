@@ -13,6 +13,7 @@ import type { Face, FaceSuggestion, FaceSuggestionEvidence, FaceTopSuggestion } 
 import { createRouteLinkProps } from "./cardNavigation";
 import { EditModal } from "./EditModal";
 import { faceStoredName } from "../utils/faceDisplay";
+import { LoadedImage } from "./LoadedImage";
 
 type ComparableSuggestion = FaceSuggestion | FaceTopSuggestion;
 type ConfirmOptions = { setPerformerImage?: boolean };
@@ -369,7 +370,7 @@ function ConflictChooser({
               />
               <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-surface/80">
                 {candidate.coverImageUrl ? (
-                  <img
+                  <LoadedImage
                     src={candidate.coverImageUrl}
                     alt={candidate.performerName}
                     className="h-full w-full object-cover object-top"
@@ -514,7 +515,7 @@ function CompareImage({ src, alt, alignTop }: { src: string; alt: string; alignT
 
   return (
     <div ref={wrapperRef} className="h-full w-full">
-      <img
+      <LoadedImage
         src={src}
         alt={alt}
         className={`h-full w-full ${shouldContain ? "object-contain" : "object-cover"} ${!shouldContain && alignTop ? "object-top" : ""}`}

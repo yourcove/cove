@@ -87,6 +87,7 @@ import { TagGraphView } from "./TagGraphView";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, getTagMediaImageUrl } from "./EntityMedia";
 import { getWallColumnCountFromSizeLevel } from "./WallSizeControl";
+import { LoadedImage } from "./LoadedImage";
 
 type RelatedEntityItem =
   | Video
@@ -1951,7 +1952,7 @@ function RelatedThumbnailFallback({
 }) {
   return src ? (
     <>
-      <img
+      <LoadedImage
         src={src}
         alt=""
         className="h-full w-full object-cover"

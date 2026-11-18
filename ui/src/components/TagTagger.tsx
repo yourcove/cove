@@ -12,6 +12,7 @@ import {
 } from "./TaggerShared";
 import { AlertCircle, Check, CloudUpload, Loader2, Search, Tag as TagIcon } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { LoadedImage } from "./LoadedImage";
 
 interface TagTaggerProps {
   tags: Tag[];
@@ -275,7 +276,7 @@ function TagTaggerRow({
         <div className="flex-shrink-0 w-24">
           <div className="relative aspect-video bg-card rounded overflow-hidden flex items-center justify-center">
             {tag.imagePath ? (
-              <img src={tag.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" />
+              <LoadedImage src={tag.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" />
             ) : (
               <TagIcon className="w-8 h-8 text-muted" />
             )}

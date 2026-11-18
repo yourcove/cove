@@ -114,6 +114,7 @@ import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/perform
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 import { compareNatural } from "../utils/naturalCompare";
 import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
+import { LoadedImage } from "../components/LoadedImage";
 
 interface Props {
   id: number;
@@ -896,7 +897,12 @@ function SimilarPerformerAttributeCard({
     >
       <div className="h-20 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-surface/90">
         {imageUrl ? (
-          <img src={imageUrl} alt={match.performer.name} className="h-full w-full object-cover" loading="lazy" />
+          <LoadedImage
+            src={imageUrl}
+            alt={match.performer.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted">
             <UserRound className="h-6 w-6" />
@@ -1125,7 +1131,7 @@ function SimilarPerformerFaceCard({ match, onNavigate }: { match: PerformerFaceM
       >
         <div className="h-16 w-16 overflow-hidden rounded-xl bg-surface/90">
           {match.coverImageUrl ? (
-            <img
+            <LoadedImage
               src={match.coverImageUrl}
               alt={match.performerName}
               className="h-full w-full object-cover"

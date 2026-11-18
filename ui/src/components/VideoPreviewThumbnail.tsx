@@ -6,6 +6,7 @@ import { formatDuration } from "./shared";
 import { isPlainPrimaryClick } from "./cardNavigation";
 import { findSpriteIndex, spriteCaptureTime, useVideoSpritesLoad } from "../hooks/useVideoSprites";
 import { VideoCoverImage } from "./VideoCoverImage";
+import { LoadedImage } from "./LoadedImage";
 
 function NativeVideoPreview({
   coverUrl,
@@ -170,7 +171,7 @@ export function VideoPreviewThumbnail({
         )}
       />
       {scrubImageUrl ? (
-        <img
+        <LoadedImage
           src={scrubImageUrl}
           alt=""
           className="absolute inset-0 z-[7] h-full w-full"

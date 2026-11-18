@@ -1,6 +1,7 @@
 import { collectionPresetHooks, idsForMode, modeForSelection, sameSet } from "./VideoTaggerReview";
 import type { CollectionMode } from "./videoScrapeUtils";
 import { type DiffField, type DiffRecord, type DiffSelection } from "./MetadataDiff";
+import { LoadedImage } from "./LoadedImage";
 
 /**
  * Adapts the studio tagger's decision state (per-field strategies, collection modes) to the generic
@@ -78,7 +79,7 @@ export function buildStudioReview(input: StudioReviewInput) {
       label: "Logo",
       alwaysVisible: true,
       render: (value) => (
-        <img src={String(value)} alt="Studio logo" className="max-h-32 w-full rounded object-contain" />
+        <LoadedImage src={String(value)} alt="Studio logo" className="max-h-32 w-full rounded object-contain" />
       ),
     });
     sourceValues.image = input.incomingImageUrl;

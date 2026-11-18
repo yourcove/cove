@@ -1,6 +1,7 @@
 import { Fingerprint } from "lucide-react";
 import type { Face, FaceSuggestion } from "../api/types";
 import { SuggestionEvidenceText } from "./SuggestionEvidenceText";
+import { LoadedImage } from "./LoadedImage";
 
 interface Props {
   face?: Face;
@@ -53,7 +54,7 @@ export function FaceSuggestionsPanel({
                   {isReferenceOnly ? (
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-surface/90 text-left">
                       {suggestion.coverImageUrl ? (
-                        <img
+                        <LoadedImage
                           src={suggestion.coverImageUrl}
                           alt={suggestion.performerName}
                           className="h-full w-full object-cover object-top"
@@ -74,7 +75,7 @@ export function FaceSuggestionsPanel({
                       aria-label={`Open performer ${suggestion.performerName}`}
                     >
                       {suggestion.coverImageUrl ? (
-                        <img
+                        <LoadedImage
                           src={suggestion.coverImageUrl}
                           alt={suggestion.performerName}
                           className="h-full w-full object-cover object-top"
@@ -144,7 +145,7 @@ export function FaceSuggestionsPanel({
                               title={`${formatPercent(evidence.similarity)}% similar`}
                             >
                               {evidence.thumbnailUrl ? (
-                                <img
+                                <LoadedImage
                                   src={evidence.thumbnailUrl}
                                   alt={`Face ${evidence.faceId}`}
                                   className="h-full w-full object-cover"

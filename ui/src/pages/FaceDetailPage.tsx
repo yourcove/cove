@@ -60,6 +60,7 @@ import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { DetailListDisplayMode } from "../components/DetailListToolbar";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { LoadedImage } from "../components/LoadedImage";
 
 interface Props {
   id: number;
@@ -1206,7 +1207,7 @@ function FaceCandidateRow({ face, onSelect, disabled }: { face: Face; onSelect: 
     >
       <div className="h-14 w-14 overflow-hidden rounded-xl bg-surface/90">
         {face.coverImageUrl ? (
-          <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
+          <LoadedImage src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted">
             <Fingerprint className="h-5 w-5" />
@@ -1280,7 +1281,12 @@ function FaceAppearancesGrid({
               >
                 <div className="h-12 w-16 shrink-0 overflow-hidden rounded bg-surface">
                   {appearance.thumbnailUrl ? (
-                    <img src={appearance.thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <LoadedImage
+                      src={appearance.thumbnailUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -1454,7 +1460,12 @@ function SimilarFacesView({
                 >
                   <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-surface">
                     {face.coverImageUrl ? (
-                      <img src={face.coverImageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      <LoadedImage
+                        src={face.coverImageUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted">
                         <Fingerprint className="h-4 w-4" />

@@ -53,6 +53,7 @@ import { getAudioDisplayTitle, pickPrimaryAudioFile } from "../utils/audioTextDi
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { AudioEditPanel } from "./AudioEditPanel";
 import { LikeHistorySection } from "../components/LikeHistorySection";
+import { LoadedImage } from "../components/LoadedImage";
 
 const MediaScrapeDialog = lazy(() =>
   import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })),
@@ -285,7 +286,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
       <div className="flex h-full min-h-[45vh] w-full flex-col overflow-hidden bg-background">
         <div className="flex min-h-0 flex-1 items-center justify-center p-6 sm:p-8">
           {audio.imagePath ? (
-            <img
+            <LoadedImage
               src={audio.imagePath}
               alt={`${displayTitle} cover`}
               className="max-h-[min(52vh,34rem)] max-w-[min(54vw,42rem)] rounded-lg border border-border bg-card object-contain shadow-lg"

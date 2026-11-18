@@ -4,6 +4,7 @@ import { entityImages } from "../api/client";
 import type { Performer, Tag } from "../api/types";
 import { ExtensionComponentOverrideRenderer, useExtensions } from "../extensions/ExtensionLoader";
 import { fullscreenContainerFor } from "../utils/fullscreenPortal";
+import { LoadedImage } from "./LoadedImage";
 
 export const ENTITY_MEDIA_TARGET = "entity.media" as const;
 
@@ -217,7 +218,7 @@ function useEntityMediaPreview(componentProps: Omit<EntityMediaRenderProps, "ren
   const enabled = hasStaticImage || getComponentOverrides(ENTITY_MEDIA_TARGET).length > 0;
   const renderDefault = () =>
     staticImageUrl && failedImageUrl !== staticImageUrl ? (
-      <img
+      <LoadedImage
         src={staticImageUrl}
         alt={componentProps.alt}
         className={`h-full w-full ${componentProps.fit === "contain" ? "object-contain" : "object-cover"}`}

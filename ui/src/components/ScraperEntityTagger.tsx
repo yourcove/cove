@@ -46,6 +46,7 @@ import {
 } from "./TaggerShared";
 import { AlertCircle, Check, FileQuestion, Loader2, Search } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { LoadedImage } from "./LoadedImage";
 
 type SupportedScraperEntity = "image" | "audio" | "text" | "gallery" | "group";
 
@@ -783,7 +784,7 @@ function ScraperEntityTaggerRow({
     <>
       <div className="relative aspect-video bg-card rounded overflow-hidden flex items-center justify-center">
         {imageUrl ? (
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <LoadedImage src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <FileQuestion className="w-8 h-8 text-muted" />
         )}
@@ -1019,7 +1020,12 @@ function ScraperResultRow({
           </div>
         </div>
         {result.imageUrl && (
-          <img src={result.imageUrl} alt="" className="w-16 h-10 object-cover rounded flex-shrink-0" loading="lazy" />
+          <LoadedImage
+            src={result.imageUrl}
+            alt=""
+            className="w-16 h-10 object-cover rounded flex-shrink-0"
+            loading="lazy"
+          />
         )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-foreground truncate">

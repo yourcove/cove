@@ -5,6 +5,7 @@ import { entityImages } from "../api/client";
 import type { EntityEngagement, SavedFilterUIOptions, Video, VideoFile } from "../api/types";
 import { formatDate, formatDateTime } from "../utils/dateFormat";
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge, TagBadge } from "./shared";
+import { LoadedImage } from "./LoadedImage";
 
 export const VIDEO_LIST_COLUMNS_UI_OPTION_KEY = "listColumns";
 
@@ -134,7 +135,7 @@ function VideoListThumbnail({ video, heightPx }: { video: Video; heightPx: numbe
       {failed ? (
         <Film className="h-5 w-5" aria-hidden="true" />
       ) : (
-        <img
+        <LoadedImage
           src={entityImages.videoCoverUrl(video.id, video.updatedAt, 320)}
           alt=""
           loading="lazy"

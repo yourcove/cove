@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { usePlaybackPreferences } from "../utils/playbackPreferences";
+import { LoadedImage } from "./LoadedImage";
 
 const VOLUME_KEY = "cove-audio-player-volume";
 const MUTED_KEY = "cove-audio-player-muted";
@@ -946,7 +947,7 @@ export function AudioPlayer({
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-sm">
               {coverUrl ? (
-                <img src={coverUrl} alt="" className="h-full w-full rounded-md object-cover" />
+                <LoadedImage src={coverUrl} alt="" className="h-full w-full rounded-md object-cover" />
               ) : (
                 <Headphones className="h-7 w-7 text-accent" />
               )}

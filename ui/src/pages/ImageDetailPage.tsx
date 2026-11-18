@@ -61,6 +61,7 @@ import { PerformerContextTagList, getPerformerContextTags } from "../components/
 import { ImageEditPanel } from "./ImageEditModal";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { LikeHistorySection } from "../components/LikeHistorySection";
+import { LoadedImage } from "../components/LoadedImage";
 
 const ImageDownloadDialog = lazy(() =>
   import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })),
@@ -672,7 +673,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-[10px] text-muted">
                       {face.coverImageUrl ? (
-                        <img
+                        <LoadedImage
                           src={face.coverImageUrl}
                           alt={title}
                           className="h-full w-full object-cover"
@@ -932,7 +933,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 </div>
               </div>
             ) : null}
-            <img
+            <LoadedImage
               src={images.imageUrl(id)}
               alt={displayTitle}
               className={[

@@ -140,6 +140,7 @@ import {
   type GenerateOptionGroup,
 } from "../components/GenerateOptionList";
 import type { GenerateOptionKey } from "../components/generateOptionCatalog";
+import { LoadedImage } from "../components/LoadedImage";
 
 type LegacySettingsTab =
   | "tasks"
@@ -3161,7 +3162,7 @@ export function SettingsPage() {
                       </label>
                       {draft.ui.logoPath ? (
                         <div className="flex items-center gap-2 pt-1">
-                          <img
+                          <LoadedImage
                             src={draft.ui.logoPath}
                             alt="Logo preview"
                             className="h-8 w-auto max-w-[160px] object-contain"

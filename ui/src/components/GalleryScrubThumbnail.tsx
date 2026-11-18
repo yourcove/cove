@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen } from "lucide-react";
 import { galleries, images } from "../api/client";
 import type { Gallery } from "../api/types";
+import { LoadedImage } from "./LoadedImage";
 
 export function getGalleryScrubImageIndex(pointerX: number, width: number, imageCount: number) {
   if (imageCount <= 1) return 0;
@@ -113,7 +114,7 @@ export const GalleryScrubThumbnail = forwardRef<GalleryScrubThumbnailHandle, Gal
       >
         {!displayedUrl && resolvedCoverUrl ? (
           <>
-            <img
+            <LoadedImage
               src={resolvedCoverUrl}
               alt={alt}
               className={`h-full w-full ${objectFitClass}`}
@@ -135,7 +136,7 @@ export const GalleryScrubThumbnail = forwardRef<GalleryScrubThumbnailHandle, Gal
           </div>
         ) : null}
         {displayedUrl ? (
-          <img
+          <LoadedImage
             src={displayedUrl}
             alt=""
             className={`absolute inset-0 h-full w-full ${objectFitClass}`}
@@ -144,7 +145,7 @@ export const GalleryScrubThumbnail = forwardRef<GalleryScrubThumbnailHandle, Gal
           />
         ) : null}
         {pendingUrl && pendingUrl !== displayedUrl ? (
-          <img
+          <LoadedImage
             src={pendingUrl}
             alt=""
             className={`absolute inset-0 h-full w-full ${objectFitClass} opacity-0`}
