@@ -73,7 +73,7 @@ import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { DetailListDisplayMode } from "../components/DetailListToolbar";
-import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { getLoadError, getSearchResultState, isApiNotFoundError, normalizeQueryError } from "../utils/queryLoadState";
 import { LoadedImage } from "../components/LoadedImage";
 
 interface Props {
@@ -657,6 +657,13 @@ function FaceDetailPage({ id, onNavigate }: Props) {
 
   const mergeCandidates = (mergeMatchesQuery.data?.items ?? []).filter((candidate) => candidate.id !== id);
   const performerMatches = performerMatchesQuery.data?.items ?? [];
+  const performerSearchState = getSearchResultState(performerMatchesQuery, performerMatches.length);
+  const mergeSearchState = getSearchResultState(mergeMatchesQuery, mergeCandidates.length);
+  // A failed search cannot say whether the performer already exists, so creating one now could duplicate it.
+  const createPerformerBlocked = performerSearchTerm.length >= 2 && performerSearchState === "error";
+  const createPerformerBlockedTitle = createPerformerBlocked
+    ? "The performer search failed, so it is not known whether this performer exists. Try the search again first."
+    : undefined;
   // Shares its request with the Appears In tab. A cover whose detection is known replaces that detection in the
   // carousel, instead of the best one.
   const { imageSources: faceImageSources } = useFaceImageSources(id, face != null);
@@ -789,7 +796,9 @@ function FaceDetailPage({ id, onNavigate }: Props) {
                 <button
                   type="button"
                   onClick={() => setIsCreatePerformerModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+                  disabled={createPerformerBlocked}
+                  title={createPerformerBlockedTitle}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <UserPlus className="h-4 w-4" />
                   Create Performer
@@ -815,10 +824,16 @@ function FaceDetailPage({ id, onNavigate }: Props) {
               </div>
               {performerSearchTerm.length < 2 ? (
                 <p className="text-xs text-secondary">Type at least two characters to search performers.</p>
-              ) : performerMatchesQuery.isLoading ||
-                (performerMatchesQuery.isPlaceholderData && performerMatches.length === 0) ? (
+              ) : performerSearchState === "error" ? (
+                <ListLoadError
+                  error={normalizeQueryError(performerMatchesQuery.error) ?? new Error("Search failed")}
+                  onRetry={() => void performerMatchesQuery.refetch()}
+                  title="Could not search performers"
+                  className="mt-1"
+                />
+              ) : performerSearchState === "searching" ? (
                 <p className="text-xs text-secondary">Searching performers...</p>
-              ) : performerMatches.length === 0 ? (
+              ) : performerSearchState === "empty" ? (
                 <p className="text-xs text-secondary">No performers matched that search.</p>
               ) : (
                 <div className="space-y-2" aria-busy={performerMatchesQuery.isPlaceholderData || undefined}>
@@ -1242,7 +1257,9 @@ function FaceDetailPage({ id, onNavigate }: Props) {
                   setIsCreatePerformerModalOpen(true);
                   setShowActionsMenu(false);
                 }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface"
+                disabled={createPerformerBlocked}
+                title={createPerformerBlockedTitle}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <UserPlus className="h-3.5 w-3.5" />
                 Create performer
@@ -1364,9 +1381,16 @@ function FaceDetailPage({ id, onNavigate }: Props) {
             <p className="text-sm text-secondary">
               Type at least two characters to search merge targets by face label or linked performer name.
             </p>
-          ) : mergeMatchesQuery.isLoading || (mergeMatchesQuery.isPlaceholderData && mergeCandidates.length === 0) ? (
+          ) : mergeSearchState === "error" ? (
+            <ListLoadError
+              error={normalizeQueryError(mergeMatchesQuery.error) ?? new Error("Search failed")}
+              onRetry={() => void mergeMatchesQuery.refetch()}
+              title="Could not search faces"
+              className="mt-1"
+            />
+          ) : mergeSearchState === "searching" ? (
             <p className="text-sm text-secondary">Searching faces...</p>
-          ) : mergeCandidates.length === 0 ? (
+          ) : mergeSearchState === "empty" ? (
             <p className="text-sm text-secondary">No merge targets matched that search.</p>
           ) : (
             <div className="space-y-2" aria-busy={mergeMatchesQuery.isPlaceholderData || undefined}>

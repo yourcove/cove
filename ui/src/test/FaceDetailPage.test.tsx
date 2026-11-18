@@ -676,6 +676,70 @@ describe("FaceDetailPage", () => {
       search.finish();
       expect(await screen.findByRole("button", { name: /Target two/ })).toBeEnabled();
     });
+
+    it("says a failed performer search failed, offers a retry, and holds Create Performer back meanwhile", async () => {
+      mockUnlinkedFace();
+      renderPage();
+      let failing = true;
+      mockPerformers.find.mockImplementation(({ q }: { q?: string }) =>
+        q === "Alexis" && failing
+          ? Promise.reject(new Error("API Error 502: Bad Gateway"))
+          : Promise.resolve(
+              q === "Alexis" ? performerPage(10, "Alexis Example") : { items: [], totalCount: 0, page: 1, perPage: 6 },
+            ),
+      );
+      await screen.findByRole("heading", { name: "Unlinked lead" });
+      const createPerformer = screen.getByRole("button", { name: "Create Performer" });
+      expect(createPerformer).toBeEnabled();
+
+      fireEvent.change(screen.getByPlaceholderText("Search performers"), { target: { value: "Alexis" } });
+
+      // A failure is not "no matches": the performer may well exist, so creating one now could duplicate it.
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Could not search performers");
+      expect(screen.queryByText("No performers matched that search.")).not.toBeInTheDocument();
+      expect(createPerformer).toBeDisabled();
+      expect(createPerformer).toHaveAttribute("title", expect.stringMatching(/search failed/i));
+
+      failing = false;
+      fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+      expect(await screen.findByRole("button", { name: /Alexis Example/ })).toBeEnabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(createPerformer).toBeEnabled();
+    });
+
+    it("says a failed merge target search failed and offers a retry", async () => {
+      mockUnlinkedFace();
+      renderPage();
+      let failing = true;
+      mockFaces.list.mockImplementation((options?: { q?: string }) =>
+        options?.q === "Target" && failing
+          ? Promise.reject(new Error("API Error 502: Bad Gateway"))
+          : Promise.resolve({
+              items:
+                options?.q === "Target"
+                  ? [{ ...linkedFace, id: 30, label: "Target one", performerId: undefined, performerName: undefined }]
+                  : [],
+              totalCount: 1,
+              page: 1,
+              perPage: 6,
+            }),
+      );
+      await screen.findByRole("heading", { name: "Unlinked lead" });
+      fireEvent.click(screen.getByTitle("More actions"));
+      fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+      fireEvent.change(screen.getByPlaceholderText("Search by face label or linked performer"), {
+        target: { value: "Target" },
+      });
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Could not search faces");
+      expect(screen.queryByText("No merge targets matched that search.")).not.toBeInTheDocument();
+
+      failing = false;
+      fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+      expect(await screen.findByRole("button", { name: /Target one/ })).toBeEnabled();
+    });
   });
 
   describe("list settings in the URL", () => {
