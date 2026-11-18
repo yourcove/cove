@@ -1207,6 +1207,21 @@ public record FaceBatchLinkTopSuggestionDto(
     bool LinkConflicting = false,
     bool MergeConflicting = false);
 
+/// <summary>
+/// Links reviewed faces to one chosen performer, and remembers the faces the reviewer skipped as not
+/// being that performer (a per-user reject decision, the same one a rejected suggestion records).
+/// </summary>
+public record FaceBatchLinkDto(
+    int PerformerId,
+    IReadOnlyList<int> FaceIds,
+    IReadOnlyList<int>? RejectFaceIds = null);
+
+public record FaceBatchLinkResultDto(
+    IReadOnlyList<int> Linked,
+    IReadOnlyList<int> Rejected,
+    IReadOnlyList<FaceBatchSkippedDto> Skipped,
+    IReadOnlyList<FaceBatchFailedDto> Failed);
+
 public record FaceBatchDeleteDto(IReadOnlyList<int> FaceIds);
 
 public record FaceBatchOperationResultDto(
@@ -1360,7 +1375,16 @@ public record FaceSimilarDto(
     DateTime UpdatedAt,
     int AppearanceCount,
     int FrameSampleCount,
-    float Distance);
+    float Distance)
+{
+    // An init property rather than a positional parameter, so extensions built against the
+    // earlier constructor keep binding to it.
+    /// <summary>
+    /// The current user has rejected this face for the performer linked to the face the similar
+    /// faces were searched from.
+    /// </summary>
+    public bool RejectedForSourcePerformer { get; init; }
+}
 
 public record EmbeddingDto(
     int Id,

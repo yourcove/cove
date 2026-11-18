@@ -82,6 +82,8 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     refetch,
     infiniteQuery,
     isPlaceholderData: infinitePageSize && infiniteQuery.isPlaceholderData,
+    /** The items answer an earlier query (another filter, page or key) while the current one loads. */
+    showsPreviousResults: infinitePageSize ? infiniteQuery.isPlaceholderData : pageQuery.isPlaceholderData,
     infiniteFilterKey,
     settledListKey,
     loadMore,

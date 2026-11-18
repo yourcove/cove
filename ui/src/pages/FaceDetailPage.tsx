@@ -22,6 +22,8 @@ import type {
   BoolCriterion,
   Face,
   FaceAppearance,
+  FaceBatchLinkRequest,
+  FaceBatchLinkResult,
   FaceDeleteImpact,
   FaceSimilar,
   FaceSuggestion,
@@ -79,6 +81,43 @@ type FaceTab = (typeof FACE_TABS)[number];
 
 function isFaceTab(value: string): value is FaceTab {
   return (FACE_TABS as readonly string[]).includes(value);
+}
+
+/**
+ * An in-progress review of a face's similar faces and the outcome of the last batch. `choices` holds what the
+ * reviewer decided for a face (true links it). It stores the decision itself rather than a change from the
+ * default, so a face whose saved reject appears or goes away during the review keeps what the reviewer chose.
+ */
+interface SimilarReviewState {
+  faceId: number;
+  choices: ReadonlyMap<number, boolean>;
+  result: FaceBatchLinkResult | null;
+}
+
+function emptySimilarReview(faceId: number): SimilarReviewState {
+  return { faceId, choices: new Map(), result: null };
+}
+
+/** Without a choice, a new candidate is linked and a face already marked "not this performer" stays so. */
+function linksByDefault(face: FaceSimilar) {
+  return !face.rejectedForSourcePerformer;
+}
+
+/** Leaves out the choices for the given faces, keeping those made elsewhere in the review. */
+function withoutChoices(choices: ReadonlyMap<number, boolean>, faceIds: Iterable<number>) {
+  const next = new Map(choices);
+  for (const faceId of faceIds) next.delete(faceId);
+  return next;
+}
+
+/** An unlinked similar face the review can decide on, including one already turned down for the performer. */
+function isSimilarReviewCandidate(face: FaceSimilar) {
+  return face.performerId == null && face.mergedIntoFaceId == null && !face.ignored;
+}
+
+/** Whether the batch links this candidate: the reviewer's choice, or the default without one. */
+function isLinkedByReview(face: FaceSimilar, choices: ReadonlyMap<number, boolean>) {
+  return choices.get(face.id) ?? linksByDefault(face);
 }
 
 /** A similar face opens on its own Similar Faces tab, so walking a chain of look-alikes stays one click per face. */
@@ -181,6 +220,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const {
     data: similarFacesPage = EMPTY_SIMILAR_PAGE,
     isLoading: similarLoading,
+    showsPreviousResults: similarShowsPreviousResults,
     loadError: similarLoadError,
     retry: retrySimilar,
     infinitePageSize: similarInfinitePageSize,
@@ -396,18 +436,53 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  // Similar faces are usually the same person, so offer to link them straight to this face's performer
-  // instead of opening each one and accepting its own suggestion.
-  const linkSimilarMutation = useMutation({
-    mutationFn: ({ faceId, performerId }: { faceId: number; performerId: number }) =>
-      faces.link(faceId, { performerId }),
-    onSuccess: (_updated, { faceId, performerId }) => {
-      queryClient.invalidateQueries({ queryKey: ["face", id, "similar"] });
-      queryClient.invalidateQueries({ queryKey: ["face", faceId] });
-      queryClient.invalidateQueries({ queryKey: ["faces"] });
-      queryClient.invalidateQueries({ queryKey: ["performer", performerId] });
+  // Similar faces are usually the same person, so the unlinked ones on the page are reviewed as one batch for
+  // this face's performer: every candidate is linked unless the reviewer skips it, and a skip is remembered
+  // as "not this performer" so the face stops being offered for them.
+  // App reuses this page across faces, so a review belongs to the face it was started on and reads as fresh
+  // on any other face.
+  const [storedSimilarReview, setSimilarReview] = useState<SimilarReviewState>(() => emptySimilarReview(id));
+  const similarReview = storedSimilarReview.faceId === id ? storedSimilarReview : emptySimilarReview(id);
+  const toggleSimilarChoice = (face: FaceSimilar) => {
+    setSimilarReview((current) => {
+      const choices = new Map(current.faceId === id ? current.choices : []);
+      choices.set(face.id, !isLinkedByReview(face, choices));
+      return { faceId: id, choices, result: null };
+    });
+  };
+  const batchLinkSimilarMutation = useMutation({
+    // The face the review was made on travels with the request: a pending mutation takes the newest
+    // options, so reading `id` in onSuccess would credit a face the reviewer moved on to.
+    mutationFn: ({ sourceFaceId: _sourceFaceId, ...request }: FaceBatchLinkRequest & { sourceFaceId: number }) =>
+      faces.batchLink(request),
+    meta: { suppressGlobalError: true },
+    onSuccess: async (result, { sourceFaceId, performerId, faceIds, rejectFaceIds = [] }) => {
+      for (const faceId of [...result.linked, ...result.rejected]) {
+        void queryClient.invalidateQueries({ queryKey: ["face", faceId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["faces"] });
+      void queryClient.invalidateQueries({ queryKey: ["performer", performerId] });
+      // Stay pending until the list shows the outcome, so the old page cannot be submitted a second time
+      // and link a face the reviewer just skipped. The skips are released only then, so the old page never
+      // shows a just-skipped face as "Will link" beside an outcome that says otherwise.
+      await queryClient.invalidateQueries({ queryKey: ["face", sourceFaceId, "similar"] });
+      // A face that failed keeps the reviewer's choice, so the next batch tries it again.
+      const failed = new Set(result.failed.map((item) => item.faceId));
+      const settled = [...faceIds, ...rejectFaceIds].filter((faceId) => !failed.has(faceId));
+      setSimilarReview((current) => ({
+        faceId: sourceFaceId,
+        // Choices on pages that were not part of this batch still stand.
+        choices: current.faceId === sourceFaceId ? withoutChoices(current.choices, settled) : new Map(),
+        result,
+      }));
     },
   });
+  const similarReviewIsOwn = batchLinkSimilarMutation.variables?.sourceFaceId === id;
+  const similarReviewError = similarReviewIsOwn ? batchLinkSimilarMutation.error : null;
+  const similarReviewPending = similarReviewIsOwn && batchLinkSimilarMutation.isPending;
+  // While the list still shows an earlier query (another face, filter or page), its faces and their
+  // "not this performer" marks are not the ones being reviewed, so nothing can be chosen or sent.
+  const similarReviewLocked = similarReviewPending || similarShowsPreviousResults;
 
   // Correcting a cluster that swallowed someone else's appearances. Both actions re-home occurrences
   // onto other faces, so refresh every face query (this one's counts, appearances and similar list).
@@ -819,6 +894,23 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     </section>
   );
 
+  const similarReviewTarget: SimilarFaceLinkTarget | undefined =
+    canWriteFace && face.performerId
+      ? { performerId: face.performerId, performerName: face.performerName || `Performer #${face.performerId}` }
+      : undefined;
+  // The batch covers the faces on the page being looked at, so nothing is linked without being seen.
+  const similarReviewCandidates = similarFacesPage.items.filter(isSimilarReviewCandidate);
+  const similarReviewLinkIds = similarReviewCandidates
+    .filter((candidate) => isLinkedByReview(candidate, similarReview.choices))
+    .map((candidate) => candidate.id);
+  // A face already marked "not this performer" needs no new reject, so only fresh skips are sent.
+  const similarReviewSkipIds = similarReviewCandidates
+    .filter((candidate) => !candidate.rejectedForSourcePerformer && !isLinkedByReview(candidate, similarReview.choices))
+    .map((candidate) => candidate.id);
+  const similarReviewChangedIds = similarReviewCandidates
+    .filter((candidate) => isLinkedByReview(candidate, similarReview.choices) !== linksByDefault(candidate))
+    .map((candidate) => candidate.id);
+
   const similarFacesContent = (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -871,21 +963,52 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         }
       >
         <>
+          {similarReviewTarget ? (
+            <SimilarReviewBar
+              target={similarReviewTarget}
+              linkCount={similarReviewLinkIds.length}
+              skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
+              pending={similarReviewPending}
+              locked={similarReviewLocked}
+              error={similarReviewError}
+              infinitePageSize={similarInfinitePageSize}
+              result={similarReview.result}
+              onSubmit={() =>
+                batchLinkSimilarMutation.mutate({
+                  sourceFaceId: id,
+                  performerId: similarReviewTarget.performerId,
+                  faceIds: similarReviewLinkIds,
+                  rejectFaceIds: similarReviewSkipIds,
+                })
+              }
+              changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
+              onResetChoices={() => {
+                const shown = new Set(similarReviewChangedIds);
+                setSimilarReview((current) => ({
+                  faceId: id,
+                  choices: current.faceId === id ? withoutChoices(current.choices, shown) : new Map(),
+                  result: null,
+                }));
+              }}
+              onShowUnlinkedOnly={
+                similarFaceFilters.linked === false
+                  ? undefined
+                  : () => {
+                      setSimilarObjectFilter((current) => ({ ...current, linkedCriterion: { value: false } }));
+                      setSimilarFilter((current) => ({ ...current, page: 1 }));
+                    }
+              }
+            />
+          ) : null}
           <SimilarFacesView
             faces={similarFacesPage.items}
             displayMode={similarDisplayMode}
             onNavigate={onNavigate}
             canReadPerformers={canReadPerformers}
-            linkTarget={
-              canWriteFace && face.performerId
-                ? {
-                    performerId: face.performerId,
-                    performerName: face.performerName || `Performer #${face.performerId}`,
-                  }
-                : undefined
-            }
-            onLink={(faceId, performerId) => linkSimilarMutation.mutate({ faceId, performerId })}
-            linkingFaceId={linkSimilarMutation.isPending ? linkSimilarMutation.variables?.faceId : undefined}
+            reviewTarget={similarInfinitePageSize ? undefined : similarReviewTarget}
+            choices={similarReview.choices}
+            onToggleChoice={toggleSimilarChoice}
+            reviewDisabled={similarReviewLocked}
             zoomLevel={similarZoomLevel}
             infinitePageSize={similarInfinitePageSize}
             hasNextPage={similarInfiniteQuery.hasNextPage}
@@ -1413,9 +1536,10 @@ function SimilarFacesView({
   displayMode,
   onNavigate,
   canReadPerformers,
-  linkTarget,
-  onLink,
-  linkingFaceId,
+  reviewTarget,
+  choices,
+  onToggleChoice,
+  reviewDisabled,
   zoomLevel,
   infinitePageSize,
   hasNextPage,
@@ -1426,16 +1550,31 @@ function SimilarFacesView({
   displayMode: "grid" | "list";
   onNavigate: (r: any) => void;
   canReadPerformers: boolean;
-  /** The performer linked to the face being viewed; unlinked similar faces can be linked to it in one click. */
-  linkTarget?: SimilarFaceLinkTarget;
-  onLink: (faceId: number, performerId: number) => void;
-  linkingFaceId?: number;
+  /** The performer linked to the face being viewed; its unlinked similar faces are reviewed for it. */
+  reviewTarget?: SimilarFaceLinkTarget;
+  choices: ReadonlyMap<number, boolean>;
+  onToggleChoice: (face: FaceSimilar) => void;
+  reviewDisabled: boolean;
   zoomLevel: number;
   infinitePageSize: boolean;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   loadMore: () => void;
 }) {
+  // A candidate the batch leaves out (skipped now, or still marked as someone else) is dimmed.
+  const isSkipped = (face: FaceSimilar) =>
+    reviewTarget != null && isSimilarReviewCandidate(face) && !isLinkedByReview(face, choices);
+  const reviewToggle = (face: FaceSimilar, className: string) => (
+    <SimilarReviewToggle
+      face={face}
+      target={reviewTarget}
+      linked={!isSkipped(face)}
+      onToggle={onToggleChoice}
+      disabled={reviewDisabled}
+      className={className}
+    />
+  );
+
   if (displayMode === "list") {
     return (
       <div className="overflow-hidden rounded-lg border border-border bg-card/60">
@@ -1445,7 +1584,7 @@ function SimilarFacesView({
             return (
               <div
                 key={face.id}
-                className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-card-hover"
+                className={`flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-card-hover ${isSkipped(face) ? "opacity-60" : ""}`}
               >
                 <button
                   type="button"
@@ -1478,13 +1617,7 @@ function SimilarFacesView({
                     </span>
                   ) : null}
                 </button>
-                <LinkSimilarFaceButton
-                  face={face}
-                  linkTarget={linkTarget}
-                  onLink={onLink}
-                  linkingFaceId={linkingFaceId}
-                  className="max-w-[14rem] shrink-0"
-                />
+                {reviewToggle(face, "w-32 shrink-0")}
               </div>
             );
           })}
@@ -1507,15 +1640,11 @@ function SimilarFacesView({
       isFetchingNextPage={isFetchingNextPage}
       loadMore={loadMore}
       renderItem={(candidate) => (
-        <SimilarFaceTile face={candidate} onNavigate={onNavigate} canReadPerformers={canReadPerformers}>
-          <LinkSimilarFaceButton
-            face={candidate}
-            linkTarget={linkTarget}
-            onLink={onLink}
-            linkingFaceId={linkingFaceId}
-            className="mt-2 w-full"
-          />
-        </SimilarFaceTile>
+        <div className={isSkipped(candidate) ? "opacity-60" : undefined}>
+          <SimilarFaceTile face={candidate} onNavigate={onNavigate} canReadPerformers={canReadPerformers}>
+            {reviewToggle(candidate, "mt-2 w-full")}
+          </SimilarFaceTile>
+        </div>
       )}
     />
   );
@@ -1531,42 +1660,183 @@ function formatCount(count: number, singular: string, plural = `${singular}s`) {
 }
 
 /**
- * Links an unlinked similar face to the performer of the face being viewed. Green rather than the accent
- * blue of the Faces list's link button, which links a face to its own top suggestion instead.
+ * The review state of one similar face for the viewed face's performer. A new candidate is linked with the
+ * batch until it is skipped. A face already turned down for that performer stays "Not <performer>" until the
+ * reviewer chooses to link it after all, which the batch then does, dropping the earlier reject.
  */
-function LinkSimilarFaceButton({
+function SimilarReviewToggle({
   face,
-  linkTarget,
-  onLink,
-  linkingFaceId,
+  target,
+  linked,
+  onToggle,
+  disabled,
   className = "",
 }: {
   face: FaceSimilar;
-  linkTarget?: SimilarFaceLinkTarget;
-  onLink: (faceId: number, performerId: number) => void;
-  linkingFaceId?: number;
+  target?: SimilarFaceLinkTarget;
+  linked: boolean;
+  onToggle: (face: FaceSimilar) => void;
+  disabled: boolean;
   className?: string;
 }) {
-  if (!linkTarget || face.performerId) return null;
+  if (!target || !isSimilarReviewCandidate(face)) return null;
 
-  const isLinking = linkingFaceId === face.id;
+  const title = faceDisplayName(face);
+  const name = target.performerName;
+  const saved = Boolean(face.rejectedForSourcePerformer);
+  const label = linked ? "Will link" : saved ? `Not ${name}` : "Skipped";
   return (
     <button
       type="button"
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        onLink(face.id, linkTarget.performerId);
+        onToggle(face);
       }}
-      disabled={linkingFaceId != null}
-      title={`Link this face to ${linkTarget.performerName}, the performer linked to the face you are viewing`}
-      aria-label={`Link to ${linkTarget.performerName}`}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      disabled={disabled}
+      // The name leads with the visible text, so a voice command naming what is on screen reaches it.
+      aria-label={linked ? `${label} ${title}, skip it` : `${label} ${title}, link it after all`}
+      title={
+        linked
+          ? `Will be linked to ${name}. Click to skip it if it is someone else.`
+          : saved
+            ? `You marked this face as not ${name}. Click to link it to ${name} after all.`
+            : `Skipped: will be remembered as not ${name}. Click to link it after all.`
+      }
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+        linked
+          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+          : "border-border text-secondary hover:border-accent"
+      } ${className}`}
     >
-      <Link2 className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate">{isLinking ? "Linking..." : `Link to ${linkTarget.performerName}`}</span>
+      {linked ? <Link2 className="h-3.5 w-3.5 shrink-0" /> : <UserX className="h-3.5 w-3.5 shrink-0" />}
+      <span className="truncate">{label}</span>
     </button>
   );
+}
+
+/**
+ * One fixed place to act on the review: how many faces on the page will be linked and skipped, and the
+ * button that links them all, so the reviewer never chases a button that moves from tile to tile.
+ */
+function SimilarReviewBar({
+  target,
+  linkCount,
+  skipCount,
+  changedCount,
+  pending,
+  locked,
+  error,
+  result,
+  onSubmit,
+  onResetChoices,
+  onShowUnlinkedOnly,
+  infinitePageSize,
+}: {
+  target: SimilarFaceLinkTarget;
+  linkCount: number;
+  skipCount: number;
+  /** Faces on this page whose default the reviewer changed, which "Reset choices" puts back. */
+  changedCount: number;
+  pending: boolean;
+  /** Saving, or the list is still showing an earlier query: the controls wait. */
+  locked: boolean;
+  error: unknown;
+  result: FaceBatchLinkResult | null;
+  onSubmit: () => void;
+  onResetChoices: () => void;
+  /** Narrows the list to unlinked faces, so faces already reviewed drop out and the next batch moves up. */
+  onShowUnlinkedOnly?: () => void;
+  /** Endless scrolling has no page to review, so the batch waits for a page size to be picked. */
+  infinitePageSize: boolean;
+}) {
+  const hasCandidates = !infinitePageSize && linkCount + skipCount > 0;
+  const name = target.performerName;
+  const actionLabel = pending
+    ? "Saving..."
+    : linkCount > 0
+      ? `Link ${formatCount(linkCount, "face")} to ${name}`
+      : `Mark ${formatCount(skipCount, "face")} as not ${name}`;
+
+  return (
+    <div
+      role="region"
+      aria-label={`Review similar faces for ${name}`}
+      className="sticky top-14 z-30 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/30 bg-card/95 px-4 py-3 shadow-lg backdrop-blur"
+    >
+      <div className="min-w-0 flex-1 text-sm">
+        {infinitePageSize ? (
+          <span className="text-secondary">Pick a page size to review similar faces for {name} in batches.</span>
+        ) : !hasCandidates ? (
+          <span className="text-secondary">No faces on this page will be linked to {name}.</span>
+        ) : (
+          <span className="text-foreground">
+            <span className="font-medium">{formatCount(linkCount, "face")}</span> on this page will be linked to {name}
+            {skipCount > 0 ? (
+              <>
+                , <span className="font-medium">{skipCount}</span> skipped as someone else
+              </>
+            ) : null}
+            . Skip any face that is not {name}.
+          </span>
+        )}
+        {/* Mounted before it has anything to say, so assistive technology announces the outcome. */}
+        <div role="status" className="text-xs text-secondary">
+          {result ? <SimilarReviewOutcome result={result} performerName={name} /> : null}
+        </div>
+        {error ? (
+          <div role="alert" className="mt-1 text-xs text-red-400">
+            {error instanceof Error ? error.message : "Could not save the review."}
+          </div>
+        ) : null}
+      </div>
+      {onShowUnlinkedOnly ? (
+        <button
+          type="button"
+          onClick={onShowUnlinkedOnly}
+          disabled={locked}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs text-secondary transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Show unlinked only
+        </button>
+      ) : null}
+      {changedCount > 0 ? (
+        <button
+          type="button"
+          onClick={onResetChoices}
+          disabled={locked}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs text-secondary transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Reset choices
+        </button>
+      ) : null}
+      {hasCandidates ? (
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={locked}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Link2 className="h-4 w-4" />
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SimilarReviewOutcome({ result, performerName }: { result: FaceBatchLinkResult; performerName: string }) {
+  const parts = [
+    result.linked.length > 0 ? `Linked ${formatCount(result.linked.length, "face")} to ${performerName}.` : null,
+    result.rejected.length > 0
+      ? `Remembered ${formatCount(result.rejected.length, "face")} as not ${performerName}.`
+      : null,
+    result.skipped.length > 0
+      ? `Left ${formatCount(result.skipped.length, "face")} unchanged: ${[...new Set(result.skipped.map((item) => item.reason))].join(" ")}`
+      : null,
+    result.failed.length > 0 ? `${formatCount(result.failed.length, "face")} could not be linked.` : null,
+  ].filter(Boolean);
+  return <p className="mt-1">{parts.join(" ")}</p>;
 }
 
 function SimilarFaceTile({

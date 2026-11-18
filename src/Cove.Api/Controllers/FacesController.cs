@@ -887,6 +887,166 @@ public class FacesController(
         return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
     }
 
+    /// <summary>
+    /// Links reviewed faces to one performer, typically the unlinked similar faces of a face already
+    /// linked to it, and records a reject decision for each face the reviewer skipped so it stops
+    /// suggesting that performer, and drops an earlier reject for each face it links. Faces that are merged,
+    /// ignored or already linked are left alone.
+    /// </summary>
+    [HttpPost("batch/link")]
+    [RequiresPermission(Permissions.FacesWrite)]
+    [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesWrite, ActionArgumentName = "dto", PropertyName = "FaceIds")]
+    [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesWrite, ActionArgumentName = "dto", PropertyName = "RejectFaceIds")]
+    public async Task<ActionResult<FaceBatchLinkResultDto>> BatchLink([FromBody] FaceBatchLinkDto dto, CancellationToken cancellationToken)
+    {
+        var linkFaceIds = dto.FaceIds.Distinct().ToArray();
+        var rejectFaceIds = (dto.RejectFaceIds ?? []).Distinct().ToArray();
+        if (linkFaceIds.Length == 0 && rejectFaceIds.Length == 0)
+            return ValidationProblem("Select at least one face to link or skip.");
+        if (linkFaceIds.Intersect(rejectFaceIds).Any())
+            return ValidationProblem("A face cannot be both linked and skipped.");
+
+        // Reject decisions are per user, so remembering a skip needs a signed-in user.
+        int? userId = principalAccessor?.Current?.UserId;
+        if (rejectFaceIds.Length > 0 && userId is null)
+            return Unauthorized();
+
+        var performerExists = await db.Performers.AnyAsync(item => item.Id == dto.PerformerId, cancellationToken);
+        if (!performerExists)
+            return ValidationProblem($"Performer {dto.PerformerId} was not found.");
+
+        var linked = new List<int>();
+        var rejected = new List<int>();
+        var skipped = new List<FaceBatchSkippedDto>();
+        var failed = new List<FaceBatchFailedDto>();
+
+        FaceBatchSkippedDto? SkipReason(int faceId, Face? face) => face switch
+        {
+            null => new(faceId, "Face was not found."),
+            { MergedIntoFaceId: not null } => new(faceId, "Face was merged into another face."),
+            _ when face.PerformerId == dto.PerformerId => new(faceId, "Face is already linked to this performer."),
+            { PerformerId: not null } => new(faceId, "Face is linked to another performer."),
+            { Ignored: true } => new(faceId, "Face is ignored."),
+            _ => null,
+        };
+
+        // Each linked face stages rows for every host it appears on, so a large batch is saved in chunks with the
+        // tracker cleared between them, as BatchLinkTopSuggestion does.
+        var facesById = linkFaceIds.Length == 0
+            ? new Dictionary<int, Face>()
+            : await db.Faces
+                .Where(face => linkFaceIds.Contains(face.Id))
+                .ToDictionaryAsync(face => face.Id, cancellationToken);
+        var hostCountsByFace = await facePerformerPropagationService.CountFaceHostsAsync(
+            facesById.Values.Where(face => SkipReason(face.Id, face) is null).Select(face => face.Id).ToArray(),
+            cancellationToken);
+        var pendingHostChanges = 0;
+        var invalidatedCount = 0;
+
+        async Task SaveAsync()
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            for (; invalidatedCount < linked.Count; invalidatedCount++)
+                await InvalidateSuggestionForLinkChangeAsync(linked[invalidatedCount], cancellationToken);
+        }
+
+        for (var faceIndex = 0; faceIndex < linkFaceIds.Length; faceIndex++)
+        {
+            var faceId = linkFaceIds[faceIndex];
+            var faceHostCount = hostCountsByFace.GetValueOrDefault(faceId);
+            if (pendingHostChanges > 0 && pendingHostChanges + faceHostCount > BatchLinkSaveHostBudget)
+            {
+                await SaveAsync();
+                db.ChangeTracker.Clear();
+                var remainingFaceIds = linkFaceIds[faceIndex..];
+                facesById = await db.Faces
+                    .Where(face => remainingFaceIds.Contains(face.Id))
+                    .ToDictionaryAsync(face => face.Id, cancellationToken);
+                pendingHostChanges = 0;
+            }
+
+            facesById.TryGetValue(faceId, out var face);
+            if (SkipReason(faceId, face) is { } skip)
+            {
+                skipped.Add(skip);
+                continue;
+            }
+
+            pendingHostChanges += faceHostCount;
+            try
+            {
+                await facePerformerPropagationService.ApplyLinkChangeAsync(faceId, null, dto.PerformerId, cancellationToken);
+                face!.PerformerId = dto.PerformerId;
+                await RecordManualFaceFieldProvenanceAsync(faceId, new Dictionary<string, object?> { ["performer_id"] = dto.PerformerId }, cancellationToken);
+                linked.Add(faceId);
+            }
+            catch (Exception ex)
+            {
+                failed.Add(new FaceBatchFailedDto(faceId, ex.Message));
+            }
+        }
+
+        if (rejectFaceIds.Length > 0)
+        {
+            var rejectFaces = await db.Faces
+                .AsNoTracking()
+                .Where(face => rejectFaceIds.Contains(face.Id))
+                .ToDictionaryAsync(face => face.Id, cancellationToken);
+            var existingDecisions = await db.FaceSuggestionDecisions
+                .Where(item => rejectFaceIds.Contains(item.FaceId) && item.PerformerId == dto.PerformerId && item.UserId == userId)
+                .ToDictionaryAsync(item => item.FaceId, cancellationToken);
+            foreach (var faceId in rejectFaceIds)
+            {
+                rejectFaces.TryGetValue(faceId, out var face);
+                if (face is null)
+                {
+                    skipped.Add(new FaceBatchSkippedDto(faceId, "Face was not found."));
+                    continue;
+                }
+
+                if (face.MergedIntoFaceId is not null)
+                {
+                    skipped.Add(new FaceBatchSkippedDto(faceId, "Face was merged into another face."));
+                    continue;
+                }
+
+                if (face.PerformerId == dto.PerformerId)
+                {
+                    skipped.Add(new FaceBatchSkippedDto(faceId, "Face is already linked to this performer."));
+                    continue;
+                }
+
+                if (existingDecisions.TryGetValue(faceId, out var decision))
+                    decision.Decision = FaceSuggestionDecisionValues.Reject;
+                else
+                    db.FaceSuggestionDecisions.Add(new FaceSuggestionDecision
+                    {
+                        FaceId = faceId,
+                        PerformerId = dto.PerformerId,
+                        UserId = userId!.Value,
+                        Decision = FaceSuggestionDecisionValues.Reject,
+                    });
+                rejected.Add(faceId);
+            }
+        }
+
+        await SaveAsync();
+        // Linking a face this user had turned down for the performer reverses that choice, so the reject no
+        // longer stands beside the link and the face is not marked "not this performer" any more.
+        if (linked.Count > 0 && userId is int linkingUserId)
+        {
+            await db.FaceSuggestionDecisions
+                .Where(item => linked.Contains(item.FaceId)
+                    && item.PerformerId == dto.PerformerId
+                    && item.UserId == linkingUserId
+                    && item.Decision == FaceSuggestionDecisionValues.Reject)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+        if (rejected.Count > 0)
+            await InvalidateSuggestionAsync(rejected, cancellationToken);
+        return Ok(new FaceBatchLinkResultDto(linked, rejected, skipped, failed));
+    }
+
     [HttpPost("batch/delete")]
     [RequiresPermission(Permissions.FacesDelete)]
     [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete, ActionArgumentName = "dto", PropertyName = "FaceIds")]
@@ -1357,10 +1517,12 @@ public class FacesController(
         // Face similarity is a face-reading feature, so callers do not need broad access to the raw
         // embeddings API. Establish source-face visibility under the normal face filter first, then
         // bypass only the embedding permission filter while resolving and ranking internal vectors.
-        var sourceFaceVisible = await db.Faces
+        var sourceFace = await db.Faces
             .AsNoTracking()
-            .AnyAsync(face => face.Id == id && face.MergedIntoFaceId == null, cancellationToken);
-        if (!sourceFaceVisible)
+            .Where(face => face.Id == id && face.MergedIntoFaceId == null)
+            .Select(face => new { face.PerformerId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (sourceFace is null)
             return Ok(new PaginatedResponse<FaceSimilarDto>(Array.Empty<FaceSimilarDto>(), 0, page, perPage));
 
         Embedding? sourceEmbedding;
@@ -1454,6 +1616,27 @@ public class FacesController(
                 ? item with { CoverImageUrl = coverFallbacks.GetValueOrDefault(item.Id) }
                 : item)
             .ToList();
+
+        // Mark the faces this user already turned down for the source face's performer, so a review of
+        // the similar faces does not offer them for that performer again.
+        if (sourceFace.PerformerId is int sourcePerformerId
+            && principalAccessor?.Current?.UserId is int userId
+            && pageItems.Count > 0)
+        {
+            var pageFaceIds = pageItems.Select(item => item.Id).ToArray();
+            var rejectedFaceIds = (await db.FaceSuggestionDecisions
+                .AsNoTracking()
+                .Where(decision => pageFaceIds.Contains(decision.FaceId)
+                    && decision.PerformerId == sourcePerformerId
+                    && decision.UserId == userId
+                    && decision.Decision == FaceSuggestionDecisionValues.Reject)
+                .Select(decision => decision.FaceId)
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+            pageItems = pageItems
+                .Select(item => rejectedFaceIds.Contains(item.Id) ? item with { RejectedForSourcePerformer = true } : item)
+                .ToList();
+        }
 
         return Ok(new PaginatedResponse<FaceSimilarDto>(pageItems, totalCount, page, perPage));
     }

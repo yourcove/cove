@@ -1817,6 +1817,20 @@ export interface FaceBatchFailed {
   error: string;
 }
 
+export interface FaceBatchLinkRequest {
+  performerId: number;
+  faceIds: number[];
+  // Faces the reviewer skipped as not being this performer; each is remembered as a reject decision.
+  rejectFaceIds?: number[];
+}
+
+export interface FaceBatchLinkResult {
+  linked: number[];
+  rejected: number[];
+  skipped: FaceBatchSkipped[];
+  failed: FaceBatchFailed[];
+}
+
 export interface FaceBatchOperationResult {
   succeeded: number[];
   skipped: FaceBatchSkipped[];
@@ -1949,6 +1963,8 @@ export interface FaceSimilar {
   appearanceCount: number;
   frameSampleCount: number;
   distance: number;
+  /** The current user rejected this face for the performer of the face the similar faces were searched from. */
+  rejectedForSourcePerformer?: boolean;
 }
 
 export interface FaceSuggestionEvidence {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FaceDetailPage } from "../pages/FaceDetailPage";
 import { navigateToUrl } from "../router/location";
@@ -21,6 +21,7 @@ const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, n
     deleteImpact: vi.fn(),
     update: vi.fn(),
     link: vi.fn(),
+    batchLink: vi.fn(),
     recordSuggestionDecision: vi.fn(),
     setIgnored: vi.fn(),
     mergeInto: vi.fn(),
@@ -249,21 +250,42 @@ describe("FaceDetailPage", () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 
-  it("links unlinked similar faces to the viewed face's performer", async () => {
+  it("reviews the page's unlinked similar faces and links them in one batch, remembering skips", async () => {
     mockAuth.canWrite = true;
     mockFaces.get.mockResolvedValue(linkedFace);
     mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
     mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
-    mockFaces.similar.mockResolvedValue({
-      items: [
-        similarFace({ id: 17, label: "Dracuina" }),
-        similarFace({ id: 18, label: "Other", performerId: 40, performerName: "Someone Else" }),
-      ],
-      totalCount: 2,
-      page: 1,
-      perPage: 18,
-    });
-    mockFaces.link.mockResolvedValue({ ...similarFace({ id: 17 }), performerId: 12, performerName: "Jane Doe" });
+    const reviewedPage = [
+      similarFace({ id: 17, label: "Lookalike A" }),
+      similarFace({ id: 18, label: "Other", performerId: 40, performerName: "Someone Else" }),
+      similarFace({ id: 19, label: "Lookalike B" }),
+      similarFace({ id: 20, label: "Lookalike C" }),
+      similarFace({ id: 21, label: "Turned down", rejectedForSourcePerformer: true }),
+      similarFace({ id: 22, label: "Ignored one", ignored: true }),
+    ];
+    mockFaces.similar.mockResolvedValueOnce({ items: reviewedPage, totalCount: 6, page: 1, perPage: 18 });
+    // The refresh after the batch is held back, to see the batch stay pending until the page shows the outcome.
+    let finishRefresh: () => void = () => {};
+    mockFaces.similar.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRefresh = () =>
+            resolve({
+              items: reviewedPage.map((item) =>
+                item.id === 17 || item.id === 20
+                  ? { ...item, performerId: 12, performerName: "Jane Doe" }
+                  : item.id === 19
+                    ? { ...item, rejectedForSourcePerformer: true }
+                    : item,
+              ),
+              totalCount: 6,
+              page: 1,
+              perPage: 18,
+            });
+        }),
+    );
+    mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+    mockFaces.batchLink.mockResolvedValue({ linked: [17, 20], rejected: [19], skipped: [], failed: [] });
     mockFaces.detections.mockResolvedValue([]);
     mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
     mockEntityEngagement.get.mockResolvedValue(null);
@@ -271,14 +293,177 @@ describe("FaceDetailPage", () => {
     renderPage();
     await screen.findByRole("heading", { name: "Jane Doe" });
     fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
-    await screen.findByText("Dracuina");
+    const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
 
-    // Only the unlinked neighbour is offered; relinking a face that belongs to someone else stays deliberate.
-    const linkButtons = screen.getAllByRole("button", { name: "Link to Jane Doe" });
-    expect(linkButtons).toHaveLength(1);
+    // Every new unlinked face starts in the batch. A face already turned down for this performer stays out of it
+    // until the reviewer links it after all, and a face linked to someone else or an ignored face is not offered.
+    expect(within(review).getByRole("button", { name: "Link 3 faces to Jane Doe" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Other, skip it/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turned down, skip it/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ignored one, skip it/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Not Jane Doe")).toBeInTheDocument();
 
-    fireEvent.click(linkButtons[0]);
-    await waitFor(() => expect(mockFaces.link).toHaveBeenCalledWith(17, { performerId: 12 }));
+    fireEvent.click(screen.getByRole("button", { name: "Will link Lookalike B, skip it" }));
+    expect(screen.getByRole("button", { name: "Skipped Lookalike B, link it after all" })).toBeInTheDocument();
+    expect(within(review).getByText(/skipped as someone else/)).toBeInTheDocument();
+
+    fireEvent.click(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" }));
+
+    await waitFor(() =>
+      expect(mockFaces.batchLink).toHaveBeenCalledWith({ performerId: 12, faceIds: [17, 20], rejectFaceIds: [19] }),
+    );
+    expect(mockFaces.link).not.toHaveBeenCalled();
+
+    // Until the refreshed page arrives the old one cannot be submitted again, which would link the skipped face.
+    expect(await within(review).findByRole("button", { name: "Saving..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skipped Lookalike B, link it after all" })).toBeDisabled();
+    await act(async () => finishRefresh());
+    await waitFor(() => expect(screen.getAllByText("Not Jane Doe")).toHaveLength(2));
+    expect(mockFaces.batchLink).toHaveBeenCalledTimes(1);
+    expect(within(review).getByRole("status")).toHaveTextContent(
+      "Linked 2 faces to Jane Doe. Remembered 1 face as not Jane Doe.",
+    );
+
+    // Reviewed faces stay on the page they were on; narrowing to unlinked faces brings the next batch up.
+    fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+    await waitFor(() =>
+      expect(mockFaces.similar).toHaveBeenLastCalledWith(7, expect.objectContaining({ linked: false, page: 1 })),
+    );
+  });
+
+  it("lets a face already marked as someone else be linked after all", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+    mockFaces.similar.mockResolvedValue({
+      items: [
+        similarFace({ id: 17, label: "Lookalike A" }),
+        similarFace({ id: 21, label: "Turned down", rejectedForSourcePerformer: true }),
+      ],
+      totalCount: 2,
+      page: 1,
+      perPage: 18,
+    });
+    mockFaces.batchLink.mockResolvedValue({ linked: [17, 21], rejected: [], skipped: [], failed: [] });
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Jane Doe" });
+    fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+    const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
+
+    // The earlier choice stands until it is changed: the face is left out of the batch.
+    expect(within(review).getByRole("button", { name: "Link 1 face to Jane Doe" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Not Jane Doe Turned down, link it after all" }));
+    expect(screen.getByRole("button", { name: "Will link Turned down, skip it" })).toBeInTheDocument();
+
+    // Reset puts the saved choice back.
+    fireEvent.click(within(review).getByRole("button", { name: "Reset choices" }));
+    expect(screen.getByRole("button", { name: "Not Jane Doe Turned down, link it after all" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not Jane Doe Turned down, link it after all" }));
+    fireEvent.click(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" }));
+    // Linking it is enough: the backend drops the earlier reject, so it is not sent as a new skip.
+    await waitFor(() =>
+      expect(mockFaces.batchLink).toHaveBeenCalledWith({ performerId: 12, faceIds: [17, 21], rejectFaceIds: [] }),
+    );
+  });
+
+  it("keeps each choice as made while the list refreshes, and keeps a failed link's choice for the next batch", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+    const page = (items: ReturnType<typeof similarFace>[]) => ({
+      items,
+      totalCount: items.length,
+      page: 1,
+      perPage: 18,
+    });
+    const fresh = similarFace({ id: 17, label: "Fresh" });
+    const skippedNow = similarFace({ id: 18, label: "Skipped now" });
+    const savedReject = similarFace({ id: 19, label: "Saved reject", rejectedForSourcePerformer: true });
+    // The first page, then the unlinked-only page in which the face skipped now was meanwhile rejected
+    // elsewhere, and finally the page after the batch.
+    let finishRefresh: () => void = () => {};
+    mockFaces.similar
+      .mockResolvedValueOnce(page([fresh, skippedNow, savedReject]))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRefresh = () =>
+              resolve(page([fresh, similarFace({ ...skippedNow, rejectedForSourcePerformer: true }), savedReject]));
+          }),
+      )
+      .mockResolvedValue(page([savedReject]));
+    mockFaces.batchLink.mockResolvedValue({
+      linked: [17],
+      rejected: [],
+      skipped: [],
+      failed: [{ faceId: 19, error: "Host update failed." }],
+    });
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Jane Doe" });
+    fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+    const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
+    fireEvent.click(screen.getByRole("button", { name: "Will link Skipped now, skip it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Not Jane Doe Saved reject, link it after all" }));
+    expect(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" })).toBeEnabled();
+
+    // While the earlier list is still on screen nothing can be chosen or sent.
+    fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+    expect(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Will link Fresh, skip it" })).toBeDisabled();
+    await act(async () => finishRefresh());
+
+    // The face skipped now stays out although its saved state changed, and the saved reject stays in.
+    expect(await screen.findByRole("button", { name: "Not Jane Doe Skipped now, link it after all" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Will link Saved reject, skip it" })).toBeInTheDocument();
+    fireEvent.click(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" }));
+    await waitFor(() =>
+      expect(mockFaces.batchLink).toHaveBeenCalledWith({ performerId: 12, faceIds: [17, 19], rejectFaceIds: [] }),
+    );
+
+    // The saved reject failed to link, so it is still offered as the reviewer chose it.
+    expect(await within(review).findByText(/1 face could not be linked/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Will link Saved reject, skip it" })).toBeEnabled();
+  });
+
+  it("offers no review for the similar faces of a face that is not linked yet", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue({
+      ...linkedFace,
+      label: "Unlinked lead",
+      performerId: undefined,
+      performerName: undefined,
+    });
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+    mockFaces.suggestions.mockResolvedValue([]);
+    mockFaces.similar.mockResolvedValue({
+      items: [similarFace({ id: 17, label: "Lookalike A" })],
+      totalCount: 1,
+      page: 1,
+      perPage: 18,
+    });
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Unlinked lead" });
+    fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+    await screen.findByText("Lookalike A");
+
+    expect(screen.queryByRole("region", { name: /Review similar faces/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /skip it$/ })).not.toBeInTheDocument();
   });
 
   it("corrects a wrong appearance from the Appears In tab", async () => {
