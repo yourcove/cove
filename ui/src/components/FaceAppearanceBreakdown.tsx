@@ -737,10 +737,13 @@ function spreadSample<T>(items: T[], limit: number) {
 function PerformerChoice({ onChoose }: { onChoose: (performer: { id: number; name: string }) => void }) {
   const [search, setSearch] = useState("");
   const term = search.trim();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["performers", "face-appearance-move", term],
     queryFn: () => performers.find({ q: term, page: 1, perPage: 6 }),
     enabled: term.length >= 2,
+    // Keep the last results on screen while the next keystroke searches, instead of flashing to a loading
+    // line on every key; they are disabled meanwhile because they answer the previous text.
+    placeholderData: keepPreviousData,
   });
   const matches = data?.items ?? [];
 
@@ -758,16 +761,18 @@ function PerformerChoice({ onChoose }: { onChoose: (performer: { id: number; nam
           className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-accent"
         />
       </div>
-      {term.length < 2 ? null : isLoading ? (
+      {/* An empty earlier answer is not kept: "no matches" must not stand for text not searched yet. */}
+      {term.length < 2 ? null : isLoading || (isPlaceholderData && matches.length === 0) ? (
         <p className="text-sm text-secondary">Searching performers...</p>
       ) : matches.length === 0 ? (
         <p className="text-sm text-secondary">No performers matched that search.</p>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" aria-busy={isPlaceholderData || undefined}>
           {matches.map((performer) => (
             <button
               key={performer.id}
               type="button"
+              disabled={isPlaceholderData}
               className={ACTION_BUTTON_CLASS}
               onClick={() => onChoose({ id: performer.id, name: performer.name })}
             >

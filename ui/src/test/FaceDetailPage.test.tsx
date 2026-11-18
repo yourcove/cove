@@ -509,6 +509,121 @@ describe("FaceDetailPage", () => {
     expect(await screen.findByText(/moved to a/)).toBeInTheDocument();
   });
 
+  describe("searches keep their results in place while the next keystroke loads", () => {
+    function mockUnlinkedFace() {
+      mockAuth.canWrite = true;
+      mockFaces.get.mockResolvedValue({
+        ...linkedFace,
+        label: "Unlinked lead",
+        performerId: undefined,
+        performerName: undefined,
+      });
+      mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+      mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+      mockFaces.suggestions.mockResolvedValue([]);
+      mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+      mockFaces.detections.mockResolvedValue([]);
+      mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+      mockEntityEngagement.get.mockResolvedValue(null);
+    }
+
+    /**
+     * Answers searches by their text, holding back the one for `heldQuery` until `finish` is called. Any
+     * other call the page makes gets an empty page, so it cannot take a response meant for the search.
+     */
+    function answerSearches<T>(mock: ReturnType<typeof vi.fn>, answers: Record<string, T>, heldQuery: string) {
+      const held = { finish: () => {} };
+      const empty = { items: [], totalCount: 0, page: 1, perPage: 6 };
+      mock.mockImplementation((options?: { q?: string }) => {
+        const q = options?.q ?? "";
+        if (q !== heldQuery) return Promise.resolve(answers[q] ?? empty);
+        return new Promise((resolve) => {
+          held.finish = () => resolve(answers[q]);
+        });
+      });
+      return held;
+    }
+
+    const performerPage = (id: number, name: string) => ({ items: [{ id, name }], totalCount: 1, page: 1, perPage: 6 });
+
+    it("in Link to performer", async () => {
+      mockUnlinkedFace();
+      renderPage();
+      const search = answerSearches(
+        mockPerformers.find,
+        { Alex: performerPage(9, "Alexa Example"), Alexi: performerPage(10, "Alexis Example") },
+        "Alexi",
+      );
+      await screen.findByRole("heading", { name: "Unlinked lead" });
+      const input = screen.getByPlaceholderText("Search performers");
+      fireEvent.change(input, { target: { value: "Alex" } });
+      const firstResult = await screen.findByRole("button", { name: /Alexa Example/ });
+
+      fireEvent.change(input, { target: { value: "Alexi" } });
+
+      expect(screen.queryByText("Searching performers...")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Alexa Example/ })).toBe(firstResult);
+      expect(firstResult).toBeDisabled();
+      expect(firstResult.parentElement).toHaveAttribute("aria-busy", "true");
+
+      search.finish();
+      expect(await screen.findByRole("button", { name: /Alexis Example/ })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /Alexis Example/ }).parentElement).not.toHaveAttribute("aria-busy");
+    });
+
+    it("says it is searching, not that nothing matched, while text after an empty answer loads", async () => {
+      mockUnlinkedFace();
+      renderPage();
+      const search = answerSearches(
+        mockPerformers.find,
+        { Zz: { items: [], totalCount: 0, page: 1, perPage: 6 }, Zza: performerPage(11, "Zza Example") },
+        "Zza",
+      );
+      await screen.findByRole("heading", { name: "Unlinked lead" });
+      const input = screen.getByPlaceholderText("Search performers");
+      fireEvent.change(input, { target: { value: "Zz" } });
+      expect(await screen.findByText("No performers matched that search.")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "Zza" } });
+
+      expect(screen.queryByText("No performers matched that search.")).not.toBeInTheDocument();
+      expect(screen.getByText("Searching performers...")).toBeInTheDocument();
+      search.finish();
+      expect(await screen.findByRole("button", { name: /Zza Example/ })).toBeEnabled();
+    });
+
+    it("in the merge target search", async () => {
+      mockUnlinkedFace();
+      renderPage();
+      const target = (id: number, label: string) => ({
+        items: [{ ...linkedFace, id, label, performerId: undefined, performerName: undefined }],
+        totalCount: 1,
+        page: 1,
+        perPage: 6,
+      });
+      const search = answerSearches(
+        mockFaces.list,
+        { Target: target(30, "Target one"), "Target t": target(31, "Target two") },
+        "Target t",
+      );
+      await screen.findByRole("heading", { name: "Unlinked lead" });
+      fireEvent.click(screen.getByTitle("More actions"));
+      fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+      const input = screen.getByPlaceholderText("Search by face label or linked performer");
+      fireEvent.change(input, { target: { value: "Target" } });
+      const firstResult = await screen.findByRole("button", { name: /Target one/ });
+
+      fireEvent.change(input, { target: { value: "Target t" } });
+
+      expect(screen.queryByText("Searching faces...")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Target one/ })).toBe(firstResult);
+      expect(firstResult).toBeDisabled();
+
+      search.finish();
+      expect(await screen.findByRole("button", { name: /Target two/ })).toBeEnabled();
+    });
+  });
+
   describe("active tab in the URL", () => {
     function mockLinkedFace() {
       mockFaces.get.mockResolvedValue(linkedFace);

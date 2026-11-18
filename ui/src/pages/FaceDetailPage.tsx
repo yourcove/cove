@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
   Film,
@@ -381,12 +381,16 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     queryKey: ["face", id, "performer-search", performerSearchTerm],
     queryFn: () => performers.find({ q: performerSearchTerm, page: 1, perPage: 6 }),
     enabled: canWriteFace && performerSearchTerm.length >= 2,
+    // Keep the last results on screen while the next keystroke searches, instead of flashing to a loading
+    // line on every key; they are disabled meanwhile because they answer the previous text.
+    placeholderData: keepPreviousData,
   });
 
   const mergeMatchesQuery = useQuery({
     queryKey: ["face", id, "merge-search", mergeSearchTerm],
     queryFn: () => faces.list({ q: mergeSearchTerm, merged: false, page: 1, perPage: 6 }),
     enabled: canWriteFace && mergeSearchTerm.length >= 2,
+    placeholderData: keepPreviousData,
   });
 
   const invalidateFace = (updated?: Face) => {
@@ -718,18 +722,19 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
               </div>
               {performerSearchTerm.length < 2 ? (
                 <p className="text-xs text-secondary">Type at least two characters to search performers.</p>
-              ) : performerMatchesQuery.isLoading ? (
+              ) : performerMatchesQuery.isLoading ||
+                (performerMatchesQuery.isPlaceholderData && performerMatches.length === 0) ? (
                 <p className="text-xs text-secondary">Searching performers...</p>
               ) : performerMatches.length === 0 ? (
                 <p className="text-xs text-secondary">No performers matched that search.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2" aria-busy={performerMatchesQuery.isPlaceholderData || undefined}>
                   {performerMatches.map((performer) => (
                     <PerformerCandidateRow
                       key={performer.id}
                       performer={performer}
                       onSelect={() => linkMutation.mutate(performer.id)}
-                      disabled={linkMutation.isPending}
+                      disabled={linkMutation.isPending || performerMatchesQuery.isPlaceholderData}
                     />
                   ))}
                 </div>
@@ -1199,18 +1204,18 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             <p className="text-sm text-secondary">
               Type at least two characters to search merge targets by face label or linked performer name.
             </p>
-          ) : mergeMatchesQuery.isLoading ? (
+          ) : mergeMatchesQuery.isLoading || (mergeMatchesQuery.isPlaceholderData && mergeCandidates.length === 0) ? (
             <p className="text-sm text-secondary">Searching faces...</p>
           ) : mergeCandidates.length === 0 ? (
             <p className="text-sm text-secondary">No merge targets matched that search.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2" aria-busy={mergeMatchesQuery.isPlaceholderData || undefined}>
               {mergeCandidates.map((candidate) => (
                 <FaceCandidateRow
                   key={candidate.id}
                   face={candidate}
                   onSelect={() => mergeMutation.mutate(candidate.id)}
-                  disabled={mergeMutation.isPending}
+                  disabled={mergeMutation.isPending || mergeMatchesQuery.isPlaceholderData}
                 />
               ))}
             </div>

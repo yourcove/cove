@@ -212,6 +212,38 @@ describe("FaceAppearanceBreakdown", () => {
     expect(await screen.findByText(/linked to Right Person/)).toBeTruthy();
   });
 
+  it("keeps the performer results in place while the next keystroke's search loads", async () => {
+    // Answered by search text, so no other performer lookup can take the held response.
+    let finishSearch: () => void = () => {};
+    api.findPerformers.mockImplementation(({ q }: { q: string }) =>
+      q === "Rightm"
+        ? new Promise((resolve) => {
+            finishSearch = () => resolve({ items: [{ id: 10, name: "Rightmost Person" }] });
+          })
+        : Promise.resolve({ items: q === "Right" ? [{ id: 9, name: "Right Person" }] : [] }),
+    );
+    renderBreakdown();
+
+    await screen.findByRole("button", { name: /Select the appearance in Second video/ });
+    select(/Select the appearance in Second video/);
+    fireEvent.click(screen.getByRole("button", { name: /This is/ }));
+    const input = screen.getByRole("textbox", { name: "Search performers" });
+    fireEvent.change(input, { target: { value: "Right" } });
+    const firstResult = await screen.findByRole("button", { name: "Right Person" });
+
+    fireEvent.change(input, { target: { value: "Rightm" } });
+
+    // The earlier results stay mounted instead of flashing to a loading line, but cannot be picked: they
+    // answer a search the reviewer has already typed past.
+    expect(screen.queryByText("Searching performers...")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Right Person" })).toBe(firstResult);
+    expect(firstResult).toBeDisabled();
+    expect(firstResult.parentElement).toHaveAttribute("aria-busy", "true");
+
+    finishSearch();
+    expect(await screen.findByRole("button", { name: "Rightmost Person" })).toBeEnabled();
+  });
+
   it("combines the new faces made by naming one person into a single face", async () => {
     api.split.mockResolvedValue({ targetFaceId: 41, createdNewFace: true });
     api.markNotPresent.mockResolvedValue({ targetFaceId: 42, createdNewFace: true });
