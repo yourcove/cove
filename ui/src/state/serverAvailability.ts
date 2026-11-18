@@ -12,6 +12,14 @@ const listeners = new Set<() => void>();
 let serverEvidenceVersion = 0;
 let connectionFailureConfirmation: { version: number; promise: Promise<void> } | null = null;
 
+// Cove marks its own 504 for a database query timeout with this header. The server answered, so unlike a
+// proxy's 502 or 504 it is not evidence that the server is unreachable.
+const COVE_ERROR_CODE_HEADER = "X-Cove-Error-Code";
+
+function isGatewayFailure(response: Response): boolean {
+  return [502, 504].includes(response.status) && !response.headers.has(COVE_ERROR_CODE_HEADER);
+}
+
 function setAvailability(next: ServerAvailability) {
   if (availability === next) return;
   availability = next;
@@ -33,7 +41,7 @@ export function reportServerResponse(response: Response): void {
   // connection failure arrives after this evidence, it must start a fresh
   // status check rather than reusing the stale one.
   connectionFailureConfirmation = null;
-  if ([502, 504].includes(response.status)) {
+  if (isGatewayFailure(response)) {
     setAvailability("unavailable");
     return;
   }
@@ -129,7 +137,7 @@ export async function serverAwareFetch(
 
   try {
     const response = await fetch(input, { ...init, signal });
-    if ([502, 504].includes(response.status)) {
+    if (isGatewayFailure(response)) {
       reportServerConnectionFailure();
     } else {
       reportServerResponse(response);

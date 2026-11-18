@@ -60,6 +60,31 @@ describe("server availability", () => {
     expect(getServerAvailability()).toBe("unavailable");
   });
 
+  it("treats Cove's own query-timeout 504 as proof the server is reachable", async () => {
+    const queryTimeout = () =>
+      new Response(JSON.stringify({ code: "QUERY_TIMEOUT" }), {
+        status: 504,
+        headers: { "X-Cove-Error-Code": "QUERY_TIMEOUT" },
+      });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(queryTimeout()));
+    vi.stubGlobal("fetch", fetchMock);
+    beginServerReconnect();
+
+    await expect(serverAwareFetch("/api/videos/find")).resolves.toMatchObject({ status: 504 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getServerAvailability()).toBe("available");
+
+    reportServerResponse(queryTimeout());
+    expect(getServerAvailability()).toBe("available");
+  });
+
+  it("still treats a proxy's 504 without Cove's header as a gateway failure", () => {
+    reportServerResponse(new Response("", { status: 504 }));
+
+    expect(getServerAvailability()).toBe("unavailable");
+  });
+
   it("does not treat a reachable server's 503 response as an outage", () => {
     reportServerResponse(new Response("", { status: 503 }));
 

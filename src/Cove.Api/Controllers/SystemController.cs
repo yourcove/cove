@@ -79,7 +79,10 @@ public class SystemController(
 
             pending = (await db.Database.GetPendingMigrationsAsync(HttpContext.RequestAborted)).ToArray();
         }
-        catch (Exception ex) when (DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(ex))
+        // A command timeout here means the server answered too slowly to report its migrations: answer as the
+        // status check always has for an unreachable database, rather than as a failed migration check.
+        catch (Exception ex) when (DatabaseUnavailableExceptionClassifier.IsTransientDatabaseConnectionFailure(ex)
+            || DatabaseUnavailableExceptionClassifier.IsCommandTimeout(ex))
         {
             Response.Headers.RetryAfter = DatabaseUnavailableMiddleware.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return StatusCode(StatusCodes.Status503ServiceUnavailable, DatabaseUnavailableMiddleware.CreateResponse());

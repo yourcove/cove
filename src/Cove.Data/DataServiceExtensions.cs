@@ -57,6 +57,7 @@ public static class DataServiceExtensions
             });
             options.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, CoveModelCacheKeyFactory>();
             options.AddInterceptors(
+                DatabaseConnectionFailureInterceptor.Instance,
                 sp.GetRequiredService<BlobReferenceSaveChangesInterceptor>(),
                 sp.GetRequiredService<LibraryWriteSignalInterceptor>());
             // Loaded data extensions contribute their own entities/tables to the model at runtime
