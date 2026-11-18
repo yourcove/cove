@@ -38,7 +38,7 @@ import { invalidateVideoMetadataQueries } from "./videoMetadataQueryInvalidation
 import { MetadataDiff, scalarStatus, summarizeDiff, type DiffSelection } from "./MetadataDiff";
 import { ChangeSummaryLine, MetadataDiffSummary } from "./MetadataDiffSummary";
 import { ReviewCoverPanel } from "./ReviewCoverPanel";
-import { metadataServerLabel } from "./MetadataServerLinks";
+import { metadataServerEntityUrl, metadataServerLabel } from "./MetadataServerLinks";
 import {
   applyTaggerSelectionChange,
   buildTaggerReview,
@@ -606,6 +606,22 @@ function toScraperVideoMatch(
     performerCandidates: toCandidates(performerNames),
     tagCandidates: toCandidates(tagNames),
   };
+}
+
+/** The match's own page at its source: the provider's scene page, or the first web page among the URLs a scraper returned. */
+function remoteMatchUrl(result: UnifiedVideoMatch): string | null {
+  if (result.sourceKind === "metadata-server") return metadataServerEntityUrl(result.endpoint, "scenes", result.id);
+  for (const url of result.urls) {
+    try {
+      // The parsed form, not the raw string: a browser reads `http:/path` against this page's origin,
+      // where the parser reads it as an absolute URL to another host.
+      const parsed = new URL(url);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+    } catch {
+      // Not an absolute URL; try the next one.
+    }
+  }
+  return null;
 }
 
 function getVideoTagNames(video: Video) {
@@ -3089,12 +3105,14 @@ function TaggerResultRow({
     queryFn: () => videos.get(video.id),
     enabled: isSelected,
   });
+  const sourceName =
+    result.serverName ||
+    (result.endpoint ? metadataServerLabel(result.endpoint, metadataServers ?? []) : "the scraper");
+  const remoteUrl = remoteMatchUrl(result);
   const reviewInput: TaggerReviewInput = {
     video: detailVideo ?? video,
     result,
-    sourceName:
-      result.serverName ||
-      (result.endpoint ? metadataServerLabel(result.endpoint, metadataServers ?? []) : "the scraper"),
+    sourceName,
     metadataServers,
     fieldStrategies,
     imageReplace: (fieldStrategies.image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite",
@@ -3202,31 +3220,33 @@ function TaggerResultRow({
     <div
       onClick={onClick}
       className={`rounded-lg border transition-colors ${
-        isSelected ? "border-accent/70 bg-card" : "cursor-pointer border-border bg-surface hover:border-accent/50"
+        isSelected
+          ? "border-accent/70 bg-card"
+          : locked
+            ? "border-border bg-surface"
+            : "cursor-pointer border-border bg-surface hover:border-accent/50"
       }`}
     >
       {/* Header: what matched, in one line of facts */}
-      <div
-        role={showSelector && !isSelected ? "button" : undefined}
-        tabIndex={showSelector && !isSelected ? 0 : undefined}
-        aria-label={showSelector && !isSelected ? `Use ${result.title || "this match"}` : undefined}
-        aria-disabled={showSelector && !isSelected && locked ? true : undefined}
-        onKeyDown={(event) => {
-          if (showSelector && !isSelected && (event.key === "Enter" || event.key === " ")) {
-            event.preventDefault();
-            onClick();
-          }
-        }}
-        className="flex flex-wrap items-center gap-2.5 px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-      >
-        {showSelector && (
-          <div
-            aria-hidden="true"
-            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${isSelected ? "border-accent" : "border-border"}`}
-          >
-            {isSelected && <div className="h-2 w-2 rounded-full bg-accent" />}
-          </div>
-        )}
+      <div className="flex flex-wrap items-center gap-2.5 px-3 py-2">
+        {showSelector &&
+          (isSelected ? (
+            <div
+              aria-hidden="true"
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-accent"
+            >
+              <div className="h-2 w-2 rounded-full bg-accent" />
+            </div>
+          ) : (
+            // The keyboard's way to choose this match. Its click bubbles to the row, which chooses it,
+            // so the title's source link is not nested inside a button.
+            <button
+              type="button"
+              aria-label={`Use ${result.title || "this match"}`}
+              aria-disabled={locked || undefined}
+              className="h-4 w-4 shrink-0 rounded-full border-2 border-border focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            />
+          ))}
         {!isSelected && result.imageUrl && (
           <LoadedImage src={result.imageUrl} alt="" className="h-9 w-16 shrink-0 rounded object-cover" loading="lazy" />
         )}
@@ -3240,9 +3260,34 @@ function TaggerResultRow({
         ) : null}
         <div className="min-w-0 flex-1 self-start">
           <p
-            className={`text-foreground ${isSelected ? "text-base font-semibold leading-snug" : "truncate text-[13px] font-semibold"}`}
+            className={`text-foreground ${
+              isSelected
+                ? "text-base font-semibold leading-snug"
+                : `text-[13px] font-semibold ${remoteUrl ? "" : "truncate"}`
+            }`}
           >
-            {result.title || "Untitled"}
+            {remoteUrl ? (
+              // The row selects on click; following the link only opens the source page.
+              <a
+                href={remoteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                // A scraper is not a site; its link goes to the page it returned, so the title names that host.
+                title={
+                  result.sourceKind === "scraper" ? `Open on ${new URL(remoteUrl).hostname}` : `Open on ${sourceName}`
+                }
+                onClick={(event) => event.stopPropagation()}
+                // An alternative's title truncates on its own, so the ellipsis never hides the new-tab icon.
+                className={`${isSelected ? "" : "inline-flex max-w-full items-center"} hover:text-accent hover:underline focus-visible:outline-hidden focus-visible:underline`}
+              >
+                <span className={isSelected ? undefined : "min-w-0 truncate"}>{result.title || "Untitled"}</span>
+                <ExternalLink aria-hidden="true" className="ml-1 inline h-3 w-3 shrink-0 align-baseline text-muted" />
+                {/* The space sits outside the hidden text, where name computation keeps it. */}{" "}
+                <span className="sr-only">(opens in new tab)</span>
+              </a>
+            ) : (
+              result.title || "Untitled"
+            )}
           </p>
           {isSelected && identity ? <p className="text-sm text-secondary">{identity}</p> : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-secondary">
