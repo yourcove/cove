@@ -1861,6 +1861,147 @@ describe("VideoTagger", () => {
     expect(mocks.resolveRelations).toHaveBeenCalledWith(expect.objectContaining({ studios: ["Scraped Studio"] }));
   });
 
+  it("links each match's title to its page on the provider, without choosing that match", async () => {
+    mocks.searchMetadataServer.mockResolvedValue([
+      { ...matchFor(123), id: "chosen-id", title: "Chosen match" },
+      { ...matchFor(123), id: "other-id", title: "Other match" },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.type(screen.getByRole("textbox"), "{enter}");
+
+    const chosen = await screen.findByRole("link", { name: "Chosen match (opens in new tab)" });
+    expect(chosen).toHaveAttribute("href", "https://first.example/scenes/chosen-id");
+    expect(chosen).toHaveAttribute("target", "_blank");
+    expect(chosen).toHaveAttribute("rel", "noopener noreferrer");
+    await userEvent.click(screen.getByText("1 other match"));
+    const other = screen.getByRole("link", { name: "Other match (opens in new tab)" });
+    expect(other).toHaveAttribute("href", "https://first.example/scenes/other-id");
+
+    // Opening an alternative to look at it leaves the chosen match in place, by mouse or by keyboard.
+    other.addEventListener("click", (event) => event.preventDefault());
+    await userEvent.click(other);
+    other.focus();
+    await userEvent.keyboard("{Enter}");
+    const useOther = screen.getByRole("button", { name: "Use Other match" });
+    expect(screen.queryByRole("button", { name: "Use Chosen match" })).not.toBeInTheDocument();
+    // The link is not nested in the control that chooses the match, so assistive technology reaches both.
+    expect(other.closest("button, [role=button]")).toBeNull();
+
+    // That control chooses the alternative from the keyboard.
+    useOther.focus();
+    await userEvent.keyboard("{Enter}");
+    const useChosen = await screen.findByRole("button", { name: "Use Chosen match" });
+    expect(screen.queryByRole("button", { name: "Use Other match" })).not.toBeInTheDocument();
+
+    // A mouse chooses an alternative by clicking anywhere on its row, not only on the small control.
+    await userEvent.click(useChosen.parentElement!);
+    expect(await screen.findByRole("button", { name: "Use Other match" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use Chosen match" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the title as text when the provider's endpoint gives no page to link to", async () => {
+    mocks.searchMetadataServer.mockResolvedValue([
+      { ...matchFor(123), endpoint: "https://first.example/api", title: "Unlinked match" },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.type(screen.getByRole("textbox"), "{enter}");
+
+    expect(await screen.findByText("Unlinked match")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Unlinked match/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "skips a URL that is not a web page",
+      urls: ["javascript:alert(1)", "https://site.example/watch/1"],
+      href: "https://site.example/watch/1",
+    },
+    {
+      // A browser would read `http:/path` against Cove's own origin; the link names the host the URL parses to.
+      name: "links the parsed URL rather than one the browser would resolve against Cove",
+      urls: ["http:/watch/1"],
+      href: "http://watch/1",
+    },
+    { name: "leaves the title as text when no URL is a web page", urls: ["javascript:alert(1)", "not a url"] },
+  ])("scraped match: $name", async ({ urls, href }) => {
+    mocks.listScrapers.mockResolvedValue([
+      {
+        id: "pack/site:video",
+        name: "Site Scraper",
+        entityType: "video",
+        supportedScrapes: ["url"],
+        urls: ["site.example/watch/"],
+        sourcePath: "",
+      },
+    ]);
+    mocks.createScrapeAttempt.mockResolvedValue({
+      id: "attempt-1",
+      scraperId: "pack/site:video",
+      entityType: "video",
+      entityId: 123,
+      inputKind: "url",
+      status: "Success",
+      error: null,
+      candidateResultsJson: null,
+      resultJson: JSON.stringify({ Title: "Scraped title", URLs: urls }),
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [],
+      performers: [],
+      tags: [],
+      urls: ["https://site.example/watch/1"],
+      remoteIds: [],
+    } as any;
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("option", { name: "Site Scraper (Scraper)" });
+    await userEvent.selectOptions(screen.getByRole("combobox"), "scraper:pack/site:video");
+    await userEvent.type(screen.getByPlaceholderText("Video URL..."), "{Enter}");
+
+    expect(await screen.findByText("Scraped title")).toBeInTheDocument();
+    const link = screen.queryByRole("link", { name: /Scraped title/ });
+    expect(link?.getAttribute("href") ?? null).toBe(href ?? null);
+    // The link is to the page the scraper returned, so its tooltip names that site rather than the scraper.
+    expect(link?.getAttribute("title") ?? null).toBe(href ? `Open on ${new URL(href).hostname}` : null);
+  });
+
   // Scrapes a video whose result names a studio, leaving the review open for the test to act on.
   async function scrapeWithStudio(studioName = "Scraped Studio") {
     mocks.listScrapers.mockResolvedValue([
