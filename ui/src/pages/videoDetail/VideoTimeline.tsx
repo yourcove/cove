@@ -192,16 +192,14 @@ export function VideoScrubber({
     filterActive,
     personColors,
   ]);
-  // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
-  const visibleDetections = useMemo(
-    () =>
-      detections.filter((det) =>
-        det.refId == null || det.refKind?.toLowerCase() !== "face"
-          ? !filterActive
-          : faceFilterPredicate(det.refId, null),
-      ),
-    [detections, filterActive, faceFilterPredicate],
+  // Detections linked to a face are drawn only through the Faces lanes, which gather them into a person's bars; any
+  // other detection, including a face detection not yet linked to a face, keeps a row of dots of its own, hidden while
+  // a segment filter is applied.
+  const otherDetections = useMemo(
+    () => detections.filter((det) => !(det.refKind?.toLowerCase() === "face" && det.refId != null)),
+    [detections],
   );
+  const visibleDetections = filterActive ? [] : otherDetections;
   const visibleResolvedLanes = showAllResolvedLanes ? segmentLanes : segmentLanes.slice(0, 4);
   const visibleFaceLanes = showAllFaceLanes ? faceLanes : faceLanes.slice(0, 2);
   const hiddenResolvedLaneCount = Math.max(0, segmentLanes.length - visibleResolvedLanes.length);
@@ -240,7 +238,7 @@ export function VideoScrubber({
 
   return (
     <div className="flex-shrink-0 bg-[#1a1a1a] border-t border-border">
-      {(spans.length > 0 || hasFaceDetections) && (
+      {(spans.length > 0 || hasFaceDetections || otherDetections.length > 0) && (
         <div className="border-b border-black/20 bg-[#181a20]">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#20222a] px-2 py-1.5 pr-8 text-[10px] text-white/65">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -340,25 +338,29 @@ export function VideoScrubber({
                   />
                 </div>
               ) : null}
+              {visibleDetections.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-white/45">Detections</div>
+                  <div className="relative h-5 rounded border border-white/10 bg-[#1f2c35]">
+                    {highlight ? <TimelineHighlight highlight={highlight} duration={timelineDuration} /> : null}
+                    {visibleDetections.map((detection) => {
+                      const time = detection.observedAtSec ?? 0;
+                      return (
+                        <button
+                          key={detection.id}
+                          type="button"
+                          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-sky-400/80 hover:bg-sky-300"
+                          style={{ left: `${clampPercent((time / timelineDuration) * 100)}%` }}
+                          title={`${detection.class} (${Math.round(detection.score * 100)}%) at ${formatTimelineTime(time)}${detection.refKind && detection.refId != null ? ` • ${detection.refKind} #${detection.refId}` : ""}`}
+                          onClick={() => onSeek?.(time)}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
-        </div>
-      )}
-      {visibleDetections.length > 0 && (
-        <div className="relative h-5 border-b border-black/20 bg-[#1f2c35]">
-          {highlight ? <TimelineHighlight highlight={highlight} duration={timelineDuration} /> : null}
-          {visibleDetections.map((detection) => {
-            const time = detection.observedAtSec ?? 0;
-            return (
-              <button
-                key={detection.id}
-                className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-sky-400/80 hover:bg-sky-300"
-                style={{ left: `${clampPercent((time / timelineDuration) * 100)}%` }}
-                title={`${detection.class} (${Math.round(detection.score * 100)}%) at ${formatTimelineTime(time)}${detection.refKind && detection.refId != null ? ` • ${detection.refKind} #${detection.refId}` : ""}`}
-                onClick={() => onSeek?.(time)}
-              />
-            );
-          })}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Face, ResolvedSpan, Segment } from "../api/types";
+import { EMPTY_SEGMENT_FILTER } from "../components/segmentFilter";
 import { VideoScrubber } from "../pages/videoDetail/VideoTimeline";
 
 function span(spanKey: string, tagName: string, startSec: number, endSec: number, segmentId: number) {
@@ -69,5 +70,61 @@ describe("the video timeline on a segment's page", () => {
     });
     expect(screen.getByText("Faces")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Alice" })).toBeInTheDocument();
+  });
+});
+
+describe("the video timeline's detections", () => {
+  const detection = (id: number, observedAtSec: number, overrides: Record<string, unknown> = {}) => ({
+    id,
+    observedAtSec,
+    class: "face",
+    score: 0.9,
+    refKind: "face",
+    refId: 31,
+    ...overrides,
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it("draws detections linked to a face only as the person's bars, and keeps unlinked ones as dots", () => {
+    const face = { id: 31, label: "face-0031", performerId: 7, performerName: "Alice", ignored: false } as Face;
+    renderTimeline({
+      spans: [],
+      rawSegments: [],
+      detections: [detection(1, 60), detection(2, 61), detection(3, 80, { refKind: null, refId: null })],
+      facesById: new Map([[31, face]]),
+    });
+
+    expect(screen.getByRole("button", { name: "Alice (1:00 - 1:01)" })).toBeInTheDocument();
+    expect(screen.getByText("Detections")).toBeInTheDocument();
+    expect(screen.getAllByTitle(/face \(90%\)/).map((dot) => dot.title)).toEqual(["face (90%) at 1:20"]);
+  });
+
+  it("hides the Detections row while a segment filter is applied", () => {
+    renderTimeline({
+      detections: [detection(4, 30, { class: "logo", refKind: null, refId: null })],
+      filter: { ...EMPTY_SEGMENT_FILTER, tagIds: [1] },
+    });
+    expect(screen.queryByText("Detections")).not.toBeInTheDocument();
+  });
+
+  it("keeps other detections in a row of their own, which Collapse hides", () => {
+    const onSeek = vi.fn();
+    renderTimeline({
+      spans: [],
+      rawSegments: [],
+      detections: [detection(4, 30, { class: "logo", refKind: null, refId: null })],
+      onSeek,
+    });
+
+    expect(screen.getByText("Detections")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("logo (90%) at 0:30"));
+    expect(onSeek).toHaveBeenCalledWith(30);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.queryByText("Detections")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("logo (90%) at 0:30")).not.toBeInTheDocument();
   });
 });
