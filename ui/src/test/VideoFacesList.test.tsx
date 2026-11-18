@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Face } from "../api/types";
 import { VideoFacesList, type VideoFace } from "../pages/videoDetail/VideoFacesList";
@@ -58,16 +58,108 @@ describe("VideoFacesList", () => {
     expect(screen.getByRole("button", { name: /Suggested Person \(suggested\)/ })).toBeInTheDocument();
   });
 
-  it("lists a person's faces with links that can open in a new tab", () => {
+  it("lists a person's faces in a popover, each named by a link that can open in a new tab", () => {
+    renderList();
+
+    const card = screen.getByRole("button", { name: /Linked Person/ });
+    fireEvent.click(card);
+    const popover = screen.getByRole("dialog", { name: "Faces of Linked Person" });
+    expect(card).toHaveAttribute("aria-expanded", "true");
+    expect(popover).toHaveFocus();
+    expect(
+      within(popover)
+        .getAllByRole("link")
+        .map((link) => [link.textContent, link.getAttribute("href")]),
+    ).toEqual([
+      ["face-001", "/face/1"],
+      ["face-002", "/face/2"],
+      ["face-003", "/face/3"],
+    ]);
+    expect(within(popover).getByTitle("18 detections")).toHaveTextContent("18×");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(card).toHaveFocus();
+  });
+
+  it("closes a person's popover once they are down to one face, and keeps it closed", () => {
+    const twoFaces = videoFaces.slice(0, 2);
+    const onNavigate = vi.fn();
+    const client = new QueryClient();
+    const list = (faces: VideoFace[]) => (
+      <QueryClientProvider client={client}>
+        <VideoFacesList videoId={9} videoFaces={faces} onNavigate={onNavigate} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(list(twoFaces));
+
+    fireEvent.click(screen.getByRole("button", { name: /Linked Person/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    rerender(list(twoFaces.slice(0, 1)));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    rerender(list(twoFaces));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("orders linked people as the video's performers, then suggested people the same way, then unnamed faces", () => {
+    renderList({
+      performers: [
+        { id: 8, name: "Solo Person" },
+        { id: 40, name: "Suggested Person" },
+        { id: 7, name: "Linked Person" },
+      ],
+      videoFaces: [
+        { face: face(10), detectionCount: 500 },
+        {
+          face: face(11, { topSuggestion: { ...suggestion, performerId: 41, performerName: "Stranger" } }),
+          detectionCount: 300,
+        },
+        {
+          face: face(12, { topSuggestion: { ...suggestion, performerId: 7, performerName: "Linked Person" } }),
+          detectionCount: 100,
+        },
+        { face: face(4, { topSuggestion: suggestion }), detectionCount: 2 },
+        { face: face(13, { performerId: 9, performerName: "Uncredited Person" }), detectionCount: 200 },
+        ...videoFaces.slice(0, 3),
+        { face: face(5, { performerId: 8, performerName: "Solo Person" }), detectionCount: 1 },
+      ],
+    });
+
+    // Each card names its person once; a suggested one marks it as such.
+    const cardNames = Array.from(document.querySelectorAll(".break-words"), (name) =>
+      name.closest("a, button")?.querySelector(".sr-only") ? `${name.textContent} (suggested)` : name.textContent,
+    );
+    expect(cardNames).toEqual([
+      "Solo Person",
+      "Linked Person",
+      "Uncredited Person",
+      "Suggested Person (suggested)",
+      "Linked Person (suggested)",
+      "Stranger (suggested)",
+      "Unnamed face",
+    ]);
+  });
+
+  it("closes a person's popover before opening the split dialog over the page", () => {
+    const onSplitFace = vi.fn();
+    renderList({
+      onSplitFace,
+      videoFaces: videoFaces.slice(0, 2).map((entry, index) => (index === 0 ? { ...entry, trackCount: 2 } : entry)),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Linked Person/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Separate people in this face" }));
+    expect(onSplitFace).toHaveBeenCalledWith(videoFaces[0].face);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("closes a person's popover on a click outside it", () => {
     renderList();
 
     fireEvent.click(screen.getByRole("button", { name: /Linked Person/ }));
-    expect(screen.getByText("face-001")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Open face" }).map((link) => link.getAttribute("href"))).toEqual([
-      "/face/1",
-      "/face/2",
-      "/face/3",
-    ]);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("accepts a suggested face from its card", async () => {

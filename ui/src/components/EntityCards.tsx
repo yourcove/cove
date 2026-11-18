@@ -3696,7 +3696,7 @@ export function SuggestedNameMarker({ className = "" }: { className?: string }) 
     <span
       aria-hidden
       title="Suggested match, not linked yet"
-      className={`shrink-0 rounded border border-border px-1 text-[10px] font-medium leading-4 text-muted ${className}`}
+      className={`shrink-0 rounded border border-accent/40 bg-accent/15 px-1 text-[10px] font-medium leading-4 text-accent ${className}`}
     >
       suggested
     </span>

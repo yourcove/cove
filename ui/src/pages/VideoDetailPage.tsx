@@ -1871,6 +1871,7 @@ export function DetailsTab({
           <VideoFacesList
             videoId={video.id}
             videoFaces={videoFaces}
+            performers={video.performers}
             personColors={personColors}
             canDecideFaces={canDecideFaces}
             onMarkFaceNotPresent={onMarkFaceNotPresent}
