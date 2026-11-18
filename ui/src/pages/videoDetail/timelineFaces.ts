@@ -8,6 +8,8 @@ export type TimelineOverlayItem = {
   startSec: number;
   endSec: number;
   label: string;
+  /** The segment the bar draws, when it draws one rather than a run of detections. */
+  spanKey?: string;
   /** The label is a face's suggested performer, not one it is linked to; shown in italics and said in its title. */
   suggested?: boolean;
   colorHint?: string | null;
@@ -95,6 +97,7 @@ export function buildFaceTimelineItems({
     const person = spanPerson(span, rawSegmentsById, facesById);
     items.push({
       key: `face-span-${span.spanKey}`,
+      spanKey: span.spanKey,
       startSec: span.startSec,
       endSec: Math.max(span.endSec, span.startSec + 0.4),
       ...timelineName(person),

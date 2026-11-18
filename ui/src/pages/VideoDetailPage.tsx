@@ -1,6 +1,6 @@
 import { VideoMergeEditor } from "../components/VideoMergeEditor";
 import { VideoCreateModal } from "../components/VideoCreateModal";
-import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   faces,
   videos,
@@ -103,8 +103,8 @@ import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLa
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { PerformerTile, EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
 import { formatShownTitle, segmentFaceName } from "./segments/segmentDisplayUtils";
-import { isFaceTimelineSegment } from "./videoDetail/timelineFaces";
 import { VideoScrubber } from "./videoDetail/VideoTimeline";
+import { useVideoFaces } from "./videoDetail/useVideoFaces";
 import { assignPersonColors, videoPersonKeys } from "./videoDetail/segmentPeople";
 import { VideoFacesList } from "./videoDetail/VideoFacesList";
 import {
@@ -596,61 +596,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, initialCut, onN
   const detections = useMemo(() => detectionsData ?? [], [detectionsData]);
   const segmentsTabLoadError = segmentsLoadError ?? displayProfilesLoadError ?? resolvedSpansLoadError;
 
-  const videoFaceIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const detection of detections) {
-      if (detection.refId != null && detection.refKind?.toLowerCase() === "face") {
-        ids.add(detection.refId);
-      }
-    }
-
-    for (const segment of segments) {
-      if (segment.refId != null && isFaceTimelineSegment(segment)) {
-        ids.add(Number(segment.refId));
-      }
-    }
-
-    return Array.from(ids);
-  }, [detections, segments]);
-
-  const videoFaceQueries = useQueries({
-    queries: videoFaceIds.map((faceId) => ({
-      queryKey: ["face", faceId],
-      queryFn: () => faces.get(faceId),
-      enabled: canReadFaces && canReadSegments,
-    })),
-  });
-
-  const videoFaces = useMemo(() => {
-    const countsByFaceId = new Map<number, number>();
-    // Detections carry the track (group key) they came from, so the number of distinct group keys is
-    // how many separate appearances the face has in this video — and whether it can be split at all.
-    const trackKeysByFaceId = new Map<number, Set<string>>();
-    for (const detection of detections) {
-      if (detection.refId != null && detection.refKind?.toLowerCase() === "face") {
-        countsByFaceId.set(detection.refId, (countsByFaceId.get(detection.refId) ?? 0) + 1);
-        if (detection.groupKey) {
-          const keys = trackKeysByFaceId.get(detection.refId) ?? new Set<string>();
-          keys.add(detection.groupKey.split(":span-")[0]);
-          trackKeysByFaceId.set(detection.refId, keys);
-        }
-      }
-    }
-
-    return videoFaceQueries
-      .map((query) => query.data)
-      .filter((face): face is Face => face != null)
-      .map((face) => ({
-        face,
-        detectionCount: countsByFaceId.get(face.id) ?? 0,
-        trackCount: trackKeysByFaceId.get(face.id)?.size ?? 0,
-      }))
-      .sort((left, right) => right.detectionCount - left.detectionCount || left.face.id - right.face.id);
-  }, [detections, videoFaceQueries]);
-
   // Every view on this page names a face, and the segments it appears in, the same way: its own name, else its top
   // suggested performer marked as a suggestion.
-  const facesById = useMemo(() => new Map(videoFaces.map(({ face }) => [face.id, face] as const)), [videoFaces]);
+  const { videoFaces, facesById } = useVideoFaces(detections, segments, canReadFaces && canReadSegments);
   const playerFaces = useMemo(
     () =>
       videoFaces.map(({ face }) => {

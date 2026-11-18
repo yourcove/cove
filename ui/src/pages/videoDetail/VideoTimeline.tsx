@@ -4,6 +4,7 @@ import type { Detection, Face, ResolvedSpan, Segment } from "../../api/types";
 import {
   type SegmentFilterContext,
   type SegmentFilterState,
+  EMPTY_SEGMENT_FILTER,
   isSegmentFilterActive,
   matchesSegmentFilter,
 } from "../../components/segmentFilter";
@@ -61,9 +62,12 @@ export function VideoScrubber({
   onSeek,
   currentTime,
   profileName,
-  filter,
+  filter = EMPTY_SEGMENT_FILTER,
   filterContext,
   onClearFilter,
+  highlight,
+  activeSpanKey,
+  onOpenSpan,
 }: {
   sprites: VideoSprites | null;
   duration: number;
@@ -80,9 +84,15 @@ export function VideoScrubber({
   onSeek?: (time: number) => void;
   currentTime?: number;
   profileName?: string;
-  filter: SegmentFilterState;
-  filterContext: SegmentFilterContext;
-  onClearFilter: () => void;
+  filter?: SegmentFilterState;
+  filterContext?: SegmentFilterContext;
+  onClearFilter?: () => void;
+  /** A stretch of the video to mark on every lane, such as the segment a page is about. */
+  highlight?: { startSec: number; endSec: number };
+  /** The segment a page is about, outlined among the bars. */
+  activeSpanKey?: string;
+  /** Opens a segment from its bar; without it a bar seeks to the segment's start. */
+  onOpenSpan?: (spanKey: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -106,12 +116,17 @@ export function VideoScrubber({
   const thumbHeight = sprites ? Math.round(thumbWidth * (sprites.entries[0].h / sprites.entries[0].w)) : 0;
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
   const filterActive = isSegmentFilterActive(filter);
+  const effectiveFilterContext = useMemo(
+    () => filterContext ?? { rawSegmentsById, tagIdToGroupId: new Map<number, number>() },
+    [filterContext, rawSegmentsById],
+  );
   const nonFaceSpans = useMemo(
     () =>
       spans.filter(
-        (span) => !isFaceResolvedSpan(span, rawSegmentsById) && matchesSegmentFilter(span, filter, filterContext),
+        (span) =>
+          !isFaceResolvedSpan(span, rawSegmentsById) && matchesSegmentFilter(span, filter, effectiveFilterContext),
       ),
-    [rawSegmentsById, spans, filter, filterContext],
+    [rawSegmentsById, spans, filter, effectiveFilterContext],
   );
   // Faces carry no tags, so a tag/tag-group filter hides them; otherwise they pass when the
   // filter targets faces (kind "face", or a specific face/performer).
@@ -143,6 +158,7 @@ export function VideoScrubber({
       buildTimelineLanes<TimelineOverlayItem>(
         nonFaceSpans.map((span) => ({
           key: span.spanKey,
+          spanKey: span.spanKey,
           startSec: span.startSec,
           endSec: span.endSec,
           ...timelineName(resolveSpanName(span, rawSegmentsById, facesById)),
@@ -220,7 +236,6 @@ export function VideoScrubber({
   const scroll = (dir: number) => {
     if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * thumbWidth * 4, behavior: "smooth" });
   };
-  const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
   const timelineDuration = Math.max(0.001, duration || 0);
 
   return (
@@ -297,39 +312,15 @@ export function VideoScrubber({
                     <span>Faces</span>
                     {hiddenFaceLaneCount > 0 ? <span>{hiddenFaceLaneCount} hidden</span> : null}
                   </div>
-                  <div
-                    className="relative overflow-hidden rounded border border-white/10 bg-black/25"
-                    style={{ height: `${Math.max(28, visibleFaceLanes.length * 24 + 6)}px` }}
-                  >
-                    {visibleFaceLanes.map((lane, laneIndex) =>
-                      lane.map(({ item, endSec }) => {
-                        const start = clampPercent((item.startSec / timelineDuration) * 100);
-                        const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
-                        const width = Math.max(0.45, end - start);
-                        const color = getTimelineOverlayColor(item, FACE_TIMELINE_COLORS);
-
-                        return (
-                          <button
-                            key={item.key}
-                            className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
-                            style={{
-                              left: `${start}%`,
-                              top: `${laneIndex * 24 + 4}px`,
-                              width: `${width}%`,
-                              backgroundColor: color,
-                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
-                            }}
-                            title={`${formatShownTitle(item.label, item.suggested)} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
-                            onClick={() => onSeek?.(item.startSec)}
-                          >
-                            {timelineLabelFits(width, item.label) ? (
-                              <span className={`block truncate ${item.suggested ? "italic" : ""}`}>{item.label}</span>
-                            ) : null}
-                          </button>
-                        );
-                      }),
-                    )}
-                  </div>
+                  <TimelineLaneBox
+                    lanes={visibleFaceLanes}
+                    palette={FACE_TIMELINE_COLORS}
+                    duration={timelineDuration}
+                    highlight={highlight}
+                    activeSpanKey={activeSpanKey}
+                    onSeek={onSeek}
+                    onOpenSpan={onOpenSpan}
+                  />
                 </div>
               ) : null}
               {nonFaceSpans.length > 0 ? (
@@ -338,39 +329,15 @@ export function VideoScrubber({
                     <span>Segments{profileName ? ` · ${profileName}` : ""}</span>
                     {hiddenResolvedLaneCount > 0 ? <span>{hiddenResolvedLaneCount} hidden</span> : null}
                   </div>
-                  <div
-                    className="relative overflow-hidden rounded border border-white/10 bg-black/25"
-                    style={{ height: `${Math.max(28, visibleResolvedLanes.length * 24 + 6)}px` }}
-                  >
-                    {visibleResolvedLanes.map((lane, laneIndex) =>
-                      lane.map(({ item, endSec }) => {
-                        const start = clampPercent((item.startSec / timelineDuration) * 100);
-                        const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
-                        const width = Math.max(0.45, end - start);
-                        const color = getTimelineOverlayColor(item, SEGMENT_TIMELINE_COLORS);
-
-                        return (
-                          <button
-                            key={item.key}
-                            className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
-                            style={{
-                              left: `${start}%`,
-                              top: `${laneIndex * 24 + 4}px`,
-                              width: `${width}%`,
-                              backgroundColor: color,
-                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
-                            }}
-                            title={`${formatShownTitle(item.label, item.suggested)} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
-                            onClick={() => onSeek?.(item.startSec)}
-                          >
-                            {timelineLabelFits(width, item.label) ? (
-                              <span className={`block truncate ${item.suggested ? "italic" : ""}`}>{item.label}</span>
-                            ) : null}
-                          </button>
-                        );
-                      }),
-                    )}
-                  </div>
+                  <TimelineLaneBox
+                    lanes={visibleResolvedLanes}
+                    palette={SEGMENT_TIMELINE_COLORS}
+                    duration={timelineDuration}
+                    highlight={highlight}
+                    activeSpanKey={activeSpanKey}
+                    onSeek={onSeek}
+                    onOpenSpan={onOpenSpan}
+                  />
                 </div>
               ) : null}
             </div>
@@ -379,6 +346,7 @@ export function VideoScrubber({
       )}
       {visibleDetections.length > 0 && (
         <div className="relative h-5 border-b border-black/20 bg-[#1f2c35]">
+          {highlight ? <TimelineHighlight highlight={highlight} duration={timelineDuration} /> : null}
           {visibleDetections.map((detection) => {
             const time = detection.observedAtSec ?? 0;
             return (
@@ -471,4 +439,90 @@ function formatTimelineTime(seconds: number) {
   }
 
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
+
+// The marked stretch of the video, drawn behind a lane's bars.
+function TimelineHighlight({
+  highlight,
+  duration,
+}: {
+  highlight: { startSec: number; endSec: number };
+  duration: number;
+}) {
+  const start = clampPercent((highlight.startSec / duration) * 100);
+  const end = clampPercent((highlight.endSec / duration) * 100);
+  return (
+    <div
+      aria-hidden
+      data-testid="timeline-highlight"
+      className="pointer-events-none absolute inset-y-0 border-x-2 border-accent bg-accent/25"
+      style={{ left: `${start}%`, width: `${Math.max(0.3, end - start)}%` }}
+    />
+  );
+}
+
+function TimelineLaneBox({
+  lanes,
+  palette,
+  duration,
+  highlight,
+  activeSpanKey,
+  onSeek,
+  onOpenSpan,
+}: {
+  lanes: Array<Array<{ item: TimelineOverlayItem; endSec: number }>>;
+  palette: string[];
+  duration: number;
+  highlight?: { startSec: number; endSec: number };
+  activeSpanKey?: string;
+  onSeek?: (time: number) => void;
+  onOpenSpan?: (spanKey: string) => void;
+}) {
+  return (
+    <div
+      className="relative overflow-hidden rounded border border-white/10 bg-black/25"
+      style={{ height: `${Math.max(28, lanes.length * 24 + 6)}px` }}
+    >
+      {highlight ? <TimelineHighlight highlight={highlight} duration={duration} /> : null}
+      {lanes.map((lane, laneIndex) =>
+        lane.map(({ item, endSec }) => {
+          const start = clampPercent((item.startSec / duration) * 100);
+          const end = clampPercent(((endSec + 0.001) / duration) * 100);
+          const width = Math.max(0.45, end - start);
+          const color = getTimelineOverlayColor(item, palette);
+          const active = activeSpanKey != null && item.spanKey === activeSpanKey;
+          const opens = onOpenSpan != null && item.spanKey != null && !active;
+
+          return (
+            <button
+              key={item.key}
+              type="button"
+              aria-current={active ? "true" : undefined}
+              className={`absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70`}
+              style={{
+                left: `${start}%`,
+                top: `${laneIndex * 24 + 4}px`,
+                width: `${width}%`,
+                backgroundColor: color,
+                // The open segment's bar is outlined. The outline is part of the inline shadow, which a ring class
+                // would not override.
+                boxShadow: active
+                  ? "inset 0 0 0 1px rgba(255,255,255,0.2), 0 0 0 2px #fff"
+                  : "inset 0 0 0 1px rgba(255,255,255,0.2)",
+                zIndex: active ? 1 : undefined,
+              }}
+              title={`${formatShownTitle(item.label, item.suggested)} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})${opens ? " — open segment" : ""}`}
+              onClick={() => (opens ? onOpenSpan(item.spanKey!) : onSeek?.(item.startSec))}
+            >
+              {timelineLabelFits(width, item.label) ? (
+                <span className={`block truncate ${item.suggested ? "italic" : ""}`}>{item.label}</span>
+              ) : null}
+            </button>
+          );
+        }),
+      )}
+    </div>
+  );
 }
