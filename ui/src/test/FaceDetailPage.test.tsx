@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FaceDetailPage } from "../pages/FaceDetailPage";
 import { navigateToUrl } from "../router/location";
+import { DetailListStateCacheProvider } from "../hooks/useDetailListUrlState";
 
 const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, noDeleteImpact } = vi.hoisted(() => ({
   noDeleteImpact: {
@@ -76,7 +77,8 @@ vi.mock("../hooks/useBackNavigation", () => ({
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      // The app's client keeps data fresh for 30 seconds, so a tab that mounts does not refetch what the page has.
+      queries: { retry: false, staleTime: 30_000 },
       mutations: { retry: false },
     },
   });
@@ -84,9 +86,12 @@ function renderPage() {
 
   mockFaces.list.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 500 });
 
+  // As in App, a cache that a tab's list settings come back from; this one is shared by every face shown.
   const page = (faceId: number) => (
     <QueryClientProvider client={queryClient}>
-      <FaceDetailPage id={faceId} onNavigate={onNavigate} />
+      <DetailListStateCacheProvider>
+        <FaceDetailPage id={faceId} onNavigate={onNavigate} />
+      </DetailListStateCacheProvider>
     </QueryClientProvider>
   );
   const { rerender } = render(page(7));
@@ -624,6 +629,120 @@ describe("FaceDetailPage", () => {
     });
   });
 
+  describe("list settings in the URL", () => {
+    function mockLinkedFaceWithManySimilar() {
+      mockFaces.get.mockResolvedValue(linkedFace);
+      mockFaces.similar.mockResolvedValue({
+        items: [similarFace({ label: "Similar Jane" })],
+        totalCount: 40,
+        page: 1,
+        perPage: 18,
+      });
+      mockFaces.detections.mockResolvedValue([]);
+      mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+      mockEntityEngagement.get.mockResolvedValue(null);
+    }
+    const urlParam = (key: string) => new URLSearchParams(window.location.search).get(key);
+
+    it("records the Similar Faces page and search in the URL", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar");
+      mockLinkedFaceWithManySimilar();
+
+      renderPage();
+      await screen.findByText("Similar Jane");
+      fireEvent.click(screen.getAllByRole("button", { name: "Page 2" })[0]);
+      await waitFor(() => expect(urlParam("page")).toBe("2"));
+      fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "Jane" } });
+      await waitFor(() => expect(urlParam("q")).toBe("Jane"));
+      expect(urlParam("tab")).toBe("similar");
+    });
+
+    it("restores the Similar Faces list from a URL that carries its settings", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar&page=2&q=Jane&view=list");
+      mockLinkedFaceWithManySimilar();
+
+      renderPage();
+
+      await waitFor(() =>
+        expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ page: 2, q: "Jane" })),
+      );
+      expect(screen.getByPlaceholderText("Search…")).toHaveValue("Jane");
+      // List view shows rows rather than tiles.
+      expect(await screen.findByRole("button", { name: /^Similar Jane/ })).toBeInTheDocument();
+    });
+
+    // App gives each face its own page, but the lists must follow the URL even when the page is reused.
+    it("starts another face's lists from their defaults", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar&page=2&q=Jane");
+      mockLinkedFaceWithManySimilar();
+
+      const { showFace } = renderPage();
+      await waitFor(() =>
+        expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ page: 2, q: "Jane" })),
+      );
+
+      act(() => {
+        navigateToUrl("/face/8?tab=similar");
+      });
+      showFace(8);
+
+      await waitFor(() =>
+        expect(mockFaces.similar).toHaveBeenLastCalledWith(8, expect.objectContaining({ page: 1, q: undefined })),
+      );
+      expect(await screen.findByPlaceholderText("Search…")).toHaveValue("");
+      expect(urlParam("page")).toBeNull();
+    });
+
+    it("brings a list's settings back when its tab is picked again", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar&page=2&q=Jane");
+      mockLinkedFaceWithManySimilar();
+
+      renderPage();
+      await screen.findByText("Similar Jane");
+      fireEvent.click(screen.getByRole("tab", { name: /Overview/i }));
+      await waitFor(() => expect(urlParam("tab")).toBeNull());
+      expect(urlParam("page")).toBeNull();
+
+      fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+      await waitFor(() => expect(urlParam("page")).toBe("2"));
+      expect(urlParam("q")).toBe("Jane");
+      expect(screen.getByPlaceholderText("Search…")).toHaveValue("Jane");
+    });
+
+    it("does not carry one tab's list settings into the other", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar&page=2&q=Jane");
+      mockLinkedFaceWithManySimilar();
+
+      renderPage();
+      await screen.findByText("Similar Jane");
+      fireEvent.click(screen.getByRole("tab", { name: /Appears In/i }));
+
+      await waitFor(() => expect(urlParam("tab")).toBe("appearances"));
+      expect(urlParam("page")).toBeNull();
+      expect(urlParam("q")).toBeNull();
+      await waitFor(() =>
+        expect(mockFaces.appearances).toHaveBeenLastCalledWith(7, expect.objectContaining({ page: 1, q: undefined })),
+      );
+    });
+
+    it("writes Show unlinked only into the URL and goes back to the first page", async () => {
+      mockAuth.canWrite = true;
+      mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+      mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+      window.history.replaceState(null, "", "/face/7?tab=similar&page=2");
+      mockLinkedFaceWithManySimilar();
+
+      renderPage();
+      const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
+      fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+
+      await waitFor(() =>
+        expect(JSON.parse(urlParam("filters") ?? "{}")).toEqual({ linkedCriterion: { value: false } }),
+      );
+      expect(urlParam("page")).toBeNull();
+    });
+  });
+
   describe("active tab in the URL", () => {
     function mockLinkedFace() {
       mockFaces.get.mockResolvedValue(linkedFace);
@@ -666,7 +785,7 @@ describe("FaceDetailPage", () => {
       expect(new URLSearchParams(window.location.search).has("tab")).toBe(false);
     });
 
-    // App reuses the page across faces, so the tab follows the new face's URL rather than the old face.
+    // App gives each face its own page, but the tab must follow the URL even when the page is reused.
     it("opens another face on the tab its own URL names", async () => {
       window.history.replaceState(null, "", "/face/7?tab=similar");
       mockLinkedFace();

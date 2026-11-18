@@ -799,7 +799,11 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       {route.page === "segments" && <SegmentsPage onNavigate={navigate} />}
       {route.page === "segment" && route.id !== undefined && <SegmentDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "faces" && <FacesPage onNavigate={navigate} />}
-      {route.page === "face" && route.id !== undefined && <FaceDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "face" && route.id !== undefined && (
+        <DetailListStateCacheProvider key={`face-${route.id}`}>
+          <FaceDetailPage id={route.id} onNavigate={navigate} />
+        </DetailListStateCacheProvider>
+      )}
       {route.page === "performers" && <PerformersPage onNavigate={navigate} />}
       {route.page === "performer" && route.id !== undefined && (
         <DetailListStateCacheProvider key={`performer-${route.id}`}>

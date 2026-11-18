@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -63,7 +63,7 @@ import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { FaceAppearanceTile, FaceTile } from "../components/EntityCards";
 import { FieldProvenanceHover, formatDate } from "../components/shared";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
-import { useDetailTabUrlState } from "../hooks/useDetailListUrlState";
+import { useDetailListUrlState, useDetailTabUrlState } from "../hooks/useDetailListUrlState";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -171,6 +171,114 @@ function readSimilarFaceFilters(objectFilter: Record<string, unknown>) {
   };
 }
 
+const SIMILAR_DEFAULT_FILTER: FindFilter = { page: 1, perPage: 18, sort: "distance", direction: "asc" };
+const APPEARANCE_DEFAULT_FILTER: FindFilter = { page: 1, perPage: 24, sort: "last_seen", direction: "desc" };
+const GRID_OR_LIST = ["grid", "list"] as const;
+type GridOrList = (typeof GRID_OR_LIST)[number];
+const NO_SIMILAR_FACE_FILTERS = readSimilarFaceFilters({});
+
+function querySimilarFaces(
+  faceId: number,
+  similarFaceFilters: ReturnType<typeof readSimilarFaceFilters>,
+  nextFilter: FindFilter,
+) {
+  return faces.similar(faceId, {
+    q: nextFilter.q?.trim() || undefined,
+    sort: nextFilter.sort,
+    direction: nextFilter.direction,
+    seed: nextFilter.seed,
+    ...similarFaceFilters,
+    page: nextFilter.page ?? 1,
+    perPage: nextFilter.perPage ?? 18,
+    k: 250,
+  });
+}
+
+async function queryFaceAppearances(
+  faceId: number,
+  nextFilter: FindFilter,
+): Promise<PaginatedResponse<FaceAppearanceListItem>> {
+  const page = await faces.appearances(faceId, {
+    q: nextFilter.q?.trim() || undefined,
+    sort: nextFilter.sort,
+    direction: nextFilter.direction,
+    seed: nextFilter.seed,
+    page: nextFilter.page ?? 1,
+    perPage: nextFilter.perPage ?? 24,
+  });
+  return { ...page, items: page.items.map((appearance) => ({ ...appearance, id: appearance.appearanceId })) };
+}
+
+/**
+ * A face list's settings live in the URL (page, page size, sort, search, filters and view), as on the other
+ * detail pages, so Back and a shared link reopen the same view and another face starts from the defaults.
+ * The URL keys are shared by the tabs, so each list mounts only while its tab is shown and the page's
+ * DetailListStateCacheProvider brings its settings back when the tab is picked again. Zoom stays local, as
+ * the other detail tabs keep it.
+ */
+function useFaceSimilarList(faceId: number) {
+  const urlState = useDetailListUrlState<GridOrList>({
+    stateKey: "similar",
+    resetKey: "face-similar",
+    builtInFilter: SIMILAR_DEFAULT_FILTER,
+    defaultDisplayMode: "grid",
+    allowedDisplayModes: GRID_OR_LIST,
+    allowInfinitePageSize: true,
+  });
+  const similarFaceFilters = useMemo(() => readSimilarFaceFilters(urlState.objectFilter), [urlState.objectFilter]);
+  const [zoomLevel, setZoomLevel] = useState(0);
+  const query = useDetailListQuery<FaceSimilar>({
+    queryKey: ["face", faceId, "similar", similarFaceFilters],
+    filter: urlState.filter,
+    queryFn: (nextFilter) => querySimilarFaces(faceId, similarFaceFilters, nextFilter),
+  });
+  return { ...urlState, similarFaceFilters, zoomLevel, setZoomLevel, query };
+}
+
+type FaceSimilarList = ReturnType<typeof useFaceSimilarList>;
+
+function FaceSimilarListScope({
+  faceId,
+  children,
+}: {
+  faceId: number;
+  children: (list: FaceSimilarList) => ReactNode;
+}) {
+  const list = useFaceSimilarList(faceId);
+  return <>{children(list)}</>;
+}
+
+function useFaceAppearancesList(faceId: number) {
+  const urlState = useDetailListUrlState<GridOrList>({
+    stateKey: "appearances",
+    resetKey: "face-appearances",
+    builtInFilter: APPEARANCE_DEFAULT_FILTER,
+    defaultDisplayMode: "list",
+    allowedDisplayModes: GRID_OR_LIST,
+    allowInfinitePageSize: true,
+  });
+  const [zoomLevel, setZoomLevel] = useState(0);
+  const query = useDetailListQuery<FaceAppearanceListItem>({
+    queryKey: ["face", faceId, "appearances"],
+    filter: urlState.filter,
+    queryFn: (nextFilter) => queryFaceAppearances(faceId, nextFilter),
+  });
+  return { ...urlState, zoomLevel, setZoomLevel, query };
+}
+
+type FaceAppearancesList = ReturnType<typeof useFaceAppearancesList>;
+
+function FaceAppearancesListScope({
+  faceId,
+  children,
+}: {
+  faceId: number;
+  children: (list: FaceAppearancesList) => ReactNode;
+}) {
+  const list = useFaceAppearancesList(faceId);
+  return <>{children(list)}</>;
+}
+
 type FaceAppearanceHost = Pick<FaceAppearance, "hostType" | "hostId" | "title">;
 
 function readSuggestionPerformerId(value: number | FaceSuggestion) {
@@ -185,24 +293,6 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canEngageFace = canReadEntity("face", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const { backLabel, goBack, backAlternative, goToOrigin } = useBackNavigation({ page: "faces" }, onNavigate);
-  const [appearanceFilter, setAppearanceFilter] = useState<FindFilter>({
-    page: 1,
-    perPage: 24,
-    sort: "last_seen",
-    direction: "desc",
-  });
-  const [similarFilter, setSimilarFilter] = useState<FindFilter>({
-    page: 1,
-    perPage: 18,
-    sort: "distance",
-    direction: "asc",
-  });
-  const [similarObjectFilter, setSimilarObjectFilter] = useState<Record<string, unknown>>({});
-  const similarFaceFilters = useMemo(() => readSimilarFaceFilters(similarObjectFilter), [similarObjectFilter]);
-  const [appearanceZoomLevel, setAppearanceZoomLevel] = useState(0);
-  const [similarZoomLevel, setSimilarZoomLevel] = useState(0);
-  const [appearanceDisplayMode, setAppearanceDisplayMode] = useState<"grid" | "list">("list");
-  const [similarDisplayMode, setSimilarDisplayMode] = useState<"grid" | "list">("grid");
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -217,54 +307,17 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   });
   const faceLoadError = getLoadError(face, faceError);
 
-  const {
-    data: similarFacesPage = EMPTY_SIMILAR_PAGE,
-    isLoading: similarLoading,
-    showsPreviousResults: similarShowsPreviousResults,
-    loadError: similarLoadError,
-    retry: retrySimilar,
-    infinitePageSize: similarInfinitePageSize,
-    infiniteQuery: similarInfiniteQuery,
-    loadMore: loadMoreSimilar,
-  } = useDetailListQuery<FaceSimilar>({
-    queryKey: ["face", id, "similar", similarFaceFilters],
-    filter: similarFilter,
-    queryFn: (nextFilter) =>
-      faces.similar(id, {
-        q: nextFilter.q?.trim() || undefined,
-        sort: nextFilter.sort,
-        direction: nextFilter.direction,
-        seed: nextFilter.seed,
-        ...similarFaceFilters,
-        page: nextFilter.page ?? 1,
-        perPage: nextFilter.perPage ?? 18,
-        k: 250,
-      }),
+  // The tab badges and the hero count use each list at its defaults, which is also the query a list
+  // starts from, so this shares its cache entry rather than fetching twice.
+  const { data: similarCountPage = EMPTY_SIMILAR_PAGE } = useDetailListQuery<FaceSimilar>({
+    queryKey: ["face", id, "similar", NO_SIMILAR_FACE_FILTERS],
+    filter: SIMILAR_DEFAULT_FILTER,
+    queryFn: (nextFilter) => querySimilarFaces(id, NO_SIMILAR_FACE_FILTERS, nextFilter),
   });
-
-  const {
-    data: faceAppearancesPage = EMPTY_APPEARANCES_PAGE,
-    isLoading: appearancesLoading,
-    loadError: appearancesLoadError,
-    retry: retryAppearances,
-    infinitePageSize: appearancesInfinitePageSize,
-    infiniteQuery: appearancesInfiniteQuery,
-    loadMore: loadMoreAppearances,
-  } = useDetailListQuery<FaceAppearanceListItem>({
+  const { data: appearancesCountPage = EMPTY_APPEARANCES_PAGE } = useDetailListQuery<FaceAppearanceListItem>({
     queryKey: ["face", id, "appearances"],
-    filter: appearanceFilter,
-    queryFn: async (nextFilter) => {
-      const page = await faces.appearances(id, {
-        q: nextFilter.q?.trim() || undefined,
-        sort: nextFilter.sort,
-        direction: nextFilter.direction,
-        seed: nextFilter.seed,
-        page: nextFilter.page ?? 1,
-        perPage: nextFilter.perPage ?? 24,
-      });
-
-      return { ...page, items: page.items.map((appearance) => ({ ...appearance, id: appearance.appearanceId })) };
-    },
+    filter: APPEARANCE_DEFAULT_FILTER,
+    queryFn: (nextFilter) => queryFaceAppearances(id, nextFilter),
   });
 
   const { data: deleteImpact, isLoading: deleteImpactLoading } = useQuery({
@@ -443,8 +496,8 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   // Similar faces are usually the same person, so the unlinked ones on the page are reviewed as one batch for
   // this face's performer: every candidate is linked unless the reviewer skips it, and a skip is remembered
   // as "not this performer" so the face stops being offered for them.
-  // App reuses this page across faces, so a review belongs to the face it was started on and reads as fresh
-  // on any other face.
+  // A review belongs to the face it was started on and reads as fresh on any other face, even where the
+  // page is reused for another face rather than mounted anew.
   const [storedSimilarReview, setSimilarReview] = useState<SimilarReviewState>(() => emptySimilarReview(id));
   const similarReview = storedSimilarReview.faceId === id ? storedSimilarReview : emptySimilarReview(id);
   const toggleSimilarChoice = (face: FaceSimilar) => {
@@ -484,9 +537,6 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const similarReviewIsOwn = batchLinkSimilarMutation.variables?.sourceFaceId === id;
   const similarReviewError = similarReviewIsOwn ? batchLinkSimilarMutation.error : null;
   const similarReviewPending = similarReviewIsOwn && batchLinkSimilarMutation.isPending;
-  // While the list still shows an earlier query (another face, filter or page), its faces and their
-  // "not this performer" marks are not the ones being reviewed, so nothing can be chosen or sent.
-  const similarReviewLocked = similarReviewPending || similarShowsPreviousResults;
 
   // Correcting a cluster that swallowed someone else's appearances. Both actions re-home occurrences
   // onto other faces, so refresh every face query (this one's counts, appearances and similar list).
@@ -591,15 +641,15 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const tabs = useMemo(
     () => [
       { key: "overview", label: "Overview" },
-      { key: "appearances", label: "Appears In", count: face?.appearanceCount || faceAppearancesPage.totalCount },
+      { key: "appearances", label: "Appears In", count: face?.appearanceCount || appearancesCountPage.totalCount },
       {
         key: "similar",
         label: "Similar Faces",
         icon: <Sparkles className="h-4 w-4" />,
-        count: similarFacesPage.totalCount,
+        count: similarCountPage.totalCount,
       },
     ],
-    [face?.appearanceCount, faceAppearancesPage.totalCount, similarFacesPage.totalCount],
+    [face?.appearanceCount, appearancesCountPage.totalCount, similarCountPage.totalCount],
   );
 
   useDocumentTitle(face ? title : null);
@@ -805,230 +855,285 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   );
 
   const appearancesContent = (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Appears In</h2>
-          <p className="mt-1 text-sm text-secondary">
-            Every video and image this face appears in, with the face as it looks in each appearance there.
-          </p>
-        </div>
-        <div className="text-xs text-muted">
-          {appearancesLoadError
-            ? "Unavailable"
-            : `${faceAppearancesPage.totalCount} appearance${faceAppearancesPage.totalCount === 1 ? "" : "s"}`}
-        </div>
-      </div>
-
-      {moveResult?.faceId === id ? (
-        <MoveOutcomeList outcomes={moveResult.outcomes} onNavigate={onNavigate} onDismiss={() => setMoveResult(null)} />
-      ) : null}
-
-      <ListQueryState
-        header={
-          <DetailListToolbar
-            filter={appearanceFilter}
-            onFilterChange={setAppearanceFilter}
-            totalCount={faceAppearancesPage.totalCount}
-            sortOptions={APPEARANCE_SORT_OPTIONS}
-            zoomLevel={appearanceZoomLevel}
-            onZoomChange={setAppearanceZoomLevel}
-            cardSizeEntityType="faces"
-            showSearch
-            allowInfinitePageSize={appearanceDisplayMode === "grid"}
-            displayMode={appearanceDisplayMode}
-            onDisplayModeChange={(mode: DetailListDisplayMode) => {
-              if (mode === "grid" || mode === "list") setAppearanceDisplayMode(mode);
-            }}
-            availableDisplayModes={["grid", "list"]}
-          />
-        }
-        isLoading={appearancesLoading}
-        loadError={appearancesLoadError}
-        isEmpty={faceAppearancesPage.totalCount === 0}
-        onRetry={() => {
-          void retryAppearances();
-        }}
-        loading={<div className="text-sm text-secondary">Loading appearances...</div>}
-        empty={
-          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-            No appearances currently point to this face cluster.
+    <FaceAppearancesListScope faceId={id}>
+      {({
+        filter: appearanceFilter,
+        setFilter: setAppearanceFilter,
+        displayMode: appearanceDisplayMode,
+        setDisplayMode: setAppearanceDisplayMode,
+        zoomLevel: appearanceZoomLevel,
+        setZoomLevel: setAppearanceZoomLevel,
+        query: {
+          data: faceAppearancesPage,
+          isLoading: appearancesLoading,
+          loadError: appearancesLoadError,
+          retry: retryAppearances,
+          infinitePageSize: appearancesInfinitePageSize,
+          infiniteQuery: appearancesInfiniteQuery,
+          loadMore: loadMoreAppearances,
+        },
+      }) => (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Appears In</h2>
+              <p className="mt-1 text-sm text-secondary">
+                Every video and image this face appears in, with the face as it looks in each appearance there.
+              </p>
+            </div>
+            <div className="text-xs text-muted">
+              {appearancesLoadError
+                ? "Unavailable"
+                : `${faceAppearancesPage.totalCount} appearance${faceAppearancesPage.totalCount === 1 ? "" : "s"}`}
+            </div>
           </div>
-        }
-      >
-        <>
-          {appearanceDisplayMode === "list" ? (
-            <FaceAppearanceBreakdown
-              // A selection belongs to one face; another face must never inherit it.
-              key={face.id}
-              face={face}
-              faceTitle={title}
-              appearances={faceAppearancesPage.items}
-              detections={faceDetections}
-              canWrite={canWriteFace}
-              canEditOccurrences={canEditOccurrences}
+
+          {moveResult?.faceId === id ? (
+            <MoveOutcomeList
+              outcomes={moveResult.outcomes}
               onNavigate={onNavigate}
-              onMoved={(outcomes) => setMoveResult({ faceId: id, outcomes })}
-              onChanged={(hostTypes) => {
-                invalidateFace();
-                hostTypes.forEach(refreshAfterAppearanceEdit);
-              }}
-            />
-          ) : (
-            <FaceAppearancesGrid
-              appearances={faceAppearancesPage.items}
-              onNavigate={onNavigate}
-              onSplit={canCorrectAppearances ? setSplitAppearance : undefined}
-              onMarkNotPresent={canCorrectAppearances ? confirmMarkNotPresent : undefined}
-              markingNotPresent={markNotPresentMutation.isPending ? markNotPresentMutation.variables : undefined}
-              zoomLevel={appearanceZoomLevel}
-              infinitePageSize={appearancesInfinitePageSize}
-              hasNextPage={appearancesInfiniteQuery.hasNextPage}
-              isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage}
-              loadMore={loadMoreAppearances}
-            />
-          )}
-          <DetailListPagination
-            filter={appearanceFilter}
-            onFilterChange={setAppearanceFilter}
-            totalCount={faceAppearancesPage.totalCount}
-            allowInfinitePageSize={appearanceDisplayMode === "grid"}
-          />
-        </>
-      </ListQueryState>
-    </section>
-  );
-
-  const similarReviewTarget: SimilarFaceLinkTarget | undefined =
-    canWriteFace && face.performerId
-      ? { performerId: face.performerId, performerName: face.performerName || `Performer #${face.performerId}` }
-      : undefined;
-  // The batch covers the faces on the page being looked at, so nothing is linked without being seen.
-  const similarReviewCandidates = similarFacesPage.items.filter(isSimilarReviewCandidate);
-  const similarReviewLinkIds = similarReviewCandidates
-    .filter((candidate) => isLinkedByReview(candidate, similarReview.choices))
-    .map((candidate) => candidate.id);
-  // A face already marked "not this performer" needs no new reject, so only fresh skips are sent.
-  const similarReviewSkipIds = similarReviewCandidates
-    .filter((candidate) => !candidate.rejectedForSourcePerformer && !isLinkedByReview(candidate, similarReview.choices))
-    .map((candidate) => candidate.id);
-  const similarReviewChangedIds = similarReviewCandidates
-    .filter((candidate) => isLinkedByReview(candidate, similarReview.choices) !== linksByDefault(candidate))
-    .map((candidate) => candidate.id);
-
-  const similarFacesContent = (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Similar Faces</h2>
-          <p className="mt-1 text-sm text-secondary">Nearest neighbors from the face embedding index.</p>
-        </div>
-        <div className="text-xs text-muted">
-          {similarLoadError
-            ? "Unavailable"
-            : `${similarFacesPage.totalCount} match${similarFacesPage.totalCount === 1 ? "" : "es"}`}
-        </div>
-      </div>
-
-      <ListQueryState
-        header={
-          <DetailListToolbar
-            filter={similarFilter}
-            onFilterChange={setSimilarFilter}
-            totalCount={similarFacesPage.totalCount}
-            sortOptions={SIMILAR_SORT_OPTIONS}
-            criteriaDefinitions={SIMILAR_FACE_CRITERIA}
-            objectFilter={similarObjectFilter}
-            onObjectFilterChange={setSimilarObjectFilter}
-            zoomLevel={similarZoomLevel}
-            onZoomChange={setSimilarZoomLevel}
-            cardSizeEntityType="faces"
-            showSearch
-            allowInfinitePageSize
-            displayMode={similarDisplayMode}
-            onDisplayModeChange={(mode: DetailListDisplayMode) => {
-              if (mode === "grid" || mode === "list") setSimilarDisplayMode(mode);
-            }}
-            availableDisplayModes={["grid", "list"]}
-          />
-        }
-        isLoading={similarLoading}
-        loadError={similarLoadError}
-        isEmpty={similarFacesPage.totalCount === 0}
-        onRetry={() => {
-          void retrySimilar();
-        }}
-        loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
-        empty={
-          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-            {similarFaceFilters.linked !== undefined || similarFaceFilters.path
-              ? "No similar faces match the current filters."
-              : "No similar faces are available for this cluster yet."}
-          </div>
-        }
-      >
-        <>
-          {similarReviewTarget ? (
-            <SimilarReviewBar
-              target={similarReviewTarget}
-              linkCount={similarReviewLinkIds.length}
-              skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
-              pending={similarReviewPending}
-              locked={similarReviewLocked}
-              error={similarReviewError}
-              infinitePageSize={similarInfinitePageSize}
-              result={similarReview.result}
-              onSubmit={() =>
-                batchLinkSimilarMutation.mutate({
-                  sourceFaceId: id,
-                  performerId: similarReviewTarget.performerId,
-                  faceIds: similarReviewLinkIds,
-                  rejectFaceIds: similarReviewSkipIds,
-                })
-              }
-              changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
-              onResetChoices={() => {
-                const shown = new Set(similarReviewChangedIds);
-                setSimilarReview((current) => ({
-                  faceId: id,
-                  choices: current.faceId === id ? withoutChoices(current.choices, shown) : new Map(),
-                  result: null,
-                }));
-              }}
-              onShowUnlinkedOnly={
-                similarFaceFilters.linked === false
-                  ? undefined
-                  : () => {
-                      setSimilarObjectFilter((current) => ({ ...current, linkedCriterion: { value: false } }));
-                      setSimilarFilter((current) => ({ ...current, page: 1 }));
-                    }
-              }
+              onDismiss={() => setMoveResult(null)}
             />
           ) : null}
-          <SimilarFacesView
-            faces={similarFacesPage.items}
-            displayMode={similarDisplayMode}
-            onNavigate={onNavigate}
-            canReadPerformers={canReadPerformers}
-            reviewTarget={similarInfinitePageSize ? undefined : similarReviewTarget}
-            choices={similarReview.choices}
-            onToggleChoice={toggleSimilarChoice}
-            reviewDisabled={similarReviewLocked}
-            zoomLevel={similarZoomLevel}
-            infinitePageSize={similarInfinitePageSize}
-            hasNextPage={similarInfiniteQuery.hasNextPage}
-            isFetchingNextPage={similarInfiniteQuery.isFetchingNextPage}
-            loadMore={loadMoreSimilar}
-          />
-          <DetailListPagination
-            filter={similarFilter}
-            onFilterChange={setSimilarFilter}
-            totalCount={similarFacesPage.totalCount}
-            allowInfinitePageSize
-          />
-        </>
-      </ListQueryState>
-    </section>
+
+          <ListQueryState
+            header={
+              <DetailListToolbar
+                filter={appearanceFilter}
+                onFilterChange={setAppearanceFilter}
+                totalCount={faceAppearancesPage.totalCount}
+                sortOptions={APPEARANCE_SORT_OPTIONS}
+                zoomLevel={appearanceZoomLevel}
+                onZoomChange={setAppearanceZoomLevel}
+                cardSizeEntityType="faces"
+                showSearch
+                allowInfinitePageSize={appearanceDisplayMode === "grid"}
+                displayMode={appearanceDisplayMode}
+                onDisplayModeChange={(mode: DetailListDisplayMode) => {
+                  if (mode === "grid" || mode === "list") setAppearanceDisplayMode(mode);
+                }}
+                availableDisplayModes={["grid", "list"]}
+              />
+            }
+            isLoading={appearancesLoading}
+            loadError={appearancesLoadError}
+            isEmpty={faceAppearancesPage.totalCount === 0}
+            onRetry={() => {
+              void retryAppearances();
+            }}
+            loading={<div className="text-sm text-secondary">Loading appearances...</div>}
+            empty={
+              <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
+                No appearances currently point to this face cluster.
+              </div>
+            }
+          >
+            <>
+              {appearanceDisplayMode === "list" ? (
+                <FaceAppearanceBreakdown
+                  // A selection belongs to one face; another face must never inherit it.
+                  key={face.id}
+                  face={face}
+                  faceTitle={title}
+                  appearances={faceAppearancesPage.items}
+                  detections={faceDetections}
+                  canWrite={canWriteFace}
+                  canEditOccurrences={canEditOccurrences}
+                  onNavigate={onNavigate}
+                  onMoved={(outcomes) => setMoveResult({ faceId: id, outcomes })}
+                  onChanged={(hostTypes) => {
+                    invalidateFace();
+                    hostTypes.forEach(refreshAfterAppearanceEdit);
+                  }}
+                />
+              ) : (
+                <FaceAppearancesGrid
+                  appearances={faceAppearancesPage.items}
+                  onNavigate={onNavigate}
+                  onSplit={canCorrectAppearances ? setSplitAppearance : undefined}
+                  onMarkNotPresent={canCorrectAppearances ? confirmMarkNotPresent : undefined}
+                  markingNotPresent={markNotPresentMutation.isPending ? markNotPresentMutation.variables : undefined}
+                  zoomLevel={appearanceZoomLevel}
+                  infinitePageSize={appearancesInfinitePageSize}
+                  hasNextPage={appearancesInfiniteQuery.hasNextPage}
+                  isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage}
+                  loadMore={loadMoreAppearances}
+                />
+              )}
+              <DetailListPagination
+                filter={appearanceFilter}
+                onFilterChange={setAppearanceFilter}
+                totalCount={faceAppearancesPage.totalCount}
+                allowInfinitePageSize={appearanceDisplayMode === "grid"}
+              />
+            </>
+          </ListQueryState>
+        </section>
+      )}
+    </FaceAppearancesListScope>
+  );
+
+  const similarFacesContent = (
+    <FaceSimilarListScope faceId={id}>
+      {({
+        filter: similarFilter,
+        setFilter: setSimilarFilter,
+        objectFilter: similarObjectFilter,
+        setObjectFilter: setSimilarObjectFilter,
+        displayMode: similarDisplayMode,
+        setDisplayMode: setSimilarDisplayMode,
+        similarFaceFilters,
+        zoomLevel: similarZoomLevel,
+        setZoomLevel: setSimilarZoomLevel,
+        query: {
+          data: similarFacesPage,
+          isLoading: similarLoading,
+          showsPreviousResults: similarShowsPreviousResults,
+          loadError: similarLoadError,
+          retry: retrySimilar,
+          infinitePageSize: similarInfinitePageSize,
+          infiniteQuery: similarInfiniteQuery,
+          loadMore: loadMoreSimilar,
+        },
+      }) => {
+        const similarReviewTarget: SimilarFaceLinkTarget | undefined =
+          canWriteFace && face.performerId
+            ? { performerId: face.performerId, performerName: face.performerName || `Performer #${face.performerId}` }
+            : undefined;
+        // The batch covers the faces on the page being looked at, so nothing is linked without being seen.
+        const similarReviewCandidates = similarFacesPage.items.filter(isSimilarReviewCandidate);
+        const similarReviewLinkIds = similarReviewCandidates
+          .filter((candidate) => isLinkedByReview(candidate, similarReview.choices))
+          .map((candidate) => candidate.id);
+        // A face already marked "not this performer" needs no new reject, so only fresh skips are sent.
+        const similarReviewSkipIds = similarReviewCandidates
+          .filter(
+            (candidate) => !candidate.rejectedForSourcePerformer && !isLinkedByReview(candidate, similarReview.choices),
+          )
+          .map((candidate) => candidate.id);
+        const similarReviewChangedIds = similarReviewCandidates
+          .filter((candidate) => isLinkedByReview(candidate, similarReview.choices) !== linksByDefault(candidate))
+          .map((candidate) => candidate.id);
+        // While the list still shows an earlier query (another filter or page), its faces and their
+        // "not this performer" marks are not the ones being reviewed, so nothing can be chosen or sent.
+        const similarReviewLocked = similarReviewPending || similarShowsPreviousResults;
+
+        return (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Similar Faces</h2>
+                <p className="mt-1 text-sm text-secondary">Nearest neighbors from the face embedding index.</p>
+              </div>
+              <div className="text-xs text-muted">
+                {similarLoadError
+                  ? "Unavailable"
+                  : `${similarFacesPage.totalCount} match${similarFacesPage.totalCount === 1 ? "" : "es"}`}
+              </div>
+            </div>
+
+            <ListQueryState
+              header={
+                <DetailListToolbar
+                  filter={similarFilter}
+                  onFilterChange={setSimilarFilter}
+                  totalCount={similarFacesPage.totalCount}
+                  sortOptions={SIMILAR_SORT_OPTIONS}
+                  criteriaDefinitions={SIMILAR_FACE_CRITERIA}
+                  objectFilter={similarObjectFilter}
+                  onObjectFilterChange={setSimilarObjectFilter}
+                  zoomLevel={similarZoomLevel}
+                  onZoomChange={setSimilarZoomLevel}
+                  cardSizeEntityType="faces"
+                  showSearch
+                  allowInfinitePageSize
+                  displayMode={similarDisplayMode}
+                  onDisplayModeChange={(mode: DetailListDisplayMode) => {
+                    if (mode === "grid" || mode === "list") setSimilarDisplayMode(mode);
+                  }}
+                  availableDisplayModes={["grid", "list"]}
+                />
+              }
+              isLoading={similarLoading}
+              loadError={similarLoadError}
+              isEmpty={similarFacesPage.totalCount === 0}
+              onRetry={() => {
+                void retrySimilar();
+              }}
+              loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
+              empty={
+                <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
+                  {similarFaceFilters.linked !== undefined || similarFaceFilters.path
+                    ? "No similar faces match the current filters."
+                    : "No similar faces are available for this cluster yet."}
+                </div>
+              }
+            >
+              <>
+                {similarReviewTarget ? (
+                  <SimilarReviewBar
+                    target={similarReviewTarget}
+                    linkCount={similarReviewLinkIds.length}
+                    skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
+                    pending={similarReviewPending}
+                    locked={similarReviewLocked}
+                    error={similarReviewError}
+                    infinitePageSize={similarInfinitePageSize}
+                    result={similarReview.result}
+                    onSubmit={() =>
+                      batchLinkSimilarMutation.mutate({
+                        sourceFaceId: id,
+                        performerId: similarReviewTarget.performerId,
+                        faceIds: similarReviewLinkIds,
+                        rejectFaceIds: similarReviewSkipIds,
+                      })
+                    }
+                    changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
+                    onResetChoices={() => {
+                      const shown = new Set(similarReviewChangedIds);
+                      setSimilarReview((current) => ({
+                        faceId: id,
+                        choices: current.faceId === id ? withoutChoices(current.choices, shown) : new Map(),
+                        result: null,
+                      }));
+                    }}
+                    onShowUnlinkedOnly={
+                      similarFaceFilters.linked === false
+                        ? undefined
+                        : () => {
+                            setSimilarObjectFilter({ ...similarObjectFilter, linkedCriterion: { value: false } });
+                            setSimilarFilter({ ...similarFilter, page: 1 });
+                          }
+                    }
+                  />
+                ) : null}
+                <SimilarFacesView
+                  faces={similarFacesPage.items}
+                  displayMode={similarDisplayMode}
+                  onNavigate={onNavigate}
+                  canReadPerformers={canReadPerformers}
+                  reviewTarget={similarInfinitePageSize ? undefined : similarReviewTarget}
+                  choices={similarReview.choices}
+                  onToggleChoice={toggleSimilarChoice}
+                  reviewDisabled={similarReviewLocked}
+                  zoomLevel={similarZoomLevel}
+                  infinitePageSize={similarInfinitePageSize}
+                  hasNextPage={similarInfiniteQuery.hasNextPage}
+                  isFetchingNextPage={similarInfiniteQuery.isFetchingNextPage}
+                  loadMore={loadMoreSimilar}
+                />
+                <DetailListPagination
+                  filter={similarFilter}
+                  onFilterChange={setSimilarFilter}
+                  totalCount={similarFacesPage.totalCount}
+                  allowInfinitePageSize
+                />
+              </>
+            </ListQueryState>
+          </section>
+        );
+      }}
+    </FaceSimilarListScope>
   );
 
   const activeTabContent =
@@ -1127,7 +1232,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           {
             key: "appearances",
             label: "Appearances",
-            value: face.appearanceCount || faceAppearancesPage.totalCount,
+            value: face.appearanceCount || appearancesCountPage.totalCount,
             icon: <Eye className="h-4 w-4" />,
           },
           { key: "videos", label: "Videos", value: face.videoCount, icon: <Film className="h-4 w-4" /> },
