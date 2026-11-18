@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FaceDetailPage } from "../pages/FaceDetailPage";
+import { navigateToUrl } from "../router/location";
 
 const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, noDeleteImpact } = vi.hoisted(() => ({
   noDeleteImpact: {
@@ -82,17 +83,19 @@ function renderPage() {
 
   mockFaces.list.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 500 });
 
-  render(
+  const page = (faceId: number) => (
     <QueryClientProvider client={queryClient}>
-      <FaceDetailPage id={7} onNavigate={onNavigate} />
-    </QueryClientProvider>,
+      <FaceDetailPage id={faceId} onNavigate={onNavigate} />
+    </QueryClientProvider>
   );
+  const { rerender } = render(page(7));
 
-  return { onNavigate };
+  return { onNavigate, showFace: (faceId: number) => rerender(page(faceId)) };
 }
 
 describe("FaceDetailPage", () => {
   afterEach(() => {
+    window.history.replaceState(null, "", "/");
     vi.clearAllMocks();
     vi.restoreAllMocks();
     mockAuth.canWrite = false;
@@ -310,6 +313,79 @@ describe("FaceDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
     await waitFor(() => expect(mockFaces.markNotPresent).toHaveBeenCalledWith(7, { hostType: "video", hostId: 5 }));
     expect(await screen.findByText(/moved to a/)).toBeInTheDocument();
+  });
+
+  describe("active tab in the URL", () => {
+    function mockLinkedFace() {
+      mockFaces.get.mockResolvedValue(linkedFace);
+      mockFaces.similar.mockResolvedValue({
+        items: [similarFace({ label: "Similar Jane" })],
+        totalCount: 1,
+        page: 1,
+        perPage: 18,
+      });
+      mockFaces.detections.mockResolvedValue([]);
+      mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+      mockEntityEngagement.get.mockResolvedValue(null);
+    }
+
+    it("opens the tab the URL names", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar");
+      mockLinkedFace();
+
+      renderPage();
+
+      expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /Similar Faces/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("records the selected tab in the URL and drops it for Overview", async () => {
+      window.history.replaceState(null, "", "/face/7");
+      mockLinkedFace();
+
+      renderPage();
+      await screen.findByRole("heading", { name: "Jane Doe" });
+
+      fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
+      expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
+      expect(new URLSearchParams(window.location.search).get("tab")).toBe("similar");
+
+      fireEvent.click(screen.getByRole("tab", { name: /Overview/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: /Overview/i })).toHaveAttribute("aria-selected", "true"),
+      );
+      expect(new URLSearchParams(window.location.search).has("tab")).toBe(false);
+    });
+
+    // App reuses the page across faces, so the tab follows the new face's URL rather than the old face.
+    it("opens another face on the tab its own URL names", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=similar");
+      mockLinkedFace();
+
+      const { showFace } = renderPage();
+      expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
+
+      act(() => {
+        navigateToUrl("/face/8");
+      });
+      showFace(8);
+
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: /Overview/i })).toHaveAttribute("aria-selected", "true"),
+      );
+      expect(screen.queryByText("Nearest neighbors from the face embedding index.")).not.toBeInTheDocument();
+    });
+
+    it("falls back to Overview for a tab the page does not have", async () => {
+      window.history.replaceState(null, "", "/face/7?tab=bogus");
+      mockLinkedFace();
+
+      renderPage();
+      await screen.findByRole("heading", { name: "Jane Doe" });
+
+      expect(screen.getByRole("tab", { name: /Overview/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.queryByText("Nearest neighbors from the face embedding index.")).not.toBeInTheDocument();
+    });
   });
 });
 

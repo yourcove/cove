@@ -61,6 +61,7 @@ import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { FaceAppearanceTile, FaceTile } from "../components/EntityCards";
 import { FieldProvenanceHover, formatDate } from "../components/shared";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
+import { useDetailTabUrlState } from "../hooks/useDetailListUrlState";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -73,7 +74,13 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type FaceTab = "overview" | "appearances" | "similar";
+const FACE_TABS = ["overview", "appearances", "similar"] as const;
+type FaceTab = (typeof FACE_TABS)[number];
+
+function isFaceTab(value: string): value is FaceTab {
+  return (FACE_TABS as readonly string[]).includes(value);
+}
+
 type FaceAppearanceListItem = FaceAppearance & { id: string | number };
 
 const EMPTY_APPEARANCES_PAGE: PaginatedResponse<FaceAppearanceListItem> = {
@@ -248,7 +255,9 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const [label, setLabel] = useState("");
   const [performerSearch, setPerformerSearch] = useState("");
   const [mergeSearch, setMergeSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<FaceTab>("overview");
+  // The tab lives in the URL ("?tab=similar"), so a link, a reload or Back opens the same tab.
+  const { activeTab: urlTab, setActiveTab } = useDetailTabUrlState<string>("overview");
+  const activeTab: FaceTab = isFaceTab(urlTab) ? urlTab : "overview";
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isCreatePerformerModalOpen, setIsCreatePerformerModalOpen] = useState(false);
@@ -1005,12 +1014,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         onFavoriteToggle={canEngageFace ? () => setFaceFavorite(!faceFavorite) : undefined}
         actions={faceActions}
       >
-        <EntityDetailTabs
-          tabs={tabs}
-          activeTab={activeTab}
-          onTabChange={(key) => setActiveTab(key as FaceTab)}
-          className="mb-4"
-        />
+        <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} className="mb-4" />
         {activeTabContent}
       </EntityHeroLayout>
 
