@@ -81,6 +81,11 @@ function isFaceTab(value: string): value is FaceTab {
   return (FACE_TABS as readonly string[]).includes(value);
 }
 
+/** A similar face opens on its own Similar Faces tab, so walking a chain of look-alikes stays one click per face. */
+function similarFaceRoute(faceId: number) {
+  return { page: "face", id: faceId, detailTab: "similar" satisfies FaceTab };
+}
+
 type FaceAppearanceListItem = FaceAppearance & { id: string | number };
 
 const EMPTY_APPEARANCES_PAGE: PaginatedResponse<FaceAppearanceListItem> = {
@@ -1444,7 +1449,7 @@ function SimilarFacesView({
               >
                 <button
                   type="button"
-                  onClick={() => onNavigate({ page: "face", id: face.id })}
+                  onClick={() => onNavigate(similarFaceRoute(face.id))}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
                   <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-surface">
@@ -1576,7 +1581,7 @@ function SimilarFaceTile({
   children?: React.ReactNode;
 }) {
   return (
-    <FaceTile face={face} onClick={() => onNavigate({ page: "face", id: face.id })}>
+    <FaceTile face={face} detailTab="similar" onClick={() => onNavigate(similarFaceRoute(face.id))}>
       <div className="space-y-1 text-xs text-secondary">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Closest match</div>
         <div className="mt-1 text-sm font-medium text-foreground">Distance {face.distance.toFixed(3)}</div>

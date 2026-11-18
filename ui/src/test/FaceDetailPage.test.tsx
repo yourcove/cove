@@ -205,8 +205,17 @@ describe("FaceDetailPage", () => {
     expect(screen.getByRole("option", { name: "Random" })).toBeInTheDocument();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
 
-    fireEvent.click(screen.getByRole("link", { name: "Open face Similar Jane" }));
-    expect(onNavigate).toHaveBeenCalledWith({ page: "face", id: 17 });
+    // A similar face opens on its own Similar Faces tab, so a chain of similar faces stays one click apart.
+    const similarLink = screen.getByRole("link", { name: "Open face Similar Jane" });
+    expect(similarLink).toHaveAttribute("href", "/face/17?tab=similar");
+    fireEvent.click(similarLink);
+    expect(onNavigate).toHaveBeenCalledWith({ page: "face", id: 17, detailTab: "similar" });
+
+    onNavigate.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Similar Jane/ }));
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith({ page: "face", id: 17, detailTab: "similar" });
   });
 
   it("uses the back navigation hook", async () => {
