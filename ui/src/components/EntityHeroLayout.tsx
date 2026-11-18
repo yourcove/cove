@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { EntityMedia, type EntityMediaRenderProps } from "./EntityMedia";
 import { BackNavigationButton } from "./BackNavigationButton";
 import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
+import { LoadedImage } from "./LoadedImage";
 
 // Cove standard EntityHero action button styles. Use these for favorite/organized/edit/overflow
 // so corner rounding, size, and border treatment stay consistent across all EntityHero pages.
@@ -212,7 +213,7 @@ export function EntityHeroLayout({
         renderDefault={() => (
           <>
             {displayedImageUrl ? (
-              <img
+              <LoadedImage
                 src={displayedImageUrl}
                 alt={displayedImageAlt ?? ""}
                 className={resolvedImageClassName}
@@ -298,7 +299,7 @@ export function EntityHeroLayout({
       <div className="relative overflow-hidden detail-hero-gradient">
         {backgroundImageUrl ? (
           <>
-            <img
+            <LoadedImage
               src={backgroundImageUrl}
               alt={backgroundImageAlt ?? ""}
               className={

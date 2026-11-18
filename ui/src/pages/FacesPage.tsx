@@ -40,6 +40,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibili
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { FACE_SORT_OPTIONS } from "../components/faceSortOptions";
 import { FACE_PATH_CRITERION, FACE_PATH_MODIFIERS } from "../components/faceFilterCriteria";
+import { LoadedImage } from "../components/LoadedImage";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -1100,7 +1101,7 @@ function FaceListRow({
                 style={{ height: density.previewSize, width: density.previewSize }}
               >
                 {face.coverImageUrl ? (
-                  <img
+                  <LoadedImage
                     src={face.coverImageUrl}
                     alt={title}
                     className="h-full w-full bg-surface/85 object-contain p-1"
@@ -1198,7 +1199,7 @@ function TopSuggestionFooter({
     <div className={`relative z-20 flex items-center gap-3 ${compact ? "min-w-0" : ""}`}>
       <div className={`${compact ? "h-10 w-10" : "h-12 w-12"} shrink-0 overflow-hidden rounded-xl bg-surface/80`}>
         {suggestion.coverImageUrl ? (
-          <img
+          <LoadedImage
             src={suggestion.coverImageUrl}
             alt={suggestion.performerName}
             className="h-full w-full object-cover object-top"

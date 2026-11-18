@@ -42,6 +42,7 @@ function resolveSharedFeatureGuideImage(source?: string) {
 }
 
 import { TUTORIAL_STORYBOARD_STORAGE_KEY } from "./tutorialStoryboardEvents";
+import { LoadedImage } from "./LoadedImage";
 
 export {
   TUTORIAL_STORYBOARD_EVENT,
@@ -1122,7 +1123,7 @@ function SlideImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <div className="flex h-full min-h-[34rem] items-center justify-center overflow-hidden rounded-lg border border-border bg-card shadow-xl">
-      <img
+      <LoadedImage
         src={src}
         alt={alt}
         onError={() => setFailed(true)}
@@ -1301,7 +1302,7 @@ function SharedFeatureGuideBlocks({
     if (block.type === "image") {
       return (
         <figure key={key} className="overflow-hidden rounded-lg border border-border bg-card">
-          <img src={block.src} alt={block.alt} className="mx-auto block h-auto max-w-full" />
+          <LoadedImage src={block.src} alt={block.alt} className="mx-auto block h-auto max-w-full" />
           {block.caption ? <figcaption className="px-4 py-3 text-sm text-muted">{block.caption}</figcaption> : null}
         </figure>
       );

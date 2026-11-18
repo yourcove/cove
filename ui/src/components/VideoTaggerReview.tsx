@@ -28,6 +28,7 @@ import {
   type DiffSelection,
   type WaitingNoteState,
 } from "./MetadataDiff";
+import { LoadedImage } from "./LoadedImage";
 
 /**
  * Adapts the video tagger's decision state (per-field strategies, collection modes, per-item
@@ -846,7 +847,7 @@ export function buildTaggerReview(input: TaggerReviewInput) {
       alwaysVisible: !sameCover,
       equal: sameCover ? () => true : undefined,
       render: (value) => (
-        <img src={String(value)} alt="Video cover" className="max-h-40 w-full rounded object-contain" />
+        <LoadedImage src={String(value)} alt="Video cover" className="max-h-40 w-full rounded object-contain" />
       ),
     });
     sourceValues.image = result.imageUrl;

@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowUpRight, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DiffSide, ScalarStatus } from "./MetadataDiff";
+import { LoadedImage } from "./LoadedImage";
 
 /**
  * The cover of a scrape review, first and large. A conflict shows the current and the incoming cover
@@ -234,7 +235,7 @@ function CandidateImage({
           {url ? "Could not load" : "No cover"}
         </span>
       ) : (
-        <img
+        <LoadedImage
           key={url}
           src={url}
           alt={alt}

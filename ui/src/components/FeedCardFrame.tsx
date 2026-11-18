@@ -1,6 +1,7 @@
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { InteractiveRating } from "./Rating";
 import { TagMediaHover, type TagMediaReference } from "./EntityMedia";
+import { LoadedImage } from "./LoadedImage";
 
 export interface FeedMediaDimensions {
   width?: number | null;
@@ -38,7 +39,7 @@ export function FeedPortraitMediaFrame({
     >
       {backgroundSrc ? (
         <>
-          <img
+          <LoadedImage
             src={backgroundSrc}
             alt=""
             aria-hidden="true"

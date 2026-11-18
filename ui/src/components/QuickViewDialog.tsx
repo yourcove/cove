@@ -8,6 +8,7 @@ import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { VideoPlayer } from "./VideoPlayer";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
+import { LoadedImage } from "./LoadedImage";
 
 interface VideoQuickViewProps {
   type: "video";
@@ -114,7 +115,11 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             showAbLoop={false}
           />
         ) : (
-          <img src={videos.screenshotUrl(video.id, video.updatedAt)} alt="" className="h-full w-full object-contain" />
+          <LoadedImage
+            src={videos.screenshotUrl(video.id, video.updatedAt)}
+            alt=""
+            className="h-full w-full object-contain"
+          />
         )}
       </div>
 
@@ -183,7 +188,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
                   className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 hover:border-accent/50 transition-colors"
                 >
                   {p.imagePath ? (
-                    <img src={p.imagePath} alt="" className="h-5 w-5 rounded-full object-cover" />
+                    <LoadedImage src={p.imagePath} alt="" className="h-5 w-5 rounded-full object-cover" />
                   ) : (
                     <User className="h-4 w-4 text-muted" />
                   )}
@@ -327,7 +332,7 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
           onNavigate({ page: "image", id });
         }}
       >
-        <img
+        <LoadedImage
           src={images.thumbnailUrl(image.id, 1600)}
           alt=""
           className="w-full h-[50vh] object-contain cursor-pointer"

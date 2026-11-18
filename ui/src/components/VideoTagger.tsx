@@ -86,6 +86,7 @@ import {
 } from "../utils/performerGenders";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
 import type { EntityMediaFit } from "./EntityMedia";
+import { LoadedImage } from "./LoadedImage";
 
 interface VideoTaggerProps {
   videos: Video[];
@@ -3227,7 +3228,7 @@ function TaggerResultRow({
           </div>
         )}
         {!isSelected && result.imageUrl && (
-          <img src={result.imageUrl} alt="" className="h-9 w-16 shrink-0 rounded object-cover" loading="lazy" />
+          <LoadedImage src={result.imageUrl} alt="" className="h-9 w-16 shrink-0 rounded object-cover" loading="lazy" />
         )}
         {isSelected && review ? (
           <CoverPanel

@@ -112,6 +112,7 @@ import {
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
+import { LoadedImage } from "../components/LoadedImage";
 
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
@@ -813,7 +814,7 @@ function StudioMetadataServerPanel({
                       >
                         <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-border bg-black/20">
                           {match.imageUrl ? (
-                            <img src={match.imageUrl} alt={match.name} className="h-full w-full object-cover" />
+                            <LoadedImage src={match.imageUrl} alt={match.name} className="h-full w-full object-cover" />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-card to-surface">
                               <Building2 className="h-10 w-10 text-muted/50" />

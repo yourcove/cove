@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Upload, X, Image as ImageIcon, Link, Clipboard } from "lucide-react";
+import { LoadedImage } from "./LoadedImage";
 
 interface ImageInputProps {
   currentImageUrl?: string;
@@ -171,7 +172,7 @@ export function ImageInput({
       >
         {displayUrl ? (
           <>
-            <img
+            <LoadedImage
               src={displayUrl}
               alt={label}
               className={`w-full h-full ${objectFit === "contain" ? "object-contain p-2" : "object-cover"}`}

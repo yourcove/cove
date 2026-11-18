@@ -3,6 +3,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { createPlaybackTracker, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { serverAwareFetch } from "../state/serverAvailability";
+import { LoadedImage } from "./LoadedImage";
 
 export interface WallMediaVideoControlsState {
   currentTime: number;
@@ -478,7 +479,7 @@ export function WallMediaCard({
             }}
           />
         ) : imageSrc ? (
-          <img
+          <LoadedImage
             src={imageSrc}
             alt={imageAlt ?? title}
             className={`absolute inset-0 h-full w-full ${resolvedImageClassName}`}

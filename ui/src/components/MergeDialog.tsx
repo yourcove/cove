@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { QueryKey, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Merge, Loader2, X, ArrowRight } from "lucide-react";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
+import { LoadedImage } from "./LoadedImage";
 
 interface MergeItem {
   id: number;
@@ -91,7 +92,7 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
                   onChange={() => setTargetId(item.id)}
                   className="accent-accent"
                 />
-                {item.imagePath && <img src={item.imagePath} alt="" className="w-8 h-8 rounded object-cover" />}
+                {item.imagePath && <LoadedImage src={item.imagePath} alt="" className="w-8 h-8 rounded object-cover" />}
                 <span className="text-sm flex-1">{item.name}</span>
                 {targetId === item.id ? (
                   <span className="text-xs text-accent font-medium">Keep</span>

@@ -25,6 +25,7 @@ import type { EntityEngagement } from "../api/types";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { buildRouteUrl, navigateToUrl, resolveContextualDetailRoute, type Route } from "../router/location";
 import { hasImageReferences, ImageReferencePopovers, type ImageReferences } from "./EntityCards";
+import { LoadedImage } from "./LoadedImage";
 
 // Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
 // the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
@@ -1082,7 +1083,7 @@ export function Lightbox({
           const incoming = slide?.neighbor?.src === image.src && image.src !== current?.src;
           const shown = displayed?.src === image.src;
           return (
-            <img
+            <LoadedImage
               key={image.src}
               src={image.src}
               alt={image.title ?? ""}

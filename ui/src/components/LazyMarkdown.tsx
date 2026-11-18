@@ -1,15 +1,28 @@
 import { lazy, Suspense, type ComponentProps } from "react";
 import type ReactMarkdownComponent from "react-markdown";
+import type { Components } from "react-markdown";
+import { LoadedImage } from "./LoadedImage";
 
 // react-markdown and its parser are a large share of the shared bundle but only render for viewers who
 // turned Markdown on, text documents, and the manual. They load the first time one renders.
 const ReactMarkdown = lazy(() => import("react-markdown"));
 
+// Markdown images go through LoadedImage like every other image, unless a caller renders them itself.
+const DEFAULT_COMPONENTS: Components = {
+  // A picture that fails to load shows its description instead, as the browser did beside its broken-image icon.
+  img: ({ node: _node, srcSet: _srcSet, sizes: _sizes, ...imageProps }) => (
+    <LoadedImage
+      {...imageProps}
+      fallback={imageProps.alt ? <span className="italic text-muted">{imageProps.alt}</span> : null}
+    />
+  ),
+};
+
 /** react-markdown, loaded on first use; until it arrives the text shows as written. */
 export function LazyMarkdown(props: ComponentProps<typeof ReactMarkdownComponent>) {
   return (
     <Suspense fallback={<div className="whitespace-pre-wrap">{props.children}</div>}>
-      <ReactMarkdown {...props} />
+      <ReactMarkdown {...props} components={{ ...DEFAULT_COMPONENTS, ...props.components }} />
     </Suspense>
   );
 }

@@ -45,6 +45,7 @@ import {
   buildPerformerReview,
   type PerformerReviewInput,
 } from "./PerformerTaggerReview";
+import { LoadedImage } from "./LoadedImage";
 
 interface PerformerTaggerProps {
   performers: Performer[];
@@ -879,7 +880,7 @@ function PerformerTaggerRow({
     <>
       <div className="relative aspect-[2/3] bg-card rounded overflow-hidden">
         {imageUrl ? (
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <LoadedImage src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted text-xs">No Image</div>
         )}
@@ -1258,7 +1259,12 @@ function PerformerResultRow({
           </div>
         )}
         {!isSelected && result.imageUrl && (
-          <img src={result.imageUrl} alt="" className="h-14 w-10 shrink-0 rounded object-cover" loading="lazy" />
+          <LoadedImage
+            src={result.imageUrl}
+            alt=""
+            className="h-14 w-10 shrink-0 rounded object-cover"
+            loading="lazy"
+          />
         )}
         {review && imageField ? (
           <div onClick={(event) => event.stopPropagation()} className="w-full sm:w-auto">

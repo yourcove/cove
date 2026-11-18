@@ -1,10 +1,16 @@
 import { Fingerprint } from "lucide-react";
 import type { Face } from "../../api/types";
+import { LoadedImage } from "../../components/LoadedImage";
 
 /** A face's round crop, or a placeholder while it has none. */
 export function FaceCrop({ face, className }: { face?: Face; className: string }) {
   return face?.coverImageUrl ? (
-    <img src={face.coverImageUrl} alt="" className={`${className} shrink-0 rounded-full object-cover`} loading="lazy" />
+    <LoadedImage
+      src={face.coverImageUrl}
+      alt=""
+      className={`${className} shrink-0 rounded-full object-cover`}
+      loading="lazy"
+    />
   ) : (
     <span className={`${className} flex shrink-0 items-center justify-center rounded-full bg-surface text-muted`}>
       <Fingerprint className="h-3 w-3" />

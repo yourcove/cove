@@ -5,6 +5,7 @@ import { faces } from "../api/client";
 import type { FaceHostTrack } from "../api/types";
 import { formatDuration } from "./shared";
 import { EditModal } from "./EditModal";
+import { LoadedImage } from "./LoadedImage";
 
 interface Props {
   open: boolean;
@@ -327,7 +328,7 @@ function TrackCard({ track, selected, onToggle }: { track: FaceHostTrack; select
     >
       <div className="relative aspect-square bg-surface/70">
         {thumbnailUrl ? (
-          <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <LoadedImage src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted">
             <Fingerprint className="h-8 w-8" />

@@ -8,6 +8,7 @@ import { VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
 import { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 import { formatDuration, formatFileSize } from "./shared";
+import { LoadedImage } from "./LoadedImage";
 
 const buttonClass =
   "rounded border border-border px-3 py-2 text-sm hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50";
@@ -135,7 +136,7 @@ export function MoveVideoFileDialog({
                           aria-hidden="true"
                           className="absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 text-muted"
                         />
-                        <img
+                        <LoadedImage
                           src={entityImages.videoCoverUrl(video.id, video.updatedAt, 480)}
                           alt=""
                           loading="lazy"

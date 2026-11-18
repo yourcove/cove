@@ -3,6 +3,7 @@ import { ImageIcon, X } from "lucide-react";
 import { ImageInput } from "./ImageInput";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { ENTITY_COVER_EDITOR_SLOT, type EntityCoverEditorContext } from "./EntityCoverEditorExtension";
+import { LoadedImage } from "./LoadedImage";
 
 interface CoverImageDialogProps {
   open: boolean;
@@ -84,7 +85,7 @@ export function CoverImageDialog({
             <div className="block text-sm font-medium text-secondary">Cover</div>
             <div className="overflow-hidden rounded-lg border border-border bg-card" style={{ aspectRatio }}>
               {currentImageUrl ? (
-                <img
+                <LoadedImage
                   src={currentImageUrl}
                   alt="Cover source"
                   className={`h-full w-full ${objectFit === "contain" ? "object-contain p-2" : "object-cover"}`}

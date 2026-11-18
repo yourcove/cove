@@ -28,6 +28,7 @@ import {
 } from "./TaggerShared";
 import { Search, Loader2, Check, AlertCircle, Fingerprint, CloudUpload } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { LoadedImage } from "./LoadedImage";
 
 interface StudioTaggerProps {
   studios: Studio[];
@@ -393,7 +394,7 @@ function StudioTaggerRow({
         <div className="flex-shrink-0 w-24">
           <div className="relative aspect-video bg-card rounded overflow-hidden">
             {imageUrl ? (
-              <img src={imageUrl} alt="" className="w-full h-full object-contain" loading="lazy" />
+              <LoadedImage src={imageUrl} alt="" className="w-full h-full object-contain" loading="lazy" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted text-xs">No Image</div>
             )}
@@ -625,7 +626,12 @@ function StudioResultRow({
           </div>
         )}
         {!isSelected && result.imageUrl && (
-          <img src={result.imageUrl} alt="" className="h-8 w-16 shrink-0 rounded object-contain" loading="lazy" />
+          <LoadedImage
+            src={result.imageUrl}
+            alt=""
+            className="h-8 w-16 shrink-0 rounded object-contain"
+            loading="lazy"
+          />
         )}
         {review && imageField ? (
           <div onClick={(event) => event.stopPropagation()} className="w-full sm:w-auto">

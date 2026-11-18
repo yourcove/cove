@@ -27,6 +27,7 @@ import { VideoPlayer } from "./VideoPlayer";
 import { createRouteLinkProps } from "./cardNavigation";
 import { useAppConfig } from "../state/AppConfigContext";
 import type { BackNavigationAlternative } from "../hooks/useBackNavigation";
+import { LoadedImage } from "./LoadedImage";
 
 /** A playable item; `detailRoute` replaces the segment link for items that are not stored segments, such as spans. */
 export type CompilationPlayerItem = GroupPlaybackManifestItem & { detailRoute?: Route };
@@ -478,7 +479,7 @@ export function CompilationPlayer({
         </div>
       ) : itemIsImage && currentImageId != null ? (
         <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-4">
-          <img
+          <LoadedImage
             src={item.src || images.imageUrl(currentImageId)}
             alt={currentTitle}
             className="max-h-full max-w-full object-contain"
@@ -889,7 +890,7 @@ function renderPreloads(nextVideoId?: number, nextAudioId?: number, nextImageId?
     <div className="hidden" aria-hidden="true">
       {nextVideoId != null ? <video preload="auto" src={videos.streamUrl(nextVideoId)} /> : null}
       {nextAudioId != null ? <audio preload="auto" src={audios.streamUrl(nextAudioId)} /> : null}
-      {nextImageId != null ? <img src={images.imageUrl(nextImageId)} alt="" /> : null}
+      {nextImageId != null ? <LoadedImage src={images.imageUrl(nextImageId)} alt="" /> : null}
     </div>
   );
 }

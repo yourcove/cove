@@ -2,6 +2,7 @@ import { relationKey, scrapedAsTitle, type ScrapeRelationActionMap } from "./Scr
 import type { CollectionMode } from "./videoScrapeUtils";
 import { collectionPresetHooks, idsForMode, modeForSelection, presetIncomingIds, sameSet } from "./VideoTaggerReview";
 import { type DiffField, type DiffRecord, type DiffSelection, type WaitingNoteState } from "./MetadataDiff";
+import { LoadedImage } from "./LoadedImage";
 
 /**
  * Adapts the performer tagger's decision state (per-field strategies, collection modes, per-tag
@@ -156,7 +157,7 @@ export function buildPerformerReview(input: PerformerReviewInput) {
       label: "Image",
       alwaysVisible: true,
       render: (value) => (
-        <img src={String(value)} alt="Performer image" className="max-h-56 w-full rounded object-contain" />
+        <LoadedImage src={String(value)} alt="Performer image" className="max-h-56 w-full rounded object-contain" />
       ),
     });
     sourceValues.image = input.incomingImageUrl;

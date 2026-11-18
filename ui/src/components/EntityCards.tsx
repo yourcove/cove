@@ -93,11 +93,12 @@ import { GalleryScrubThumbnail, type GalleryScrubThumbnailHandle } from "./Galle
 import { getAgeAtDate, getPerformerAge, hasDeathOccurred } from "../utils/performerAge";
 import { CountryFlag } from "./Country";
 import { formatSourceKeyLabel } from "../utils/sourceKeyLabel";
+import { LoadedImage } from "./LoadedImage";
 
 /** An image that follows the viewer's "cover" or "contain" image-fit setting. */
 export function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
-  return <img {...props} className={`${className} ${fitClass}`.trim()} />;
+  return <LoadedImage {...props} className={`${className} ${fitClass}`.trim()} />;
 }
 
 function useConfiguredImageFit() {
@@ -527,7 +528,7 @@ export function StudioCardOverlay({
   return (
     <div data-studio-overlay className="absolute right-0 top-0 z-[5] p-1">
       <a {...navigationHandlers} aria-label={studioName} className="block">
-        <img
+        <LoadedImage
           src={entityImages.studioImageUrl(studioId)}
           alt={studioName}
           className="h-8 w-auto max-w-[120px] object-contain drop-shadow-md"
@@ -772,7 +773,7 @@ export function VideosPopoverContent({ filter }: { filter: Record<string, string
     <div className="space-y-1">
       {items.map((s) => (
         <div key={s.id} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card">
-          <img
+          <LoadedImage
             src={videos.screenshotUrl(s.id, s.updatedAt)}
             alt=""
             className="w-12 h-7 rounded object-cover flex-shrink-0 bg-surface"
@@ -928,7 +929,7 @@ export function StudiosPopoverContent({ filter }: { filter: Record<string, strin
         return (
           <a key={s.id} {...navigationHandlers} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card">
             {s.imagePath ? (
-              <img
+              <LoadedImage
                 src={s.imagePath}
                 alt=""
                 className="w-10 h-7 rounded object-contain flex-shrink-0 bg-surface"
@@ -1260,7 +1261,7 @@ export function StudioHeaderImage({
   );
   return (
     <a {...navigationHandlers} className="block w-fit max-w-full" title={studioName || "Studio"}>
-      <img
+      <LoadedImage
         src={entityImages.studioImageUrl(studioId)}
         alt={studioName || "Studio"}
         className="h-20 w-auto max-w-full object-contain"
@@ -1480,7 +1481,7 @@ export function VideoTile({ video, onClick }: VideoTileProps) {
           loading="lazy"
           className="h-full w-full object-cover"
           renderDefault={() => (
-            <img src={coverUrl} alt={coverAlt} className="h-full w-full object-cover" loading="lazy" />
+            <LoadedImage src={coverUrl} alt={coverAlt} className="h-full w-full object-cover" loading="lazy" />
           )}
         />
         {duration > 0 && (
@@ -1885,7 +1886,7 @@ export function StudioTile({
             renderDefault={() =>
               studio.imagePath ? (
                 <>
-                  <img
+                  <LoadedImage
                     src={studio.imagePath}
                     alt={studio.name}
                     className="box-border h-full w-full object-contain p-4"
@@ -2453,7 +2454,7 @@ function GroupItemPreviewMedia({ item, kind }: { item: GroupItem; kind: GroupPre
   const previewId = getGroupItemPreviewId(item, kind);
   if (kind === "video" && previewId) {
     return (
-      <img
+      <LoadedImage
         src={videos.screenshotUrl(previewId, item.updatedAt)}
         alt=""
         className="h-9 w-14 flex-shrink-0 rounded bg-surface object-cover"
@@ -3330,7 +3331,7 @@ export function FaceTile({
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             renderDefault={() =>
               face.coverImageUrl ? (
-                <img
+                <LoadedImage
                   src={face.coverImageUrl}
                   alt={title}
                   className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
@@ -3432,7 +3433,7 @@ function FaceAppearancesPopoverContent({ faceId, hostType }: { faceId: number; h
     <div className="space-y-1">
       {items.map((item) => (
         <div key={item.appearanceId} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-card">
-          <img
+          <LoadedImage
             src={item.thumbnailUrl}
             alt=""
             className="h-7 w-12 flex-shrink-0 rounded bg-surface object-cover"
@@ -3472,7 +3473,7 @@ export function FaceAppearanceTile({
           <div className="absolute inset-0 flex items-center justify-center text-muted">
             <Icon className="h-10 w-10" />
           </div>
-          <img
+          <LoadedImage
             src={appearance.thumbnailUrl}
             alt={hostLabel}
             className="relative h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"

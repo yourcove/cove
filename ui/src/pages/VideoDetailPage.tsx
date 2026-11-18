@@ -135,6 +135,7 @@ import { applyFormFields, untouchedFieldUpdates, type FormFieldSetters } from ".
 import { LikeHistorySection } from "../components/LikeHistorySection";
 import { PlaybackSessionCard } from "../components/PlaybackSessionCard";
 import type { CutRange } from "../utils/videoCut";
+import { LoadedImage } from "../components/LoadedImage";
 
 function directorVideosRoute(director: string) {
   return {
@@ -274,7 +275,7 @@ function VideoQueuePanel({
                 ].join(" ")}
               >
                 {item.imagePath ? (
-                  <img
+                  <LoadedImage
                     src={item.imagePath}
                     alt=""
                     className="h-10 w-16 shrink-0 rounded object-cover bg-black"

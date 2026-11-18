@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, ChevronUp, ChevronDown, Trash2, Shuffle, Repeat, List, SkipBack, SkipForward } from "lucide-react";
 import { videos } from "../api/client";
+import { LoadedImage } from "./LoadedImage";
 
 export interface VideoQueueProps {
   videos: { id: number; title?: string; duration?: number; screenshotUrl?: string }[];
@@ -241,7 +242,12 @@ export function VideoQueue({ videos: initialVideos, initialIndex = 0, onClose }:
                 {/* Thumbnail */}
                 <div className="w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-surface">
                   {video.screenshotUrl ? (
-                    <img src={video.screenshotUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    <LoadedImage
+                      src={video.screenshotUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted text-[10px]">
                       No thumb

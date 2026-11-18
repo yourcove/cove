@@ -26,6 +26,7 @@ import {
   type DiffRecord,
   type DiffSelection,
 } from "./MetadataDiff";
+import { LoadedImage } from "./LoadedImage";
 
 /**
  * The review shell for a video merge: fold one or more removed videos into one kept video. Every entry
@@ -143,7 +144,7 @@ export function buildVideoMergeDiff(
   cover.alwaysVisible = true;
   cover.unavailableLabel = "No cover available";
   cover.render = (value) => (
-    <img
+    <LoadedImage
       src={String(value)}
       alt="Video cover"
       onError={() => onUnavailable?.(String(value))}
@@ -183,7 +184,7 @@ export function buildVideoMergeDiff(
     return (
       <span className="inline-flex items-center gap-1.5">
         {performer.imagePath ? (
-          <img src={performer.imagePath} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
+          <LoadedImage src={performer.imagePath} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
         ) : null}
         {performer.name}
       </span>
@@ -393,7 +394,7 @@ function VideoCard({ role, tone, video }: { role: string; tone: "keep" | "remove
         {role}
       </span>
       <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-2.5">
-        <img
+        <LoadedImage
           src={coverUrl(video)}
           alt=""
           className="h-[63px] w-28 shrink-0 rounded-lg bg-black object-cover"
@@ -864,7 +865,7 @@ export function VideoMergeReview({
     >
       <span className="text-[11px] font-bold uppercase tracking-wider text-accent">Result</span>
       <div className="flex items-start gap-2.5">
-        <img
+        <LoadedImage
           src={String(pick("cover") ?? coverUrl(kept))}
           alt=""
           className="h-[54px] w-24 shrink-0 rounded-md bg-black object-cover"

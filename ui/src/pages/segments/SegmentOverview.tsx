@@ -24,6 +24,7 @@ import {
   rawSegmentFaceId,
   readSegmentPayloadString,
 } from "./segmentDisplayUtils";
+import { LoadedImage } from "../../components/LoadedImage";
 
 /** How the Segments view shows a raw segment under the current display profile. */
 export type SegmentMembership =
@@ -347,7 +348,7 @@ function SuggestionCard({
       <div className="flex items-start gap-3">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface">
           {suggestion.coverImageUrl ? (
-            <img
+            <LoadedImage
               src={suggestion.coverImageUrl}
               alt=""
               className="h-full w-full object-cover object-top"
@@ -406,7 +407,7 @@ function SuggestionCard({
 
 function FaceCrop({ face }: { face?: Face }) {
   return face?.coverImageUrl ? (
-    <img src={face.coverImageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+    <LoadedImage src={face.coverImageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
   ) : (
     <span className="flex h-full w-full items-center justify-center text-muted">
       <Fingerprint className="h-6 w-6" />

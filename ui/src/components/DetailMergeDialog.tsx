@@ -2,6 +2,7 @@ import { QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react
 import { GitMerge, Loader2, Search, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { MAX_REVIEWED_ITEMS } from "./MergeDialog";
+import { LoadedImage } from "./LoadedImage";
 
 export interface DetailMergeCandidate {
   id: number;
@@ -194,7 +195,7 @@ export function DetailMergeDialog({
                       {selected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                     </div>
                     {candidate.imagePath ? (
-                      <img src={candidate.imagePath} alt="" className="h-10 w-10 rounded object-cover" />
+                      <LoadedImage src={candidate.imagePath} alt="" className="h-10 w-10 rounded object-cover" />
                     ) : (
                       <div className="h-10 w-10 rounded bg-surface" />
                     )}
