@@ -84,6 +84,18 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
         repeated.Linked.Should().BeEmpty();
         repeated.Skipped.Should().ContainSingle(item => item.FaceId == first.Id);
         repeated.Rejected.Should().Equal(skipped.Id);
+
+        // Sent as an ordinary candidate, as a client showing a list from before the skip would, the face marked as
+        // someone else is left alone; overriding the mark links it.
+        var stale = await member.BatchLinkFacesAsync(new FaceBatchLinkDto(performer.Id, [skipped.Id]), TestContext.Current.CancellationToken);
+        stale.Linked.Should().BeEmpty();
+        stale.Skipped.Should().ContainSingle(item => item.FaceId == skipped.Id && item.Reason == "Face is marked as not this performer.");
+        (await AsUser().GetFaceByIdAsync(skipped.Id, TestContext.Current.CancellationToken)).PerformerId.Should().BeNull();
+        var overridden = await member.BatchLinkFacesAsync(
+            new FaceBatchLinkDto(performer.Id, [], OverrideRejectFaceIds: [skipped.Id]),
+            TestContext.Current.CancellationToken);
+        overridden.Linked.Should().Equal(skipped.Id);
+        (await AsUser().GetFaceByIdAsync(skipped.Id, TestContext.Current.CancellationToken)).PerformerId.Should().Be(performer.Id);
     }
 
     [Fact]

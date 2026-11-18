@@ -84,6 +84,13 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     isPlaceholderData: infinitePageSize && infiniteQuery.isPlaceholderData,
     /** The items answer an earlier query (another filter, page or key) while the current one loads. */
     showsPreviousResults: infinitePageSize ? infiniteQuery.isPlaceholderData : pageQuery.isPlaceholderData,
+    /** Whether an answer for the current settings exists yet, as opposed to the empty list shown before one. */
+    hasData: infinitePageSize ? infiniteQuery.data != null : pageQuery.data != null,
+    /**
+     * The last request failed while earlier items are still shown, which `loadError` does not report. It
+     * changes only with the error, so reading it adds no renders.
+     */
+    isRefetchError: infinitePageSize ? infiniteQuery.isRefetchError : pageQuery.isRefetchError,
     infiniteFilterKey,
     settledListKey,
     loadMore,

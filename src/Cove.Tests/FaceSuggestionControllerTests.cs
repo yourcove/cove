@@ -262,12 +262,17 @@ public sealed class FaceSuggestionControllerTests
         Assert.Equal(1, await context.FaceSuggestionDecisions.CountAsync(ct));
     }
 
-    // An administrator bypasses the per-user decision filter, so the endpoint's own user check is what keeps
-    // other users' rejects.
+    // Every way of linking a face to a performer turns the linking user's earlier reject of that pair into an
+    // accept, as accepting the suggestion does. An administrator bypasses the per-user decision filter, so the
+    // endpoints' own user check is what keeps other users' rejects.
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task BatchLink_LinkingAFaceTheUserHadTurnedDownDropsThatReject(bool administrator)
+    [InlineData("batch", false)]
+    [InlineData("batch", true)]
+    [InlineData("link", false)]
+    [InlineData("link", true)]
+    [InlineData("update", false)]
+    [InlineData("update", true)]
+    public async Task LinkingAFaceTheUserHadTurnedDownTurnsThatRejectIntoAnAccept(string route, bool administrator)
     {
         await using var scope = await CreateContextAsync();
         var context = scope.Context;
@@ -281,7 +286,7 @@ public sealed class FaceSuggestionControllerTests
         await context.SaveChangesAsync(ct);
         context.FaceSuggestionDecisions.AddRange(
             new FaceSuggestionDecision { FaceId = face.Id, PerformerId = performer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject },
-            // Only this user's reject for this performer is reversed.
+            // Only this user's reject for this performer changes.
             new FaceSuggestionDecision { FaceId = face.Id, PerformerId = otherPerformer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject },
             new FaceSuggestionDecision { FaceId = face.Id, PerformerId = performer.Id, UserId = 11, Decision = FaceSuggestionDecisionValues.Reject });
         await context.SaveChangesAsync(ct);
@@ -289,20 +294,200 @@ public sealed class FaceSuggestionControllerTests
 
         SetCurrentUser(scope.PrincipalAccessor, 7, "tester", administrator);
         var controller = CreateController(context, scope.PrincipalAccessor);
+        controller.ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
 
-        var result = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [face.Id]), ct);
+        switch (route)
+        {
+            case "batch":
+                // The batch links a face marked as not this performer only when the request overrides that mark.
+                var batch = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [], OverrideRejectFaceIds: [face.Id]), ct);
+                Assert.Equal([face.Id], Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(batch.Result).Value).Linked);
+                break;
+            case "link":
+                Assert.IsType<OkObjectResult>((await controller.Link(face.Id, new FaceLinkDto(performer.Id), ct)).Result);
+                break;
+            default:
+                Assert.IsType<OkObjectResult>((await controller.Update(face.Id, new FaceUpdateDto(face.Label, performer.Id, false, null), ct)).Result);
+                break;
+        }
 
-        var outcome = Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
-        Assert.Equal([face.Id], outcome.Linked);
         context.ChangeTracker.Clear();
         Assert.Equal(performer.Id, (await context.Faces.AsNoTracking().SingleAsync(ct)).PerformerId);
         // Decisions are filtered to the signed-in user, so read every user's rows without one.
         scope.PrincipalAccessor.Set(null);
-        var remaining = await context.FaceSuggestionDecisions.AsNoTracking()
+        var decisions = await context.FaceSuggestionDecisions.AsNoTracking()
             .OrderBy(item => item.UserId).ThenBy(item => item.PerformerId)
-            .Select(item => new { item.PerformerId, item.UserId })
+            .Select(item => new { item.PerformerId, item.UserId, item.Decision })
             .ToListAsync(ct);
-        Assert.Equal([new { PerformerId = otherPerformer.Id, UserId = 7 }, new { PerformerId = performer.Id, UserId = 11 }], remaining);
+        Assert.Equal(
+            [
+                new { PerformerId = performer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Accept },
+                new { PerformerId = otherPerformer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject },
+                new { PerformerId = performer.Id, UserId = 11, Decision = FaceSuggestionDecisionValues.Reject },
+            ],
+            decisions);
+    }
+
+    // The batch reads the user's "not this performer" marks itself, so a client showing a list from before a
+    // reject was saved cannot link that face by sending it as an ordinary candidate. An administrator bypasses the
+    // per-user decision filter, so another user's reject must still not count as this user's.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BatchLink_LeavesAFaceMarkedAsNotThisPerformerUnlessTheRequestOverridesThatMark(bool administrator)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var performer = new Performer { Name = "Chosen Performer" };
+        var markedFace = new Face { Label = "Marked as someone else" };
+        var markedByAnotherUser = new Face { Label = "Marked by another user" };
+        context.Performers.Add(performer);
+        context.Faces.AddRange(markedFace, markedByAnotherUser);
+        await context.SaveChangesAsync(ct);
+        context.FaceSuggestionDecisions.AddRange(
+            new FaceSuggestionDecision { FaceId = markedFace.Id, PerformerId = performer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject },
+            new FaceSuggestionDecision { FaceId = markedByAnotherUser.Id, PerformerId = performer.Id, UserId = 11, Decision = FaceSuggestionDecisionValues.Reject });
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+
+        SetCurrentUser(scope.PrincipalAccessor, 7, "tester", administrator);
+        var controller = CreateController(context, scope.PrincipalAccessor);
+
+        var stale = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [markedFace.Id, markedByAnotherUser.Id]), ct);
+
+        var staleOutcome = Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(stale.Result).Value);
+        Assert.Equal([markedByAnotherUser.Id], staleOutcome.Linked);
+        var skip = Assert.Single(staleOutcome.Skipped);
+        Assert.Equal((markedFace.Id, "Face is marked as not this performer."), (skip.FaceId, skip.Reason));
+        context.ChangeTracker.Clear();
+        Assert.Null((await context.Faces.AsNoTracking().SingleAsync(face => face.Id == markedFace.Id, ct)).PerformerId);
+        Assert.Equal(
+            FaceSuggestionDecisionValues.Reject,
+            (await context.FaceSuggestionDecisions.AsNoTracking().SingleAsync(item => item.FaceId == markedFace.Id && item.UserId == 7, ct)).Decision);
+
+        var overridden = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [], OverrideRejectFaceIds: [markedFace.Id]), ct);
+
+        Assert.Equal([markedFace.Id], Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(overridden.Result).Value).Linked);
+        context.ChangeTracker.Clear();
+        Assert.Equal(performer.Id, (await context.Faces.AsNoTracking().SingleAsync(face => face.Id == markedFace.Id, ct)).PerformerId);
+        Assert.Equal(
+            FaceSuggestionDecisionValues.Accept,
+            (await context.FaceSuggestionDecisions.AsNoTracking().SingleAsync(item => item.FaceId == markedFace.Id && item.UserId == 7, ct)).Decision);
+    }
+
+    // Two reviews can run at once, for example one face's review skipping X while another face's review links it. A
+    // reject that another request writes while this batch links X was not there when the marks were read, so it
+    // is not this batch's to turn into an accept: X ends up linked, but the other review's skip is kept.
+    [Fact]
+    public async Task BatchLink_KeepsARejectThatAnotherRequestWritesWhileItLinks()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var performer = new Performer { Name = "Chosen Performer" };
+        var face = new Face { Label = "Skipped elsewhere meanwhile" };
+        context.Performers.Add(performer);
+        context.Faces.Add(face);
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+
+        var written = false;
+        context.SavingChanges += (_, _) =>
+        {
+            if (written || !context.ChangeTracker.Entries<Face>().Any(entry => entry.State == EntityState.Modified))
+                return;
+            written = true;
+            using var other = new CoveContext(scope.Database.CreateOptions(), new CurrentPrincipalAccessor());
+            other.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { FaceId = face.Id, PerformerId = performer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject });
+            other.SaveChanges();
+        };
+
+        SetCurrentUser(scope.PrincipalAccessor, 7, "tester");
+        var controller = CreateController(context, scope.PrincipalAccessor);
+
+        var result = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [face.Id]), ct);
+
+        Assert.True(written);
+        Assert.Equal([face.Id], Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(result.Result).Value).Linked);
+        context.ChangeTracker.Clear();
+        Assert.Equal(
+            FaceSuggestionDecisionValues.Reject,
+            (await context.FaceSuggestionDecisions.AsNoTracking().SingleAsync(item => item.FaceId == face.Id, ct)).Decision);
+    }
+
+    // The skips are saved on their own before anything is linked, so another review reading this user's marks
+    // while this batch is still linking already sees them.
+    [Fact]
+    public async Task BatchLink_SavesTheSkipsBeforeLinkingAnyFace()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var performer = new Performer { Name = "Chosen Performer" };
+        var toLink = new Face { Label = "To link" };
+        var toSkip = new Face { Label = "To skip" };
+        context.Performers.Add(performer);
+        context.Faces.AddRange(toLink, toSkip);
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+
+        var saves = new List<(int Decisions, int Links)>();
+        context.SavingChanges += (_, _) =>
+        {
+            var decisions = context.ChangeTracker.Entries<FaceSuggestionDecision>().Count(entry => entry.State is EntityState.Added or EntityState.Modified);
+            var links = context.ChangeTracker.Entries<Face>().Count(entry => entry.State == EntityState.Modified);
+            if (decisions + links > 0)
+                saves.Add((decisions, links));
+        };
+
+        SetCurrentUser(scope.PrincipalAccessor, 7, "tester");
+        var controller = CreateController(context, scope.PrincipalAccessor);
+
+        var result = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [toLink.Id], [toSkip.Id]), ct);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal([(1, 0), (0, 1)], saves);
+    }
+
+    [Fact]
+    public async Task BatchLink_TakesAFaceBothListedAndOverriddenAsTheOverrideAndRefusesAnOverriddenSkip()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var ct = TestContext.Current.CancellationToken;
+
+        var performer = new Performer { Name = "Chosen Performer" };
+        var face = new Face { Label = "Marked as someone else" };
+        context.Performers.Add(performer);
+        context.Faces.Add(face);
+        await context.SaveChangesAsync(ct);
+        context.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { FaceId = face.Id, PerformerId = performer.Id, UserId = 7, Decision = FaceSuggestionDecisionValues.Reject });
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+
+        SetCurrentUser(scope.PrincipalAccessor, 7, "tester");
+        var controller = CreateController(context, scope.PrincipalAccessor);
+
+        // Overriding and skipping the same face contradict each other, so nothing is done.
+        var contradictory = await controller.BatchLink(
+            new FaceBatchLinkDto(performer.Id, [], RejectFaceIds: [face.Id], OverrideRejectFaceIds: [face.Id]),
+            ct);
+        Assert.IsType<ValidationProblemDetails>(Assert.IsAssignableFrom<ObjectResult>(contradictory.Result).Value);
+        context.ChangeTracker.Clear();
+        Assert.Null((await context.Faces.AsNoTracking().SingleAsync(ct)).PerformerId);
+
+        // Listed to link and to override, the face is linked once, as the override.
+        var both = await controller.BatchLink(new FaceBatchLinkDto(performer.Id, [face.Id], OverrideRejectFaceIds: [face.Id]), ct);
+
+        var outcome = Assert.IsType<FaceBatchLinkResultDto>(Assert.IsType<OkObjectResult>(both.Result).Value);
+        Assert.Equal([face.Id], outcome.Linked);
+        Assert.Empty(outcome.Skipped);
+        context.ChangeTracker.Clear();
+        Assert.Equal(FaceSuggestionDecisionValues.Accept, (await context.FaceSuggestionDecisions.AsNoTracking().SingleAsync(ct)).Decision);
     }
 
     [Fact]
@@ -449,12 +634,13 @@ public sealed class FaceSuggestionControllerTests
     private sealed class TestContextScope(CoveContext context, CovePostgresDatabase database, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
+        public CovePostgresDatabase Database { get; } = database;
         public CurrentPrincipalAccessor PrincipalAccessor { get; } = principalAccessor;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await database.DisposeAsync();
+            await Database.DisposeAsync();
         }
     }
 

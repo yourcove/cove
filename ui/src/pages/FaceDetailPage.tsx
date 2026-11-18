@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
   Film,
@@ -63,7 +63,12 @@ import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { FaceAppearanceTile, FaceTile } from "../components/EntityCards";
 import { FieldProvenanceHover, formatDate } from "../components/shared";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
-import { useDetailListUrlState, useDetailTabUrlState } from "../hooks/useDetailListUrlState";
+import {
+  DetailListStateCacheProvider,
+  useDetailListUrlState,
+  useDetailTabUrlState,
+} from "../hooks/useDetailListUrlState";
+import { similarReviewKey, useSimilarReview, type SimilarReviewChoices } from "../components/similarReviewChoices";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -81,21 +86,6 @@ type FaceTab = (typeof FACE_TABS)[number];
 
 function isFaceTab(value: string): value is FaceTab {
   return (FACE_TABS as readonly string[]).includes(value);
-}
-
-/**
- * An in-progress review of a face's similar faces and the outcome of the last batch. `choices` holds what the
- * reviewer decided for a face (true links it). It stores the decision itself rather than a change from the
- * default, so a face whose saved reject appears or goes away during the review keeps what the reviewer chose.
- */
-interface SimilarReviewState {
-  faceId: number;
-  choices: ReadonlyMap<number, boolean>;
-  result: FaceBatchLinkResult | null;
-}
-
-function emptySimilarReview(faceId: number): SimilarReviewState {
-  return { faceId, choices: new Map(), result: null };
 }
 
 /** Without a choice, a new candidate is linked and a face already marked "not this performer" stays so. */
@@ -120,6 +110,20 @@ function isLinkedByReview(face: FaceSimilar, choices: ReadonlyMap<number, boolea
   return choices.get(face.id) ?? linksByDefault(face);
 }
 
+/**
+ * Records a decision. A skip is always kept, so it holds even if the face's default changes later. A decision
+ * to link a face that is not marked as someone else matches the default and is dropped, so it cannot later
+ * outweigh a mark saved for the face afterwards. A decision to link a marked face, an override of the mark, is
+ * kept until a batch carries it out, "Reset choices" clears it or the reviewer changes it, so it still applies if
+ * the mark is removed elsewhere and saved again later.
+ */
+function withChoice(choices: ReadonlyMap<number, boolean>, face: FaceSimilar, links: boolean) {
+  const next = new Map(choices);
+  if (links && linksByDefault(face)) next.delete(face.id);
+  else next.set(face.id, links);
+  return next;
+}
+
 /** A similar face opens on its own Similar Faces tab, so walking a chain of look-alikes stays one click per face. */
 function similarFaceRoute(faceId: number) {
   return { page: "face", id: faceId, detailTab: "similar" satisfies FaceTab };
@@ -127,13 +131,6 @@ function similarFaceRoute(faceId: number) {
 
 type FaceAppearanceListItem = FaceAppearance & { id: string | number };
 
-const EMPTY_APPEARANCES_PAGE: PaginatedResponse<FaceAppearanceListItem> = {
-  items: [],
-  totalCount: 0,
-  page: 1,
-  perPage: 24,
-};
-const EMPTY_SIMILAR_PAGE: PaginatedResponse<FaceSimilar> = { items: [], totalCount: 0, page: 1, perPage: 18 };
 const APPEARANCE_SORT_OPTIONS = [
   { value: "random", label: "Random" },
   { value: "last_seen", label: "Last Seen" },
@@ -174,6 +171,8 @@ function readSimilarFaceFilters(objectFilter: Record<string, unknown>) {
 const SIMILAR_DEFAULT_FILTER: FindFilter = { page: 1, perPage: 18, sort: "distance", direction: "asc" };
 const APPEARANCE_DEFAULT_FILTER: FindFilter = { page: 1, perPage: 24, sort: "last_seen", direction: "desc" };
 const GRID_OR_LIST = ["grid", "list"] as const;
+/** Every face's similar-faces batch shares this key, so any review can tell that one is saving. */
+const SIMILAR_BATCH_MUTATION_KEY = ["faces", "batch-link"];
 type GridOrList = (typeof GRID_OR_LIST)[number];
 const NO_SIMILAR_FACE_FILTERS = readSimilarFaceFilters({});
 
@@ -258,12 +257,21 @@ function useFaceAppearancesList(faceId: number) {
     allowInfinitePageSize: true,
   });
   const [zoomLevel, setZoomLevel] = useState(0);
+  // Endless scrolling exists only for the grid. The list view groups appearances by video and image and has
+  // no endless form, so a link or a switch from the grid that asks for it shows the list by pages instead.
+  const filter = useMemo(
+    () =>
+      urlState.displayMode === "list" && urlState.filter.perPage === 0
+        ? { ...urlState.filter, perPage: APPEARANCE_DEFAULT_FILTER.perPage, page: 1 }
+        : urlState.filter,
+    [urlState.displayMode, urlState.filter],
+  );
   const query = useDetailListQuery<FaceAppearanceListItem>({
     queryKey: ["face", faceId, "appearances"],
-    filter: urlState.filter,
+    filter,
     queryFn: (nextFilter) => queryFaceAppearances(faceId, nextFilter),
   });
-  return { ...urlState, zoomLevel, setZoomLevel, query };
+  return { ...urlState, filter, zoomLevel, setZoomLevel, query };
 }
 
 type FaceAppearancesList = ReturnType<typeof useFaceAppearancesList>;
@@ -285,7 +293,19 @@ function readSuggestionPerformerId(value: number | FaceSuggestion) {
   return typeof value === "number" ? value : value.performerId;
 }
 
-export function FaceDetailPage({ id, onNavigate }: Props) {
+/**
+ * The face page as App mounts it: a fresh page and list cache for every face, as the other detail pages
+ * get, so one face's list settings never become another's starting point.
+ */
+export function FaceDetailRoute({ id, onNavigate }: Props) {
+  return (
+    <DetailListStateCacheProvider key={`face-${id}`}>
+      <FaceDetailPage id={id} onNavigate={onNavigate} />
+    </DetailListStateCacheProvider>
+  );
+}
+
+function FaceDetailPage({ id, onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { hasPermission, user } = useAuth();
   const canWriteFace = canWriteEntity("face", hasPermission);
@@ -307,17 +327,25 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   });
   const faceLoadError = getLoadError(face, faceError);
 
-  // The tab badges and the hero count use each list at its defaults, which is also the query a list
-  // starts from, so this shares its cache entry rather than fetching twice.
-  const { data: similarCountPage = EMPTY_SIMILAR_PAGE } = useDetailListQuery<FaceSimilar>({
+  // The tab lives in the URL ("?tab=similar"), so a link, a reload or Back opens the same tab.
+  const { activeTab: urlTab, setActiveTab } = useDetailTabUrlState<string>("overview");
+  const activeTab: FaceTab = isFaceTab(urlTab) ? urlTab : "overview";
+
+  // The tab badges and the hero count read each list at its defaults, the query a list starts from, so they
+  // share its cached answer. They ask for it only while their list is not on screen: the open list fetches
+  // that answer itself at the defaults, and at other settings a second similar-faces search would only feed
+  // a badge. The appearance count is asked for only when the face does not report one.
+  const { data: similarCountPage, hasData: hasSimilarCount } = useDetailListQuery<FaceSimilar>({
     queryKey: ["face", id, "similar", NO_SIMILAR_FACE_FILTERS],
     filter: SIMILAR_DEFAULT_FILTER,
     queryFn: (nextFilter) => querySimilarFaces(id, NO_SIMILAR_FACE_FILTERS, nextFilter),
+    enabled: activeTab !== "similar",
   });
-  const { data: appearancesCountPage = EMPTY_APPEARANCES_PAGE } = useDetailListQuery<FaceAppearanceListItem>({
+  const { data: appearancesCountPage } = useDetailListQuery<FaceAppearanceListItem>({
     queryKey: ["face", id, "appearances"],
     filter: APPEARANCE_DEFAULT_FILTER,
     queryFn: (nextFilter) => queryFaceAppearances(id, nextFilter),
+    enabled: activeTab !== "appearances" && face != null && !face.appearanceCount,
   });
 
   const { data: deleteImpact, isLoading: deleteImpactLoading } = useQuery({
@@ -353,9 +381,6 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const [label, setLabel] = useState("");
   const [performerSearch, setPerformerSearch] = useState("");
   const [mergeSearch, setMergeSearch] = useState("");
-  // The tab lives in the URL ("?tab=similar"), so a link, a reload or Back opens the same tab.
-  const { activeTab: urlTab, setActiveTab } = useDetailTabUrlState<string>("overview");
-  const activeTab: FaceTab = isFaceTab(urlTab) ? urlTab : "overview";
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isCreatePerformerModalOpen, setIsCreatePerformerModalOpen] = useState(false);
@@ -495,48 +520,65 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
 
   // Similar faces are usually the same person, so the unlinked ones on the page are reviewed as one batch for
   // this face's performer: every candidate is linked unless the reviewer skips it, and a skip is remembered
-  // as "not this performer" so the face stops being offered for them.
-  // A review belongs to the face it was started on and reads as fresh on any other face, even where the
-  // page is reused for another face rather than mounted anew.
-  const [storedSimilarReview, setSimilarReview] = useState<SimilarReviewState>(() => emptySimilarReview(id));
-  const similarReview = storedSimilarReview.faceId === id ? storedSimilarReview : emptySimilarReview(id);
-  const toggleSimilarChoice = (face: FaceSimilar) => {
-    setSimilarReview((current) => {
-      const choices = new Map(current.faceId === id ? current.choices : []);
-      choices.set(face.id, !isLinkedByReview(face, choices));
-      return { faceId: id, choices, result: null };
-    });
-  };
+  // as "not this performer" so the face stops being offered for them. The review lives in the session store,
+  // keyed by this face and its performer, so it outlasts this page: leaving the face mid-review or mid-batch
+  // and coming back finds the same choices and the same batch state. Only the last outcome is this page's.
+  const similarReviewKeyForFace = face?.performerId != null ? similarReviewKey(id, face.performerId) : null;
+  const { record: similarReviewRecord, store: similarReviewStore } = useSimilarReview(similarReviewKeyForFace);
+  const [similarReviewOutcome, setSimilarReviewOutcome] = useState<FaceBatchLinkResult | null>(null);
+  // Batches are read from the mutation cache rather than this page's observer, so a batch sent before the page
+  // was left still holds the review when the reviewer comes back. Every face's review waits for any batch: two
+  // batches at once could race, one linking a face the other is marking as someone else.
+  const batchesInFlight = useIsMutating({ mutationKey: SIMILAR_BATCH_MUTATION_KEY });
+  const ownBatchesInFlight = useIsMutating({
+    mutationKey: SIMILAR_BATCH_MUTATION_KEY,
+    predicate: (mutation) => (mutation.state.variables as { sourceFaceId?: number } | undefined)?.sourceFaceId === id,
+  });
+  const similarBatchInFlight = ownBatchesInFlight > 0;
+  const otherFaceBatchInFlight = batchesInFlight > ownBatchesInFlight;
   const batchLinkSimilarMutation = useMutation({
-    // The face the review was made on travels with the request: a pending mutation takes the newest
-    // options, so reading `id` in onSuccess would credit a face the reviewer moved on to.
-    mutationFn: ({ sourceFaceId: _sourceFaceId, ...request }: FaceBatchLinkRequest & { sourceFaceId: number }) =>
-      faces.batchLink(request),
+    mutationKey: SIMILAR_BATCH_MUTATION_KEY,
+    mutationFn: ({
+      reviewKey: _reviewKey,
+      sourceFaceId: _sourceFaceId,
+      ...request
+    }: FaceBatchLinkRequest & { reviewKey: string; sourceFaceId: number }) => faces.batchLink(request),
     meta: { suppressGlobalError: true },
-    onSuccess: async (result, { sourceFaceId, performerId, faceIds, rejectFaceIds = [] }) => {
+    onSuccess: async (result, { reviewKey, performerId }) => {
+      // The faces the batch linked leave the review, so their choices go. Skips stay: they are what the
+      // reviewer said, and a list fetched before the batch then still shows them as skipped. A face that
+      // failed keeps its choice, so the next batch tries it again. The server refuses to link a face the
+      // reviewer marked as someone else unless the review overrides that mark, so no list, however old, can
+      // send a skipped face to be linked.
+      similarReviewStore.update(reviewKey, (current) => ({
+        choices: withoutChoices(current.choices, result.linked),
+      }));
+      setSimilarReviewOutcome(result);
       for (const faceId of [...result.linked, ...result.rejected]) {
         void queryClient.invalidateQueries({ queryKey: ["face", faceId] });
       }
       void queryClient.invalidateQueries({ queryKey: ["faces"] });
       void queryClient.invalidateQueries({ queryKey: ["performer", performerId] });
-      // Stay pending until the list shows the outcome, so the old page cannot be submitted a second time
-      // and link a face the reviewer just skipped. The skips are released only then, so the old page never
-      // shows a just-skipped face as "Will link" beside an outcome that says otherwise.
-      await queryClient.invalidateQueries({ queryKey: ["face", sourceFaceId, "similar"] });
-      // A face that failed keeps the reviewer's choice, so the next batch tries it again.
-      const failed = new Set(result.failed.map((item) => item.faceId));
-      const settled = [...faceIds, ...rejectFaceIds].filter((faceId) => !failed.has(faceId));
-      setSimilarReview((current) => ({
-        faceId: sourceFaceId,
-        // Choices on pages that were not part of this batch still stand.
-        choices: current.faceId === sourceFaceId ? withoutChoices(current.choices, settled) : new Map(),
-        result,
-      }));
+      // Every face's similar list can show the faces this batch changed, so all are marked out of date: the one
+      // on screen is fetched again now and waited for, and any other when it is next shown.
+      await queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "face" && query.queryKey[2] === "similar",
+      });
+    },
+    // A failed batch may still have saved part of its work (the skips are saved before any link), so the lists
+    // are refreshed then too, and a later "link it after all" sees the skip it would have to override.
+    onError: async (_error, { performerId, faceIds, rejectFaceIds = [], overrideRejectFaceIds = [] }) => {
+      for (const faceId of [...faceIds, ...rejectFaceIds, ...overrideRejectFaceIds]) {
+        void queryClient.invalidateQueries({ queryKey: ["face", faceId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["faces"] });
+      void queryClient.invalidateQueries({ queryKey: ["performer", performerId] });
+      await queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "face" && query.queryKey[2] === "similar",
+      });
     },
   });
-  const similarReviewIsOwn = batchLinkSimilarMutation.variables?.sourceFaceId === id;
-  const similarReviewError = similarReviewIsOwn ? batchLinkSimilarMutation.error : null;
-  const similarReviewPending = similarReviewIsOwn && batchLinkSimilarMutation.isPending;
+  const similarReviewError = batchLinkSimilarMutation.error;
 
   // Correcting a cluster that swallowed someone else's appearances. Both actions re-home occurrences
   // onto other faces, so refresh every face query (this one's counts, appearances and similar list).
@@ -646,10 +688,11 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         key: "similar",
         label: "Similar Faces",
         icon: <Sparkles className="h-4 w-4" />,
-        count: similarCountPage.totalCount,
+        // No count until there is an answer at the defaults: a list opened at other settings does not ask.
+        count: hasSimilarCount ? similarCountPage.totalCount : undefined,
       },
     ],
-    [face?.appearanceCount, appearancesCountPage.totalCount, similarCountPage.totalCount],
+    [face?.appearanceCount, appearancesCountPage.totalCount, hasSimilarCount, similarCountPage.totalCount],
   );
 
   useDocumentTitle(face ? title : null);
@@ -989,6 +1032,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           data: similarFacesPage,
           isLoading: similarLoading,
           showsPreviousResults: similarShowsPreviousResults,
+          isRefetchError: similarIsRefetchError,
           loadError: similarLoadError,
           retry: retrySimilar,
           infinitePageSize: similarInfinitePageSize,
@@ -1000,23 +1044,34 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           canWriteFace && face.performerId
             ? { performerId: face.performerId, performerName: face.performerName || `Performer #${face.performerId}` }
             : undefined;
+        const reviewChoices = similarReviewRecord.choices;
         // The batch covers the faces on the page being looked at, so nothing is linked without being seen.
         const similarReviewCandidates = similarFacesPage.items.filter(isSimilarReviewCandidate);
         const similarReviewLinkIds = similarReviewCandidates
-          .filter((candidate) => isLinkedByReview(candidate, similarReview.choices))
+          .filter((candidate) => !candidate.rejectedForSourcePerformer && isLinkedByReview(candidate, reviewChoices))
+          .map((candidate) => candidate.id);
+        // A face marked "not this performer" that the reviewer chose to link after all is sent as an override of
+        // that mark; the server links no marked face without one.
+        const similarReviewOverrideIds = similarReviewCandidates
+          .filter((candidate) => candidate.rejectedForSourcePerformer && isLinkedByReview(candidate, reviewChoices))
           .map((candidate) => candidate.id);
         // A face already marked "not this performer" needs no new reject, so only fresh skips are sent.
         const similarReviewSkipIds = similarReviewCandidates
-          .filter(
-            (candidate) => !candidate.rejectedForSourcePerformer && !isLinkedByReview(candidate, similarReview.choices),
-          )
+          .filter((candidate) => !candidate.rejectedForSourcePerformer && !isLinkedByReview(candidate, reviewChoices))
           .map((candidate) => candidate.id);
         const similarReviewChangedIds = similarReviewCandidates
-          .filter((candidate) => isLinkedByReview(candidate, similarReview.choices) !== linksByDefault(candidate))
+          .filter((candidate) => isLinkedByReview(candidate, reviewChoices) !== linksByDefault(candidate))
           .map((candidate) => candidate.id);
-        // While the list still shows an earlier query (another filter or page), its faces and their
-        // "not this performer" marks are not the ones being reviewed, so nothing can be chosen or sent.
-        const similarReviewLocked = similarReviewPending || similarShowsPreviousResults;
+        // While a batch is out, or while the list still shows an earlier query (another filter or page), the faces
+        // on screen are not the ones being reviewed, so nothing can be chosen or sent.
+        const similarReviewLocked = similarBatchInFlight || otherFaceBatchInFlight || similarShowsPreviousResults;
+        const changeChoices = (change: (choices: SimilarReviewChoices) => SimilarReviewChoices) => {
+          if (!similarReviewKeyForFace) return;
+          setSimilarReviewOutcome(null);
+          similarReviewStore.update(similarReviewKeyForFace, (current) => ({ choices: change(current.choices) }));
+        };
+        const toggleSimilarChoice = (candidate: FaceSimilar) =>
+          changeChoices((choices) => withChoice(choices, candidate, !isLinkedByReview(candidate, choices)));
 
         return (
           <section className="space-y-4">
@@ -1073,30 +1128,30 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
                 {similarReviewTarget ? (
                   <SimilarReviewBar
                     target={similarReviewTarget}
-                    linkCount={similarReviewLinkIds.length}
+                    linkCount={similarReviewLinkIds.length + similarReviewOverrideIds.length}
                     skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
-                    pending={similarReviewPending}
+                    pending={similarBatchInFlight}
+                    waitingForOtherBatch={otherFaceBatchInFlight}
                     locked={similarReviewLocked}
                     error={similarReviewError}
+                    refreshFailed={similarIsRefetchError}
+                    onRetryRefresh={() => {
+                      void retrySimilar();
+                    }}
                     infinitePageSize={similarInfinitePageSize}
-                    result={similarReview.result}
+                    result={similarReviewOutcome}
                     onSubmit={() =>
                       batchLinkSimilarMutation.mutate({
+                        reviewKey: similarReviewKey(id, similarReviewTarget.performerId),
                         sourceFaceId: id,
                         performerId: similarReviewTarget.performerId,
                         faceIds: similarReviewLinkIds,
                         rejectFaceIds: similarReviewSkipIds,
+                        overrideRejectFaceIds: similarReviewOverrideIds,
                       })
                     }
                     changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
-                    onResetChoices={() => {
-                      const shown = new Set(similarReviewChangedIds);
-                      setSimilarReview((current) => ({
-                        faceId: id,
-                        choices: current.faceId === id ? withoutChoices(current.choices, shown) : new Map(),
-                        result: null,
-                      }));
-                    }}
+                    onResetChoices={() => changeChoices((choices) => withoutChoices(choices, similarReviewChangedIds))}
                     onShowUnlinkedOnly={
                       similarFaceFilters.linked === false
                         ? undefined
@@ -1113,7 +1168,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
                   onNavigate={onNavigate}
                   canReadPerformers={canReadPerformers}
                   reviewTarget={similarInfinitePageSize ? undefined : similarReviewTarget}
-                  choices={similarReview.choices}
+                  choices={reviewChoices}
                   onToggleChoice={toggleSimilarChoice}
                   reviewDisabled={similarReviewLocked}
                   zoomLevel={similarZoomLevel}
@@ -1772,7 +1827,7 @@ function formatCount(count: number, singular: string, plural = `${singular}s`) {
 /**
  * The review state of one similar face for the viewed face's performer. A new candidate is linked with the
  * batch until it is skipped. A face already turned down for that performer stays "Not <performer>" until the
- * reviewer chooses to link it after all, which the batch then does, dropping the earlier reject.
+ * reviewer chooses to link it after all, which the batch then does, turning the earlier reject into an accept.
  */
 function SimilarReviewToggle({
   face,
@@ -1835,8 +1890,11 @@ function SimilarReviewBar({
   skipCount,
   changedCount,
   pending,
+  waitingForOtherBatch,
   locked,
   error,
+  refreshFailed,
+  onRetryRefresh,
   result,
   onSubmit,
   onResetChoices,
@@ -1849,9 +1907,14 @@ function SimilarReviewBar({
   /** Faces on this page whose default the reviewer changed, which "Reset choices" puts back. */
   changedCount: number;
   pending: boolean;
-  /** Saving, or the list is still showing an earlier query: the controls wait. */
+  /** Another face's similar-faces batch is saving, and every review waits for it. */
+  waitingForOtherBatch: boolean;
+  /** A batch is out, or the list shows an earlier query: the controls wait. */
   locked: boolean;
   error: unknown;
+  /** The list's last refresh failed, so it may show faces as they were before a batch or an edit elsewhere. */
+  refreshFailed: boolean;
+  onRetryRefresh: () => void;
   result: FaceBatchLinkResult | null;
   onSubmit: () => void;
   onResetChoices: () => void;
@@ -1893,7 +1956,22 @@ function SimilarReviewBar({
         {/* Mounted before it has anything to say, so assistive technology announces the outcome. */}
         <div role="status" className="text-xs text-secondary">
           {result ? <SimilarReviewOutcome result={result} performerName={name} /> : null}
+          {waitingForOtherBatch ? (
+            <p className="mt-1">Another face's batch is saving. This review waits until it is done.</p>
+          ) : null}
         </div>
+        {refreshFailed ? (
+          <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 text-xs text-red-400">
+            The list could not be refreshed, so it may show faces as they were before the last changes.
+            <button
+              type="button"
+              onClick={onRetryRefresh}
+              className="rounded-lg border border-border px-2 py-0.5 text-xs text-foreground transition-colors hover:border-accent"
+            >
+              Try again
+            </button>
+          </div>
+        ) : null}
         {error ? (
           <div role="alert" className="mt-1 text-xs text-red-400">
             {error instanceof Error ? error.message : "Could not save the review."}

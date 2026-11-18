@@ -1822,6 +1822,9 @@ export interface FaceBatchLinkRequest {
   faceIds: number[];
   // Faces the reviewer skipped as not being this performer; each is remembered as a reject decision.
   rejectFaceIds?: number[];
+  // Faces marked "not this performer" that the reviewer chose to link after all. Without this, the server leaves
+  // such a face in faceIds alone.
+  overrideRejectFaceIds?: number[];
 }
 
 export interface FaceBatchLinkResult {

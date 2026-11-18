@@ -35,6 +35,8 @@ export function useDetailListQuery<TItem extends { id: string | number }>({
     } satisfies PaginatedResponse<TItem>,
     isLoading: listData.isLoading,
     showsPreviousResults: listData.showsPreviousResults,
+    hasData: listData.hasData,
+    isRefetchError: listData.isRefetchError,
     loadError: listData.loadError,
     retry: listData.refetch,
     infinitePageSize: listData.infinitePageSize,

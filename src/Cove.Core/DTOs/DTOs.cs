@@ -1210,11 +1210,18 @@ public record FaceBatchLinkTopSuggestionDto(
 /// <summary>
 /// Links reviewed faces to one chosen performer, and remembers the faces the reviewer skipped as not
 /// being that performer (a per-user reject decision, the same one a rejected suggestion records).
+/// A face in <see cref="FaceIds"/> that the user already marked as not this performer is left alone; to link
+/// it the reviewer lists it in <see cref="OverrideRejectFaceIds"/>, which links it and turns the reject into
+/// an accept. An override gets the same checks as any face to link: a merged, ignored or already linked face is
+/// left alone. A face in both <see cref="FaceIds"/> and <see cref="OverrideRejectFaceIds"/> is taken as an
+/// override; a face in both <see cref="OverrideRejectFaceIds"/> and <see cref="RejectFaceIds"/> is refused, and
+/// so is the request.
 /// </summary>
 public record FaceBatchLinkDto(
     int PerformerId,
     IReadOnlyList<int> FaceIds,
-    IReadOnlyList<int>? RejectFaceIds = null);
+    IReadOnlyList<int>? RejectFaceIds = null,
+    IReadOnlyList<int>? OverrideRejectFaceIds = null);
 
 public record FaceBatchLinkResultDto(
     IReadOnlyList<int> Linked,
