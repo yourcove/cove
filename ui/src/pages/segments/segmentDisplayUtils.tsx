@@ -1,9 +1,9 @@
 import { type ReactNode } from "react";
-import type { ResolvedSpan, SegmentRecord, SegmentSpanOperator, SegmentSpanReference } from "../../api/types";
+import type { Face, ResolvedSpan, SegmentRecord, SegmentSpanOperator, SegmentSpanReference } from "../../api/types";
 import type { SegmentTileItem } from "../../components/EntityCards";
 import { SegmentPreviewMedia } from "../../components/SegmentPreviewMedia";
 import { formatDate } from "../../components/shared";
-import { faceStoredName } from "../../utils/faceDisplay";
+import { faceShownName, faceStoredName } from "../../utils/faceDisplay";
 import { formatSegmentTime } from "../../utils/segmentTime";
 import { formatSourceKeyLabel } from "../../utils/sourceKeyLabel";
 import { formatOperatorLabel } from "./derivedQueryCriterion";
@@ -128,9 +128,13 @@ type RawSegmentNameFields = Pick<
 // so the face's current name, performer or suggestion replaces it.
 const FACE_PLACEHOLDER_TITLE = /^face-\d+$/i;
 
-/** The title someone or something gave the segment, leaving out a face segment's placeholder face key. */
+/**
+ * The title someone or something gave the segment, leaving out a face segment's placeholder face key and a title
+ * that only holds a source's raw data (some detectors store their JSON output there).
+ */
 export function rawSegmentGivenTitle(segment: RawSegmentNameFields) {
   const title = segment.title?.trim();
+  if (title && isRawDataTitle(title)) return undefined;
   if (!title || segment.kind?.toLowerCase() !== "face") return title || undefined;
   const normalized = title.toLowerCase();
   const isPlaceholder =
@@ -138,6 +142,61 @@ export function rawSegmentGivenTitle(segment: RawSegmentNameFields) {
     normalized === segment.refLabel?.trim().toLowerCase() ||
     normalized === readSegmentPayloadString(segment.payload, "refKey")?.toLowerCase();
   return isPlaceholder ? undefined : title;
+}
+
+function isRawDataTitle(title: string) {
+  return title.startsWith("{") || title.startsWith("[") || title.includes('"probabilit');
+}
+
+/** A name to show, and whether it is only a suggested performer rather than one the face is linked to. */
+export interface ShownName {
+  name: string;
+  suggested: boolean;
+}
+
+type NameableFace = Parameters<typeof faceShownName>[0] & Pick<Face, "ignored" | "mergedIntoFaceId">;
+
+/**
+ * The name a face gives the segments it appears in: its own name or linked performer, else its top suggested
+ * performer marked as a suggestion. An ignored or merged face is no longer matched, so only a name it was given
+ * counts.
+ */
+export function segmentFaceName(face: NameableFace): ShownName | undefined {
+  if (face.ignored || face.mergedIntoFaceId != null) {
+    const stored = faceStoredName(face);
+    return stored ? { name: stored, suggested: false } : undefined;
+  }
+  return faceShownName(face);
+}
+
+/**
+ * A raw segment's name as every view shows it: a given title, its tag or performer, or, for a face segment still
+ * titled with its face's placeholder key, the face's current name or suggestion when the face is at hand.
+ */
+export function resolveRawSegmentName(
+  segment: RawSegmentNameFields,
+  facesById?: ReadonlyMap<number, NameableFace>,
+): ShownName {
+  const faceId = rawSegmentPlaceholderFaceId(segment);
+  const face = faceId == null ? undefined : facesById?.get(faceId);
+  return (face ? segmentFaceName(face) : undefined) ?? { name: buildRawSegmentTitle(segment), suggested: false };
+}
+
+/**
+ * A segment's (span's) name as every view shows it: its tag when it is a span of a tag, else the name of the raw
+ * segment it starts with. A span that is not of a tag carries its segments' stored title in tagName, which is only a
+ * last resort.
+ */
+export function resolveSpanName(
+  span: Pick<ResolvedSpan, "tagId" | "tagName" | "kind" | "sourceKey" | "segmentIds">,
+  rawSegmentsById: ReadonlyMap<number, RawSegmentNameFields>,
+  facesById?: ReadonlyMap<number, NameableFace>,
+): ShownName {
+  if (span.tagId != null && span.tagName?.trim()) return { name: span.tagName.trim(), suggested: false };
+  const first = (span.segmentIds ?? []).map((id) => rawSegmentsById.get(id)).find((segment) => segment != null);
+  if (first) return resolveRawSegmentName(first, facesById);
+  const fallback = span.tagName?.trim() || span.kind?.trim() || formatSourceLabel(span.sourceKey) || "Segment";
+  return { name: fallback, suggested: false };
 }
 
 /** A string or number field from a segment's source payload, as text. */

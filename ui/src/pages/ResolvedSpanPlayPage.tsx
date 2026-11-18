@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Info, MoreVertical, Play, Sparkles, Tag as TagIcon } from "lucide-react";
 import { faces, performers, videos, segmentDisplayProfiles, segmentLibrary, tags } from "../api/client";
@@ -26,6 +26,7 @@ import { ProvenanceBadge, TagBadge } from "../components/shared";
 import { useBackNavigation, type BackNavigationAlternative } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { useVideoSprites } from "../hooks/useVideoSprites";
 import { useAppConfig } from "../state/AppConfigContext";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { formatSourceKeyLabel } from "../utils/sourceKeyLabel";
@@ -52,6 +53,9 @@ import {
 } from "./segments/segmentDisplayUtils";
 import { useListedFaceNames } from "./segments/useListedFaceNames";
 import { useSegmentFace } from "./segments/useSegmentFace";
+import { assignPersonColors, videoPersonKeys } from "./videoDetail/segmentPeople";
+import { useVideoFaces } from "./videoDetail/useVideoFaces";
+import { VideoScrubber } from "./videoDetail/VideoTimeline";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
@@ -284,6 +288,40 @@ function ResolvedSpanPlayerCard({
     staleTime: 60_000,
   });
   const currentFile = currentVideo?.files[0];
+
+  // The video's timeline under the player, as on the video page: its segments of this display profile, its faces and
+  // its frames, with this segment marked.
+  const canReadSegments = canReadEntity("segment", hasPermission);
+  const showTimeline = canReadVideos && canReadSegments && currentFile != null;
+  const videoRawSegmentsQuery = useQuery({
+    queryKey: ["video", detail.videoId, "segments"],
+    queryFn: () => videos.segments.list(detail.videoId),
+    enabled: showTimeline,
+    staleTime: 60_000,
+  });
+  const videoDetectionsQuery = useQuery({
+    queryKey: ["video", detail.videoId, "detections"],
+    queryFn: () => videos.detections.list(detail.videoId),
+    enabled: showTimeline,
+    staleTime: 60_000,
+  });
+  const videoRawSegments = useMemo(() => videoRawSegmentsQuery.data ?? [], [videoRawSegmentsQuery.data]);
+  const videoDetections = useMemo(() => videoDetectionsQuery.data ?? [], [videoDetectionsQuery.data]);
+  const { facesById: videoFacesById } = useVideoFaces(
+    videoDetections,
+    videoRawSegments,
+    showTimeline && canReadEntity("face", hasPermission),
+  );
+  const videoRawSegmentsById = useMemo(
+    () => new Map(videoRawSegments.map((segment) => [segment.id, segment] as const)),
+    [videoRawSegments],
+  );
+  const videoSpans = useMemo(() => videoSpansQuery.data?.spans ?? [], [videoSpansQuery.data]);
+  const personColors = useMemo(
+    () => assignPersonColors(videoPersonKeys(videoSpans, videoRawSegmentsById, videoFacesById)),
+    [videoSpans, videoRawSegmentsById, videoFacesById],
+  );
+  const sprites = useVideoSprites(showTimeline ? detail.videoId : null);
   const { engagementById: videoEngagement } = useEntityEngagementBatch(
     "video",
     detail.videoId != null ? [detail.videoId] : [],
@@ -335,8 +373,11 @@ function ResolvedSpanPlayerCard({
 
   // The raw segment under the playhead, highlighted in the list of the segment's raw segments.
   const [playingRawSegmentId, setPlayingRawSegmentId] = useState<number | undefined>(undefined);
+  // Where the player is, for the timeline's frame strip.
+  const [playerTime, setPlayerTime] = useState(detail.span.startSec);
   const handlePlayerTimeUpdate = useCallback(
     (nextTime: number) => {
+      setPlayerTime(nextTime);
       const nextIndex = findIntervalIndex(nextTime, intervals);
       if (nextIndex !== activeIntervalIndex) {
         setActiveIntervalIndex(nextIndex);
@@ -468,47 +509,83 @@ function ResolvedSpanPlayerCard({
           Loading segment playback...
         </div>
       ) : currentFile ? (
-        <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
-          <VideoPlayer
-            streamUrl={videos.streamUrl(detail.videoId)}
-            posterUrl={videos.screenshotUrl(detail.videoId)}
-            format={currentFile.format}
-            duration={currentFile.duration}
-            resumeTime={resumeTime}
-            videoId={detail.videoId}
-            detections={[]}
-            segments={rawSegments}
-            faces={segmentFace.playerFaces.length > 0 ? segmentFace.playerFaces : spanFaces}
-            // A face span is about where its face is, so its box shows unless the viewer turned X-ray off.
-            faceOverlayDefault={isFaceSpan}
-            captions={currentFile.captions}
-            onPlay={() => setAutostart(false)}
-            onSeekRegister={(seek) => {
-              playerSeekRef.current = seek;
-            }}
-            onTimeUpdate={handlePlayerTimeUpdate}
-            autostart={autostart}
-            playbackTracking={{
-              hostType: "video",
-              hostId: detail.videoId,
-              surface: "resolvedSpan",
-              scopeKey: `video:${detail.videoId}:span:${detail.span.spanKey}`,
-              itemHostType: "video",
-              itemHostId: detail.videoId,
-              clipStartSec: detail.span.startSec,
-              clipEndSec: detail.span.endSec,
-              context: {
-                spanKey: detail.span.spanKey,
-              },
-            }}
-            clip={{ start: detail.span.startSec, end: detail.span.endSec, loop: false }}
-          />
+        // Below lg the player is sized to the file, as on the video page, so no black band is left under it.
+        <div
+          className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black max-lg:relative max-lg:aspect-(--video-aspect-ratio) max-lg:max-h-[70vh]"
+          style={
+            {
+              "--video-aspect-ratio":
+                currentFile.width && currentFile.height ? `${currentFile.width} / ${currentFile.height}` : "16 / 9",
+            } as CSSProperties
+          }
+        >
+          <div className="flex min-h-0 min-w-0 flex-1 max-lg:absolute max-lg:inset-0">
+            <VideoPlayer
+              streamUrl={videos.streamUrl(detail.videoId)}
+              posterUrl={videos.screenshotUrl(detail.videoId)}
+              format={currentFile.format}
+              duration={currentFile.duration}
+              resumeTime={resumeTime}
+              videoId={detail.videoId}
+              detections={[]}
+              segments={rawSegments}
+              faces={segmentFace.playerFaces.length > 0 ? segmentFace.playerFaces : spanFaces}
+              // A face span is about where its face is, so its box shows unless the viewer turned X-ray off.
+              faceOverlayDefault={isFaceSpan}
+              captions={currentFile.captions}
+              onPlay={() => setAutostart(false)}
+              onSeekRegister={(seek) => {
+                playerSeekRef.current = seek;
+              }}
+              onTimeUpdate={handlePlayerTimeUpdate}
+              autostart={autostart}
+              playbackTracking={{
+                hostType: "video",
+                hostId: detail.videoId,
+                surface: "resolvedSpan",
+                scopeKey: `video:${detail.videoId}:span:${detail.span.spanKey}`,
+                itemHostType: "video",
+                itemHostId: detail.videoId,
+                clipStartSec: detail.span.startSec,
+                clipEndSec: detail.span.endSec,
+                context: {
+                  spanKey: detail.span.spanKey,
+                },
+              }}
+              clip={{ start: detail.span.startSec, end: detail.span.endSec, loop: false }}
+            />
+          </div>
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center bg-black text-sm text-secondary">
           No playable video file is available for this segment.
         </div>
       )}
+      {showTimeline ? (
+        <VideoScrubber
+          sprites={config?.ui.showScrubberSprites === false ? null : sprites}
+          duration={currentFile.duration}
+          spans={videoSpans}
+          rawSegments={videoRawSegments}
+          detections={videoDetections}
+          facesById={videoFacesById}
+          personColors={personColors}
+          currentTime={playerTime}
+          profileName={profileQuery.data?.name}
+          highlight={{ startSec: detail.span.startSec, endSec: detail.span.endSec }}
+          activeSpanKey={detail.span.spanKey}
+          // The player plays only this segment, so a moment inside it seeks there, and a moment elsewhere opens the
+          // video at that moment.
+          onSeek={(time) =>
+            time >= detail.span.startSec && time <= detail.span.endSec
+              ? seekAbsolute(time)
+              : onNavigate({ page: "video", id: detail.videoId, seekTo: time })
+          }
+          onOpenSpan={(spanKey) =>
+            onNavigate({ page: "video-span", id: detail.videoId, spanKey, profileId: detail.profileId })
+          }
+        />
+      ) : null}
     </div>
   );
 

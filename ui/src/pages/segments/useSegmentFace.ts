@@ -1,11 +1,15 @@
 import { useEffect, useMemo } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { faces } from "../../api/client";
-import type { Face, FaceSuggestion, SegmentRecord } from "../../api/types";
+import type { FaceSuggestion, SegmentRecord } from "../../api/types";
 import { readReferenceLinkInfo } from "../../components/FaceCompareDialog";
 import type { FaceOverlayInfo } from "../../components/VideoPlayer";
-import { faceShownName, faceStoredName } from "../../utils/faceDisplay";
-import { formatShownTitle, rawSegmentFaceId, rawSegmentPlaceholderFaceId } from "./segmentDisplayUtils";
+import {
+  formatShownTitle,
+  rawSegmentFaceId,
+  rawSegmentPlaceholderFaceId,
+  segmentFaceName,
+} from "./segmentDisplayUtils";
 
 type SuggestionDecision = "accept" | "reject";
 
@@ -69,12 +73,7 @@ export function useSegmentFace(segment: SegmentRecord | undefined, canReadFaces:
 
   // A segment still titled with its face's placeholder key is named after the face: its own name, else its top
   // suggested performer flagged as a suggestion. An ignored or merged face keeps only a name it was given.
-  const shownName =
-    segment && face && rawSegmentPlaceholderFaceId(segment) != null
-      ? faceNeedsMatch
-        ? faceShownName(face)
-        : storedNameAsShown(face)
-      : undefined;
+  const shownName = segment && face && rawSegmentPlaceholderFaceId(segment) != null ? segmentFaceName(face) : undefined;
   const overlayName = shownName ? formatShownTitle(shownName.name, shownName.suggested) : undefined;
   const playerFaces = useMemo<FaceOverlayInfo[]>(
     () => (face ? [{ ...face, displayName: overlayName }] : []),
@@ -98,9 +97,4 @@ export function useSegmentFace(segment: SegmentRecord | undefined, canReadFaces:
     decisionPending: decision.isPending,
     decisionError: decision.error as Error | null,
   };
-}
-
-function storedNameAsShown(face: Face) {
-  const name = faceStoredName(face);
-  return name ? { name, suggested: false } : undefined;
 }

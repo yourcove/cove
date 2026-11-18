@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Layers,
   Plus,
-  ExternalLink,
   Pencil,
   Trash2,
   Clock,
@@ -11,11 +10,20 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ListTree,
   List as ListIcon,
 } from "lucide-react";
 import { videos, tagGroups as tagGroupsApi } from "../api/client";
-import type { ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
+import { SegmentIcon } from "./segmentViewIcons";
+import { createNestedRouteLinkProps } from "./cardNavigation";
+import type { Route } from "../router/location";
+import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
+import { faceKeyLabel, spanPerson, spanShownName, type SegmentSection } from "../pages/videoDetail/segmentPeople";
+import { useFaceSuggestionDecision } from "../pages/videoDetail/useFaceSuggestionDecision";
+import { SuggestionDecision } from "../pages/videoDetail/SuggestionDecision";
+import { FaceCrop, FaceStack } from "../pages/videoDetail/FaceCrops";
+import { SuggestedNameMarker } from "./EntityCards";
 import { AddToGroupDialog, type AddToGroupEntry } from "./AddToGroupDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { EntityReferenceSelector, EntityReferenceMultiSelector } from "./EntityReferenceSelector";
@@ -35,6 +43,12 @@ interface Props {
   videoId: number;
   spans: ResolvedSpan[];
   rawSegments: Segment[];
+  /** The video's faces by id, which name face segments the way every other view does. */
+  facesById?: ReadonlyMap<number, Face>;
+  /** Each person's colour, shared with the timeline's face lanes. */
+  personColors?: ReadonlyMap<string, string>;
+  /** The viewer may accept or reject a face's suggested performer. */
+  canDecideFaces?: boolean;
   loading: boolean;
   profiles: SegmentDisplayProfile[];
   currentProfileId?: number;
@@ -61,6 +75,9 @@ export function VideoSegmentsPanel({
   videoId,
   spans,
   rawSegments,
+  facesById,
+  personColors,
+  canDecideFaces = false,
   loading,
   profiles,
   currentProfileId,
@@ -76,6 +93,7 @@ export function VideoSegmentsPanel({
   onNavigate,
 }: Props) {
   const queryClient = useQueryClient();
+  const faceDecision = useFaceSuggestionDecision(videoId, onNavigate);
   const [selectedSpanKeys, setSelectedSpanKeys] = useState<Set<string>>(new Set());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -122,6 +140,12 @@ export function VideoSegmentsPanel({
   );
   const activeProfileId =
     currentProfileId ?? orderedProfiles.find((profile) => profile.isDefault)?.id ?? orderedProfiles[0]?.id;
+  const spanRoute = (span: ResolvedSpan): Route => ({
+    page: "video-span",
+    id: videoId,
+    spanKey: span.spanKey,
+    profileId: activeProfileId,
+  });
 
   const facets = useMemo(() => buildSegmentFacets(spans, filterContext), [spans, filterContext]);
   const filteredSpans = useMemo(
@@ -150,10 +174,10 @@ export function VideoSegmentsPanel({
         key: span.spanKey,
         videoId,
         spanKey: span.spanKey,
-        title: spanLabel(span, rawSegmentsById),
+        title: spanShownName(span, rawSegmentsById, facesById).name,
         profileId: activeProfileId,
       }));
-  }, [filteredSpans, selectedSpanKeys, videoId, rawSegmentsById, activeProfileId]);
+  }, [filteredSpans, selectedSpanKeys, videoId, rawSegmentsById, facesById, activeProfileId]);
 
   const toggleSelection = (spanKey: string) => {
     setSelectedSpanKeys((current) => {
@@ -501,6 +525,7 @@ export function VideoSegmentsPanel({
         </div>
       ) : view === "grouped" ? (
         <GroupedList
+          facesById={facesById}
           spans={sortedSpans}
           rawSegmentsById={rawSegmentsById}
           selectedSpanKeys={selectedSpanKeys}
@@ -509,9 +534,13 @@ export function VideoSegmentsPanel({
           canEdit={canEdit}
           onEdit={handleEditSpan}
           onDelete={handleDeleteSpan}
-          onOpen={(span) =>
-            onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
-          }
+          onOpen={(span) => onNavigate(spanRoute(span))}
+          onOpenFace={(faceId) => onNavigate({ page: "face", id: faceId })}
+          spanRoute={spanRoute}
+          personColors={personColors}
+          onDecide={canDecideFaces ? faceDecision.decide : undefined}
+          decidingFaceId={faceDecision.decidingFaceId}
+          decisionError={faceDecision.decisionError}
         />
       ) : (
         <div className="mt-3 space-y-1">
@@ -520,15 +549,15 @@ export function VideoSegmentsPanel({
               key={span.spanKey}
               span={span}
               rawSegmentsById={rawSegmentsById}
+              facesById={facesById}
               checked={selectedSpanKeys.has(span.spanKey)}
               onToggleSelect={() => toggleSelection(span.spanKey)}
               onSeek={onSeek}
               canEdit={canEdit}
               onEdit={() => handleEditSpan(span)}
               onDelete={() => handleDeleteSpan(span)}
-              onOpen={() =>
-                onNavigate({ page: "video-span", id: videoId, spanKey: span.spanKey, profileId: activeProfileId })
-              }
+              onOpen={() => onNavigate(spanRoute(span))}
+              openRoute={spanRoute(span)}
             />
           ))}
         </div>
@@ -691,9 +720,30 @@ function FilterChip({
 }
 
 // ===== Grouped list =====
+interface PersonFace {
+  faceId: number;
+  face?: Face;
+  count: number;
+  totalSec: number;
+}
+
+interface PersonGroup {
+  key: string;
+  name: string;
+  suggested: boolean;
+  section: SegmentSection;
+  items: ResolvedSpan[];
+  totalSec: number;
+  /** The faces the person appears through in this video, most seen first. */
+  faces: PersonFace[];
+}
+
+// Segments are grouped by the person they are about, so all of a performer's faces in the video are one group. The
+// group's faces are shown as a small stack of face crops, which opens a list of them to tell them apart.
 function GroupedList({
   spans,
   rawSegmentsById,
+  facesById,
   selectedSpanKeys,
   onToggleSelect,
   onSeek,
@@ -701,9 +751,16 @@ function GroupedList({
   onEdit,
   onDelete,
   onOpen,
+  onOpenFace,
+  spanRoute,
+  personColors,
+  onDecide,
+  decidingFaceId,
+  decisionError,
 }: {
   spans: ResolvedSpan[];
   rawSegmentsById: Map<number, Segment>;
+  facesById?: ReadonlyMap<number, Face>;
   selectedSpanKeys: Set<string>;
   onToggleSelect: (spanKey: string) => void;
   onSeek?: (time: number) => void;
@@ -711,87 +768,271 @@ function GroupedList({
   onEdit: (span: ResolvedSpan) => void;
   onDelete: (span: ResolvedSpan) => void;
   onOpen: (span: ResolvedSpan) => void;
+  onOpenFace: (faceId: number) => void;
+  /** The page of a segment, for links that can open in a new tab. */
+  spanRoute: (span: ResolvedSpan) => Route;
+  personColors?: ReadonlyMap<string, string>;
+  /** Accept or reject a face's suggested performer, when the viewer may. */
+  onDecide?: (faceId: number, performerId: number, decision: "accept" | "reject") => void;
+  decidingFaceId?: number;
+  decisionError?: { faceId?: number; error: Error };
 }) {
-  const groups = useMemo(() => {
-    const byLabel = new Map<string, ResolvedSpan[]>();
+  const { groups, faceIdBySpanKey } = useMemo(() => {
+    const byKey = new Map<string, PersonGroup & { facesById: Map<number, PersonFace> }>();
+    const faceIdBySpanKey = new Map<string, number>();
     for (const span of spans) {
-      const label = spanLabel(span, rawSegmentsById);
-      const bucket = byLabel.get(label) ?? [];
-      bucket.push(span);
-      byLabel.set(label, bucket);
+      const person = spanPerson(span, rawSegmentsById, facesById);
+      const group = byKey.get(person.key) ?? {
+        key: person.key,
+        name: person.name,
+        suggested: person.suggested,
+        section: person.section,
+        items: [],
+        totalSec: 0,
+        faces: [],
+        facesById: new Map<number, PersonFace>(),
+      };
+      const duration = Math.max(0, span.endSec - span.startSec);
+      group.items.push(span);
+      group.totalSec += duration;
+      if (person.faceId != null) {
+        faceIdBySpanKey.set(span.spanKey, person.faceId);
+        const entry = group.facesById.get(person.faceId) ?? {
+          faceId: person.faceId,
+          face: facesById?.get(person.faceId),
+          count: 0,
+          totalSec: 0,
+        };
+        entry.count += 1;
+        entry.totalSec += duration;
+        group.facesById.set(person.faceId, entry);
+      }
+      byKey.set(person.key, group);
     }
-    return Array.from(byLabel.entries())
-      .map(([label, items]) => ({
-        label,
-        items,
-        totalSec: items.reduce((sum, span) => sum + Math.max(0, span.endSec - span.startSec), 0),
+    const groups: PersonGroup[] = Array.from(byKey.values())
+      .map(({ facesById: groupFaces, ...group }) => ({
+        ...group,
+        faces: Array.from(groupFaces.values()).sort(
+          (left, right) => right.totalSec - left.totalSec || left.faceId - right.faceId,
+        ),
       }))
-      .sort((left, right) => right.totalSec - left.totalSec || compareNatural(left.label, right.label));
-  }, [spans, rawSegmentsById]);
+      .sort(compareGroups);
+    return { groups, faceIdBySpanKey };
+  }, [spans, rawSegmentsById, facesById]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const toggleGroup = (label: string) =>
-    setCollapsed((current) => {
+  const [facesOpen, setFacesOpen] = useState<Set<string>>(new Set());
+  const toggleIn = (setter: typeof setCollapsed, key: string) =>
+    setter((current) => {
       const next = new Set(current);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
   return (
-    <div className="divide-y divide-border/50">
-      {groups.map((group) => {
-        const open = !collapsed.has(group.label);
+    // People come first, then tags, then anything else; within a section the longest groups lead.
+    <div className="space-y-4">
+      {SEGMENT_SECTIONS.map((section) => {
+        const sectionGroups = groups.filter((group) => group.section === section.key);
+        if (sectionGroups.length === 0) return null;
         return (
-          <div key={group.label}>
-            <button
-              type="button"
-              onClick={() => toggleGroup(group.label)}
-              className="flex w-full items-center justify-between gap-3 py-1.5 text-left"
+          <section key={section.key} aria-labelledby={`segment-section-${section.key}`}>
+            <h5
+              id={`segment-section-${section.key}`}
+              className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted"
             >
-              <span className="flex min-w-0 items-center gap-2">
-                {open ? (
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
-                )}
-                <span className="truncate text-sm font-medium text-foreground">{group.label}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
-                <span>{group.items.length}×</span>
-                <span className="font-mono">{formatTime(group.totalSec)}</span>
-              </span>
-            </button>
-            {open ? (
-              <div className="space-y-0.5 pb-1.5 pl-6">
-                {group.items.map((span) => (
-                  <SegmentRow
-                    key={span.spanKey}
-                    span={span}
-                    rawSegmentsById={rawSegmentsById}
-                    checked={selectedSpanKeys.has(span.spanKey)}
-                    onToggleSelect={() => onToggleSelect(span.spanKey)}
-                    onSeek={onSeek}
-                    canEdit={canEdit}
-                    onEdit={() => onEdit(span)}
-                    onDelete={() => onDelete(span)}
-                    onOpen={() => onOpen(span)}
-                    hideLabel
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
+              {section.title}
+              <span className="font-normal normal-case tracking-normal">{sectionGroups.length}</span>
+            </h5>
+            <div className="divide-y divide-border/50">
+              {sectionGroups.map((group) => {
+                const open = !collapsed.has(group.key);
+                // A suggested group always lists its faces, since that is where each one is accepted or rejected.
+                const listsFaces = group.faces.length > 1 || (group.suggested && group.faces.length > 0);
+                const showFaces = facesOpen.has(group.key) && listsFaces;
+                return (
+                  <div key={group.key}>
+                    <div className="flex items-center justify-between gap-3 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleIn(setCollapsed, group.key)}
+                        aria-expanded={open}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        {open ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                        )}
+                        {personColors?.get(group.key) ? (
+                          // The colour of the person's bars on the timeline's face lanes.
+                          <span
+                            aria-hidden
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: personColors.get(group.key) }}
+                          />
+                        ) : null}
+                        <ShownNameText
+                          name={group.name}
+                          suggested={group.suggested}
+                          className="text-sm font-medium text-foreground"
+                        />
+                      </button>
+                      {listsFaces ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleIn(setFacesOpen, group.key)}
+                          aria-expanded={showFaces}
+                          aria-label={`${showFaces ? "Hide" : "Show"} the ${facesLabel(group.faces.length)} of ${group.name}`}
+                          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-1.5 py-0.5 text-xs text-secondary hover:border-accent hover:text-foreground"
+                        >
+                          <FaceStack faces={group.faces} />
+                          <span>{facesLabel(group.faces.length)}</span>
+                          {showFaces ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                      ) : group.faces.length === 1 ? (
+                        <a
+                          {...createNestedRouteLinkProps<HTMLAnchorElement>(
+                            { page: "face", id: group.faces[0].faceId },
+                            () => onOpenFace(group.faces[0].faceId),
+                          )}
+                          aria-label={`Open face ${faceKeyLabel(group.faces[0].face, group.faces[0].faceId)}`}
+                          title="Open face"
+                          className="shrink-0 rounded-full hover:ring-1 hover:ring-accent"
+                        >
+                          <FaceStack faces={group.faces} />
+                        </a>
+                      ) : null}
+                      <span className="flex shrink-0 items-center gap-2 text-xs text-secondary">
+                        <span>{group.items.length}×</span>
+                        <span className="font-mono">{formatTime(group.totalSec)}</span>
+                      </span>
+                    </div>
+                    {showFaces ? (
+                      <ul className="mb-1.5 ml-6 space-y-1 rounded-lg border border-border bg-surface/30 p-1.5">
+                        {group.faces.map((entry) => (
+                          <li key={entry.faceId} className="flex flex-wrap items-center gap-2 text-xs">
+                            <FaceCrop face={entry.face} className="h-6 w-6" />
+                            <span className="min-w-0 flex-1 truncate text-foreground">
+                              {faceKeyLabel(entry.face, entry.faceId)}
+                            </span>
+                            <span className="shrink-0 text-secondary">{entry.count}×</span>
+                            <span className="shrink-0 font-mono text-secondary">{formatTime(entry.totalSec)}</span>
+                            {group.suggested && onDecide && entry.face?.topSuggestion ? (
+                              <SuggestionDecision
+                                performerId={entry.face.topSuggestion.performerId}
+                                pending={decidingFaceId === entry.faceId}
+                                onDecide={(performerId, decision) => onDecide(entry.faceId, performerId, decision)}
+                                onReview={() => onOpenFace(entry.faceId)}
+                              />
+                            ) : null}
+                            <a
+                              {...createNestedRouteLinkProps<HTMLAnchorElement>(
+                                { page: "face", id: entry.faceId },
+                                () => onOpenFace(entry.faceId),
+                              )}
+                              className="shrink-0 text-accent hover:underline"
+                            >
+                              Open face
+                            </a>
+                            {decisionError?.faceId === entry.faceId ? (
+                              <span role="alert" className="basis-full text-red-400">
+                                {decisionError.error.message}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {open ? (
+                      <div className="space-y-0.5 pb-1.5 pl-6">
+                        {group.items.map((span) => {
+                          const faceId = faceIdBySpanKey.get(span.spanKey);
+                          return (
+                            <SegmentRow
+                              key={span.spanKey}
+                              span={span}
+                              rawSegmentsById={rawSegmentsById}
+                              facesById={facesById}
+                              checked={selectedSpanKeys.has(span.spanKey)}
+                              onToggleSelect={() => onToggleSelect(span.spanKey)}
+                              onSeek={onSeek}
+                              canEdit={canEdit}
+                              onEdit={() => onEdit(span)}
+                              onDelete={() => onDelete(span)}
+                              onOpen={() => onOpen(span)}
+                              openRoute={spanRoute(span)}
+                              // With the person's faces listed, each segment shows which of them it is.
+                              leading={
+                                showFaces && faceId != null ? (
+                                  <FaceCrop face={facesById?.get(faceId)} className="h-4 w-4" />
+                                ) : undefined
+                              }
+                              hideLabel
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </div>
   );
 }
 
+// A name with its "suggested" marker. The marker is hidden from screen readers, so a suggested name is read as one
+// phrase ending in "(suggested)" instead.
+function ShownNameText({ name, suggested, className = "" }: { name: string; suggested: boolean; className?: string }) {
+  if (!suggested) return <span className={`truncate ${className}`}>{name}</span>;
+  return (
+    <>
+      <span aria-hidden className={`truncate ${className}`}>
+        {name}
+      </span>
+      <SuggestedNameMarker />
+      <span className="sr-only">{`${name} (suggested)`}</span>
+    </>
+  );
+}
+
+// People lead with whoever is on screen longest. Tags and anything else follow the order they first appear in, as the
+// segment lanes on the timeline read from left to right.
+function compareGroups(left: PersonGroup, right: PersonGroup) {
+  if (left.section === "people" && right.section === "people") {
+    return right.totalSec - left.totalSec || compareNatural(left.name, right.name);
+  }
+  return (
+    firstStart(left) - firstStart(right) || right.totalSec - left.totalSec || compareNatural(left.name, right.name)
+  );
+}
+
+function firstStart(group: PersonGroup) {
+  return group.items.reduce((earliest, span) => Math.min(earliest, span.startSec), Number.POSITIVE_INFINITY);
+}
+
+const SEGMENT_SECTIONS: Array<{ key: SegmentSection; title: string }> = [
+  { key: "people", title: "People" },
+  { key: "tags", title: "Tags" },
+  { key: "other", title: "Other" },
+];
+
+function facesLabel(count: number) {
+  return count === 1 ? "1 face" : `${count} faces`;
+}
+
+// Accepting links the face to its suggested performer; a match that would import a new performer is reviewed on the
+// face page.
 // ===== Compact row =====
 function SegmentRow({
   span,
   rawSegmentsById,
+  facesById,
   checked,
   onToggleSelect,
   onSeek,
@@ -799,10 +1040,13 @@ function SegmentRow({
   onEdit,
   onDelete,
   onOpen,
+  openRoute,
+  leading,
   hideLabel = false,
 }: {
   span: ResolvedSpan;
   rawSegmentsById: Map<number, Segment>;
+  facesById?: ReadonlyMap<number, Face>;
   checked: boolean;
   onToggleSelect: () => void;
   onSeek?: (time: number) => void;
@@ -810,9 +1054,14 @@ function SegmentRow({
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
+  /** The segment page, so the open button is a link that can open in a new tab. */
+  openRoute: Route;
+  /** Shown before the time range, such as the crop of the face the segment shows. */
+  leading?: React.ReactNode;
   hideLabel?: boolean;
 }) {
-  const label = spanLabel(span, rawSegmentsById);
+  const shown = spanShownName(span, rawSegmentsById, facesById);
+  const label = shown.name;
   const rawCount = span.segmentIds?.length ?? 0;
   return (
     <div
@@ -826,12 +1075,18 @@ function SegmentRow({
         title="Select for group"
       />
       <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={() => onSeek?.(span.startSec)}>
-        <span className="w-24 shrink-0 font-mono text-xs text-accent">
+        {leading}
+        <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap font-mono text-xs text-accent">
           {formatTime(span.startSec)}
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
-        {!hideLabel ? <span className="truncate text-foreground group-hover:text-accent">{label}</span> : null}
-        {span.kind && span.kind !== "tag" ? (
+        {!hideLabel ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-foreground group-hover:text-accent">
+            <ShownNameText name={label} suggested={shown.suggested} />
+          </span>
+        ) : null}
+        {/* A face or tag segment's name or group already says what it is; other kinds keep their label. */}
+        {span.kind && span.kind !== "tag" && span.kind.toLowerCase() !== "face" ? (
           <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{span.kind}</span>
         ) : null}
         {rawCount > 1 ? (
@@ -840,17 +1095,36 @@ function SegmentRow({
           </span>
         ) : null}
       </button>
-      <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button onClick={onOpen} className="text-muted hover:text-accent" title="Open segment">
-          <ExternalLink className="h-3.5 w-3.5" />
-        </button>
+      {/* Opening the segment page is always on offer. On a wide screen with a mouse, editing and deleting appear on
+          hover or keyboard focus; on a narrow or touch screen they always show, with room to tap them. */}
+      <a
+        {...createNestedRouteLinkProps<HTMLAnchorElement>(openRoute, onOpen)}
+        className="shrink-0 text-muted hover:text-accent pointer-coarse:p-1.5"
+        title="Open segment"
+        aria-label="Open segment"
+      >
+        <SegmentIcon className="h-3.5 w-3.5" />
+      </a>
+      <div className="flex shrink-0 items-center gap-1.5 transition-opacity md:pointer-fine:opacity-0 md:pointer-fine:group-hover:opacity-100 md:pointer-fine:focus-within:opacity-100">
         {canEdit ? (
-          <button onClick={onEdit} className="text-muted hover:text-accent" title="Edit segment">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-muted hover:text-accent pointer-coarse:p-1.5"
+            title="Edit segment"
+            aria-label="Edit segment"
+          >
             <Pencil className="h-3.5 w-3.5" />
           </button>
         ) : null}
         {canEdit ? (
-          <button onClick={onDelete} className="text-muted hover:text-red-400" title="Delete segment">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-muted hover:text-red-400 pointer-coarse:p-1.5"
+            title="Delete segment"
+            aria-label="Delete segment"
+          >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         ) : null}
@@ -1057,22 +1331,6 @@ function rawSegmentLabel(segment: Segment) {
     (segment.title?.trim() && !isRawDataLabel(segment.title) ? segment.title.trim() : "");
   if (candidate && candidate.toLowerCase() !== "performer") return candidate;
   return segment.kind?.trim() || cleanSourceLabel(segment.sourceKey || "") || "Segment";
-}
-
-function spanLabel(span: ResolvedSpan, rawSegmentsById: Map<number, Segment>) {
-  const tagName = span.tagName?.trim();
-  if (tagName) return tagName;
-  for (const segmentId of span.segmentIds ?? []) {
-    const segment = rawSegmentsById.get(segmentId);
-    if (!segment) continue;
-    const label = rawSegmentLabel(segment);
-    if (label && label.toLowerCase() !== "performer") return label;
-  }
-  const kind = span.kind?.trim();
-  if (kind && kind !== "tag") return kind;
-  const sourceKey = span.sourceKey?.trim();
-  if (sourceKey) return cleanSourceLabel(sourceKey);
-  return "Segment";
 }
 
 function formatTime(seconds: number) {
