@@ -1836,6 +1836,28 @@ export interface FaceIgnore {
   ignored: boolean;
 }
 
+/** Where one of a face's images was taken from. */
+export interface FaceImageSource {
+  detectionId: number;
+  hostType: "video" | "image";
+  hostId: number;
+  hostTitle: string;
+  observedAtSec?: number | null;
+  /** The face segment containing that moment, when there is one. */
+  segmentId?: number | null;
+}
+
+export interface FaceImageSources {
+  cover: {
+    hasStoredCover: boolean;
+    /** Null when the cover was uploaded or its source was never recorded. */
+    detectionId?: number | null;
+    /** False when the recorded source detection no longer belongs to this face. */
+    sourceOnFace: boolean;
+  };
+  sources: FaceImageSource[];
+}
+
 export interface FaceDeleteImpact {
   detectionCount: number;
   embeddingCount: number;

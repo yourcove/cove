@@ -114,6 +114,7 @@ import type {
   FaceMerge,
   FaceIgnore,
   FaceDeleteImpact,
+  FaceImageSources,
   FaceNotPresentResult,
   FaceSimilar,
   FaceSplitResult,
@@ -976,6 +977,10 @@ export const faces: {
   detections: (id: number) => Promise<Detection[]>;
   detectionCropUrl: (detectionId: number, max?: number, context?: number) => string;
   deleteImpact: (id: number) => Promise<FaceDeleteImpact>;
+  imageSources: (id: number, detectionIds: number[]) => Promise<FaceImageSources>;
+  setCoverFromDetection: (id: number, detectionId: number) => Promise<void>;
+  uploadCover: (id: number, file: File) => Promise<{ blobId: string }>;
+  deleteCover: (id: number) => Promise<void>;
   create: (data: FaceCreate) => Promise<Face>;
   update: (id: number, data: FaceUpdate) => Promise<Face>;
   delete: (id: number) => Promise<void>;
@@ -1100,6 +1105,16 @@ export const faces: {
       ...mediaCacheRevision("detectionCrops"),
     }),
   deleteImpact: (id: number) => request<FaceDeleteImpact>(`/faces/${id}/delete-impact`),
+  imageSources: (id: number, detectionIds: number[]) => {
+    const params = new URLSearchParams();
+    for (const detectionId of detectionIds) params.append("detectionIds", String(detectionId));
+    const query = params.toString();
+    return request<FaceImageSources>(`/faces/${id}/image-sources${query ? `?${query}` : ""}`);
+  },
+  setCoverFromDetection: (id: number, detectionId: number) =>
+    request<void>(`/faces/${id}/cover/detection`, { method: "POST", body: JSON.stringify({ detectionId }) }),
+  uploadCover: (id: number, file: File) => uploadImage(`/faces/${id}/image`, file),
+  deleteCover: (id: number) => deleteImage(`/faces/${id}/image`),
   create: (data: FaceCreate) => request<Face>("/faces", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: FaceUpdate) =>
     request<Face>(`/faces/${id}`, { method: "PUT", body: JSON.stringify(data) }),

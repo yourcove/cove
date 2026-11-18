@@ -5,6 +5,10 @@ public class Face : BaseEntity
     public string? Label { get; set; }
     public int? PerformerId { get; set; }
     public string? CoverBlobId { get; set; }
+    // The detection the stored cover was cropped from, when that is known. Null for an uploaded cover, for a
+    // cover whose writer did not record its source, and once that detection has been deleted. CoveContext clears
+    // it whenever CoverBlobId changes without it, so it can never describe an earlier cover.
+    public int? CoverDetectionId { get; set; }
     public bool Ignored { get; set; }
     public int? MergedIntoFaceId { get; set; }
     public int DetectionCount { get; set; }

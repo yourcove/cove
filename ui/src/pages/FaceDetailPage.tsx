@@ -46,6 +46,12 @@ import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
 import { buildFaceCarouselSampleImageUrls, buildFaceHeroImageUrls } from "../components/faceComparisonImages";
+import {
+  FaceAppearanceBreakdown,
+  type FaceMoveOutcome,
+  MoveOutcomeList,
+  useFaceImageSources,
+} from "../components/FaceAppearanceBreakdown";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { EditModal } from "../components/EditModal";
@@ -144,7 +150,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const similarFaceFilters = useMemo(() => readSimilarFaceFilters(similarObjectFilter), [similarObjectFilter]);
   const [appearanceZoomLevel, setAppearanceZoomLevel] = useState(0);
   const [similarZoomLevel, setSimilarZoomLevel] = useState(0);
-  const [appearanceDisplayMode, setAppearanceDisplayMode] = useState<"grid" | "list">("grid");
+  const [appearanceDisplayMode, setAppearanceDisplayMode] = useState<"grid" | "list">("list");
   const [similarDisplayMode, setSimilarDisplayMode] = useState<"grid" | "list">("grid");
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -466,9 +472,15 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
 
   const mergeCandidates = (mergeMatchesQuery.data?.items ?? []).filter((candidate) => candidate.id !== id);
   const performerMatches = performerMatchesQuery.data?.items ?? [];
+  // Shares its request with the Appears In tab. A cover whose detection is known replaces that detection in the
+  // carousel, instead of the best one.
+  const { imageSources: faceImageSources } = useFaceImageSources(id, face != null);
+  // Kept here and not in the tab's list: a move can leave the list empty or replaced, and its result must stay.
+  const [moveResult, setMoveResult] = useState<{ faceId: number; outcomes: FaceMoveOutcome[] } | null>(null);
+  const coverDetectionId = faceImageSources?.cover.sourceOnFace ? faceImageSources.cover.detectionId : null;
   const carouselSampleImageUrls = useMemo(
-    () => buildFaceCarouselSampleImageUrls(face, faceDetections, faces.detectionCropUrl),
-    [face, faceDetections],
+    () => buildFaceCarouselSampleImageUrls(face, faceDetections, faces.detectionCropUrl, coverDetectionId),
+    [coverDetectionId, face, faceDetections],
   );
   const heroImageUrls = useMemo(
     () => buildFaceHeroImageUrls(face, carouselSampleImageUrls),
@@ -703,7 +715,9 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Appears In</h2>
-          <p className="mt-1 text-sm text-secondary">Videos and images where this face appears.</p>
+          <p className="mt-1 text-sm text-secondary">
+            Every video and image this face appears in, with the face as it looks in each appearance there.
+          </p>
         </div>
         <div className="text-xs text-muted">
           {appearancesLoadError
@@ -711,6 +725,10 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             : `${faceAppearancesPage.totalCount} appearance${faceAppearancesPage.totalCount === 1 ? "" : "s"}`}
         </div>
       </div>
+
+      {moveResult?.faceId === id ? (
+        <MoveOutcomeList outcomes={moveResult.outcomes} onNavigate={onNavigate} onDismiss={() => setMoveResult(null)} />
+      ) : null}
 
       <ListQueryState
         header={
@@ -723,7 +741,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             onZoomChange={setAppearanceZoomLevel}
             cardSizeEntityType="faces"
             showSearch
-            allowInfinitePageSize
+            allowInfinitePageSize={appearanceDisplayMode === "grid"}
             displayMode={appearanceDisplayMode}
             onDisplayModeChange={(mode: DetailListDisplayMode) => {
               if (mode === "grid" || mode === "list") setAppearanceDisplayMode(mode);
@@ -745,24 +763,42 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         }
       >
         <>
-          <FaceAppearancesGrid
-            appearances={faceAppearancesPage.items}
-            displayMode={appearanceDisplayMode}
-            onNavigate={onNavigate}
-            onSplit={canCorrectAppearances ? setSplitAppearance : undefined}
-            onMarkNotPresent={canCorrectAppearances ? confirmMarkNotPresent : undefined}
-            markingNotPresent={markNotPresentMutation.isPending ? markNotPresentMutation.variables : undefined}
-            zoomLevel={appearanceZoomLevel}
-            infinitePageSize={appearancesInfinitePageSize}
-            hasNextPage={appearancesInfiniteQuery.hasNextPage}
-            isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage}
-            loadMore={loadMoreAppearances}
-          />
+          {appearanceDisplayMode === "list" ? (
+            <FaceAppearanceBreakdown
+              // A selection belongs to one face; another face must never inherit it.
+              key={face.id}
+              face={face}
+              faceTitle={title}
+              appearances={faceAppearancesPage.items}
+              detections={faceDetections}
+              canWrite={canWriteFace}
+              canEditOccurrences={canEditOccurrences}
+              onNavigate={onNavigate}
+              onMoved={(outcomes) => setMoveResult({ faceId: id, outcomes })}
+              onChanged={(hostTypes) => {
+                invalidateFace();
+                hostTypes.forEach(refreshAfterAppearanceEdit);
+              }}
+            />
+          ) : (
+            <FaceAppearancesGrid
+              appearances={faceAppearancesPage.items}
+              onNavigate={onNavigate}
+              onSplit={canCorrectAppearances ? setSplitAppearance : undefined}
+              onMarkNotPresent={canCorrectAppearances ? confirmMarkNotPresent : undefined}
+              markingNotPresent={markNotPresentMutation.isPending ? markNotPresentMutation.variables : undefined}
+              zoomLevel={appearanceZoomLevel}
+              infinitePageSize={appearancesInfinitePageSize}
+              hasNextPage={appearancesInfiniteQuery.hasNextPage}
+              isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage}
+              loadMore={loadMoreAppearances}
+            />
+          )}
           <DetailListPagination
             filter={appearanceFilter}
             onFilterChange={setAppearanceFilter}
             totalCount={faceAppearancesPage.totalCount}
-            allowInfinitePageSize
+            allowInfinitePageSize={appearanceDisplayMode === "grid"}
           />
         </>
       </ListQueryState>
@@ -1242,7 +1278,6 @@ function FaceCandidateRow({ face, onSelect, disabled }: { face: Face; onSelect: 
 
 function FaceAppearancesGrid({
   appearances,
-  displayMode,
   onNavigate,
   onSplit,
   onMarkNotPresent,
@@ -1254,7 +1289,6 @@ function FaceAppearancesGrid({
   loadMore,
 }: {
   appearances: FaceAppearanceListItem[];
-  displayMode: "grid" | "list";
   onNavigate: (r: any) => void;
   onSplit?: (host: FaceAppearanceHost) => void;
   onMarkNotPresent?: (host: FaceAppearanceHost) => void;
@@ -1265,55 +1299,6 @@ function FaceAppearancesGrid({
   isFetchingNextPage?: boolean;
   loadMore: () => void;
 }) {
-  if (displayMode === "list") {
-    return (
-      <div className="overflow-hidden rounded-lg border border-border bg-card/60">
-        <div className="divide-y divide-border/70">
-          {appearances.map((appearance) => (
-            <div
-              key={appearance.appearanceId}
-              className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-card-hover"
-            >
-              <button
-                type="button"
-                onClick={() => onNavigate({ page: appearance.hostType, id: appearance.hostId })}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-              >
-                <div className="h-12 w-16 shrink-0 overflow-hidden rounded bg-surface">
-                  {appearance.thumbnailUrl ? (
-                    <LoadedImage
-                      src={appearance.thumbnailUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : null}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-accent">
-                    {appearance.title || `${appearance.hostType} #${appearance.hostId}`}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted">
-                    {appearance.hostType} · {appearance.frameSampleCount} samples ·{" "}
-                    {appearance.topConfidence != null
-                      ? `${Math.round(appearance.topConfidence * 100)}%`
-                      : "No confidence"}
-                  </div>
-                </div>
-              </button>
-              <AppearanceCorrectionActions
-                appearance={appearance}
-                onSplit={onSplit}
-                onMarkNotPresent={onMarkNotPresent}
-                markingNotPresent={markingNotPresent}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <VirtualizedEntityGrid
       items={appearances}

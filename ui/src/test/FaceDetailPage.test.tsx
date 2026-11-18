@@ -16,6 +16,7 @@ const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, n
     similar: vi.fn(),
     appearances: vi.fn(),
     detections: vi.fn(),
+    imageSources: async () => ({ cover: { hasStoredCover: false, sourceOnFace: false }, sources: [] }),
     deleteImpact: vi.fn(),
     update: vi.fn(),
     link: vi.fn(),
@@ -293,18 +294,22 @@ describe("FaceDetailPage", () => {
       page: 1,
       perPage: 24,
     });
-    mockFaces.markNotPresent.mockResolvedValue({});
+    mockFaces.hostTracks.mockResolvedValue([
+      { groupKey: "a", sampleCount: 2, detectionCount: 2, firstSeenSeconds: 12, suggestedGroup: 0 },
+    ]);
+    mockFaces.markNotPresent.mockResolvedValue({ targetFaceId: 44, createdNewFace: true });
     mockEntityEngagement.get.mockResolvedValue(null);
 
     renderPage();
     await screen.findByRole("heading", { name: "Jane Doe" });
     fireEvent.click(screen.getByRole("tab", { name: /Appears In/i }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Not present/ }));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('NOT present in "Wrong person video"'));
+    // The only appearance in the video is someone else, so the face is not in that video at all.
+    fireEvent.click(await screen.findByRole("button", { name: /Select the appearance in Wrong person video/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Not this person/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Move" }));
     await waitFor(() => expect(mockFaces.markNotPresent).toHaveBeenCalledWith(7, { hostType: "video", hostId: 5 }));
-
-    expect(screen.getByRole("button", { name: /Separate/ })).toBeInTheDocument();
+    expect(await screen.findByText(/moved to a/)).toBeInTheDocument();
   });
 });
 
