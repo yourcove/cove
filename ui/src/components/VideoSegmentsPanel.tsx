@@ -19,8 +19,7 @@ import { SegmentIcon } from "./segmentViewIcons";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import type { Route } from "../router/location";
 import type { Face, ResolvedSpan, Segment, SegmentDisplayProfile } from "../api/types";
-import { resolveSpanName } from "../pages/segments/segmentDisplayUtils";
-import { faceKeyLabel, spanPerson, type SegmentSection } from "../pages/videoDetail/segmentPeople";
+import { faceKeyLabel, spanPerson, spanShownName, type SegmentSection } from "../pages/videoDetail/segmentPeople";
 import { useFaceSuggestionDecision } from "../pages/videoDetail/useFaceSuggestionDecision";
 import { SuggestionDecision } from "../pages/videoDetail/SuggestionDecision";
 import { FaceCrop, FaceStack } from "../pages/videoDetail/FaceCrops";
@@ -175,7 +174,7 @@ export function VideoSegmentsPanel({
         key: span.spanKey,
         videoId,
         spanKey: span.spanKey,
-        title: resolveSpanName(span, rawSegmentsById, facesById).name,
+        title: spanShownName(span, rawSegmentsById, facesById).name,
         profileId: activeProfileId,
       }));
   }, [filteredSpans, selectedSpanKeys, videoId, rawSegmentsById, facesById, activeProfileId]);
@@ -874,7 +873,11 @@ function GroupedList({
                             style={{ backgroundColor: personColors.get(group.key) }}
                           />
                         ) : null}
-                        <ShownNameText name={group.name} suggested={group.suggested} className="text-sm font-medium" />
+                        <ShownNameText
+                          name={group.name}
+                          suggested={group.suggested}
+                          className="text-sm font-medium text-foreground"
+                        />
                       </button>
                       {listsFaces ? (
                         <button
@@ -986,10 +989,10 @@ function GroupedList({
 // A name with its "suggested" marker. The marker is hidden from screen readers, so a suggested name is read as one
 // phrase ending in "(suggested)" instead.
 function ShownNameText({ name, suggested, className = "" }: { name: string; suggested: boolean; className?: string }) {
-  if (!suggested) return <span className={`truncate text-foreground ${className}`}>{name}</span>;
+  if (!suggested) return <span className={`truncate ${className}`}>{name}</span>;
   return (
     <>
-      <span aria-hidden className={`truncate text-foreground ${className}`}>
+      <span aria-hidden className={`truncate ${className}`}>
         {name}
       </span>
       <SuggestedNameMarker />
@@ -1057,7 +1060,7 @@ function SegmentRow({
   leading?: React.ReactNode;
   hideLabel?: boolean;
 }) {
-  const shown = resolveSpanName(span, rawSegmentsById, facesById);
+  const shown = spanShownName(span, rawSegmentsById, facesById);
   const label = shown.name;
   const rawCount = span.segmentIds?.length ?? 0;
   return (
@@ -1078,7 +1081,7 @@ function SegmentRow({
           {span.endSec > span.startSec ? `–${formatTime(span.endSec)}` : ""}
         </span>
         {!hideLabel ? (
-          <span className="flex min-w-0 items-center gap-1.5 group-hover:text-accent">
+          <span className="flex min-w-0 items-center gap-1.5 text-foreground group-hover:text-accent">
             <ShownNameText name={label} suggested={shown.suggested} />
           </span>
         ) : null}

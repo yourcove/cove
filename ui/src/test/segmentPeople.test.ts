@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Face, ResolvedSpan, Segment } from "../api/types";
-import { assignPersonColors, spanPerson } from "../pages/videoDetail/segmentPeople";
+import { assignPersonColors, spanPerson, spanShownName } from "../pages/videoDetail/segmentPeople";
 
 function raw(id: number, overrides: Partial<Segment> = {}): Segment {
   return {
@@ -70,5 +70,33 @@ describe("person colours", () => {
     expect(colors.size).toBe(3);
     expect(new Set(colors.values()).size).toBe(3);
     expect(assignPersonColors(["name:a", "name:b", "suggested:1"]).get("name:a")).toBe(colors.get("name:a"));
+  });
+});
+
+describe("a segment's name in the video's segment lists", () => {
+  function nameOf(segment: Segment, faces: Face[]) {
+    const span = { kind: segment.kind, sourceKey: segment.sourceKey, segmentIds: [segment.id] } as Pick<
+      ResolvedSpan,
+      "tagId" | "tagName" | "kind" | "sourceKey" | "segmentIds"
+    >;
+    return spanShownName(span, new Map([[segment.id, segment]]), new Map(faces.map((entry) => [entry.id, entry])));
+  }
+
+  it("names a face segment after its person, as its group does, not after its placeholder or numbered face", () => {
+    expect(nameOf(raw(31), [face(31)])).toEqual({ name: "Unnamed face", suggested: false });
+    expect(
+      nameOf(raw(32), [
+        face(32, { performerId: 7, performerName: "Alice", performerFaceIndex: 2, performerFaceCount: 3 }),
+      ]),
+    ).toEqual({ name: "Alice", suggested: false });
+  });
+
+  it("keeps the shared naming for a tag segment", () => {
+    expect(
+      nameOf(raw(40, { kind: "tag", tagId: 5, refId: undefined, title: "Kissing", sourceKey: "manual" }), []),
+    ).toEqual({
+      name: "Kissing",
+      suggested: false,
+    });
   });
 });

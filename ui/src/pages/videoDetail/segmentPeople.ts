@@ -1,6 +1,6 @@
 import type { Face, ResolvedSpan, Segment } from "../../api/types";
 import { faceStoredName } from "../../utils/faceDisplay";
-import { rawSegmentFaceId, resolveSpanName } from "../segments/segmentDisplayUtils";
+import { rawSegmentFaceId, resolveSpanName, type ShownName } from "../segments/segmentDisplayUtils";
 
 /** Who, or what, a segment is about, for grouping a video's segments by person. */
 export interface SegmentPerson {
@@ -78,6 +78,21 @@ export function facePerson(
     };
   }
   return { key: `face:${faceId}`, name: "Unnamed face", suggested: false, faceId, section: "people" };
+}
+
+/**
+ * A segment's name in a list of the video's segments: a face segment is named after its person, as its group and its
+ * timeline bar are, rather than after its own face's numbered name or placeholder key; anything else keeps the shared
+ * segment naming.
+ */
+export function spanShownName(
+  span: Pick<ResolvedSpan, "tagId" | "tagName" | "kind" | "sourceKey" | "segmentIds">,
+  rawSegmentsById: ReadonlyMap<number, Segment>,
+  facesById?: ReadonlyMap<number, Face>,
+): ShownName {
+  const person = spanPerson(span, rawSegmentsById, facesById);
+  if (person.faceId != null) return { name: person.name, suggested: person.suggested };
+  return resolveSpanName(span, rawSegmentsById, facesById);
 }
 
 // Muted colours that read on the dark timeline and as small dots beside the Segments tab's groups.
