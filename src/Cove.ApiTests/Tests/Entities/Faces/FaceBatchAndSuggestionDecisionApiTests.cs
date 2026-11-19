@@ -48,6 +48,57 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/faces/batch/link")]
+    public async Task GivenReviewedSimilarFaces_WhenMemberBatchLinksThem_ThenLinkedFacesPropagateAndSkippedFacesAreRemembered()
+    {
+        // Arrange
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync($"Face batch-link host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var first = await AsUser().CreateFaceAsync(new FaceCreateDto("Batch link first", null, false, null), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateFaceAsync(new FaceCreateDto("Batch link second", null, false, null), TestContext.Current.CancellationToken);
+        var skipped = await AsUser().CreateFaceAsync(new FaceCreateDto("Batch link skipped", null, false, null), TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoFaceDetectionAsync(video, first, TestContext.Current.CancellationToken);
+        const int missingId = int.MaxValue;
+
+        // Act
+        var member = AsUser(ApiTestUsers.Eva);
+        var result = await member.BatchLinkFacesAsync(
+            new FaceBatchLinkDto(performer.Id, [first.Id, second.Id, missingId], [skipped.Id]),
+            TestContext.Current.CancellationToken);
+        var repeated = await member.BatchLinkFacesAsync(
+            new FaceBatchLinkDto(performer.Id, [first.Id], [skipped.Id]),
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        result.Linked.Should().Equal(first.Id, second.Id);
+        result.Rejected.Should().Equal(skipped.Id);
+        result.Skipped.Should().ContainSingle(item => item.FaceId == missingId);
+        result.Failed.Should().BeEmpty();
+        (await AsUser().GetFaceByIdAsync(first.Id, TestContext.Current.CancellationToken)).PerformerId.Should().Be(performer.Id);
+        (await AsUser().GetFaceByIdAsync(second.Id, TestContext.Current.CancellationToken)).PerformerId.Should().Be(performer.Id);
+        (await AsUser().GetFaceByIdAsync(skipped.Id, TestContext.Current.CancellationToken)).PerformerId.Should().BeNull();
+        var videos = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
+        videos.Should().ContainSingle(candidate => candidate.Id == video.Id);
+
+        // A second pass leaves the linked face alone and records the same skip again without failing.
+        repeated.Linked.Should().BeEmpty();
+        repeated.Skipped.Should().ContainSingle(item => item.FaceId == first.Id);
+        repeated.Rejected.Should().Equal(skipped.Id);
+
+        // Sent as an ordinary candidate, as a client showing a list from before the skip would, the face marked as
+        // someone else is left alone; overriding the mark links it.
+        var stale = await member.BatchLinkFacesAsync(new FaceBatchLinkDto(performer.Id, [skipped.Id]), TestContext.Current.CancellationToken);
+        stale.Linked.Should().BeEmpty();
+        stale.Skipped.Should().ContainSingle(item => item.FaceId == skipped.Id && item.Reason == "Face is marked as not this performer.");
+        (await AsUser().GetFaceByIdAsync(skipped.Id, TestContext.Current.CancellationToken)).PerformerId.Should().BeNull();
+        var overridden = await member.BatchLinkFacesAsync(
+            new FaceBatchLinkDto(performer.Id, [], OverrideRejectFaceIds: [skipped.Id]),
+            TestContext.Current.CancellationToken);
+        overridden.Linked.Should().Equal(skipped.Id);
+        (await AsUser().GetFaceByIdAsync(skipped.Id, TestContext.Current.CancellationToken)).PerformerId.Should().Be(performer.Id);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/faces/{id:int}/suggestions/decision")]
     public async Task GivenLocalPerformerSuggestion_WhenMemberRejectsThenAcceptsIt_ThenDecisionAndHostLinkAreUpdated()
     {

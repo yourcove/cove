@@ -41,6 +41,7 @@ import {
   syncRouteHistory,
 } from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
+import { SimilarReviewChoicesProvider } from "./components/similarReviewChoices";
 import { AppFloatingUI } from "./components/AppFloatingUI";
 import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner";
 import { MutationFailureNotice } from "./components/MutationFailureNotice";
@@ -188,7 +189,7 @@ const CompilationPlayerPage = lazy(() =>
 const SegmentsPlayPage = lazy(() => import("./pages/SegmentsPlayPage").then((m) => ({ default: m.SegmentsPlayPage })));
 const ImageDetailPage = lazy(() => import("./pages/ImageDetailPage").then((m) => ({ default: m.ImageDetailPage })));
 const FacesPage = lazy(() => import("./pages/FacesPage").then((m) => ({ default: m.FacesPage })));
-const FaceDetailPage = lazy(() => import("./pages/FaceDetailPage").then((m) => ({ default: m.FaceDetailPage })));
+const FaceDetailRoute = lazy(() => import("./pages/FaceDetailPage").then((m) => ({ default: m.FaceDetailRoute })));
 const DuplicateFinderPage = lazy(() =>
   import("./pages/DuplicateFinderPage").then((m) => ({ default: m.DuplicateFinderPage })),
 );
@@ -661,7 +662,10 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
               )
             }
           >
-            <AppRoutes route={route} navigate={navigate} />
+            {/* Above the routes, so a face's similar-faces review survives leaving the face and coming back. */}
+            <SimilarReviewChoicesProvider>
+              <AppRoutes route={route} navigate={navigate} />
+            </SimilarReviewChoicesProvider>
           </Suspense>
         </ErrorBoundary>
       </main>
@@ -799,7 +803,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       {route.page === "segments" && <SegmentsPage onNavigate={navigate} />}
       {route.page === "segment" && route.id !== undefined && <SegmentDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "faces" && <FacesPage onNavigate={navigate} />}
-      {route.page === "face" && route.id !== undefined && <FaceDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "face" && route.id !== undefined && <FaceDetailRoute id={route.id} onNavigate={navigate} />}
       {route.page === "performers" && <PerformersPage onNavigate={navigate} />}
       {route.page === "performer" && route.id !== undefined && (
         <DetailListStateCacheProvider key={`performer-${route.id}`}>

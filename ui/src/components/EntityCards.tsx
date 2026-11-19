@@ -122,7 +122,7 @@ interface EntityTileDragHandleProps {
 }
 
 interface EntityTileFrameProps {
-  route: { page: string; id: number };
+  route: { page: string; id: number; detailTab?: string };
   label: string;
   onClick: (options?: MultiSelectToggleOptions) => void;
   media: ReactNode;
@@ -3292,6 +3292,7 @@ export function TagTile({
 export function FaceTile({
   face,
   onClick,
+  detailTab,
   selected,
   onSelect,
   selecting,
@@ -3299,6 +3300,8 @@ export function FaceTile({
 }: {
   face: Face;
   onClick: (options?: MultiSelectToggleOptions) => void;
+  /** The face page tab the tile opens; defaults to the page's first tab. */
+  detailTab?: string;
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
@@ -3308,7 +3311,7 @@ export function FaceTile({
 
   return (
     <EntityTileFrame
-      route={{ page: "face", id: face.id }}
+      route={{ page: "face", id: face.id, detailTab }}
       label={`Open face ${title}`}
       onClick={onClick}
       selected={selected}

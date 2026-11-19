@@ -9,6 +9,8 @@ import { createRouteLinkProps } from "./cardNavigation";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { compareFaceSampleDetections } from "./faceComparisonImages";
 import { formatDuration } from "./shared";
+import { ListLoadError } from "./ListLoadError";
+import { getSearchResultState, normalizeQueryError } from "../utils/queryLoadState";
 
 type AppearanceHost = Pick<FaceAppearance, "hostType" | "hostId" | "title">;
 
@@ -737,12 +739,16 @@ function spreadSample<T>(items: T[], limit: number) {
 function PerformerChoice({ onChoose }: { onChoose: (performer: { id: number; name: string }) => void }) {
   const [search, setSearch] = useState("");
   const term = search.trim();
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["performers", "face-appearance-move", term],
     queryFn: () => performers.find({ q: term, page: 1, perPage: 6 }),
     enabled: term.length >= 2,
+    // Keep the last results on screen while the next keystroke searches, instead of flashing to a loading
+    // line on every key; they are disabled meanwhile because they answer the previous text.
+    placeholderData: keepPreviousData,
   });
-  const matches = data?.items ?? [];
+  const matches = query.data?.items ?? [];
+  const searchState = getSearchResultState(query, matches.length);
 
   return (
     <div className="mt-3 space-y-2">
@@ -758,16 +764,24 @@ function PerformerChoice({ onChoose }: { onChoose: (performer: { id: number; nam
           className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-accent"
         />
       </div>
-      {term.length < 2 ? null : isLoading ? (
+      {term.length < 2 ? null : searchState === "error" ? (
+        <ListLoadError
+          error={normalizeQueryError(query.error) ?? new Error("Search failed")}
+          onRetry={() => void query.refetch()}
+          title="Could not search performers"
+          className="mt-1"
+        />
+      ) : searchState === "searching" ? (
         <p className="text-sm text-secondary">Searching performers...</p>
-      ) : matches.length === 0 ? (
+      ) : searchState === "empty" ? (
         <p className="text-sm text-secondary">No performers matched that search.</p>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" aria-busy={query.isPlaceholderData || undefined}>
           {matches.map((performer) => (
             <button
               key={performer.id}
               type="button"
+              disabled={query.isPlaceholderData}
               className={ACTION_BUTTON_CLASS}
               onClick={() => onChoose({ id: performer.id, name: performer.name })}
             >

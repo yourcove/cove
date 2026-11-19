@@ -105,6 +105,8 @@ import type {
   FaceUpdate,
   FaceLink,
   FaceBatchLinkTopSuggestionRequest,
+  FaceBatchLinkRequest,
+  FaceBatchLinkResult,
   FaceBatchDeleteRequest,
   FaceBatchOperationResult,
   FaceCreatePerformer,
@@ -985,6 +987,7 @@ export const faces: {
   update: (id: number, data: FaceUpdate) => Promise<Face>;
   delete: (id: number) => Promise<void>;
   batchLinkTopSuggestion: (data: FaceBatchLinkTopSuggestionRequest) => Promise<FaceBatchOperationResult>;
+  batchLink: (data: FaceBatchLinkRequest) => Promise<FaceBatchLinkResult>;
   batchDelete: (data: FaceBatchDeleteRequest) => Promise<BulkDeletionJobStart>;
   createPerformer: (id: number, data: FaceCreatePerformer) => Promise<Face>;
   link: (id: number, data: FaceLink) => Promise<Face>;
@@ -1000,6 +1003,7 @@ export const faces: {
       direction?: "asc" | "desc";
       seed?: number;
       linked?: boolean;
+      markedNotPerformer?: boolean;
       path?: string;
       pathModifier?: string;
       page?: number;
@@ -1124,6 +1128,8 @@ export const faces: {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  batchLink: (data: FaceBatchLinkRequest) =>
+    request<FaceBatchLinkResult>("/faces/batch/link", { method: "POST", body: JSON.stringify(data) }),
   batchDelete: (data: FaceBatchDeleteRequest) =>
     request<BulkDeletionJobStart>("/faces/batch/delete", { method: "POST", body: JSON.stringify(data) }),
   createPerformer: (id: number, data: FaceCreatePerformer) =>
@@ -1144,6 +1150,7 @@ export const faces: {
       direction?: "asc" | "desc";
       seed?: number;
       linked?: boolean;
+      markedNotPerformer?: boolean;
       path?: string;
       pathModifier?: string;
       page?: number;
@@ -1159,6 +1166,7 @@ export const faces: {
           sort: opts?.sort,
           direction: opts?.direction,
           linked: opts?.linked,
+          markedNotPerformer: opts?.markedNotPerformer,
           path: opts?.path,
           pathModifier: opts?.pathModifier,
         },

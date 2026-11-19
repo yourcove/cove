@@ -285,6 +285,15 @@ public sealed partial class CoveClient
             System.Net.HttpStatusCode.Accepted,
             cancellationToken);
 
+    public Task<FaceBatchLinkResultDto> BatchLinkFacesAsync(
+        FaceBatchLinkDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceBatchLinkResultDto>(
+            HttpMethod.Post,
+            "/api/faces/batch/link",
+            request,
+            cancellationToken);
+
     public Task<FaceDto> RecordFaceSuggestionDecisionAsync(
         int faceId,
         FaceSuggestionDecisionDto decision,

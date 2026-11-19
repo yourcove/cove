@@ -111,7 +111,7 @@ public class AiCoreControllerTests
         context.Detections.Add(representativeDetection);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
+        var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
         var similarOk = Assert.IsType<OkObjectResult>(similarResult.Result);
         var similarFaces = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(similarOk.Value);
         var match = Assert.Single(similarFaces.Items);
@@ -178,10 +178,10 @@ public class AiCoreControllerTests
             Array.Empty<IFaceLifecycleParticipant>(),
             NullLogger<FacesController>.Instance);
 
-        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
+        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, null, 1, 5, 5, CancellationToken.None);
         var firstOk = Assert.IsType<OkObjectResult>(firstResult.Result);
         var firstPage = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(firstOk.Value);
-        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, 2, 2, 5, CancellationToken.None);
+        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, null, null, null, null, null, 2, 2, 5, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(ok.Value);
 
@@ -190,11 +190,11 @@ public class AiCoreControllerTests
         Assert.Equal(2, page.Items.Count);
         Assert.Equal(firstPage.Items.Skip(2).Take(2).Select(face => face.Id), page.Items.Select(face => face.Id));
 
-        var randomFirstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 1, 3, 5, CancellationToken.None);
+        var randomFirstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, null, 1, 3, 5, CancellationToken.None);
         var randomFirst = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomFirstResult.Result).Value);
-        var randomSecondResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 2, 3, 5, CancellationToken.None);
+        var randomSecondResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, null, 2, 3, 5, CancellationToken.None);
         var randomSecond = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomSecondResult.Result).Value);
-        var randomRepeatResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, 1, 3, 5, CancellationToken.None);
+        var randomRepeatResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "random", "asc", 42, null, null, null, null, 1, 3, 5, CancellationToken.None);
         var randomRepeat = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(randomRepeatResult.Result).Value);
 
         Assert.Equal(randomFirst.Items.Select(face => face.Id), randomRepeat.Items.Select(face => face.Id));
@@ -276,7 +276,7 @@ public class AiCoreControllerTests
 
         async Task<string?[]> SimilarLabelsAsync(bool? linked, string? path)
         {
-            var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "label", "asc", null, linked, path, null, 1, 10, 10, ct);
+            var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, "label", "asc", null, linked, path, null, null, 1, 10, 10, ct);
             var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(result.Result).Value);
             Assert.Equal(page.Items.Count, page.TotalCount);
             return page.Items.Select(face => face.Label).ToArray();

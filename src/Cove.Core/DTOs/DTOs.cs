@@ -1207,6 +1207,28 @@ public record FaceBatchLinkTopSuggestionDto(
     bool LinkConflicting = false,
     bool MergeConflicting = false);
 
+/// <summary>
+/// Links reviewed faces to one chosen performer, and remembers the faces the reviewer skipped as not
+/// being that performer (a per-user reject decision, the same one a rejected suggestion records).
+/// A face in <see cref="FaceIds"/> that the user already marked as not this performer is left alone; to link
+/// it the reviewer lists it in <see cref="OverrideRejectFaceIds"/>, which links it and turns the reject into
+/// an accept. An override gets the same checks as any face to link: a merged, ignored or already linked face is
+/// left alone. A face in both <see cref="FaceIds"/> and <see cref="OverrideRejectFaceIds"/> is taken as an
+/// override; a face in both <see cref="OverrideRejectFaceIds"/> and <see cref="RejectFaceIds"/> is refused, and
+/// so is the request.
+/// </summary>
+public record FaceBatchLinkDto(
+    int PerformerId,
+    IReadOnlyList<int> FaceIds,
+    IReadOnlyList<int>? RejectFaceIds = null,
+    IReadOnlyList<int>? OverrideRejectFaceIds = null);
+
+public record FaceBatchLinkResultDto(
+    IReadOnlyList<int> Linked,
+    IReadOnlyList<int> Rejected,
+    IReadOnlyList<FaceBatchSkippedDto> Skipped,
+    IReadOnlyList<FaceBatchFailedDto> Failed);
+
 public record FaceBatchDeleteDto(IReadOnlyList<int> FaceIds);
 
 public record FaceBatchOperationResultDto(
@@ -1360,7 +1382,16 @@ public record FaceSimilarDto(
     DateTime UpdatedAt,
     int AppearanceCount,
     int FrameSampleCount,
-    float Distance);
+    float Distance)
+{
+    // An init property rather than a positional parameter, so extensions built against the
+    // earlier constructor keep binding to it.
+    /// <summary>
+    /// The current user has rejected this face for the performer linked to the face the similar
+    /// faces were searched from.
+    /// </summary>
+    public bool RejectedForSourcePerformer { get; init; }
+}
 
 public record EmbeddingDto(
     int Id,
