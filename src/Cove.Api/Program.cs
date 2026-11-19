@@ -367,6 +367,11 @@ try
     builder.Services.AddSingleton<FileFingerprintWriter>();
     builder.Services.AddSingleton<NonVideoGenerationService>();
     builder.Services.AddSingleton<GenerateJobService>();
+    builder.Services.AddSingleton<IdentifyJobService>();
+    // Forwarded rather than registered as the implementation, so the controller keeps resolving the
+    // concrete type while extensions, which can bind only Cove.Core, resolve the interface and get
+    // this same host instance.
+    builder.Services.AddSingleton<IIdentifyService>(sp => sp.GetRequiredService<IdentifyJobService>());
     builder.Services.AddScoped<GenerateEstimateService>();
     builder.Services.AddSingleton<IMediaProbeService, FfprobeMediaProbeService>();
     builder.Services.AddSingleton<IVideoSourceHealthProbe, VideoSourceHealthProbe>();
