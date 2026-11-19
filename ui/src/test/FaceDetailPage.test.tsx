@@ -338,10 +338,14 @@ describe("FaceDetailPage", () => {
       "Linked 2 faces to Jane Doe. Remembered 1 face as not Jane Doe.",
     );
 
-    // Reviewed faces stay on the page they were on; narrowing to unlinked faces brings the next batch up.
-    fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+    // Reviewed faces stay on the page they were on; hiding linked faces and faces marked as someone else brings
+    // the next batch up.
+    fireEvent.click(within(review).getByRole("button", { name: "Show faces left to review" }));
     await waitFor(() =>
-      expect(mockFaces.similar).toHaveBeenLastCalledWith(7, expect.objectContaining({ linked: false, page: 1 })),
+      expect(mockFaces.similar).toHaveBeenLastCalledWith(
+        7,
+        expect.objectContaining({ linked: false, markedNotPerformer: false, page: 1 }),
+      ),
     );
   });
 
@@ -409,11 +413,12 @@ describe("FaceDetailPage", () => {
     const fresh = similarFace({ id: 17, label: "Fresh" });
     const skippedNow = similarFace({ id: 18, label: "Skipped now" });
     const savedReject = similarFace({ id: 19, label: "Saved reject", rejectedForSourcePerformer: true });
-    // Answered by request and phase rather than call order: the first page; the unlinked-only page, held
-    // back, in which the face skipped now was meanwhile rejected elsewhere; and the page after the batch.
+    // Answered by request and phase rather than call order: the first page, filtered to unlinked faces; the page
+    // without that filter, held back, in which the face skipped now was meanwhile rejected elsewhere; and the page
+    // after the batch.
     let batchSent = false;
     let finishRefresh: () => void = () => {};
-    const heldUnlinked = new Promise((resolve) => {
+    const heldUnfiltered = new Promise((resolve) => {
       finishRefresh = () =>
         resolve(page([fresh, similarFace({ ...skippedNow, rejectedForSourcePerformer: true }), savedReject]));
     });
@@ -421,24 +426,32 @@ describe("FaceDetailPage", () => {
       batchSent
         ? Promise.resolve(page([savedReject]))
         : options.linked === false
-          ? heldUnlinked
-          : Promise.resolve(page([fresh, skippedNow, savedReject])),
+          ? Promise.resolve(page([fresh, skippedNow, savedReject]))
+          : heldUnfiltered,
     );
     mockFaces.batchLink.mockImplementation(async () => {
       batchSent = true;
       return { linked: [17], rejected: [], skipped: [], failed: [{ faceId: 19, error: "Host update failed." }] };
     });
+    window.history.replaceState(
+      null,
+      "",
+      `/face/7?tab=similar&filters=${encodeURIComponent(JSON.stringify({ linkedCriterion: { value: false } }))}`,
+    );
 
     renderPage();
     await screen.findByRole("heading", { name: "Jane Doe" });
-    fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
     const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
     fireEvent.click(screen.getByRole("button", { name: "Will link Skipped now, skip it" }));
     fireEvent.click(screen.getByRole("button", { name: "Not Jane Doe Saved reject, link it after all" }));
     expect(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" })).toBeEnabled();
 
+    // The shortcut would hide the face chosen to link after all, so it waits for that choice to be linked or reset.
+    expect(within(review).getByRole("button", { name: "Show faces left to review" })).toBeDisabled();
+    expect(within(review).getByText(/Link or reset the 1 face you chose to link after all/)).toBeInTheDocument();
+
     // While the earlier list is still on screen nothing can be chosen or sent.
-    fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Linked" }));
     expect(within(review).getByRole("button", { name: "Link 2 faces to Jane Doe" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Will link Fresh, skip it" })).toBeDisabled();
     await act(async () => finishRefresh());
@@ -459,6 +472,81 @@ describe("FaceDetailPage", () => {
     // The saved reject failed to link, so it is still offered as the reviewer chose it.
     expect(await within(review).findByText(/1 face could not be linked/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Will link Saved reject, skip it" })).toBeEnabled();
+  });
+
+  it("keeps the outcome of the batch that leaves no faces to review", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+    let batchSent = false;
+    const remaining = [similarFace({ id: 17, label: "Last one" }), similarFace({ id: 18, label: "Someone else" })];
+    mockFaces.similar.mockImplementation(async () => {
+      const items = batchSent ? [] : remaining;
+      return { items, totalCount: items.length, page: 1, perPage: 18 };
+    });
+    mockFaces.batchLink.mockImplementation(async () => {
+      batchSent = true;
+      return { linked: [17], rejected: [18], skipped: [], failed: [] };
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/face/7?tab=similar&filters=${encodeURIComponent(
+        JSON.stringify({ linkedCriterion: { value: false }, markedNotPerformerCriterion: { value: false } }),
+      )}`,
+    );
+
+    renderPage();
+    const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
+    expect(mockFaces.similar).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ linked: false, markedNotPerformer: false }),
+    );
+    // Already showing only faces left to review, so the shortcut has nothing to add.
+    expect(within(review).queryByRole("button", { name: "Show faces left to review" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Will link Someone else, skip it" }));
+    fireEvent.click(within(review).getByRole("button", { name: "Link 1 face to Jane Doe" }));
+
+    expect(await screen.findByText("No faces are left to review for Jane Doe.")).toBeInTheDocument();
+    expect(screen.queryByText("No faces on this page will be linked to Jane Doe.")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Review similar faces for Jane Doe" })).getByRole("status"),
+    ).toHaveTextContent("Linked 1 face to Jane Doe. Remembered 1 face as not Jane Doe.");
+  });
+
+  it("offers the shortcut on a list filtered to unlinked faces only, and sends the marked filter", async () => {
+    mockAuth.canWrite = true;
+    mockFaces.get.mockResolvedValue(linkedFace);
+    mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+    mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+    mockFaces.similar.mockResolvedValue({
+      items: [similarFace({ id: 17, label: "Candidate" })],
+      totalCount: 1,
+      page: 1,
+      perPage: 18,
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/face/7?tab=similar&filters=${encodeURIComponent(JSON.stringify({ linkedCriterion: { value: false } }))}`,
+    );
+
+    renderPage();
+    const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
+    fireEvent.click(within(review).getByRole("button", { name: "Show faces left to review" }));
+    await waitFor(() =>
+      expect(mockFaces.similar).toHaveBeenLastCalledWith(
+        7,
+        expect.objectContaining({ linked: false, markedNotPerformer: false }),
+      ),
+    );
   });
 
   it("refreshes the similar list after a failed batch, since its skips may already be saved", async () => {
@@ -840,7 +928,7 @@ describe("FaceDetailPage", () => {
       expect(mockFaces.appearances).toHaveBeenCalledWith(7, expect.objectContaining({ page: 1, q: undefined }));
     });
 
-    it("writes Show unlinked only into the URL and goes back to the first page", async () => {
+    it("writes Show faces left to review into the URL and goes back to the first page", async () => {
       mockAuth.canWrite = true;
       mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
       mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
@@ -849,10 +937,13 @@ describe("FaceDetailPage", () => {
 
       renderPage();
       const review = await screen.findByRole("region", { name: "Review similar faces for Jane Doe" });
-      fireEvent.click(within(review).getByRole("button", { name: "Show unlinked only" }));
+      fireEvent.click(within(review).getByRole("button", { name: "Show faces left to review" }));
 
       await waitFor(() =>
-        expect(JSON.parse(urlParam("filters") ?? "{}")).toEqual({ linkedCriterion: { value: false } }),
+        expect(JSON.parse(urlParam("filters") ?? "{}")).toEqual({
+          linkedCriterion: { value: false },
+          markedNotPerformerCriterion: { value: false },
+        }),
       );
       expect(urlParam("page")).toBeNull();
     });

@@ -568,12 +568,36 @@ public sealed class FaceSuggestionControllerTests
         var controller = CreateController(context, scope.PrincipalAccessor);
         controller.ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
 
-        var result = await controller.GetSimilar(source.Id, "face.arcface", null, null, null, null, null, null, null, 1, 10, 10, ct);
+        var result = await controller.GetSimilar(source.Id, "face.arcface", null, null, null, null, null, null, null, null, 1, 10, 10, ct);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(ok.Value);
         Assert.Equal(4, page.Items.Count);
         Assert.Equal([rejected.Id], page.Items.Where(item => item.RejectedForSourcePerformer).Select(item => item.Id));
+
+        // The filter applies before paging, so hiding the marked face moves the next candidate onto the first page.
+        var hidden = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(
+            (await controller.GetSimilar(source.Id, "face.arcface", null, "distance", "asc", null, markedNotPerformer: false, perPage: 1, k: 10, cancellationToken: ct)).Result).Value);
+        Assert.Equal(3, hidden.TotalCount);
+        Assert.Equal([rejectedForOther.Id], hidden.Items.Select(item => item.Id));
+        Assert.DoesNotContain(hidden.Items, item => item.RejectedForSourcePerformer);
+
+        var onlyMarked = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(
+            (await controller.GetSimilar(source.Id, "face.arcface", null, null, null, null, markedNotPerformer: true, k: 10, cancellationToken: ct)).Result).Value);
+        Assert.Equal([rejected.Id], onlyMarked.Items.Select(item => item.Id));
+        Assert.True(onlyMarked.Items.Single().RejectedForSourcePerformer);
+
+        // An administrator bypasses the per-user decision filter, and still sees only their own marks.
+        SetCurrentUser(scope.PrincipalAccessor, 7, "tester", administrator: true);
+        var adminMarked = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(
+            (await controller.GetSimilar(source.Id, "face.arcface", null, null, null, null, markedNotPerformer: true, k: 10, cancellationToken: ct)).Result).Value);
+        Assert.Equal([rejected.Id], adminMarked.Items.Select(item => item.Id));
+
+        // An unlinked source face has no performer to be marked against, so nothing is marked.
+        var fromUnlinked = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(Assert.IsType<OkObjectResult>(
+            (await controller.GetSimilar(candidate.Id, "face.arcface", null, null, null, null, markedNotPerformer: false, k: 10, cancellationToken: ct)).Result).Value);
+        Assert.Equal(4, fromUnlinked.TotalCount);
+        Assert.DoesNotContain(fromUnlinked.Items, item => item.RejectedForSourcePerformer);
     }
 
     private static FacesController CreateController(CoveContext context, CurrentPrincipalAccessor principalAccessor, params IFaceSuggester[] suggesters)

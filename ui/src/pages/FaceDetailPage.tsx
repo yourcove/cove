@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -152,16 +152,20 @@ const SIMILAR_SORT_OPTIONS = [
 
 const SIMILAR_FACE_CRITERIA: CriterionDefinition[] = [
   { id: "linked", label: "Linked", type: "bool", filterKey: "linkedCriterion" },
+  // Faces this user marked "Not <performer>" for the viewed face's performer; only a linked face has one.
+  { id: "marked_not_performer", label: "Marked Not Performer", type: "bool", filterKey: "markedNotPerformerCriterion" },
   FACE_PATH_CRITERION,
 ];
 
 /** The similar-faces endpoint takes flat params; keep only the criteria it understands. */
 function readSimilarFaceFilters(objectFilter: Record<string, unknown>) {
   const linked = objectFilter.linkedCriterion as Partial<BoolCriterion> | undefined;
+  const markedNotPerformer = objectFilter.markedNotPerformerCriterion as Partial<BoolCriterion> | undefined;
   const path = objectFilter.pathCriterion as Partial<StringCriterion> | undefined;
   const pathValue = typeof path?.value === "string" ? path.value.trim() : "";
   return {
     linked: typeof linked?.value === "boolean" ? linked.value : undefined,
+    markedNotPerformer: typeof markedNotPerformer?.value === "boolean" ? markedNotPerformer.value : undefined,
     path: pathValue || undefined,
     pathModifier:
       pathValue && path?.modifier && FACE_PATH_MODIFIERS.includes(path.modifier) ? path.modifier : undefined,
@@ -1087,6 +1091,51 @@ function FaceDetailPage({ id, onNavigate }: Props) {
         };
         const toggleSimilarChoice = (candidate: FaceSimilar) =>
           changeChoices((choices) => withChoice(choices, candidate, !isLinkedByReview(candidate, choices)));
+        const showsFacesLeftToReview =
+          similarFaceFilters.linked === false && similarFaceFilters.markedNotPerformer === false;
+        const similarReviewBar = similarReviewTarget ? (
+          <SimilarReviewBar
+            target={similarReviewTarget}
+            linkCount={similarReviewLinkIds.length + similarReviewOverrideIds.length}
+            skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
+            pending={similarBatchInFlight}
+            waitingForOtherBatch={otherFaceBatchInFlight}
+            locked={similarReviewLocked}
+            error={similarReviewError}
+            refreshFailed={similarIsRefetchError}
+            onRetryRefresh={() => {
+              void retrySimilar();
+            }}
+            infinitePageSize={similarInfinitePageSize}
+            result={similarReviewOutcome}
+            onSubmit={() =>
+              batchLinkSimilarMutation.mutate({
+                reviewKey: similarReviewKey(id, similarReviewTarget.performerId),
+                sourceFaceId: id,
+                performerId: similarReviewTarget.performerId,
+                faceIds: similarReviewLinkIds,
+                rejectFaceIds: similarReviewSkipIds,
+                overrideRejectFaceIds: similarReviewOverrideIds,
+              })
+            }
+            changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
+            onResetChoices={() => changeChoices((choices) => withoutChoices(choices, similarReviewChangedIds))}
+            listEmpty={similarFacesPage.totalCount === 0}
+            pendingOverrideCount={similarInfinitePageSize ? 0 : similarReviewOverrideIds.length}
+            onShowUnlinkedOnly={
+              showsFacesLeftToReview
+                ? undefined
+                : () => {
+                    setSimilarObjectFilter({
+                      ...similarObjectFilter,
+                      linkedCriterion: { value: false },
+                      markedNotPerformerCriterion: { value: false },
+                    });
+                    setSimilarFilter({ ...similarFilter, page: 1 });
+                  }
+            }
+          />
+        ) : null;
 
         return (
           <section className="space-y-4">
@@ -1132,51 +1181,26 @@ function FaceDetailPage({ id, onNavigate }: Props) {
               }}
               loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
               empty={
-                <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-                  {similarFaceFilters.linked !== undefined || similarFaceFilters.path
-                    ? "No similar faces match the current filters."
-                    : "No similar faces are available for this cluster yet."}
+                <div className="space-y-4">
+                  {/* The last batch often empties the list, and its outcome must still be seen. */}
+                  {similarReviewOutcome || similarReviewError || similarIsRefetchError ? similarReviewBar : null}
+                  <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
+                    {similarReviewTarget &&
+                    showsFacesLeftToReview &&
+                    !similarFaceFilters.path &&
+                    !similarFilter.q?.trim()
+                      ? `No faces are left to review for ${similarReviewTarget.performerName}.`
+                      : similarFaceFilters.linked !== undefined ||
+                          similarFaceFilters.markedNotPerformer !== undefined ||
+                          similarFaceFilters.path
+                        ? "No similar faces match the current filters."
+                        : "No similar faces are available for this cluster yet."}
+                  </div>
                 </div>
               }
             >
               <>
-                {similarReviewTarget ? (
-                  <SimilarReviewBar
-                    target={similarReviewTarget}
-                    linkCount={similarReviewLinkIds.length + similarReviewOverrideIds.length}
-                    skipCount={similarInfinitePageSize ? 0 : similarReviewSkipIds.length}
-                    pending={similarBatchInFlight}
-                    waitingForOtherBatch={otherFaceBatchInFlight}
-                    locked={similarReviewLocked}
-                    error={similarReviewError}
-                    refreshFailed={similarIsRefetchError}
-                    onRetryRefresh={() => {
-                      void retrySimilar();
-                    }}
-                    infinitePageSize={similarInfinitePageSize}
-                    result={similarReviewOutcome}
-                    onSubmit={() =>
-                      batchLinkSimilarMutation.mutate({
-                        reviewKey: similarReviewKey(id, similarReviewTarget.performerId),
-                        sourceFaceId: id,
-                        performerId: similarReviewTarget.performerId,
-                        faceIds: similarReviewLinkIds,
-                        rejectFaceIds: similarReviewSkipIds,
-                        overrideRejectFaceIds: similarReviewOverrideIds,
-                      })
-                    }
-                    changedCount={similarInfinitePageSize ? 0 : similarReviewChangedIds.length}
-                    onResetChoices={() => changeChoices((choices) => withoutChoices(choices, similarReviewChangedIds))}
-                    onShowUnlinkedOnly={
-                      similarFaceFilters.linked === false
-                        ? undefined
-                        : () => {
-                            setSimilarObjectFilter({ ...similarObjectFilter, linkedCriterion: { value: false } });
-                            setSimilarFilter({ ...similarFilter, page: 1 });
-                          }
-                    }
-                  />
-                ) : null}
+                {similarReviewBar}
                 <SimilarFacesView
                   faces={similarFacesPage.items}
                   displayMode={similarDisplayMode}
@@ -1923,6 +1947,8 @@ function SimilarReviewBar({
   onSubmit,
   onResetChoices,
   onShowUnlinkedOnly,
+  pendingOverrideCount,
+  listEmpty,
   infinitePageSize,
 }: {
   target: SimilarFaceLinkTarget;
@@ -1942,12 +1968,23 @@ function SimilarReviewBar({
   result: FaceBatchLinkResult | null;
   onSubmit: () => void;
   onResetChoices: () => void;
-  /** Narrows the list to unlinked faces, so faces already reviewed drop out and the next batch moves up. */
+  /**
+   * Narrows the list to unlinked faces not marked "Not <performer>", so faces already reviewed drop out and the
+   * next batch moves up. Removing the filter brings the marked faces back, so a mark can still be changed.
+   */
   onShowUnlinkedOnly?: () => void;
+  /**
+   * Faces on this page marked "Not <performer>" that the reviewer chose to link after all and has not linked yet.
+   * The shortcut would hide them and drop the choice from the batch, so it waits until they are linked or reset.
+   */
+  pendingOverrideCount: number;
+  /** The list has no faces, and its empty state already says so. */
+  listEmpty: boolean;
   /** Endless scrolling has no page to review, so the batch waits for a page size to be picked. */
   infinitePageSize: boolean;
 }) {
   const hasCandidates = !infinitePageSize && linkCount + skipCount > 0;
+  const overrideNoteId = useId();
   const name = target.performerName;
   const actionLabel = pending
     ? "Saving..."
@@ -1964,7 +2001,7 @@ function SimilarReviewBar({
       <div className="min-w-0 flex-1 text-sm">
         {infinitePageSize ? (
           <span className="text-secondary">Pick a page size to review similar faces for {name} in batches.</span>
-        ) : !hasCandidates ? (
+        ) : listEmpty ? null : !hasCandidates ? (
           <span className="text-secondary">No faces on this page will be linked to {name}.</span>
         ) : (
           <span className="text-foreground">
@@ -1996,6 +2033,12 @@ function SimilarReviewBar({
             </button>
           </div>
         ) : null}
+        {onShowUnlinkedOnly && pendingOverrideCount > 0 ? (
+          <p id={overrideNoteId} className="mt-1 text-xs text-secondary">
+            Link or reset the {formatCount(pendingOverrideCount, "face")} you chose to link after all before showing
+            only faces left to review.
+          </p>
+        ) : null}
         {error ? (
           <div role="alert" className="mt-1 text-xs text-red-400">
             {error instanceof Error ? error.message : "Could not save the review."}
@@ -2006,10 +2049,11 @@ function SimilarReviewBar({
         <button
           type="button"
           onClick={onShowUnlinkedOnly}
-          disabled={locked}
+          disabled={locked || pendingOverrideCount > 0}
+          aria-describedby={pendingOverrideCount > 0 ? overrideNoteId : undefined}
           className="rounded-lg border border-border px-3 py-1.5 text-xs text-secondary transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Show unlinked only
+          Show faces left to review
         </button>
       ) : null}
       {changedCount > 0 ? (

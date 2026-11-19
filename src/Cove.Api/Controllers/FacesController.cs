@@ -1547,6 +1547,7 @@ public class FacesController(
         [FromQuery] bool? linked = null,
         [FromQuery] string? path = null,
         [FromQuery] string? pathModifier = null,
+        [FromQuery] bool? markedNotPerformer = null,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 18,
         [FromQuery] int k = 80,
@@ -1647,6 +1648,28 @@ public class FacesController(
                 .ToList();
         }
 
+        // The faces this user already turned down for the source face's performer. They are marked so a
+        // review of the similar faces does not offer them for that performer again, and markedNotPerformer
+        // filters on them before paging, so a review can hide them and keep each page for faces still to decide.
+        var rejectedFaceIds = new HashSet<int>();
+        if (sourceFace.PerformerId is int sourcePerformerId
+            && principalAccessor?.Current?.UserId is int userId
+            && response.Count > 0)
+        {
+            var candidateFaceIds = response.Select(item => item.Id).ToArray();
+            rejectedFaceIds = (await db.FaceSuggestionDecisions
+                .AsNoTracking()
+                .Where(decision => candidateFaceIds.Contains(decision.FaceId)
+                    && decision.PerformerId == sourcePerformerId
+                    && decision.UserId == userId
+                    && decision.Decision == FaceSuggestionDecisionValues.Reject)
+                .Select(decision => decision.FaceId)
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+        }
+        if (markedNotPerformer.HasValue)
+            response = response.Where(item => rejectedFaceIds.Contains(item.Id) == markedNotPerformer.Value).ToList();
+
         response = ApplySimilarSort(response, sort, direction, seed);
         var totalCount = response.Count;
         var pageItems = response
@@ -1660,28 +1683,8 @@ public class FacesController(
             .Select(item => item.CoverImageUrl is null
                 ? item with { CoverImageUrl = coverFallbacks.GetValueOrDefault(item.Id) }
                 : item)
+            .Select(item => rejectedFaceIds.Contains(item.Id) ? item with { RejectedForSourcePerformer = true } : item)
             .ToList();
-
-        // Mark the faces this user already turned down for the source face's performer, so a review of
-        // the similar faces does not offer them for that performer again.
-        if (sourceFace.PerformerId is int sourcePerformerId
-            && principalAccessor?.Current?.UserId is int userId
-            && pageItems.Count > 0)
-        {
-            var pageFaceIds = pageItems.Select(item => item.Id).ToArray();
-            var rejectedFaceIds = (await db.FaceSuggestionDecisions
-                .AsNoTracking()
-                .Where(decision => pageFaceIds.Contains(decision.FaceId)
-                    && decision.PerformerId == sourcePerformerId
-                    && decision.UserId == userId
-                    && decision.Decision == FaceSuggestionDecisionValues.Reject)
-                .Select(decision => decision.FaceId)
-                .ToListAsync(cancellationToken))
-                .ToHashSet();
-            pageItems = pageItems
-                .Select(item => rejectedFaceIds.Contains(item.Id) ? item with { RejectedForSourcePerformer = true } : item)
-                .ToList();
-        }
 
         return Ok(new PaginatedResponse<FaceSimilarDto>(pageItems, totalCount, page, perPage));
     }

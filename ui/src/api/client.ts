@@ -1003,6 +1003,7 @@ export const faces: {
       direction?: "asc" | "desc";
       seed?: number;
       linked?: boolean;
+      markedNotPerformer?: boolean;
       path?: string;
       pathModifier?: string;
       page?: number;
@@ -1149,6 +1150,7 @@ export const faces: {
       direction?: "asc" | "desc";
       seed?: number;
       linked?: boolean;
+      markedNotPerformer?: boolean;
       path?: string;
       pathModifier?: string;
       page?: number;
@@ -1164,6 +1166,7 @@ export const faces: {
           sort: opts?.sort,
           direction: opts?.direction,
           linked: opts?.linked,
+          markedNotPerformer: opts?.markedNotPerformer,
           path: opts?.path,
           pathModifier: opts?.pathModifier,
         },
