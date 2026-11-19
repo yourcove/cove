@@ -43,7 +43,7 @@ const { mockFaces, mockPerformers, mockEntityEngagement, mockGoBack, mockAuth, n
     setRating: vi.fn(),
   },
   mockGoBack: vi.fn(),
-  mockAuth: { canWrite: false },
+  mockAuth: { canWrite: false, readsPerformers: true },
 }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
@@ -63,7 +63,8 @@ vi.mock("../api/client", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     user: { kind: "user" },
-    hasPermission: (permission: string) => permission.endsWith(".read") || mockAuth.canWrite,
+    hasPermission: (permission: string) =>
+      (permission === "performers.read" ? mockAuth.readsPerformers : permission.endsWith(".read")) || mockAuth.canWrite,
   }),
 }));
 
@@ -106,6 +107,7 @@ describe("FaceDetailPage", () => {
     vi.resetAllMocks();
     vi.restoreAllMocks();
     mockAuth.canWrite = false;
+    mockAuth.readsPerformers = true;
   });
 
   it("shows a retryable load error and recovers", async () => {
@@ -1539,6 +1541,55 @@ describe("FaceDetailPage", () => {
 
       expect(screen.getByRole("tab", { name: /Overview/i })).toHaveAttribute("aria-selected", "true");
       expect(screen.queryByText("Nearest neighbors from the face embedding index.")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("FaceDetailPage header performer", () => {
+    function mockHeaderFace(face: Record<string, unknown>) {
+      mockFaces.get.mockResolvedValue(face);
+      mockFaces.capabilities.mockResolvedValue({ canEditOccurrences: false, canSuggest: false });
+      mockFaces.deleteImpact.mockResolvedValue(noDeleteImpact);
+      mockFaces.detections.mockResolvedValue([]);
+      mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+      mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+      mockEntityEngagement.get.mockResolvedValue(null);
+    }
+
+    it("links a linked face's performer from the header", async () => {
+      mockHeaderFace(linkedFace);
+      const { onNavigate } = renderPage();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Linked to Jane Doe" }));
+      expect(onNavigate).toHaveBeenCalledWith({ page: "performer", id: 12 });
+      expect(screen.queryByText("Unlinked")).not.toBeInTheDocument();
+    });
+
+    it("shows the performer without a link to a user who cannot read performers, by id when it has no name", async () => {
+      mockAuth.readsPerformers = false;
+      mockHeaderFace({ ...linkedFace, performerName: undefined });
+      renderPage();
+
+      await screen.findByRole("heading", { level: 1 });
+      // The header chip, not the Overview tab's own performer button, which also names the performer.
+      const headerChip = screen.getAllByText("Performer #12").find((element) => element.closest(".basis-full"));
+      expect(headerChip).toBeDefined();
+      expect(headerChip?.closest("button")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Linked to Performer #12" })).not.toBeInTheDocument();
+    });
+
+    it("says an unlinked face is unlinked and marks a suggested title", async () => {
+      mockHeaderFace({
+        ...linkedFace,
+        label: undefined,
+        performerId: undefined,
+        performerName: undefined,
+        topSuggestion: { performerId: 12, performerName: "Jane Doe", confidence: 0.9 },
+      });
+      renderPage();
+
+      expect(await screen.findByRole("heading", { level: 1, name: "Jane Doe (suggested)" })).toBeInTheDocument();
+      expect(screen.getByText("Unlinked")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Linked to Jane Doe" })).not.toBeInTheDocument();
     });
   });
 });

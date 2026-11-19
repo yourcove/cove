@@ -6,6 +6,7 @@ import {
   Fingerprint,
   Images,
   Link2,
+  Link2Off,
   Merge,
   MoreVertical,
   Pencil,
@@ -54,13 +55,13 @@ import {
   MoveOutcomeList,
   useFaceImageSources,
 } from "../components/FaceAppearanceBreakdown";
-import { faceDisplayName } from "../utils/faceDisplay";
+import { faceDisplayName, faceShownName } from "../utils/faceDisplay";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { EditModal } from "../components/EditModal";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
-import { FaceAppearanceTile, FaceTile } from "../components/EntityCards";
+import { FaceAppearanceTile, FaceTile, SuggestedNameMarker } from "../components/EntityCards";
 import { FieldProvenanceHover, formatDate } from "../components/shared";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import {
@@ -683,11 +684,23 @@ function FaceDetailPage({ id, onNavigate }: Props) {
     [carouselSampleImageUrls, face],
   );
   const [heroImageIndex, setHeroImageIndex] = useState(0);
-  const title = face ? faceDisplayName(face) : `Face #${id}`;
+  const shownName = face ? faceShownName(face) : undefined;
+  const title = shownName?.name ?? `Face #${id}`;
+  // An unlinked face's title can be its top suggested performer, which must not read as a link. The name
+  // truncates and the marker sits outside it, so a long name cannot clip the marker.
   const titleWithProvenance = face ? (
-    <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey={["label", "performer_id"]}>
-      {title}
-    </FieldProvenanceHover>
+    <span className="inline-flex max-w-full min-w-0 items-center gap-2">
+      <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey={["label", "performer_id"]}>
+        <span className="min-w-0 truncate">{title}</span>
+      </FieldProvenanceHover>
+      {shownName?.suggested ? (
+        <>
+          {" "}
+          <span className="sr-only">(suggested)</span>
+          <SuggestedNameMarker />
+        </>
+      ) : null}
+    </span>
   ) : (
     title
   );
@@ -1336,11 +1349,12 @@ function FaceDetailPage({ id, onNavigate }: Props) {
         ]}
         metaRow={
           <>
+            {/* Whether the face is linked comes first, on its own row, above the dates. */}
+            <div className="min-w-0 basis-full">
+              <FacePerformerChip face={face} canReadPerformers={canReadPerformers} onNavigate={onNavigate} />
+            </div>
             <span>Created {formatDate(face.createdAt)}</span>
             <span>Updated {formatDate(face.updatedAt)}</span>
-            <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey="performer_id">
-              <span>{face.performerName || "Unlinked"}</span>
-            </FieldProvenanceHover>
           </>
         }
         favorite={canEngageFace ? faceFavorite : undefined}
@@ -1604,7 +1618,10 @@ function FaceCandidateRow({ face, onSelect, disabled }: { face: Face; onSelect: 
               {face.performerName}
             </span>
           ) : (
-            <span className="text-muted">Unlinked</span>
+            <span className="inline-flex items-center gap-1 text-muted">
+              <Link2Off className="h-3 w-3" />
+              Unlinked
+            </span>
           )}
           <span aria-hidden>·</span>
           <span>
@@ -2078,6 +2095,57 @@ function SimilarReviewBar({
         </button>
       ) : null}
     </div>
+  );
+}
+
+const PERFORMER_CHIP_CLASS =
+  "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium";
+
+/**
+ * The face's performer in the header: a link to the performer when linked, the way the face cards show it, and a
+ * neutral "Unlinked" otherwise, so the state stands apart from the dates without an alarm color.
+ */
+function FacePerformerChip({
+  face,
+  canReadPerformers,
+  onNavigate,
+}: {
+  face: Face;
+  canReadPerformers: boolean;
+  onNavigate: (route: any) => void;
+}) {
+  if (!face.performerId) {
+    return (
+      <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey="performer_id">
+        <span className={`${PERFORMER_CHIP_CLASS} border-border bg-card/60 text-secondary`}>
+          <Link2Off className="h-3.5 w-3.5 shrink-0" />
+          Unlinked
+        </span>
+      </FieldProvenanceHover>
+    );
+  }
+  const performerId = face.performerId;
+  const name = face.performerName || `Performer #${performerId}`;
+  const content = (
+    <>
+      <Link2 className="h-3.5 w-3.5 shrink-0" />
+      <span className="sr-only">Linked to</span> <span className="min-w-0 truncate">{name}</span>
+    </>
+  );
+  return (
+    <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey="performer_id">
+      {canReadPerformers ? (
+        <button
+          type="button"
+          onClick={() => onNavigate({ page: "performer", id: performerId })}
+          className={`${PERFORMER_CHIP_CLASS} border-accent/30 bg-accent/10 text-accent transition-colors hover:bg-accent/20`}
+        >
+          {content}
+        </button>
+      ) : (
+        <span className={`${PERFORMER_CHIP_CLASS} border-border bg-card/60 text-foreground`}>{content}</span>
+      )}
+    </FieldProvenanceHover>
   );
 }
 
