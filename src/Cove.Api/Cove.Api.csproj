@@ -67,7 +67,7 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.15" />
   </ItemGroup>
 
   <!--
@@ -92,14 +92,14 @@
     <PackageReference Include="HtmlAgilityPack" Version="1.13.1" />
     <PackageReference Include="MediatR" Version="14.3.0" />
     <PackageReference Include="NetVips" Version="3.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
     <PackageReference Include="Npgsql.OpenTelemetry" Version="10.0.3" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.2" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.20.2" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.21.0" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
@@ -107,9 +107,9 @@
     <PackageReference Include="VersOne.Epub" Version="3.3.6" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.3.1" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.15" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
