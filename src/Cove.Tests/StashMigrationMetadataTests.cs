@@ -1075,6 +1075,23 @@ stashBoxes:
     }
 
     [Fact]
+    public void ApplyStashPathMappings_TrimsTheMappingButNotThePath()
+    {
+        var mappings = Assert.IsAssignableFrom<IReadOnlyList<StashPathMapping>>(InvokePrivateStatic(
+            typeof(StashMigrationService),
+            "NormalizeStashPathMappings",
+            (object)new StashPathMapping[] { new(" /data/ ", "\u00a0/media ") }));
+
+        var mappedPath = Assert.IsType<string>(InvokePrivateStatic(
+            typeof(StashMigrationService),
+            "ApplyStashPathMappings",
+            "/data/sets/Holiday photos\u00a0",
+            mappings));
+
+        Assert.Equal("/media/sets/Holiday photos\u00a0", mappedPath);
+    }
+
+    [Fact]
     public void ApplyStashConfigPathMappings_MapsWindowsGeneratedPathOnDockerHost()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"stash-config-{Guid.NewGuid():N}");
@@ -2109,6 +2126,55 @@ INSERT INTO folders (id, path, parent_folder_id, mod_time, created_at) VALUES
         var importedChild = await context.Folders.SingleAsync(folder => folder.Id == folderIdMap[2], cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("C:/library/clips", importedChild.Path);
         Assert.Equal(existingFolder.Id, importedChild.ParentFolderId);
+    }
+
+    [Theory]
+    [InlineData("\u00a0")]
+    [InlineData(" ")]
+    [RequiresPostgres]
+    public async Task ImportFoldersAsync_KeepsTrailingWhitespaceInMappedFolderNames(string trailingWhitespace)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await using var context = await CreateContextAsync(database);
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(ct);
+        await ExecuteSqlAsync(stash, $@"
+CREATE TABLE folders (id INTEGER PRIMARY KEY, path TEXT NOT NULL, parent_folder_id INTEGER, mod_time TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE files (id INTEGER PRIMARY KEY, basename TEXT NOT NULL, parent_folder_id INTEGER NOT NULL, size INTEGER NOT NULL, mod_time TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE images (id INTEGER PRIMARY KEY, title TEXT, code TEXT, details TEXT, photographer TEXT, rating INTEGER, organized INTEGER, o_counter INTEGER, studio_id INTEGER, date TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE images_files (image_id INTEGER, file_id INTEGER, [primary] INTEGER);
+CREATE TABLE image_files (file_id INTEGER, format TEXT, width INTEGER, height INTEGER);
+INSERT INTO folders (id, path, parent_folder_id, mod_time, created_at) VALUES
+    (1, '/data', NULL, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+    (2, '/data/sets', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+    (3, '/data/sets/Holiday photos{trailingWhitespace}', 2, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+INSERT INTO files (id, basename, parent_folder_id, size, mod_time, created_at) VALUES
+    (1, '01.jpg', 3, 1024, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+INSERT INTO images (id, organized, o_counter, created_at, updated_at) VALUES (1, 0, 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+INSERT INTO images_files (image_id, file_id, [primary]) VALUES (1, 1, 1);
+INSERT INTO image_files (file_id, format, width, height) VALUES (1, 'jpeg', 800, 600);
+");
+
+        var service = CreateService(context);
+        var folderIdMap = Assert.IsType<Dictionary<int, int>>(await InvokePrivateAsync(
+            service,
+            "ImportFoldersAsync",
+            stash,
+            new StashPathMapping[] { new("/data", "/media") },
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            ct));
+        await InvokePrivateAsync(service, "ImportImagesAsync", stash, folderIdMap,
+            new Dictionary<int, int>(), new Dictionary<int, int>(), new Dictionary<int, int>(),
+            NullJobProgress.Instance, 0d, 1d, ct);
+
+        var folder = await context.Folders.SingleAsync(folder => folder.Id == folderIdMap[3], ct);
+        Assert.Equal($"/media/sets/Holiday photos{trailingWhitespace}", folder.Path);
+        var imageFile = await context.ImageFiles.SingleAsync(ct);
+        Assert.Equal(folder.Id, imageFile.ParentFolderId);
+        Assert.Equal($"/media/sets/Holiday photos{trailingWhitespace}/01.jpg", imageFile.Path);
     }
 
     [Fact]
