@@ -113,7 +113,7 @@ public sealed class EmbeddingService(
         if (!string.IsNullOrWhiteSpace(options.SourceKey)) Add("SourceKey", options.SourceKey!);
 
         // Modality, KindFamily and SectionIndex are the predicate columns of the partial HNSW ANN
-        // indexes (see the 20260707 migration). They MUST be emitted as SQL literals, not parameters:
+        // indexes (see EmbeddingAnnIndexReconciler), as is "Dim" above. They MUST be emitted as SQL literals, not parameters:
         // Postgres only uses a partial index when it can prove, at plan time, that the query predicate
         // implies the index predicate — which it cannot do against a parameter (@p). Parameterizing
         // these silently defeated the index and made this KNN fall back to a full sequential scan +

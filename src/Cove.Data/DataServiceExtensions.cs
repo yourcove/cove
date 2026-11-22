@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
@@ -125,6 +126,14 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
             services.AddHostedService<FaceTopSuggestionMaterializerService>();
         if (runBackgroundMaterializers)
             services.AddHostedService<SegmentSpanIndexMaterializerService>();
+
+        // Asset-level HNSW indexes over embeddings, built once a library has rows for them (V1_0 only
+        // creates them when embeddings already exist at migration time).
+        services.AddSingleton(sp => new EmbeddingAnnIndexReconciler(
+            connectionString,
+            sp.GetRequiredService<ILogger<EmbeddingAnnIndexReconciler>>()));
+        if (runBackgroundMaterializers)
+            services.AddHostedService<EmbeddingAnnIndexMaintenanceService>();
 
         // Auth / RBAC services
         services.AddSingleton<IPermissionRegistry, PermissionRegistry>();

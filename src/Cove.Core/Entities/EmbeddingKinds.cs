@@ -4,7 +4,7 @@ namespace Cove.Core.Entities;
 /// Canonical, Cove-owned embedding kinds. These are a shared contract, not an extension's private detail:
 /// any extension that produces one of these embedding types MUST reuse these <c>KindFamily</c> values so the
 /// host and every extension share a single, indexed representation. Because they are core-owned, core owns the
-/// ANN indexes for them (see the EmbeddingsHnsw* migrations).
+/// ANN indexes for them (see <c>EmbeddingAnnIndexReconciler</c> in Cove.Data).
 /// </summary>
 public static class EmbeddingKinds
 {
