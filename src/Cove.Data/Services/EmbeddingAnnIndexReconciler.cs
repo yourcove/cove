@@ -66,6 +66,15 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     private readonly Dictionary<(string Kind, int Dim), EmbeddingAnnFamily?> _pairFamilies = [];
     private readonly Dictionary<string, (DateTimeOffset At, TimeSpan Delay)> _assetRowRecheck = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _retryFailedBuildAt = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _interruptedBuilds = new(StringComparer.Ordinal);
+    private bool _buildWithoutParallelWorkers;
+
+    /// <summary>
+    /// Builds of one index interrupted in a row before it counts as failed. A lost connection is usually a
+    /// restart or a restore, but a build that takes the server down with it (out of memory) would otherwise
+    /// be retried every pass.
+    /// </summary>
+    internal const int InterruptedBuildsBeforeBackOff = 2;
 
     public EmbeddingAnnIndexReconciler(
         CoveConfiguration configuration,
@@ -113,9 +122,11 @@ internal sealed partial class EmbeddingAnnIndexReconciler
             var dropped = await DropInvalidIndexesAsync(connection, cancellationToken);
             var specs = await ReadIndexSpecsAsync(connection, cancellationToken);
 
+            _buildWithoutParallelWorkers = false;
             var desired = 0;
             var created = new List<string>();
             var failed = new List<string>();
+            var waiting = new List<string>();
             foreach (var spec in specs)
             {
                 var existing = await ReadIndexesAsync(connection, cancellationToken);
@@ -128,11 +139,15 @@ internal sealed partial class EmbeddingAnnIndexReconciler
                     continue;
                 desired++;
                 if (_retryFailedBuildAt.TryGetValue(spec.Name, out var retryAt) && _timeProvider.GetUtcNow() < retryAt)
+                {
+                    waiting.Add(spec.Name);
                     continue;
+                }
 
                 if (await TryCreateIndexAsync(connection, spec, cancellationToken))
                 {
                     _retryFailedBuildAt.Remove(spec.Name);
+                    _interruptedBuilds.Remove(spec.Name);
                     created.Add(spec.Name);
                 }
                 else
@@ -144,8 +159,8 @@ internal sealed partial class EmbeddingAnnIndexReconciler
 
             var replaced = await DropReplacedLegacyIndexesAsync(connection, cancellationToken);
 
-            var result = new EmbeddingAnnIndexReconcileResult(false, desired, created, failed, replaced, dropped);
-            if (created.Count + failed.Count + replaced.Count + dropped.Count > 0)
+            var result = new EmbeddingAnnIndexReconcileResult(false, desired, created, failed, waiting, replaced, dropped);
+            if (created.Count + failed.Count + waiting.Count + replaced.Count + dropped.Count > 0)
                 _logger.LogInformation("Embedding ANN indexes: {Summary}", result.Summary);
             else
                 _logger.LogDebug("Embedding ANN indexes: {Summary}", result.Summary);
@@ -214,7 +229,11 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         {
             if (!_pairFamilies.TryGetValue(pair, out var family))
             {
-                family = await ResolveFamilyAsync(connection, pair.Kind, pair.Dim, cancellationToken);
+                var resolved = await ResolveFamilyAsync(connection, pair.Kind, pair.Dim, cancellationToken);
+                // Its rows were deleted since the scan: nothing learned, so ask again next pass.
+                if (!resolved.Found)
+                    continue;
+                family = resolved.Family;
                 _pairFamilies[pair] = family;
             }
             if (family != null)
@@ -227,10 +246,10 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     }
 
     /// <summary>
-    /// The managed family a (Kind, Dim) pair belongs to, or null. A kind is produced by one model and
-    /// stored under one family, so one row of the pair says which.
+    /// The managed family a (Kind, Dim) pair belongs to, or null; not found when its rows are gone. A kind
+    /// is produced by one model and stored under one family, so one row of the pair says which.
     /// </summary>
-    private async Task<EmbeddingAnnFamily?> ResolveFamilyAsync(
+    private async Task<(bool Found, EmbeddingAnnFamily? Family)> ResolveFamilyAsync(
         NpgsqlConnection connection,
         string kind,
         int dimensions,
@@ -249,7 +268,7 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             if (!await reader.ReadAsync(cancellationToken))
-                return null;
+                return (false, null);
             modality = reader.GetInt32(0);
             kindFamily = reader.IsDBNull(1) ? null : reader.GetString(1);
         }
@@ -261,9 +280,9 @@ internal sealed partial class EmbeddingAnnIndexReconciler
             _logger.LogWarning(
                 "Embeddings of kind {Kind} have {Dimensions} dimensions; pgvector's HNSW index supports at most {MaxDimensions}, so {KindFamily} searches at that size stay exact",
                 kind, dimensions, MaxIndexedDimensions, family.KindFamily);
-            return null;
+            return (true, null);
         }
-        return family;
+        return (true, family);
     }
 
     /// <summary>
@@ -280,17 +299,7 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         if (_assetRowRecheck.TryGetValue(spec.Name, out var recheck) && now < recheck.At)
             return false;
 
-        await using var command = CreateCommand(connection, """
-            SELECT EXISTS (
-                SELECT 1
-                FROM public.embeddings
-                WHERE "Modality" = @modality AND "KindFamily" = @family AND "SectionIndex" = 0 AND "Dim" = @dim
-            );
-            """);
-        command.Parameters.AddWithValue("modality", (int)spec.Family.Modality);
-        command.Parameters.AddWithValue("family", spec.Family.KindFamily);
-        command.Parameters.AddWithValue("dim", spec.Dimensions);
-        if ((bool)(await command.ExecuteScalarAsync(cancellationToken))!)
+        if (await ProbeAssetRowsAsync(connection, spec.Family, spec.Dimensions, cancellationToken))
         {
             _assetRowRecheck.Remove(spec.Name);
             return true;
@@ -301,6 +310,25 @@ internal sealed partial class EmbeddingAnnIndexReconciler
             : TimeSpan.FromTicks(Math.Min(recheck.Delay.Ticks * 2, MaxAssetRowRecheck.Ticks));
         _assetRowRecheck[spec.Name] = (now + delay, delay);
         return false;
+    }
+
+    private static async Task<bool> ProbeAssetRowsAsync(
+        NpgsqlConnection connection,
+        EmbeddingAnnFamily family,
+        int dimensions,
+        CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, """
+            SELECT EXISTS (
+                SELECT 1
+                FROM public.embeddings
+                WHERE "Modality" = @modality AND "KindFamily" = @family AND "SectionIndex" = 0 AND "Dim" = @dim
+            );
+            """);
+        command.Parameters.AddWithValue("modality", (int)family.Modality);
+        command.Parameters.AddWithValue("family", family.KindFamily);
+        command.Parameters.AddWithValue("dim", dimensions);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
     private async Task<bool> TryCreateIndexAsync(
@@ -328,26 +356,22 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         {
             try
             {
+                if (_buildWithoutParallelWorkers)
+                    await ExecuteAsync(connection, "SET max_parallel_maintenance_workers = 0;", cancellationToken);
                 await ExecuteAsync(connection, sql, cancellationToken);
             }
-            catch (PostgresException exception) when (IsSharedMemoryExhausted(exception))
+            catch (PostgresException exception) when (!_buildWithoutParallelWorkers && IsSharedMemoryExhausted(exception))
             {
                 // Parallel HNSW builds share the graph through /dev/shm, which containers often keep small
                 // (Docker's default is 64 MB). Build it in this process alone instead.
                 _logger.LogWarning(
                     "Building {IndexName} with parallel workers ran out of shared memory ({Message}); retrying without them. Giving the database container more shared memory (shm_size) makes this faster",
                     spec.Name, exception.MessageText);
+                // The rest of this pass builds without them too; the setting ends with the session.
+                _buildWithoutParallelWorkers = true;
                 await DropIfInvalidAsync(connection, spec.Name, cancellationToken);
                 await ExecuteAsync(connection, "SET max_parallel_maintenance_workers = 0;", cancellationToken);
-                try
-                {
-                    await ExecuteAsync(connection, sql, cancellationToken);
-                }
-                finally
-                {
-                    if (connection.FullState == System.Data.ConnectionState.Open)
-                        await ExecuteAsync(connection, "RESET max_parallel_maintenance_workers;", CancellationToken.None);
-                }
+                await ExecuteAsync(connection, sql, cancellationToken);
             }
 
             var built = (await ReadIndexesAsync(connection, cancellationToken)).GetValueOrDefault(spec.Name);
@@ -358,6 +382,23 @@ internal sealed partial class EmbeddingAnnIndexReconciler
                 "Built embedding ANN index {IndexName} in {Elapsed}",
                 spec.Name, System.Diagnostics.Stopwatch.GetElapsedTime(started));
             return true;
+        }
+        catch (Exception exception) when (IsInterruption(exception, connection, cancellationToken)
+                                          && !cancellationToken.IsCancellationRequested
+                                          && exception is not OperationCanceledException)
+        {
+            var interruptions = _interruptedBuilds.GetValueOrDefault(spec.Name) + 1;
+            _interruptedBuilds[spec.Name] = interruptions;
+            if (interruptions >= InterruptedBuildsBeforeBackOff)
+            {
+                _interruptedBuilds.Remove(spec.Name);
+                _retryFailedBuildAt[spec.Name] = _timeProvider.GetUtcNow() + RetryFailedBuildAfter;
+                _logger.LogWarning(
+                    exception,
+                    "Building embedding ANN index {IndexName} lost its connection {Count} times in a row; trying again in {RetryAfter}. If PostgreSQL restarted, it may be running out of memory (maintenance_work_mem)",
+                    spec.Name, interruptions, RetryFailedBuildAfter);
+            }
+            throw;
         }
         catch (Exception exception) when (!IsInterruption(exception, connection, cancellationToken))
         {
@@ -407,7 +448,8 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     private async Task<IReadOnlyList<string>> DropInvalidIndexesAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
         var dropped = new List<string>();
-        foreach (var index in (await ReadIndexesAsync(connection, cancellationToken)).Values.Where(index => !index.IsUsable))
+        // An index still being built (by hand, say) is invalid until it finishes; leave it alone.
+        foreach (var index in (await ReadIndexesAsync(connection, cancellationToken)).Values.Where(index => !index.IsUsable && !index.IsBeingBuilt))
         {
             _logger.LogInformation("Removing incomplete embedding ANN index {IndexName}", index.Name);
             await DropIndexAsync(connection, index.Name, cancellationToken);
@@ -416,7 +458,10 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         return dropped;
     }
 
-    /// <summary>Drops each V1_0 index whose family and dimension now have a valid managed index.</summary>
+    /// <summary>
+    /// Drops each V1_0 index whose family and dimension now have a valid managed index, or no asset-level
+    /// rows. (A managed index whose rows are all gone is kept: it is small and rejects nothing.)
+    /// </summary>
     private async Task<IReadOnlyList<string>> DropReplacedLegacyIndexesAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
         var replaced = new List<string>();
@@ -424,15 +469,30 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         foreach (var family in Families)
         {
             if (!existing.TryGetValue(family.LegacyIndexName, out var legacy)
+                || !legacy.IsUsable
                 || CastDimensions(legacy.Definition) is not { } dimensions
-                || dimensions is < 1 or > MaxIndexedDimensions
-                || !existing.TryGetValue(BuildIndexSpec(family, dimensions).Name, out var replacement)
-                || !replacement.IsUsable)
+                || dimensions is < 1 or > MaxIndexedDimensions)
                 continue;
 
-            _logger.LogInformation(
-                "Dropping embedding ANN index {LegacyIndexName}: {IndexName} replaces it and also lets rows of other dimensions be stored",
-                legacy.Name, replacement.Name);
+            if (existing.TryGetValue(BuildIndexSpec(family, dimensions).Name, out var replacement) && replacement.IsUsable)
+            {
+                _logger.LogInformation(
+                    "Dropping embedding ANN index {LegacyIndexName}: {IndexName} replaces it and also lets rows of other dimensions be stored",
+                    legacy.Name, replacement.Name);
+            }
+            else if (!await ProbeAssetRowsAsync(connection, family, dimensions, cancellationToken))
+            {
+                // Nothing left for it to index, but it would still reject the first asset row of a model
+                // with another dimension.
+                _logger.LogInformation(
+                    "Dropping embedding ANN index {LegacyIndexName}: {KindFamily} has no asset-level rows at {Dimensions} dimensions any more",
+                    legacy.Name, family.KindFamily, dimensions);
+            }
+            else
+            {
+                continue;
+            }
+
             await DropIndexAsync(connection, legacy.Name, cancellationToken);
             replaced.Add(legacy.Name);
         }
@@ -455,7 +515,8 @@ internal sealed partial class EmbeddingAnnIndexReconciler
             SELECT index_class.relname,
                    index_metadata.indisvalid,
                    index_metadata.indisready,
-                   pg_get_indexdef(index_class.oid)
+                   pg_get_indexdef(index_class.oid),
+                   EXISTS (SELECT 1 FROM pg_stat_progress_create_index AS progress WHERE progress.index_relid = index_class.oid)
             FROM pg_index AS index_metadata
             JOIN pg_class AS index_class ON index_class.oid = index_metadata.indexrelid
             JOIN pg_class AS table_class ON table_class.oid = index_metadata.indrelid
@@ -468,7 +529,7 @@ internal sealed partial class EmbeddingAnnIndexReconciler
         {
             var name = reader.GetString(0);
             if (IsManagedOrLegacyName(name))
-                result[name] = new ExistingIndex(name, reader.GetBoolean(1), reader.GetBoolean(2), reader.GetString(3));
+                result[name] = new ExistingIndex(name, reader.GetBoolean(1), reader.GetBoolean(2), reader.GetString(3), reader.GetBoolean(4));
         }
         return result;
     }
@@ -521,7 +582,7 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     [GeneratedRegex(@"^ix_embeddings_([a-z_]+)_asset_hnsw_d[1-9][0-9]{0,3}$", RegexOptions.CultureInvariant)]
     private static partial Regex ManagedNamePattern();
 
-    private sealed record ExistingIndex(string Name, bool IsValid, bool IsReady, string Definition)
+    private sealed record ExistingIndex(string Name, bool IsValid, bool IsReady, string Definition, bool IsBeingBuilt)
     {
         public bool IsUsable => IsValid && IsReady;
     }
@@ -540,12 +601,13 @@ internal sealed record EmbeddingAnnIndexReconcileResult(
     int DesiredCount,
     IReadOnlyList<string> Created,
     IReadOnlyList<string> Failed,
+    IReadOnlyList<string> WaitingToRetry,
     IReadOnlyList<string> ReplacedLegacy,
     IReadOnlyList<string> DroppedInvalid)
 {
     /// <summary>Nothing was done because another pass holds the advisory lock.</summary>
-    public static EmbeddingAnnIndexReconcileResult LockHeldElsewhere { get; } = new(true, 0, [], [], [], []);
+    public static EmbeddingAnnIndexReconcileResult LockHeldElsewhere { get; } = new(true, 0, [], [], [], [], []);
 
     public string Summary =>
-        $"{DesiredCount} wanted; {Created.Count} built, {Failed.Count} failed, {ReplacedLegacy.Count} V1_0 index(es) replaced, {DroppedInvalid.Count} incomplete removed";
+        $"{DesiredCount} wanted; {Created.Count} built, {Failed.Count} failed, {WaitingToRetry.Count} waiting to retry, {ReplacedLegacy.Count} V1_0 index(es) replaced, {DroppedInvalid.Count} incomplete removed";
 }

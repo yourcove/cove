@@ -47,8 +47,9 @@ internal sealed class EmbeddingAnnIndexMaintenanceService(
                 await Task.Delay(Interval, stoppingToken);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        catch (Exception) when (stoppingToken.IsCancellationRequested)
         {
+            // Shutting down; the database may already be gone, so whatever was thrown is expected.
         }
     }
 

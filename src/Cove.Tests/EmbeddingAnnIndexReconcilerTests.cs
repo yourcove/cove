@@ -130,6 +130,58 @@ public sealed class EmbeddingAnnIndexReconcilerTests
     }
 
     [Fact]
+    public async Task ReconcileAsync_DropsALegacyIndexWithNothingLeftToIndex()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        // Only section rows remain at the legacy index's dimension (the asset rows were purged).
+        await AddAsync(database, ct, Section(Asset(EmbeddingModality.Visual, EmbeddingKinds.VisualSemanticKind, EmbeddingKinds.VisualSemanticFamily, 1, 1f, 0f, 0f), 2));
+        await ExecuteAsync(database, CreateLegacySemanticD3, ct);
+
+        var result = await CreateReconciler(database).ReconcileAsync(ct);
+
+        Assert.Equal([LegacySemantic], result.ReplacedLegacy);
+        Assert.Empty(await ReadHnswIndexNamesAsync(database, ct));
+        // A model with another dimension can now store its asset rows.
+        await AddAsync(database, ct, Asset(EmbeddingModality.Visual, "visual.semantic.small.v1", EmbeddingKinds.VisualSemanticFamily, 1, 1f, 0f));
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_BuildThatKeepsLosingItsConnection_BacksOff()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await CovePostgresDatabase.CreateAsync(ct);
+        await AddAsync(database, ct, Asset(EmbeddingModality.Visual, EmbeddingKinds.VisualSemanticKind, EmbeddingKinds.VisualSemanticFamily, 1, 1f, 0f, 0f));
+        var reconciler = CreateReconciler(database, new ManualTimeProvider());
+
+        for (var attempt = 0; attempt < EmbeddingAnnIndexReconciler.InterruptedBuildsBeforeBackOff; attempt++)
+        {
+            // An open write transaction makes CREATE INDEX CONCURRENTLY wait, which leaves time to end its
+            // session the way a server restart would.
+            await using (var writer = new NpgsqlConnection(database.ConnectionString))
+            {
+                await writer.OpenAsync(ct);
+                await using var transaction = await writer.BeginTransactionAsync(ct);
+                await using (var lockTable = new NpgsqlCommand("LOCK TABLE embeddings IN ROW EXCLUSIVE MODE", writer, transaction))
+                    await lockTable.ExecuteNonQueryAsync(ct);
+
+                var pass = reconciler.ReconcileAsync(ct);
+                await TerminateBuildAsync(database, ct);
+                await Assert.ThrowsAnyAsync<NpgsqlException>(() => pass);
+                await transaction.RollbackAsync(ct);
+            }
+            // The interrupted build leaves an invalid index; remove it here so the next pass goes straight to
+            // building (the reconciler's own clean-up would otherwise wait on the next writer).
+            await ExecuteAsync(database, $"DROP INDEX IF EXISTS {SemanticD3}", ct);
+        }
+        var backingOff = await reconciler.ReconcileAsync(ct);
+
+        Assert.Equal([SemanticD3], backingOff.WaitingToRetry);
+        Assert.Empty(backingOff.Created);
+        Assert.Empty(await ReadHnswIndexNamesAsync(database, ct));
+    }
+
+    [Fact]
     public async Task ReconcileAsync_DropsInvalidIndexes_AndRebuildsTheManagedOne()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -305,6 +357,28 @@ public sealed class EmbeddingAnnIndexReconcilerTests
     {
         await using var command = database.DataSource.CreateCommand(sql);
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Waits for the reconciler's CREATE INDEX to be running, then terminates its session.</summary>
+    private static async Task TerminateBuildAsync(CovePostgresDatabase database, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using var command = database.DataSource.CreateCommand("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND application_name = 'Cove embedding ANN index reconciler'
+                  AND query LIKE 'CREATE INDEX CONCURRENTLY%'
+                """);
+            if (await command.ExecuteScalarAsync(ct) is true)
+                return;
+            await Task.Delay(50, ct);
+        }
+        await using var sessions = database.DataSource.CreateCommand(
+            "SELECT string_agg(application_name || ' | ' || state || ' | ' || coalesce(wait_event, '-') || ' | ' || left(query, 60), E'\\n') FROM pg_stat_activity WHERE datname = current_database()");
+        throw new TimeoutException("The index build did not start. Sessions:\n" + await sessions.ExecuteScalarAsync(ct));
     }
 
     private static async Task LockAsync(NpgsqlConnection connection, string function, CancellationToken ct)
