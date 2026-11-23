@@ -68,11 +68,14 @@ export function useVideoQueueNavigation({
                     ? async () => {
                         const page = firstPage - 1;
                         const response = await queryPage({ ...filter, page });
-                        firstPage = page;
                         return {
                           items: response.items.map(videoQueueItem),
                           hasMore: page > 1,
                           totalCount: response.totalCount,
+                          // A discarded page is requested again the next time the queue reaches this boundary.
+                          commit: () => {
+                            firstPage = page;
+                          },
                         };
                       }
                     : undefined,
@@ -81,11 +84,13 @@ export function useVideoQueueNavigation({
                   ? async () => {
                       const page = lastPage + 1;
                       const response = await queryPage({ ...filter, page });
-                      lastPage = page;
                       return {
                         items: response.items.map(videoQueueItem),
                         hasMore: page * pageSize < response.totalCount,
                         totalCount: response.totalCount,
+                        commit: () => {
+                          lastPage = page;
+                        },
                       };
                     }
                   : undefined,

@@ -51,6 +51,11 @@ interface VideoQueuePageResult {
   hasMore: boolean;
   /** The list total the page reported. It replaces a total the queue did not know when it opened. */
   totalCount?: number;
+  /**
+   * Called once the queue takes the page, and not when the load is discarded because the queue or its
+   * position changed meanwhile, so a loader can advance its paging only for pages the queue kept.
+   */
+  commit?: () => void;
 }
 interface VideoQueueOptions {
   startIndex?: number;
@@ -184,6 +189,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     try {
       const result = await loader();
       if (queueGenerationRef.current !== generation) return null;
+      result.commit?.();
       if (result.items.length === 0) {
         // A queue opened without a known total offers the next page whenever its last page was full;
         // an empty page means the list ended there.
