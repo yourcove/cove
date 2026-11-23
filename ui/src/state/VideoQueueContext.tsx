@@ -92,7 +92,9 @@ const VideoQueueContext = createContext<VideoQueueContextValue | null>(null);
 export function VideoQueueProvider({ children }: { children: ReactNode }) {
   const [queue, setQueueState] = useState<VideoQueueState | null>(() => readStoredQueue());
   const loadersRef = useRef<Pick<VideoQueueOptions, "loadPrevious" | "loadNext">>({});
-  const loadingBoundaryRef = useRef(false);
+  // The generation a boundary load was started for. A load whose queue has since been replaced or moved will be
+  // discarded, so it does not hold back a load for the queue as it is now.
+  const loadingGenerationRef = useRef<number | null>(null);
   const queueGenerationRef = useRef(0);
 
   useEffect(() => {
@@ -181,11 +183,11 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
   );
 
   const loadBoundary = useCallback(async (direction: "previous" | "next") => {
-    if (loadingBoundaryRef.current) return null;
+    const generation = queueGenerationRef.current;
+    if (loadingGenerationRef.current === generation) return null;
     const loader = direction === "previous" ? loadersRef.current.loadPrevious : loadersRef.current.loadNext;
     if (!loader) return null;
-    const generation = queueGenerationRef.current;
-    loadingBoundaryRef.current = true;
+    loadingGenerationRef.current = generation;
     try {
       const result = await loader();
       if (queueGenerationRef.current !== generation) return null;
@@ -238,7 +240,8 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     } catch {
       return null;
     } finally {
-      loadingBoundaryRef.current = false;
+      // A newer load may have started meanwhile; it releases the guard itself.
+      if (loadingGenerationRef.current === generation) loadingGenerationRef.current = null;
     }
   }, []);
 

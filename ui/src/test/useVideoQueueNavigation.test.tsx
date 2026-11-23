@@ -150,6 +150,47 @@ describe("useVideoQueueNavigation", () => {
     },
   );
 
+  it("keeps paging through the list while a discarded page request is still pending", async () => {
+    let resolveDiscarded!: () => void;
+    const queryPage = vi
+      .fn(async (filter: FindFilter) => pageResponse(filter))
+      .mockImplementationOnce(
+        (filter) =>
+          new Promise((resolve) => {
+            resolveDiscarded = () => resolve(pageResponse(filter));
+          }),
+      );
+    const { result } = renderPagedQueue(1, queryPage);
+
+    act(() => result.current.navigation.openVideo(20));
+    let discarded!: Promise<number | null>;
+    act(() => {
+      discarded = result.current.queue.goNext();
+    });
+    act(() => {
+      result.current.queue.goToIndex(0);
+    });
+    act(() => {
+      result.current.queue.goToIndex(1);
+    });
+    // Into page 2 again, across it, and into page 3, all before the discarded request returns.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await result.current.queue.goNext();
+      });
+    }
+    resolveDiscarded();
+    await act(async () => {
+      await discarded;
+    });
+
+    expect(await discarded).toBeNull();
+    expect(queryPage.mock.calls.map(([filter]) => filter.page)).toEqual([2, 2, 3]);
+    expect(result.current.queue.queue?.videoIds).toEqual([10, 20, 30, 40, 50, 60]);
+    expect(result.current.queue.currentId).toBe(50);
+    expect(result.current.queue.currentPosition).toBe(5);
+  });
+
   it("keeps the list queue when opening a video at a requested time", () => {
     const onNavigate = vi.fn();
     const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
