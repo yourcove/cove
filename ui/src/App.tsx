@@ -286,8 +286,8 @@ export default function App() {
               <UpdateAvailableBanner />
               <ThemeGate>
                 <KeyboardShortcutProvider>
-                  <AppFloatingUI />
                   <VideoQueueProvider>
+                    <AppFloatingUI />
                     <AppKeyboardShortcuts navigate={navigate} />
                     <ExtensionKeyboardActions route={route} />
                     <AppShell route={route} navigate={navigate} />

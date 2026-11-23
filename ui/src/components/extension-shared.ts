@@ -188,6 +188,17 @@ export { useDocumentTitle } from "../hooks/useDocumentTitle";
 // ─── App Config (extensions run in the same React tree) ───────────────────
 export { useAppConfig } from "../state/AppConfigContext";
 
+// ─── Video queue ──────────────────────────────────────────────────────────
+// The queue behind the video page's queue panel, previous/next controls and [ and ] keys. Extensions get
+// a facade with only the members Cove keeps stable, not the provider's own context value.
+export { useExtensionVideoQueue as useVideoQueue } from "../state/extensionVideoQueue";
+export type {
+  VideoQueueHandle,
+  VideoQueueItem,
+  VideoQueueOptions,
+  VideoQueueSummary,
+} from "../state/extensionVideoQueue";
+
 // ─── Types ────────────────────────────────────────────────────────────────
 export type { FindFilter } from "../api/types";
 // The entity.media boundary native cards and heroes render through, so extension surfaces that show an entity's
