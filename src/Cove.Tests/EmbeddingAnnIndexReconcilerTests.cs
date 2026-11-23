@@ -65,23 +65,19 @@ public sealed class EmbeddingAnnIndexReconcilerTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_FamilyWithOnlySectionRows_IsCheckedAgainOnceAssetRowsCanHaveArrived()
+    public async Task ReconcileAsync_FamilyWithOnlySectionRows_IsCheckedAgainOnTheNextPass()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var database = await CovePostgresDatabase.CreateAsync(ct);
-        var clock = new ManualTimeProvider();
-        var reconciler = CreateReconciler(database, clock);
+        var reconciler = CreateReconciler(database);
         await AddAsync(database, ct, Section(Asset(EmbeddingModality.Audio, "audio.embed.v1", "audio.v1", 1, 1f, 0f), 1));
 
         var sectionsOnly = await reconciler.ReconcileAsync(ct);
         // The analysis stores the asset-level row after its sections.
         await AddAsync(database, ct, Asset(EmbeddingModality.Audio, "audio.embed.v1", "audio.v1", 1, 0f, 1f));
-        var tooSoon = await reconciler.ReconcileAsync(ct);
-        clock.Advance(EmbeddingAnnIndexReconciler.MinAssetRowRecheck);
         var rechecked = await reconciler.ReconcileAsync(ct);
 
         Assert.Equal(0, sectionsOnly.DesiredCount);
-        Assert.Empty(tooSoon.Created);
         Assert.Equal([AudioD2], rechecked.Created);
     }
 

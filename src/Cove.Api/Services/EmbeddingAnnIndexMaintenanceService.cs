@@ -22,8 +22,12 @@ internal sealed class EmbeddingAnnIndexMaintenanceService(
     // Lets the rest of startup finish before the first pass.
     private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(1);
 
-    /// <summary>The wait between passes: how soon a newly analysed family is picked up.</summary>
-    internal static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// The wait between passes: how soon a newly analysed family is picked up. Without its index a family's
+    /// searches stay fast until it has grown for days, so a few hours' delay costs nothing users notice.
+    /// It matches <see cref="EmbeddingAnnIndexReconciler.RetryFailedBuildAfter"/>.
+    /// </summary>
+    internal static readonly TimeSpan Interval = TimeSpan.FromHours(6);
 
     private bool _loggedWaitingForMigrations;
 

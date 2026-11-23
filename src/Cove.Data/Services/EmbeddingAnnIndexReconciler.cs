@@ -35,14 +35,6 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     /// </summary>
     internal static readonly TimeSpan RetryFailedBuildAfter = TimeSpan.FromHours(6);
 
-    /// <summary>
-    /// Bounds for re-checking a family and dimension whose kinds exist but that has no asset-level rows yet
-    /// (for example while the first analysis has stored section rows only). With no such row the check
-    /// reads every row of the family, so it backs off from the first to the second.
-    /// </summary>
-    internal static readonly TimeSpan MinAssetRowRecheck = TimeSpan.FromMinutes(15);
-    internal static readonly TimeSpan MaxAssetRowRecheck = TimeSpan.FromHours(1);
-
     internal const long AdvisoryLockKey = 0x434F5645414E4E31; // COVEANN1
 
     /// <summary>
@@ -64,7 +56,6 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     // service runs one pass at a time, so these are never used concurrently.
     // (Kind, Dim) → the managed family it belongs to, or null. A kind's family does not change.
     private readonly Dictionary<(string Kind, int Dim), EmbeddingAnnFamily?> _pairFamilies = [];
-    private readonly Dictionary<string, (DateTimeOffset At, TimeSpan Delay)> _assetRowRecheck = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _retryFailedBuildAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _interruptedBuilds = new(StringComparer.Ordinal);
     private bool _buildWithoutParallelWorkers;
@@ -135,7 +126,7 @@ internal sealed partial class EmbeddingAnnIndexReconciler
                     desired++;
                     continue;
                 }
-                if (!await HasAssetRowsAsync(connection, spec, cancellationToken))
+                if (!await ProbeAssetRowsAsync(connection, spec.Family, spec.Dimensions, cancellationToken))
                     continue;
                 desired++;
                 if (_retryFailedBuildAt.TryGetValue(spec.Name, out var retryAt) && _timeProvider.GetUtcNow() < retryAt)
@@ -286,32 +277,10 @@ internal sealed partial class EmbeddingAnnIndexReconciler
     }
 
     /// <summary>
-    /// Whether the family has asset-level rows at the spec's dimension: the index covers only those. A
-    /// "no" is not cached for good (the first analysis may simply not have stored one yet), but it is
-    /// re-checked with a growing delay because answering it reads every row of the family.
+    /// Whether the family has asset-level rows at that dimension: the index covers only those. The
+    /// answer is not cached, because the first analysis may simply not have stored one yet. With no such
+    /// row the check reads every row of the family, which is acceptable once per pass.
     /// </summary>
-    private async Task<bool> HasAssetRowsAsync(
-        NpgsqlConnection connection,
-        EmbeddingAnnIndexSpec spec,
-        CancellationToken cancellationToken)
-    {
-        var now = _timeProvider.GetUtcNow();
-        if (_assetRowRecheck.TryGetValue(spec.Name, out var recheck) && now < recheck.At)
-            return false;
-
-        if (await ProbeAssetRowsAsync(connection, spec.Family, spec.Dimensions, cancellationToken))
-        {
-            _assetRowRecheck.Remove(spec.Name);
-            return true;
-        }
-
-        var delay = recheck.Delay == default
-            ? MinAssetRowRecheck
-            : TimeSpan.FromTicks(Math.Min(recheck.Delay.Ticks * 2, MaxAssetRowRecheck.Ticks));
-        _assetRowRecheck[spec.Name] = (now + delay, delay);
-        return false;
-    }
-
     private static async Task<bool> ProbeAssetRowsAsync(
         NpgsqlConnection connection,
         EmbeddingAnnFamily family,
