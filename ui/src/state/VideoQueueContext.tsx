@@ -9,6 +9,8 @@ interface VideoQueueState {
   totalCount?: number;
   hasRemotePrevious?: boolean;
   hasRemoteNext?: boolean;
+  /** The opener's own label for the queue, so it can tell later that the queue is still the one it opened. */
+  source?: string;
 }
 
 // Persist the queue per-tab so a refresh or back/forward navigation doesn't lose it. sessionStorage
@@ -30,6 +32,7 @@ function readStoredQueue(): VideoQueueState | null {
       totalCount: parsed.videoIds.length,
       hasRemotePrevious: false,
       hasRemoteNext: false,
+      source: typeof parsed.source === "string" ? parsed.source : undefined,
     } as VideoQueueState;
   } catch {
     return null;
@@ -53,6 +56,7 @@ interface VideoQueueOptions {
   startIndex?: number;
   totalCount?: number;
   autoplay?: boolean;
+  source?: string;
   loadPrevious?: () => Promise<VideoQueuePageResult>;
   loadNext?: () => Promise<VideoQueuePageResult>;
 }
@@ -60,6 +64,8 @@ interface VideoQueueOptions {
 interface VideoQueueContextValue {
   queue: VideoQueueState | null;
   setQueue: (ids: number[], currentId: number, items?: VideoQueueItem[], options?: VideoQueueOptions) => void;
+  /** Changes the title, subtitle or image of videos already in the queue, leaving the queue itself as it is. */
+  updateItems: (items: VideoQueueItem[]) => void;
   clearQueue: () => void;
   currentId: number | null;
   prevId: number | null;
@@ -111,10 +117,39 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
         totalCount: options?.totalCount ?? ids.length,
         hasRemotePrevious: Boolean(options?.loadPrevious),
         hasRemoteNext: Boolean(options?.loadNext),
+        source: options?.source,
       });
     },
     [],
   );
+
+  const updateItems = useCallback((items: VideoQueueItem[]) => {
+    // Not a new queue: pages still loading stay valid, so the generation is left alone.
+    setQueueState((current) => {
+      if (!current) return current;
+      const queuedIds = new Set(current.videoIds);
+      const merged: Record<number, VideoQueueItem> = { ...current.items };
+      let changed = false;
+      for (const item of items) {
+        if (!queuedIds.has(item.id)) continue;
+        const existing: VideoQueueItem = merged[item.id] ?? { id: item.id };
+        const next = { ...existing };
+        for (const field of ["title", "subtitle", "imagePath"] as const) {
+          // A field left out keeps what the queue shows; null clears it.
+          if (item[field] !== undefined) next[field] = item[field];
+        }
+        if (
+          next.title === existing.title &&
+          next.subtitle === existing.subtitle &&
+          next.imagePath === existing.imagePath
+        )
+          continue;
+        merged[item.id] = next;
+        changed = true;
+      }
+      return changed ? { ...current, items: merged } : current;
+    });
+  }, []);
 
   const clearQueue = useCallback(() => {
     queueGenerationRef.current += 1;
@@ -133,7 +168,8 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
       if (!queue || index < 0 || index >= queue.videoIds.length) return null;
       queueGenerationRef.current += 1;
       const id = queue.videoIds[index];
-      setQueueState({ ...queue, currentIndex: index });
+      // Applied to the latest state, so an update queued just before this one is not overwritten.
+      setQueueState((current) => (current?.videoIds[index] === id ? { ...current, currentIndex: index } : current));
       return id;
     },
     [queue],
@@ -218,6 +254,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
       value={{
         queue,
         setQueue,
+        updateItems,
         clearQueue,
         currentId,
         prevId,

@@ -131,8 +131,8 @@ The `v1` barrel groups these exports:
 | Forms and dialogs | `ConfirmDialog`, `EditModal`, `Field`, `TextInput`, `TextArea`, `NumberInput`, `SelectInput`, `SaveButton`, `ImageInput` |
 | Ratings | `InteractiveRating`, `RatingBadge`, `RatingBanner`, `RatingField`, `getRatingBannerColor`, `convertToRatingFormat`, `convertFromRatingFormat`, `formatDisplayRating`, `getRatingMax`, `getRatingStep`, `getRatingInputLabel`, `normalizeRatingOptions`, `defaultRatingSystemOptions` |
 | Utilities and custom fields | `TagBadge`, `NarrativeText`, `useMarkdownRenderingEnabled`, `formatDuration`, `formatFileSize`, `formatDate`, `getResolutionLabel`, `CustomFieldsDisplay`, `CustomFieldsEditor` |
-| Host integration | `openTutorialStoryboard`, `registerManualContext`, `useManualContext`, `useMultiSelect`, `useKeySequence`, `useListUrlState`, `useAppConfig`, `useDocumentTitle`, `APP_FLOATING_UI_SLOT`, `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT` |
-| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls`, `DetailListPaginationProps` |
+| Host integration | `openTutorialStoryboard`, `registerManualContext`, `useManualContext`, `useMultiSelect`, `useKeySequence`, `useListUrlState`, `useAppConfig`, `useDocumentTitle`, `useVideoQueue`, `APP_FLOATING_UI_SLOT`, `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT` |
+| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls`, `DetailListPaginationProps`, `VideoQueueHandle`, `VideoQueueSummary`, `VideoQueueItem`, `VideoQueueOptions` |
 
 The `@cove/extension-sdk` package also publishes `DashboardWidgetProps`, `DashboardWidgetEditorProps`, `DashboardWidgetContribution`, `DashboardWidgetPresentation`, and `JsonValue` for typing dashboard bundles. Render and editor props include the saved `flow` or `canvas` presentation. These are compile-time contracts; widget bundles still import React and request helpers from the versioned `@cove/runtime/*` modules.
 
@@ -202,6 +202,48 @@ export function Editor({ video }: { video: { title: string } }) {
 
 The title applies while the component is mounted. When several components set one, the innermost wins, and between siblings the one mounted last. An empty title, or `false` as the second argument, leaves the title to the enclosing page. Outside the extension's own pages, such as in a tab on a video's page, the call replaces that page's title rather than adding to it. The hook is new in Cove 1.6, so an extension that supports older versions should look it up on the module namespace (`import * as components from "@cove/runtime/components"`) instead of importing it by name, which would stop the bundle loading on those versions.
 
+### Video queue
+
+`useVideoQueue` gives a component Cove's video queue: the list behind the video page's queue panel, the player's previous and next controls and the <kbd>[</kbd> and <kbd>]</kbd> keys. Setting the queue takes effect at once, without a page load, and Cove keeps it for the browser tab across reloads.
+
+```tsx
+import * as components from "@cove/runtime/components";
+
+const useVideoQueue = components.useVideoQueue ?? (() => null);
+
+export function PlayAll({ videos }: { videos: { id: number; title: string; status: string }[] }) {
+  const queue = useVideoQueue();
+  if (!queue || videos.length === 0) return null;
+
+  const open = () => {
+    queue.setQueue(
+      videos.map((video) => video.id),
+      videos[0].id,
+      videos.map((video) => ({ id: video.id, title: video.title, subtitle: video.status })),
+      { source: "my-extension:review" },
+    );
+    components.navigateToUrl(`/video/${videos[0].id}`);
+  };
+
+  return <button onClick={open}>Play all</button>;
+}
+```
+
+The hook returns a `VideoQueueHandle`:
+
+| Member | Description |
+| --- | --- |
+| `queue` | `null` without a queue, otherwise a `VideoQueueSummary`: `videoIds`, the videos the queue has loaded in play order, and `source`, the label it was opened with. A queue Cove opened from a paged list loads further videos as playback reaches them, so `videoIds` can grow. |
+| `currentId` | The queue's current video, or `null` without a queue. On a video's page it can differ from the video shown when that video is not in the queue. |
+| `autoplay` | Whether the next video starts when one ends; `false` without a queue. |
+| `setQueue(ids, currentId, items?, options?)` | Replaces the queue. `currentId` falls back to the first video when it is not in `ids`, and an empty `ids` clears the queue. `items` are `VideoQueueItem` values for the queue panel: `id`, `title`, `subtitle` and `imagePath`, the URL of the image to show. A video without an item shows its id only. `options.autoplay` left out starts the queue with the user's **Auto-advance to the next item in a list** setting, as the queues Cove opens do; pass `autoplay` from the handle to keep the current choice. `options.source` labels the queue. Setting the queue does not navigate; open the video afterwards. |
+| `updateItems(items)` | Changes how videos already in the queue are shown, for example a subtitle that carries a status. In each item a field left out keeps what the queue shows and `null` clears it, so `{ id, subtitle }` changes the subtitle alone. The queue's videos, order, position and autoplay stay as they are, and items for videos that are not queued are ignored. Use it instead of `setQueue` for a queue the extension did not open, because replacing a queue Cove opened from a paged list stops that queue loading further pages. The panel shows "Now playing" in place of the current video's subtitle. |
+| `clearQueue()` | Removes the queue. |
+
+Give each queue the extension opens a `source` that starts with the extension's id, and compare `queue.source` later to tell whether the queue is still that one. Any queue opened without a source, including every queue Cove opens itself, has none. The handle is a new object whenever the queue, its current video or autoplay changes, but `setQueue`, `updateItems` and `clearQueue` keep their identity. An effect that calls one of them must depend on that function, never on the handle or on `queue`: every `setQueue` produces a new `queue` and handle, so such an effect would run without end.
+
+Cove 1.8.0 and earlier do not have the hook. An extension that supports those versions should look it up on the module namespace as above, because importing it by name would stop the bundle loading on those versions. It returns `null` when rendered outside Cove's queue provider, so treat `null` and a missing export alike: do without the queue, for example by offering a plain link to the video. Contributions to `APP_FLOATING_UI_SLOT` are inside the provider on every version that has the hook.
+
 ### Reusable video player controls
 
 `VideoPlayer` can register bounded controls for a component that renders the reusable player:
@@ -232,5 +274,7 @@ use the bounded controls in `MediaPlayerExtensionContext`.
 ## Compatibility
 
 Runtime modules are a host contract, not dependencies embedded in the extension archive. Set `minCoveVersion` to the oldest Cove release on which every imported runtime export has been tested. Adding an import introduced by a newer Cove release raises that practical compatibility floor even when the extension's backend contract is unchanged.
+
+An extension can use a newer export without raising its floor by importing the barrel as a namespace (`import * as components from "@cove/runtime/components"`) and checking that the export exists before using it. A named import of an export the host lacks stops the whole bundle loading. `EntityMedia`, `useDocumentTitle` (new in Cove 1.6) and `useVideoQueue` (not in Cove 1.8.0 or earlier) are exports to detect this way; `useVideoQueue` additionally returns `null` outside Cove's queue provider, so one fallback covers both cases. Members added later to an object a hook returns, such as `VideoQueueHandle`, need the same check.
 
 Keep a package's frontend imports and its declared compatibility floor in sync, then test installation and the rendered contribution on that minimum version. See [Package an extension](../packaging/) for how installers enforce `minCoveVersion` and [UI extension points](../ui-extension-points/) for where components can be mounted.
