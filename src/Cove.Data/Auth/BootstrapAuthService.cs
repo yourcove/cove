@@ -249,8 +249,18 @@ public sealed class BootstrapAuthService : IHostedService
         if (guest.Permissions.Count == 0)
             EnsurePermissions(db, guest, Permissions.GuestDefaults);
 
+        // Defaults added after release reach roles that were seeded before them. This runs after the
+        // empty-role seeding above, so a fresh role still receives its full defaults first.
+        EnsurePermissions(db, member, MemberBackfill);
+        EnsurePermissions(db, viewer, ViewerBackfill);
+
         await db.SaveChangesAsync(ct);
     }
+
+    // Keys in MemberDefaults and ViewerDefaults that existing installs must also receive. Each one is
+    // re-added on every start, so an administrator who removes it from the role gets it back.
+    private static readonly string[] MemberBackfill = [Permissions.EmbeddingsRead, Permissions.AiRunsRead];
+    private static readonly string[] ViewerBackfill = [Permissions.SavedFiltersWrite, Permissions.SavedFiltersDelete];
 
     private static void EnsurePermissions(CoveContext db, Role role, string[] permissions)
     {
