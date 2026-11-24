@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Loader2 } from "lucide-react";
 import { bookmarks } from "../api/client";
 import type { AffinityHostType } from "../api/types";
-import { bookmarkStateQueryKey, fetchBookmarkState } from "../state/bookmarkStates";
+import { bookmarkStateQueryOptions, useCanBookmark } from "../state/bookmarkStates";
 
 interface Props {
   hostType: AffinityHostType;
@@ -15,10 +15,12 @@ interface Props {
 export function BookmarkButton({ hostType, hostId, className = "", compact = false }: Props) {
   const [resolvingClick, setResolvingClick] = useState(false);
   const queryClient = useQueryClient();
-  const queryKey = bookmarkStateQueryKey(hostType, hostId);
-  const queryFn = () => fetchBookmarkState(hostType, hostId);
-  // A page mounts many cards at once; the shared loader turns their lookups into one batch request.
-  const { data } = useQuery({ queryKey, queryFn, enabled: hostId > 0 });
+  const { queryKey, queryFn } = bookmarkStateQueryOptions(hostType, hostId);
+  const canBookmark = useCanBookmark();
+  // Cards that mount together share one batch request. A cached state is not refetched on mount:
+  // virtualized lists remount rows while scrolling, and list pages refresh their states with
+  // usePrefetchBookmarkStates, which costs one request per page.
+  const { data } = useQuery({ queryKey, queryFn, enabled: hostId > 0 && canBookmark, refetchOnMount: false });
   const hasLoadedState = data != null;
   const saved = data?.saved ?? false;
   const mutation = useMutation({

@@ -7,6 +7,7 @@ import { SortableList } from "../components/SortableList";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { Layers } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
 import { GROUP_CRITERIA } from "../components/filterCriteriaCatalogs";
@@ -91,6 +92,10 @@ export function GroupsPage({ onNavigate }: Props) {
     (filter.sort ?? "sort_order") === "sort_order" &&
     (filter.direction ?? "asc") !== "desc";
   const { engagementById } = useEntityEngagementBatch(
+    "group",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "group",
     items.map((item) => item.id),
   );

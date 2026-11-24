@@ -11,7 +11,10 @@ import { bookmarks } from "../api/client";
 import type { BookmarkBatchRequest } from "../api/types";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { GroupTile, ImageTile, VideoCard } from "../components/EntityCards";
-import { fetchBookmarkState, invalidateBookmarkStates } from "../state/bookmarkStates";
+import { useState } from "react";
+import type { AuthContextValue } from "../auth/AuthContext";
+import { AuthContext } from "../auth/optionalAuth";
+import { fetchBookmarkState, invalidateBookmarkStates, usePrefetchBookmarkStates } from "../state/bookmarkStates";
 
 const savedIds = new Set<string>();
 
@@ -89,9 +92,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderWithClient(ui: React.ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const result = render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+function renderWithClient(ui: React.ReactElement, auth?: AuthContextValue) {
+  // The app keeps query data fresh for 30 seconds; the remount checks depend on that.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
+  });
+  const tree = <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>;
+  const result = render(auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree);
   return { ...result, queryClient };
 }
 
@@ -178,6 +185,114 @@ describe("card Save for Later state", () => {
     expect(cardButton("Video 2")).toHaveAttribute("aria-pressed", "true");
     expect(batchSpy).toHaveBeenCalledTimes(2);
     expect(batchSpy).toHaveBeenLastCalledWith({ hostType: "video", hostIds: [1, 2] });
+  });
+});
+
+// A list page prefetches every loaded ID, then mounts only the cards a virtualized list shows.
+function VirtualizedPage({ ids }: { ids: number[] }) {
+  usePrefetchBookmarkStates("video", ids);
+  const [mounted, setMounted] = useState(1);
+  return (
+    <>
+      <button type="button" onClick={() => setMounted((count) => count + 1)}>
+        Scroll
+      </button>
+      {ids.slice(0, mounted).map((id) => (
+        <VideoCard key={id} video={video(id)} onClick={vi.fn()} />
+      ))}
+    </>
+  );
+}
+
+describe("list page Save for Later prefetch", () => {
+  it("serves cards mounted later from the page's single request", async () => {
+    savedIds.add("video:3");
+    renderWithClient(<VirtualizedPage ids={[1, 2, 3, 4]} />);
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    expect(batchSpy).toHaveBeenCalledWith({ hostType: "video", hostIds: [1, 2, 3, 4] });
+
+    for (let step = 0; step < 3; step += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "Scroll" }));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    }
+
+    expect(cardButton("Video 3")).toHaveAttribute("aria-pressed", "true");
+    expect(cardButton("Video 4")).toHaveAttribute("aria-pressed", "false");
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a state changed on a detail page when the card mounts again, without another request", async () => {
+    // The list and the detail page are never mounted together, as with real navigation.
+    function App() {
+      const [page, setPage] = useState<"list" | "detail">("list");
+      return (
+        <>
+          <button type="button" onClick={() => setPage(page === "list" ? "detail" : "list")}>
+            Navigate
+          </button>
+          {page === "list" ? (
+            <VirtualizedPage ids={[8]} />
+          ) : (
+            <div data-testid="detail">
+              <BookmarkButton hostType="video" hostId={8} />
+            </div>
+          )}
+        </>
+      );
+    }
+    renderWithClient(<App />);
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    expect(cardButton("Video 8")).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Navigate" }));
+    fireEvent.click(within(screen.getByTestId("detail")).getByRole("button", { name: "Save for Later" }));
+    await waitFor(() =>
+      expect(within(screen.getByTestId("detail")).getByRole("button")).toHaveAttribute("aria-pressed", "true"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Navigate" }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(cardButton("Video 8")).toHaveAttribute("aria-pressed", "true");
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BookmarkButton outside a signed-in session", () => {
+  it("does not ask for states as a share-link guest", async () => {
+    const guest = { user: { kind: "shareLink" }, hasPermission: () => true } as unknown as AuthContextValue;
+    renderWithClient(
+      <>
+        <VideoCard video={video(1)} onClick={vi.fn()} />
+        <VirtualizedPage ids={[2, 3]} />
+      </>,
+      guest,
+    );
+
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(batchSpy).not.toHaveBeenCalled();
+    expect(cardButton("Video 1")).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("BookmarkButton before its state loads", () => {
+  it("resolves the state first, then toggles from it", async () => {
+    savedIds.add("video:9");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    batchSpy.mockImplementationOnce(async ({ hostType, hostIds }: BookmarkBatchRequest) => {
+      await gate;
+      return hostIds.map((hostId) => ({ hostType, hostId, saved: savedIds.has(`${hostType}:${hostId}`) }));
+    });
+    renderWithClient(<BookmarkButton hostType="video" hostId={9} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save for Later" }));
+    release();
+
+    await waitFor(() => expect(bookmarks.toggle).toHaveBeenCalledWith({ hostType: "video", hostId: 9, saved: false }));
+    expect(await screen.findByRole("button", { name: "Save for Later" })).toHaveAttribute("aria-pressed", "false");
   });
 });
 

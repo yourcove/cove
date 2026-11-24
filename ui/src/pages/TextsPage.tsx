@@ -31,6 +31,7 @@ import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { TEXT_MULTI_SORT_KEYS, TEXT_SORT_OPTIONS } from "../components/textSortOptions";
 import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
@@ -105,6 +106,7 @@ export function TextsPage({ onNavigate }: Props) {
   });
   const textIds = useMemo(() => items.map((t) => t.id) ?? [], [items]);
   const { engagementById: textEngagement } = useEntityEngagementBatch("text", textIds);
+  usePrefetchBookmarkStates("text", textIds);
   const { hasPermission } = useAuth();
   const canWriteText = canWriteEntity("text", hasPermission);
   const handleSelectAllMatching = async () => {

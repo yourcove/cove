@@ -15,6 +15,7 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { RELEVANCE_SORT_VALUE } from "../utils/relevanceSort";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { ImageIcon, FolderOpen, ThumbsUp, Eye, Heart } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ImageTile } from "../components/EntityCards";
@@ -259,6 +260,10 @@ export function ImagesPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const loading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch(
+    "image",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "image",
     items.map((item) => item.id),
   );

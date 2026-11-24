@@ -27,6 +27,7 @@ import {
   type MultiSelectToggleOptions,
 } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { formatDuration } from "../components/shared";
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
@@ -773,6 +774,10 @@ export function VideosPage({ onNavigate }: Props) {
     verticalItemHeight,
   ]);
   const { engagementById } = useEntityEngagementBatch(
+    "video",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "video",
     items.map((item) => item.id),
   );
