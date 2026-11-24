@@ -1354,7 +1354,6 @@ function CompilationGroupCard({ group, onNavigate }: { group: Group; onNavigate:
           hostType="group"
           hostId={group.id}
           compact
-          deferUntilHover
           className="absolute left-1 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
         {group.frontImagePath ? (
@@ -1561,7 +1560,6 @@ function VideoFeedCard({
           hostType="video"
           hostId={video.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}
@@ -1916,7 +1914,6 @@ function VideoVerticalViewerCard({
             hostType="video"
             hostId={video.id}
             compact
-            deferUntilHover
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         )}

@@ -1330,7 +1330,6 @@ export function VideoCard({
   onNavigate,
   selecting,
   onQuickView,
-  bookmarkInitiallySaved,
 }: {
   video: Video;
   engagement?: EntityEngagement;
@@ -1340,7 +1339,6 @@ export function VideoCard({
   selecting?: boolean;
   onNavigate?: (r: any) => void;
   onQuickView?: () => void;
-  bookmarkInitiallySaved?: boolean;
 }) {
   const appConfig = useOptionalAppConfig();
   const file = video.files.find((candidate) => candidate.id === video.primaryFileId);
@@ -1386,8 +1384,6 @@ export function VideoCard({
             hostType="video"
             hostId={video.id}
             compact
-            deferUntilHover
-            initialSaved={bookmarkInitiallySaved}
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         )}
@@ -2044,7 +2040,6 @@ interface ImageTileProps {
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
-  bookmarkInitiallySaved?: boolean;
 }
 
 export function ImageTile({
@@ -2058,7 +2053,6 @@ export function ImageTile({
   selected,
   onSelect,
   selecting,
-  bookmarkInitiallySaved,
 }: ImageTileProps & { engagement?: EntityEngagement }) {
   const imageFit = useConfiguredImageFit();
   const likeCount = engagement?.likeCount ?? 0;
@@ -2116,8 +2110,6 @@ export function ImageTile({
             hostType="image"
             hostId={image.id}
             compact
-            deferUntilHover
-            initialSaved={bookmarkInitiallySaved}
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         )}
@@ -2268,7 +2260,6 @@ interface GalleryTileProps {
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
-  bookmarkInitiallySaved?: boolean;
 }
 
 export function GalleryTile({
@@ -2279,7 +2270,6 @@ export function GalleryTile({
   selected,
   onSelect,
   selecting,
-  bookmarkInitiallySaved,
 }: GalleryTileProps & { engagement?: EntityEngagement }) {
   const scrubThumbnailRef = useRef<GalleryScrubThumbnailHandle>(null);
   const imageFit = useConfiguredImageFit();
@@ -2336,8 +2326,6 @@ export function GalleryTile({
               hostType="gallery"
               hostId={gallery.id}
               compact
-              deferUntilHover
-              initialSaved={bookmarkInitiallySaved}
               className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
             />
           ) : null}
@@ -2578,7 +2566,6 @@ interface GroupTileProps {
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
   selectable?: boolean;
-  bookmarkInitiallySaved?: boolean;
   dragHandleProps?: EntityTileDragHandleProps;
   isDragging?: boolean;
   isOver?: boolean;
@@ -2593,7 +2580,6 @@ export function GroupTile({
   onSelect,
   selecting,
   selectable,
-  bookmarkInitiallySaved,
   dragHandleProps,
   isDragging,
   isOver,
@@ -2714,8 +2700,6 @@ export function GroupTile({
               hostType="group"
               hostId={group.id}
               compact
-              deferUntilHover
-              initialSaved={bookmarkInitiallySaved}
               className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
             />
           ) : null}
@@ -2906,7 +2890,6 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
             hostType="audio"
             hostId={audio.id}
             compact
-            deferUntilHover
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         ) : null}
@@ -3037,7 +3020,6 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
             hostType="text"
             hostId={text.id}
             compact
-            deferUntilHover
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         ) : null}

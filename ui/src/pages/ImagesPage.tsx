@@ -625,7 +625,6 @@ function ImageFeedCard({
           hostType="image"
           hostId={image.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}
@@ -792,7 +791,6 @@ function ImageWallCard({
           hostType="image"
           hostId={image.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}
