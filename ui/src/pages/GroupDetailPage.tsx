@@ -949,13 +949,20 @@ function GroupItemsPanel({
   });
   const selectedCount = selectedIds.size;
   const hydratedItems = useGroupItemEntities(displayedMixedItems);
-  // Item cards mount as each item loads; ask for every Save for Later state at once.
+  // Item cards mount as each item loads; ask for every Save for Later state at once. List rows
+  // have no Save for Later button, and the server refuses types the user cannot read.
   usePrefetchBookmarkStateRefs(
-    displayedMixedItems.flatMap((item) => {
-      if (item.source === "subgroup") return [{ hostType: "group" as const, hostId: item.group.id }];
-      const host = resolveGroupFeedHost(item.item);
-      return host ? [{ hostType: host.hostType, hostId: host.id }] : [];
-    }),
+    viewMode === "list"
+      ? []
+      : displayedMixedItems.flatMap((item) => {
+          if (item.source === "subgroup") {
+            return canReadEntity("group", hasPermission) ? [{ hostType: "group" as const, hostId: item.group.id }] : [];
+          }
+          const host = resolveGroupFeedHost(item.item);
+          return host && canReadEntity(host.resource, hasPermission)
+            ? [{ hostType: host.hostType, hostId: host.id }]
+            : [];
+        }),
   );
   const canReorderMixedItems =
     !isDynamic &&
