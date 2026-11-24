@@ -22,6 +22,7 @@ import { claimServerPageRedirect, getPostLoginRedirectUrl, isServerPage } from "
 import { auth, database, jobs } from "./api/client";
 import { useExtensionNames } from "./components/useExtensionNames";
 import { dashboardPrincipalKey, prefetchDashboardPage } from "./pages/dashboardPageQuery";
+import { useResetBookmarkStatesOnUserChange } from "./state/bookmarkStates";
 import { useKeySequence } from "./hooks/useKeySequence";
 import { KeyboardShortcutProvider, useKeyboardShortcuts } from "./keyboard/KeyboardShortcutProvider";
 import { KeyboardShortcutsDialog } from "./components/KeyboardShortcutsDialog";
@@ -426,6 +427,7 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
 
   // After the redirect above, so the destination it reads is the one shown.
   useFirstScreenPrefetch(user, loading);
+  useResetBookmarkStatesOnUserChange(user?.id);
 
   if (window.location.pathname === "/auth/bootstrap") {
     return <AuthBootstrapPage />;

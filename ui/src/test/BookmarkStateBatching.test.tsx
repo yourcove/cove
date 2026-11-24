@@ -19,6 +19,7 @@ import {
   invalidateBookmarkStates,
   usePrefetchBookmarkStateRefs,
   usePrefetchBookmarkStates,
+  useResetBookmarkStatesOnUserChange,
   type BookmarkHostRef,
 } from "../state/bookmarkStates";
 
@@ -265,10 +266,6 @@ describe("list page Save for Later prefetch", () => {
 });
 
 describe("list page Save for Later prefetch over time", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("asks only for the new page when an infinite list grows, even after earlier states went stale", async () => {
     const { rerender, queryClient } = renderWithClient(<VirtualizedPage ids={[1, 2]} />);
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
@@ -399,6 +396,38 @@ describe("BookmarkButton before its state loads", () => {
 
     await waitFor(() => expect(bookmarks.toggle).toHaveBeenCalledWith({ hostType: "video", hostId: 9, saved: false }));
     expect(await screen.findByRole("button", { name: "Save for Later" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("useResetBookmarkStatesOnUserChange", () => {
+  function Session({ userId }: { userId: string | null | undefined }) {
+    useResetBookmarkStatesOnUserChange(userId);
+    return null;
+  }
+
+  it("keeps states while the session loads and drops them when the user signs out or changes", () => {
+    const { rerender, queryClient } = renderWithClient(<Session userId={undefined} />);
+    const seed = () =>
+      queryClient.setQueryData(["bookmark-state", "video", 1], { hostType: "video", hostId: 1, saved: true });
+    const rerenderWith = (userId: string | null) =>
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <Session userId={userId} />
+        </QueryClientProvider>,
+      );
+    const cached = () => queryClient.getQueryData(["bookmark-state", "video", 1]);
+
+    seed();
+    rerenderWith("3");
+    expect(cached()).toBeDefined();
+
+    rerenderWith(null);
+    expect(cached()).toBeUndefined();
+
+    rerenderWith("3");
+    seed();
+    rerenderWith("4");
+    expect(cached()).toBeUndefined();
   });
 });
 

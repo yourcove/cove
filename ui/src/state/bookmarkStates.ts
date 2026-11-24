@@ -109,3 +109,17 @@ export function usePrefetchBookmarkStateRefs(refs: readonly BookmarkHostRef[]) {
     }
   }, [canBookmark, refsKey, queryClient]);
 }
+
+/**
+ * Bookmarks belong to one account, but their cache key does not name it. Drops every cached state
+ * when the signed-in user signs out or changes, so the next account never sees the previous one's.
+ */
+export function useResetBookmarkStatesOnUserChange(userId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const previous = useRef(userId);
+  useEffect(() => {
+    const changed = previous.current != null && previous.current !== userId;
+    previous.current = userId;
+    if (changed) queryClient.removeQueries({ queryKey: bookmarkStatesQueryKey() });
+  }, [queryClient, userId]);
+}
