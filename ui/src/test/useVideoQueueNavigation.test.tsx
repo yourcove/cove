@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Video } from "../api/types";
+import type { FindFilter, PaginatedResponse, Video } from "../api/types";
 import { VideoQueueProvider, useVideoQueue } from "../state/VideoQueueContext";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
 
@@ -50,6 +50,145 @@ describe("useVideoQueueNavigation", () => {
     });
     expect(queryPage).toHaveBeenCalledWith({ page: 2, perPage: 2, sort: "title", direction: "asc", q: "needle" });
     expect(result.current.queue.currentId).toBe(30);
+  });
+
+  const pages: Record<number, Video[]> = {
+    1: [video(10, "First"), video(20, "Second")],
+    2: [video(30, "Third"), video(40, "Fourth")],
+    3: [video(50, "Fifth"), video(60, "Sixth")],
+  };
+  const pageResponse = (filter: FindFilter): PaginatedResponse<Video> => ({
+    items: pages[filter.page!],
+    totalCount: 6,
+    page: filter.page!,
+    perPage: 2,
+  });
+  const renderPagedQueue = (openPage: number, queryPage: (filter: FindFilter) => Promise<PaginatedResponse<Video>>) => {
+    const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
+    return renderHook(
+      () => ({
+        navigation: useVideoQueueNavigation({
+          items: pages[openPage],
+          filter: { page: openPage, perPage: 2 },
+          totalCount: 6,
+          infinitePageSize: false,
+          queryPage,
+          onNavigate: vi.fn(),
+        }),
+        queue: useVideoQueue(),
+      }),
+      { wrapper },
+    );
+  };
+
+  it.each([
+    { direction: "next" as const, openPage: 1, openIndex: 1, pagesLoaded: [2, 3], landsOn: 50 },
+    { direction: "previous" as const, openPage: 3, openIndex: 0, pagesLoaded: [2, 1], landsOn: 20 },
+  ])(
+    "moves on to the following $direction page after a page is kept",
+    async ({ direction, openPage, openIndex, pagesLoaded, landsOn }) => {
+      const queryPage = vi.fn(async (filter: FindFilter) => pageResponse(filter));
+      const { result } = renderPagedQueue(openPage, queryPage);
+      const step = () => (direction === "next" ? result.current.queue.goNext() : result.current.queue.goPrevious());
+
+      act(() => result.current.navigation.openVideo(pages[openPage][openIndex].id));
+      // Into the adjacent page, across it, then into the page beyond.
+      for (let i = 0; i < 3; i++) {
+        await act(async () => {
+          await step();
+        });
+      }
+
+      expect(queryPage.mock.calls.map(([filter]) => filter.page)).toEqual(pagesLoaded);
+      expect(result.current.queue.currentId).toBe(landsOn);
+    },
+  );
+
+  it.each([
+    { direction: "next" as const, openPage: 1, openIndex: 1, otherIndex: 0, landsOn: 30, position: 3 },
+    { direction: "previous" as const, openPage: 3, openIndex: 0, otherIndex: 1, landsOn: 40, position: 4 },
+  ])(
+    "reloads the same $direction page after a page load is discarded",
+    async ({ direction, openPage, openIndex, otherIndex, landsOn, position }) => {
+      let resolveDiscarded!: () => void;
+      const queryPage = vi
+        .fn(async (filter: FindFilter) => pageResponse(filter))
+        .mockImplementationOnce(
+          (filter) =>
+            new Promise((resolve) => {
+              resolveDiscarded = () => resolve(pageResponse(filter));
+            }),
+        );
+      const { result } = renderPagedQueue(openPage, queryPage);
+      const step = () => (direction === "next" ? result.current.queue.goNext() : result.current.queue.goPrevious());
+
+      act(() => result.current.navigation.openVideo(pages[openPage][openIndex].id));
+      let pending!: Promise<number | null>;
+      act(() => {
+        pending = step();
+      });
+      // Choosing another queued video while the page loads discards the load.
+      act(() => {
+        result.current.queue.goToIndex(otherIndex);
+      });
+      resolveDiscarded();
+      await act(async () => {
+        await pending;
+      });
+      expect(await pending).toBeNull();
+
+      act(() => {
+        result.current.queue.goToIndex(openIndex);
+      });
+      await act(async () => {
+        await step();
+      });
+
+      expect(queryPage.mock.calls.map(([filter]) => filter.page)).toEqual([2, 2]);
+      expect(result.current.queue.currentId).toBe(landsOn);
+      expect(result.current.queue.currentPosition).toBe(position);
+    },
+  );
+
+  it("keeps paging through the list while a discarded page request is still pending", async () => {
+    let resolveDiscarded!: () => void;
+    const queryPage = vi
+      .fn(async (filter: FindFilter) => pageResponse(filter))
+      .mockImplementationOnce(
+        (filter) =>
+          new Promise((resolve) => {
+            resolveDiscarded = () => resolve(pageResponse(filter));
+          }),
+      );
+    const { result } = renderPagedQueue(1, queryPage);
+
+    act(() => result.current.navigation.openVideo(20));
+    let discarded!: Promise<number | null>;
+    act(() => {
+      discarded = result.current.queue.goNext();
+    });
+    act(() => {
+      result.current.queue.goToIndex(0);
+    });
+    act(() => {
+      result.current.queue.goToIndex(1);
+    });
+    // Into page 2 again, across it, and into page 3, all before the discarded request returns.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await result.current.queue.goNext();
+      });
+    }
+    resolveDiscarded();
+    await act(async () => {
+      await discarded;
+    });
+
+    expect(await discarded).toBeNull();
+    expect(queryPage.mock.calls.map(([filter]) => filter.page)).toEqual([2, 2, 3]);
+    expect(result.current.queue.queue?.videoIds).toEqual([10, 20, 30, 40, 50, 60]);
+    expect(result.current.queue.currentId).toBe(50);
+    expect(result.current.queue.currentPosition).toBe(5);
   });
 
   it("keeps the list queue when opening a video at a requested time", () => {
