@@ -118,6 +118,8 @@ import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { compareNatural } from "../utils/naturalCompare";
 import { normalizeFolderPath } from "../utils/folderPaths";
 import { listKey, pageLabel, vrOnlyFilter } from "../vr/vrListRegistry";
+import { resolveGroupFeedHost } from "../components/GroupItemFeed";
+import { usePrefetchBookmarkStateRefs } from "../state/bookmarkStates";
 
 interface Props {
   id: number;
@@ -947,6 +949,14 @@ function GroupItemsPanel({
   });
   const selectedCount = selectedIds.size;
   const hydratedItems = useGroupItemEntities(displayedMixedItems);
+  // Item cards mount as each item loads; ask for every Save for Later state at once.
+  usePrefetchBookmarkStateRefs(
+    displayedMixedItems.flatMap((item) => {
+      if (item.source === "subgroup") return [{ hostType: "group" as const, hostId: item.group.id }];
+      const host = resolveGroupFeedHost(item.item);
+      return host ? [{ hostType: host.hostType, hostId: host.id }] : [];
+    }),
+  );
   const canReorderMixedItems =
     !isDynamic &&
     canWriteGroup &&

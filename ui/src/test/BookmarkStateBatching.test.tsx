@@ -14,7 +14,13 @@ import { GroupTile, ImageTile, VideoCard } from "../components/EntityCards";
 import { useState } from "react";
 import type { AuthContextValue } from "../auth/AuthContext";
 import { AuthContext } from "../auth/optionalAuth";
-import { fetchBookmarkState, invalidateBookmarkStates, usePrefetchBookmarkStates } from "../state/bookmarkStates";
+import {
+  fetchBookmarkState,
+  invalidateBookmarkStates,
+  usePrefetchBookmarkStateRefs,
+  usePrefetchBookmarkStates,
+  type BookmarkHostRef,
+} from "../state/bookmarkStates";
 
 const savedIds = new Set<string>();
 
@@ -258,20 +264,118 @@ describe("list page Save for Later prefetch", () => {
   });
 });
 
-describe("BookmarkButton outside a signed-in session", () => {
-  it("does not ask for states as a share-link guest", async () => {
-    const guest = { user: { kind: "shareLink" }, hasPermission: () => true } as unknown as AuthContextValue;
+describe("list page Save for Later prefetch over time", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks only for the new page when an infinite list grows, even after earlier states went stale", async () => {
+    const { rerender, queryClient } = renderWithClient(<VirtualizedPage ids={[1, 2]} />);
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 60_000);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <VirtualizedPage ids={[1, 2, 3, 4]} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
+    expect(batchSpy).toHaveBeenLastCalledWith({ hostType: "video", hostIds: [3, 4] });
+  });
+
+  it("refetches a state invalidated while its card was unmounted when the card returns", async () => {
+    function App() {
+      const [selecting, setSelecting] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setSelecting(!selecting)}>
+            Toggle selection
+          </button>
+          <VideoCard video={video(6)} onClick={vi.fn()} selecting={selecting} />
+        </>
+      );
+    }
+    const { queryClient } = renderWithClient(<App />);
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    // Cards hide their button in selection mode, so a bulk change lands while it is unmounted.
+    fireEvent.click(screen.getByRole("button", { name: "Toggle selection" }));
+    expect(screen.queryByRole("button", { name: /Save for Later/ })).not.toBeInTheDocument();
+    savedIds.add("video:6");
+    await act(() => invalidateBookmarkStates(queryClient, "video"));
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle selection" }));
+    await waitFor(() => expect(cardButton("Video 6")).toHaveAttribute("aria-pressed", "true"));
+    expect(batchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mixed group item prefetch", () => {
+  function MixedItems({ refs }: { refs: BookmarkHostRef[] }) {
+    usePrefetchBookmarkStateRefs(refs);
+    return null;
+  }
+
+  it("asks once per host type and skips types whose cards have no button", async () => {
+    renderWithClient(
+      <MixedItems
+        refs={[
+          { hostType: "video", hostId: 1 },
+          { hostType: "audio", hostId: 2 },
+          { hostType: "video", hostId: 3 },
+          { hostType: "performer", hostId: 4 },
+          { hostType: "group", hostId: 5 },
+        ]}
+      />,
+    );
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(3));
+    expect(batchSpy.mock.calls.map(([request]) => request)).toEqual(
+      expect.arrayContaining([
+        { hostType: "video", hostIds: [1, 3] },
+        { hostType: "audio", hostIds: [2] },
+        { hostType: "group", hostIds: [5] },
+      ]),
+    );
+  });
+});
+
+describe("BookmarkButton and the session", () => {
+  function session(user: { id: string; kind: string }) {
+    return { user, hasPermission: () => true } as unknown as AuthContextValue;
+  }
+
+  it.each([
+    ["a share-link guest", session({ id: "0f8e2c", kind: "shareLink" })],
+    ["an auth-disabled install without an owner", session({ id: "system", kind: "system" })],
+  ])("does not ask for states as %s", async (_label, auth) => {
     renderWithClient(
       <>
         <VideoCard video={video(1)} onClick={vi.fn()} />
         <VirtualizedPage ids={[2, 3]} />
       </>,
-      guest,
+      auth,
     );
 
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(batchSpy).not.toHaveBeenCalled();
     expect(cardButton("Video 1")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it.each([
+    ["a signed-in user", session({ id: "3", kind: "user" })],
+    ["the owner of an auth-disabled install", session({ id: "1", kind: "system" })],
+  ])("shows saved states for %s", async (_label, auth) => {
+    savedIds.add("video:1");
+    renderWithClient(<VideoCard video={video(1)} onClick={vi.fn()} />, auth);
+
+    await waitFor(() => expect(cardButton("Video 1")).toHaveAttribute("aria-pressed", "true"));
+    expect(batchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -289,6 +393,8 @@ describe("BookmarkButton before its state loads", () => {
     renderWithClient(<BookmarkButton hostType="video" hostId={9} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Save for Later" }));
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    expect(bookmarks.toggle).not.toHaveBeenCalled();
     release();
 
     await waitFor(() => expect(bookmarks.toggle).toHaveBeenCalledWith({ hostType: "video", hostId: 9, saved: false }));

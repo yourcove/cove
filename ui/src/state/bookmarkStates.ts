@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { bookmarks } from "../api/client";
 import type { AffinityHostType, BookmarkState } from "../api/types";
@@ -52,13 +52,15 @@ export function bookmarkStateQueryOptions(hostType: AffinityHostType, hostId: nu
 }
 
 /**
- * Only signed-in users have bookmarks; share-link guests and sessions without an owner are
- * refused by the server, so they do not ask.
+ * Bookmarks belong to a user account. A signed-in user, the owner an auth-disabled install acts
+ * as, and an API token's owner all report a numeric user id; share-link guests and an
+ * auth-disabled install without an owner do not, and the server refuses them, so they do not ask.
  */
 export function useCanBookmark() {
   const auth = useOptionalAuth();
   if (!auth) return true;
-  return auth.user != null && (auth.user.kind ?? "user") === "user";
+  const user = auth.user;
+  return user != null && user.kind !== "shareLink" && /^\d+$/.test(user.id);
 }
 
 // Host types whose cards carry a Save for Later button; prefetching any other type would be wasted.
@@ -71,19 +73,39 @@ const CARD_BOOKMARK_HOST_TYPES: ReadonlySet<AffinityHostType> = new Set([
   "text",
 ]);
 
+export interface BookmarkHostRef {
+  hostType: AffinityHostType;
+  hostId: number;
+}
+
 /**
  * Loads the states of a page of results in one request per host type. Virtualized lists mount
- * their cards a few at a time; with the page prefetched, those cards read the cache instead of
- * asking for their own state.
+ * their cards a few at a time, and mixed group views mount each card when its item loads; with
+ * the page prefetched, those cards read the cache instead of asking for their own state.
  */
 export function usePrefetchBookmarkStates(hostType: AffinityHostType | undefined, hostIds: readonly number[]) {
+  usePrefetchBookmarkStateRefs(hostType ? hostIds.map((hostId) => ({ hostType, hostId })) : []);
+}
+
+/** The mixed-type form of usePrefetchBookmarkStates, for views such as group items. */
+export function usePrefetchBookmarkStateRefs(refs: readonly BookmarkHostRef[]) {
   const queryClient = useQueryClient();
   const canBookmark = useCanBookmark();
-  const idsKey = hostIds.join(",");
+  const refsKey = refs
+    .filter((ref) => ref.hostId > 0 && CARD_BOOKMARK_HOST_TYPES.has(ref.hostType))
+    .map((ref) => `${ref.hostType}:${ref.hostId}`)
+    .join(",");
+  // Items already requested while this view is mounted. When an infinite list grows, only the new
+  // page is asked for; earlier cards keep their cached state, which toggles and invalidation keep
+  // current.
+  const requested = useRef(new Set<string>());
   useEffect(() => {
-    if (!canBookmark || !hostType || !CARD_BOOKMARK_HOST_TYPES.has(hostType) || !idsKey) return;
-    for (const hostId of idsKey.split(",").map(Number)) {
-      if (hostId > 0) void queryClient.prefetchQuery(bookmarkStateQueryOptions(hostType, hostId));
+    if (!canBookmark || !refsKey) return;
+    for (const key of refsKey.split(",")) {
+      if (requested.current.has(key)) continue;
+      requested.current.add(key);
+      const [hostType, hostId] = key.split(":");
+      void queryClient.prefetchQuery(bookmarkStateQueryOptions(hostType as AffinityHostType, Number(hostId)));
     }
-  }, [canBookmark, hostType, idsKey, queryClient]);
+  }, [canBookmark, refsKey, queryClient]);
 }

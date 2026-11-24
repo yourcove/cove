@@ -17,10 +17,15 @@ export function BookmarkButton({ hostType, hostId, className = "", compact = fal
   const queryClient = useQueryClient();
   const { queryKey, queryFn } = bookmarkStateQueryOptions(hostType, hostId);
   const canBookmark = useCanBookmark();
-  // Cards that mount together share one batch request. A cached state is not refetched on mount:
-  // virtualized lists remount rows while scrolling, and list pages refresh their states with
-  // usePrefetchBookmarkStates, which costs one request per page.
-  const { data } = useQuery({ queryKey, queryFn, enabled: hostId > 0 && canBookmark, refetchOnMount: false });
+  // Cards that mount together share one batch request. A cached state is refetched on mount only
+  // once invalidated: virtualized lists remount rows while scrolling, and list pages refresh
+  // their states with usePrefetchBookmarkStates, which costs one request per page.
+  const { data } = useQuery({
+    queryKey,
+    queryFn,
+    enabled: hostId > 0 && canBookmark,
+    refetchOnMount: (query) => query.state.isInvalidated,
+  });
   const hasLoadedState = data != null;
   const saved = data?.saved ?? false;
   const mutation = useMutation({

@@ -34,6 +34,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canReadEntity, type EntityResource } from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
+import { usePrefetchBookmarkStateRefs } from "../state/bookmarkStates";
 import { createBatchedLoader } from "../utils/batchRequests";
 import { getAudioDisplayTitle, getTextDisplayTitle } from "../utils/audioTextDisplay";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
@@ -244,6 +245,8 @@ export function useGroupFeedEntities(
       }),
     [hasPermission, items],
   );
+  // Cards mount as their items load, one by one; ask for every Save for Later state at once.
+  usePrefetchBookmarkStateRefs(queryItems.map(({ host }) => ({ hostType: host.hostType, hostId: host.id })));
   const queries = useQueries({
     queries: queryItems.map(({ item, host }) => createGroupFeedEntityQuery(item, host, principalKey)),
   });
