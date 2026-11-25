@@ -27,6 +27,7 @@ import {
   type MultiSelectToggleOptions,
 } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { formatDuration } from "../components/shared";
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
@@ -776,6 +777,10 @@ export function VideosPage({ onNavigate }: Props) {
     "video",
     items.map((item) => item.id),
   );
+  usePrefetchBookmarkStates(
+    "video",
+    items.map((item) => item.id),
+  );
   const wallColumns = useWallColumns(items, wallColumnCount, (video) => {
     const file = getVideoPrimaryFile(video);
     return file?.width && file.height ? file.height / file.width : 9 / 16;
@@ -1354,7 +1359,6 @@ function CompilationGroupCard({ group, onNavigate }: { group: Group; onNavigate:
           hostType="group"
           hostId={group.id}
           compact
-          deferUntilHover
           className="absolute left-1 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
         {group.frontImagePath ? (
@@ -1561,7 +1565,6 @@ function VideoFeedCard({
           hostType="video"
           hostId={video.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}
@@ -1916,7 +1919,6 @@ function VideoVerticalViewerCard({
             hostType="video"
             hostId={video.id}
             compact
-            deferUntilHover
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         )}

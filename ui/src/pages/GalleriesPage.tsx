@@ -7,6 +7,7 @@ import { RatingBanner } from "../components/Rating";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { FolderOpen, Images as ImagesIcon, Box, Film } from "lucide-react";
 import {
   GalleryTile,
@@ -97,6 +98,10 @@ export function GalleriesPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch(
+    "gallery",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "gallery",
     items.map((item) => item.id),
   );

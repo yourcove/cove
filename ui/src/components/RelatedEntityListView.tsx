@@ -35,6 +35,7 @@ import type {
   TextDocument,
 } from "../api/types";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import type { Route } from "../router/location";
 import { getAudioDisplayTitle, getTextDisplayTitle } from "../utils/audioTextDisplay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
@@ -215,6 +216,7 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
     [engagementHostType, items],
   );
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementIds);
+  usePrefetchBookmarkStates(engagementHostType, engagementIds);
   const loadingState = { infinitePageSize, hasNextPage, isFetchingNextPage, loadMore };
   const appConfig = useOptionalAppConfig();
   const feedVideoSource = appConfig?.config?.ui.feedVideoSource ?? "preview";

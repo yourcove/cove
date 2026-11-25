@@ -16,6 +16,7 @@ import { AudioTile } from "../components/EntityCards";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useMultiSelect } from "../hooks/useMultiSelect";
@@ -92,6 +93,10 @@ export function AudiosPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch(
+    "audio",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "audio",
     items.map((item) => item.id),
   );

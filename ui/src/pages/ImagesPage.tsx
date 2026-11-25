@@ -15,6 +15,7 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { RELEVANCE_SORT_VALUE } from "../utils/relevanceSort";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { usePrefetchBookmarkStates } from "../state/bookmarkStates";
 import { ImageIcon, FolderOpen, ThumbsUp, Eye, Heart } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ImageTile } from "../components/EntityCards";
@@ -259,6 +260,10 @@ export function ImagesPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const loading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch(
+    "image",
+    items.map((item) => item.id),
+  );
+  usePrefetchBookmarkStates(
     "image",
     items.map((item) => item.id),
   );
@@ -625,7 +630,6 @@ function ImageFeedCard({
           hostType="image"
           hostId={image.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}
@@ -792,7 +796,6 @@ function ImageWallCard({
           hostType="image"
           hostId={image.id}
           compact
-          deferUntilHover
           className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
         />
       )}

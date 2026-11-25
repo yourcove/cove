@@ -3,50 +3,44 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Loader2 } from "lucide-react";
 import { bookmarks } from "../api/client";
 import type { AffinityHostType } from "../api/types";
+import { bookmarkStateQueryOptions, useCanBookmark } from "../state/bookmarkStates";
 
 interface Props {
   hostType: AffinityHostType;
   hostId: number;
   className?: string;
   compact?: boolean;
-  deferUntilHover?: boolean;
-  initialSaved?: boolean;
 }
 
-export function BookmarkButton({
-  hostType,
-  hostId,
-  className = "",
-  compact = false,
-  deferUntilHover = false,
-  initialSaved,
-}: Props) {
-  const [activated, setActivated] = useState(!deferUntilHover);
+export function BookmarkButton({ hostType, hostId, className = "", compact = false }: Props) {
   const [resolvingClick, setResolvingClick] = useState(false);
   const queryClient = useQueryClient();
-  const queryKey = ["bookmark-state", hostType, hostId];
-  const fetchBookmarkState = () => bookmarks.batch({ hostType, hostIds: [hostId] });
+  const { queryKey, queryFn } = bookmarkStateQueryOptions(hostType, hostId);
+  const canBookmark = useCanBookmark();
+  // Cards that mount together share one batch request. A cached state is refetched on mount only
+  // once invalidated: virtualized lists remount rows while scrolling, and list pages refresh
+  // their states with usePrefetchBookmarkStates, which costs one request per page.
   const { data } = useQuery({
     queryKey,
-    queryFn: fetchBookmarkState,
-    enabled: hostId > 0 && activated,
-    initialData: initialSaved === undefined ? undefined : [{ hostType, hostId, saved: initialSaved }],
+    queryFn,
+    enabled: hostId > 0 && canBookmark,
+    refetchOnMount: (query) => query.state.isInvalidated,
   });
-  const hasLoadedState = data?.[0] != null;
-  const saved = data?.[0]?.saved ?? false;
+  const hasLoadedState = data != null;
+  const saved = data?.saved ?? false;
   const mutation = useMutation({
     mutationFn: (nextSaved: boolean) => bookmarks.toggle({ hostType, hostId, saved: nextSaved }),
     onMutate: async (nextSaved) => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData(queryKey);
-      queryClient.setQueryData(queryKey, [{ hostType, hostId, saved: nextSaved }]);
+      queryClient.setQueryData(queryKey, { hostType, hostId, saved: nextSaved });
       return { previous };
     },
     onError: (_error, _vars, context) => {
       queryClient.setQueryData(queryKey, context?.previous);
     },
     onSuccess: (state) => {
-      queryClient.setQueryData(queryKey, [state]);
+      queryClient.setQueryData(queryKey, state);
       // Save for Later is a dynamic group, so refresh every view that pages a group's items.
       queryClient.invalidateQueries({ queryKey: ["groups"] });
       queryClient.invalidateQueries({ queryKey: ["group-items"] });
@@ -66,20 +60,17 @@ export function BookmarkButton({
   return (
     <button
       type="button"
-      onMouseEnter={() => setActivated(true)}
-      onFocus={() => setActivated(true)}
       onClick={async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        setActivated(true);
         if (busy || hostId <= 0) return;
 
         let currentSaved = saved;
         if (!hasLoadedState) {
           setResolvingClick(true);
           try {
-            const state = await queryClient.fetchQuery({ queryKey, queryFn: fetchBookmarkState });
-            currentSaved = state?.[0]?.saved ?? false;
+            const state = await queryClient.fetchQuery({ queryKey, queryFn });
+            currentSaved = state.saved;
           } finally {
             setResolvingClick(false);
           }
