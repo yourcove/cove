@@ -226,7 +226,8 @@ public sealed class AiAnalysisFilterApiTests(
         facets.Models!.Single(model => model.Key == "clip_v2").Name.Should().Be("CLIP");
         (await owner.GetAiRunFacetsAsync(AiRunTargetType.Image, cancellationToken: ct)).Sources.Should().NotContain(item => item.SourceKey == source);
         (await owner.GetAiRunFacetsAsync(AiRunTargetType.Video, cancellationToken: ct)).Models.Should().BeNull();
-        await AsUser(ApiTestUsers.Eva).AssertResponseAsync("/api/ai-runs/facets?targetType=video", HttpStatusCode.Forbidden, ct);
+        using (var reader = await CreateVideoReaderWithoutAiRunsAsync(ct))
+            await reader.Client.AssertResponseAsync("/api/ai-runs/facets?targetType=video", HttpStatusCode.Forbidden, ct);
     }
 
     [Fact]
@@ -239,12 +240,26 @@ public sealed class AiAnalysisFilterApiTests(
             ObjectFilter = new VideoFilter { AiAnalysisCriterion = new AiAnalysisCriterion { States = [AiAnalysisState.NeverRun] } },
         };
 
-        // Members may read videos but not AI runs; "never run" would otherwise match their whole library.
-        (await AsUser(ApiTestUsers.Eva).SendStatusAsync(HttpMethod.Post, "/api/videos/find", request, ct)).Should().Be(HttpStatusCode.Forbidden);
+        // This caller reads videos but not AI runs; "never run" would otherwise match their whole library.
+        using (var reader = await CreateVideoReaderWithoutAiRunsAsync(ct))
+            (await reader.Client.SendStatusAsync(HttpMethod.Post, "/api/videos/find", request, ct)).Should().Be(HttpStatusCode.Forbidden);
         (await AsUser().SendStatusAsync(HttpMethod.Post, "/api/videos/find", new FilteredQueryRequest<VideoFilter>
         {
             ObjectFilter = new VideoFilter { AiAnalysisCriterion = new AiAnalysisCriterion { Analysis = "tags", States = [AiAnalysisState.Completed] } },
         }, ct)).Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    // The built-in Member and Viewer roles both grant airuns.read, so a caller without it needs a role of its own.
+    private async Task<CoveAuthSession> CreateVideoReaderWithoutAiRunsAsync(CancellationToken ct)
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var roleName = $"Video reader without AI runs {suffix}";
+        await owner.CreateRoleAsync(new CreateRoleRequest(roleName, "Reads videos but not AI runs.", [Permissions.VideosRead]), ct);
+        var username = $"video-reader-{suffix}";
+        const string password = "Video reader password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), ct);
+        return await owner.CreateAuthSessionAsync(username, password, ct);
     }
 
     [Fact]

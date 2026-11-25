@@ -34,7 +34,7 @@ Saved UI filter JSON uses the equivalent modifier `GREATER_THAN`. The relative e
 
 ## Ownership and defaults
 
-Saved filters are per-user. Legacy or authentication-disabled rows can be unowned, but a signed-in user's saved filters are not shared library collections. A saved filter may be selected as a preferred view, while remembered interface state and extension contributions can also affect what is displayed. The durable contract is the stored query, not a particular initial page size or sort.
+Saved filters are per-user. Legacy or authentication-disabled rows can be unowned, but a signed-in user's saved filters are not shared library collections. Creating and editing your own saved filters requires the saved filter write permission, and deleting them requires the saved filter delete permission. The built-in Member and Viewer roles grant both; no user can see or change another user's saved filters. A saved filter may be selected as a preferred view, while remembered interface state and extension contributions can also affect what is displayed. The durable contract is the stored query, not a particular initial page size or sort.
 
 ## Difference from groups
 

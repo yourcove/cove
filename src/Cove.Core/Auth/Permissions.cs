@@ -256,16 +256,21 @@ public static class Permissions
         ExtensionsRead,
         SystemRead,
         StreamRead,
+        EmbeddingsRead, AiRunsRead,
     ];
 
-    /// <summary>Default permission set for the Viewer role (read-only).</summary>
+    /// <summary>
+    /// Default permission set for the Viewer role: read-only on the library, plus managing the
+    /// viewer's own saved filters, which are per-user and change nothing anyone else sees.
+    /// </summary>
     public static readonly string[] ViewerDefaults =
     [
         VideosRead, AudiosRead, TextsRead, PerformersRead, TagsRead, StudiosRead,
         TagGroupsRead,
         GalleriesRead, ImagesRead, GroupsRead, SegmentsRead,
         FacesRead, EmbeddingsRead, AiRunsRead,
-        SavedFiltersRead, JobsRead, ExtensionsRead, SystemRead,
+        SavedFiltersRead, SavedFiltersWrite, SavedFiltersDelete,
+        JobsRead, ExtensionsRead, SystemRead,
         StreamRead,
     ];
 

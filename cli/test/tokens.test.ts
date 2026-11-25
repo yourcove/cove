@@ -99,9 +99,10 @@ describe("scope parsing", () => {
     expect(() => parseScope([" , "])).toThrow(/at least one permission or preset/);
   });
 
-  test("the viewer preset includes the server's Viewer role defaults plus file access", async () => {
-    // Read the server's list rather than trusting the comment, so adding a key there is a
-    // visible decision here. The CLI preset intentionally adds read-only file metadata access.
+  test("the viewer preset includes the read keys of the server's Viewer role defaults plus file access", async () => {
+    // Read the server's list rather than trusting the comment, so adding a read key there is a
+    // visible decision here. The preset stays read-only, so it leaves out the Viewer role's
+    // non-read keys (managing its own saved filters), and adds read-only file metadata access.
     const permissions = await Bun.file(join(import.meta.dir, "../../src/Cove.Core/Auth/Permissions.cs")).text();
     const block = /ViewerDefaults\s*=\s*\[(?<keys>[^\]]*)\]/s.exec(permissions)?.groups?.keys;
     expect(block).toBeString();
@@ -113,7 +114,8 @@ describe("scope parsing", () => {
     });
 
     expect(viewerDefaults.length).toBeGreaterThan(10);
-    expect([...SCOPE_PRESETS.viewer!].sort()).toEqual([...new Set([...viewerDefaults, "files.read"])].sort());
+    const viewerReadDefaults = viewerDefaults.filter(key => key.endsWith(".read"));
+    expect([...SCOPE_PRESETS.viewer!].sort()).toEqual([...new Set([...viewerReadDefaults, "files.read"])].sort());
     for (const key of SCOPE_PRESETS.viewer!) expect(key).toMatch(/\.read$/);
   });
 });

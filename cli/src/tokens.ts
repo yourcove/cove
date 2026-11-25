@@ -3,9 +3,12 @@ import type { CoveClient } from "./client";
 import type { MeResponse } from "./types";
 
 /**
- * Read-only scope preset. Includes Permissions.ViewerDefaults from
- * src/Cove.Core/Auth/Permissions.cs plus file metadata access, which is useful
- * to API clients without exposing file mutation operations.
+ * Read-only scope preset. Includes the read permissions of
+ * Permissions.ViewerDefaults from src/Cove.Core/Auth/Permissions.cs, plus file
+ * metadata access, which is useful to API clients without exposing file
+ * mutation operations. The Viewer role's own saved-filter write and delete
+ * keys stay out, so a token made from this preset changes no library data or
+ * saved filters.
  */
 const VIEWER_SCOPE = [
   "videos.read", "audios.read", "texts.read", "performers.read", "tags.read", "studios.read",

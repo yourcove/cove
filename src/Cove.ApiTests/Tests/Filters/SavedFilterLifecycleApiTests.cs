@@ -72,7 +72,7 @@ public sealed class SavedFilterLifecycleApiTests(
 
     [Fact]
     [CoversEndpoint("DELETE", "/api/savedfilters/{id:int}")]
-    public async Task GivenPerUserFiltersAndViewerDowngrade_WhenConflictsIsolationPermissionsAndDeleteRun_ThenExactOwnerStatePersists()
+    public async Task GivenPerUserFiltersAndAViewer_WhenConflictsIsolationAndDeleteRun_ThenEachUserManagesOnlyTheirOwn()
     {
         var owner = AsUser();
         var eva = AsUser(ApiTestUsers.Eva);
@@ -107,34 +107,30 @@ public sealed class SavedFilterLifecycleApiTests(
 
         var viewerUsername = $"filter-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Saved filter viewer 123!";
-        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
-        SavedFilterDto seeded;
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
-        {
-            seeded = await memberSession.Client.CreateSavedFilterAsync(new SavedFilterCreateDto(
-                "audios",
-                "Viewer-owned filter",
-                "{\"sort\":\"title\"}",
-                "{\"organized\":true}",
-                "{\"view\":\"table\"}"), TestContext.Current.CancellationToken);
-        }
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
         using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var viewer = viewerSession.Client;
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
 
-        var forbiddenCreate = () => viewer.CreateSavedFilterAsync(new SavedFilterCreateDto("audios", "Forbidden create", null, null, null));
-        await forbiddenCreate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
-        var forbiddenUpdate = () => viewer.UpdateSavedFilterAsync(seeded.Id, new SavedFilterUpdateDto("images", "Forbidden update", "{}", "{}", "{}"));
-        await forbiddenUpdate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
-        var forbiddenDelete = () => viewer.DeleteSavedFilterAsync(seeded.Id);
-        await forbiddenDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
+        // A viewer's saved filters are their own, so the read-only Viewer role still manages them.
+        var viewerFilter = await viewer.CreateSavedFilterAsync(new SavedFilterCreateDto(
+            "audios",
+            "Viewer-owned filter",
+            "{\"sort\":\"title\"}",
+            "{\"organized\":true}",
+            "{\"view\":\"table\"}"), TestContext.Current.CancellationToken);
+        AssertFilterEquivalent(viewerFilter, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
+        var viewerUpdated = await viewer.UpdateSavedFilterAsync(viewerFilter.Id, new SavedFilterUpdateDto(null, "Viewer-renamed filter", null, null, null), TestContext.Current.CancellationToken);
+        viewerUpdated.Name.Should().Be("Viewer-renamed filter");
+        AssertFilterEquivalent(viewerUpdated, await viewer.GetSavedFilterAsync(viewerFilter.Id, TestContext.Current.CancellationToken));
+
+        // ...but never anyone else's.
+        await AssertNotFoundAsync(() => viewer.GetSavedFilterAsync(anthonyFilter.Id));
+        await AssertNotFoundAsync(() => viewer.UpdateSavedFilterAsync(anthonyFilter.Id, new SavedFilterUpdateDto(null, "Hijacked", null, null, null)));
+        await AssertNotFoundAsync(() => viewer.DeleteSavedFilterAsync(anthonyFilter.Id));
+        AssertFilterEquivalent(anthonyFilter, await anthony.GetSavedFilterAsync(anthonyFilter.Id, TestContext.Current.CancellationToken));
+
+        await viewer.DeleteSavedFilterAsync(viewerFilter.Id, TestContext.Current.CancellationToken);
+        await AssertNotFoundAsync(() => viewer.GetSavedFilterAsync(viewerFilter.Id));
     }
 
     private static void AssertRandomSeedStripped(string? persisted, string input)
