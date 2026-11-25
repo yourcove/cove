@@ -426,6 +426,11 @@ try
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();
     builder.Services.AddSingleton<CustomFieldJsonIndexJobService>();
+    // Asset-level HNSW indexes over embeddings, built once a library has rows for them (the V1_0
+    // migration only creates them when embeddings already exist at migration time).
+    builder.Services.AddSingleton<EmbeddingAnnIndexReconciler>();
+    if (!isIntegrationStartupTest)
+        builder.Services.AddHostedService<EmbeddingAnnIndexMaintenanceService>();
     builder.Services.AddScoped<CustomFieldService>();
     builder.Services.AddSingleton<TextExtractionService>();
     builder.Services.AddScoped<AiDataPurgeService>();
