@@ -17,7 +17,7 @@ public sealed class GenerateJobService(
     NonVideoGenerationService nonVideoGenerationService,
     IServiceScopeFactory scopeFactory,
     CoveConfiguration config,
-    ILogger<GenerateJobService> logger)
+    ILogger<GenerateJobService> logger) : IGenerateService
 {
     private sealed record VideoWorkItem(
         Video Video,
