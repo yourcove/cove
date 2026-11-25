@@ -57,9 +57,9 @@ public sealed class MetadataExportTests
 
             guard.Enabled = true;
             var jobs = new CapturingJobService();
-            var controller = new MetadataController(null!, jobs, null!, null!,
+            var controller = new MetadataController(null!, jobs, null!, null!, null!,
                 provider.GetRequiredService<IServiceScopeFactory>(), null!,
-                new CoveConfiguration { GeneratedPath = directory }, new EventBus(),
+                new CoveConfiguration { GeneratedPath = directory },
                 NullLogger<MetadataController>.Instance);
             controller.StartExport(null);
             await jobs.Work!(new Progress(), TestContext.Current.CancellationToken);
@@ -105,9 +105,9 @@ public sealed class MetadataExportTests
         try
         {
             var jobs = new CapturingJobService();
-            var controller = new MetadataController(null!, jobs, null!, null!,
+            var controller = new MetadataController(null!, jobs, null!, null!, null!,
                 provider.GetRequiredService<IServiceScopeFactory>(), null!,
-                new CoveConfiguration { GeneratedPath = directory }, new EventBus(),
+                new CoveConfiguration { GeneratedPath = directory },
                 NullLogger<MetadataController>.Instance);
             controller.StartExport(new ExportOptionsDto
             {

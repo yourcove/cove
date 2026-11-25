@@ -65,7 +65,7 @@ public sealed class IdentifyJobTests
     [Fact]
     public void BuildIdentifySummary_ListsEachSourceErrorOnceAndCapsTheRest()
     {
-        var summary = MetadataController.BuildIdentifySummary(2, 1, 3, 6, 0, new Dictionary<string, List<string>>
+        var summary = IdentifyJobService.BuildIdentifySummary(2, 1, 3, 6, 0, new Dictionary<string, List<string>>
         {
             ["Box A"] = ["one", "two", "three", "four", "five"],
             ["Box B"] = ["boom"],
@@ -124,10 +124,10 @@ public sealed class IdentifyJobTests
         }
 
         var jobs = new CapturingJobService();
-        var controller = new MetadataController(null!, jobs, null!, null!,
-            provider.GetRequiredService<IServiceScopeFactory>(), null!, config, new EventBus(),
-            NullLogger<MetadataController>.Instance);
-        controller.StartIdentify(new IdentifyOptionsDto
+        var identify = new IdentifyJobService(
+            jobs, provider.GetRequiredService<IServiceScopeFactory>(), config, new EventBus(),
+            NullLogger<IdentifyJobService>.Instance);
+        identify.Start(new IdentifyOptionsDto
         {
             VideoIds = [videoId],
             Sources = sources,
